@@ -1,7 +1,7 @@
-import { Box, Drawer, IconButton, Tooltip, Stack } from '@mui/material'
+import { Box, Drawer, IconButton, Tooltip, Stack, Typography } from '@mui/material'
 import { alpha, useTheme } from '@mui/material/styles'
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
-import { HelpCircle } from 'lucide-react'
+import { HelpCircle, LogOut } from 'lucide-react'
 import type { ReactNode } from 'react'
 import NavItem from './NavItem'
 import NavGroup from './NavGroup'
@@ -14,6 +14,11 @@ export interface NavConfig {
   badge?: number | string
   children?: NavConfig[]
   roles?: string[]
+}
+
+export interface SidebarUser {
+  name: string
+  role: string
 }
 
 export interface SidebarProps {
@@ -29,6 +34,8 @@ export interface SidebarProps {
   appName?: string
   logoFullSrc?: string
   logoMarkSrc?: string
+  sidebarUser?: SidebarUser | null
+  onLogout?: () => void
 }
 
 const TOPBAR_HEIGHT = 52
@@ -108,6 +115,15 @@ function renderNavConfig(
   })
 }
 
+function getInitials(name: string): string {
+  return name
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map(w => w[0].toUpperCase())
+    .join('')
+}
+
 function SidebarContent({
   navConfig,
   collapsed,
@@ -115,7 +131,9 @@ function SidebarContent({
   currentPath = '',
   logoFullSrc = '/logo-full.png',
   logoMarkSrc = '/logo-mark.png',
-}: Pick<SidebarProps, 'navConfig' | 'collapsed' | 'onCollapse' | 'currentPath' | 'logoFullSrc' | 'logoMarkSrc'>) {
+  sidebarUser,
+  onLogout,
+}: Pick<SidebarProps, 'navConfig' | 'collapsed' | 'onCollapse' | 'currentPath' | 'logoFullSrc' | 'logoMarkSrc' | 'sidebarUser' | 'onLogout'>) {
   const theme = useTheme()
   const isDark = theme.palette.mode === 'dark'
 
@@ -239,7 +257,7 @@ function SidebarContent({
         {renderNavConfig(navConfig, collapsed, currentPath)}
       </Box>
 
-      {/* Bottom — Help & Docs */}
+      {/* Bottom — Help & Docs + User footer */}
       <Box
         sx={{
           flexShrink: 0,
@@ -253,6 +271,83 @@ function SidebarContent({
           href="/docs"
           collapsed={collapsed}
         />
+
+        {sidebarUser && (
+          <Box
+            sx={{
+              mt: '4px',
+              px: collapsed ? 0 : '8px',
+              py: '6px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1.5,
+              borderTop: `1px solid ${alpha(theme.palette.mode === 'light' ? '#000000' : '#ffffff', 0.06)}`,
+              justifyContent: collapsed ? 'center' : 'space-between',
+            }}
+          >
+            {/* Avatar */}
+            <Box
+              sx={{
+                width: 32,
+                height: 32,
+                borderRadius: '50%',
+                bgcolor: 'primary.main',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+              }}
+            >
+              <Typography
+                variant="caption"
+                sx={{ fontWeight: 700, color: 'white', fontSize: '11px' }}
+              >
+                {getInitials(sidebarUser.name)}
+              </Typography>
+            </Box>
+
+            {!collapsed && (
+              <>
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Typography
+                    variant="body2"
+                    sx={{ fontWeight: 500, lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                  >
+                    {sidebarUser.name}
+                  </Typography>
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}
+                  >
+                    {sidebarUser.role}
+                  </Typography>
+                </Box>
+
+                {onLogout && (
+                  <Tooltip title="Sign out" placement="top">
+                    <IconButton
+                      size="small"
+                      onClick={onLogout}
+                      sx={{
+                        width: 28,
+                        height: 28,
+                        flexShrink: 0,
+                        color: theme.palette.text.disabled,
+                        '&:hover': {
+                          color: theme.palette.error.main,
+                          background: alpha(theme.palette.error.main, 0.08),
+                        },
+                      }}
+                    >
+                      <LogOut size={16} strokeWidth={1.75} />
+                    </IconButton>
+                  </Tooltip>
+                )}
+              </>
+            )}
+          </Box>
+        )}
       </Box>
     </Box>
   )
@@ -267,6 +362,8 @@ export default function Sidebar({
   currentPath,
   logoFullSrc = '/logo-full.png',
   logoMarkSrc = '/logo-mark.png',
+  sidebarUser,
+  onLogout,
 }: SidebarProps) {
   return (
     <>
@@ -278,6 +375,8 @@ export default function Sidebar({
         currentPath={currentPath}
         logoFullSrc={logoFullSrc}
         logoMarkSrc={logoMarkSrc}
+        sidebarUser={sidebarUser}
+        onLogout={onLogout}
       />
 
       {/* Mobile temporary drawer */}
@@ -305,6 +404,8 @@ export default function Sidebar({
           currentPath={currentPath}
           logoFullSrc={logoFullSrc}
           logoMarkSrc={logoMarkSrc}
+          sidebarUser={sidebarUser}
+          onLogout={onLogout}
         />
       </Drawer>
     </>

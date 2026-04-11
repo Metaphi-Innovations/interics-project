@@ -1,4 +1,4 @@
-import { BrowserRouter, Navigate, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Navigate, Routes, Route, useNavigate, useLocation } from 'react-router-dom'
 import {
   AppShell,
   ToastProvider,
@@ -20,6 +20,9 @@ import {
   Settings2,
   Users,
 } from 'lucide-react'
+import { useAppDispatch, useAppSelector } from '@/store/hooks'
+import { logout } from '@/slices/auth/reducer'
+import type { JSX } from 'react'
 
 // Auth pages (no layout)
 import LoginPage from '@/pages/Auth/LoginPage'
@@ -152,39 +155,67 @@ const navConfig: NavConfig[] = [
   },
 ]
 
-const mockUser: UserMenuUser = {
-  name: 'Sarah Johnson',
-  email: 'sarah@example.com',
-  role: 'Admin',
+function ProtectedRoute({ children }: { children: JSX.Element }) {
+  const { user, token } = useAppSelector(s => s.auth)
+  const location = useLocation()
+
+  if (!user || !token) {
+    return <Navigate to="/login" state={{ from: location }} replace />
+  }
+  return children
 }
 
-export default function App() {
+function AppInner() {
+  const dispatch = useAppDispatch()
+  const navigate = useNavigate()
+  const { user } = useAppSelector(s => s.auth)
+
+  const topbarUser: UserMenuUser = user
+    ? { name: user.name, email: user.email, role: user.role }
+    : { name: 'Guest', email: '', role: '' }
+
+  const sidebarUser = user ? { name: user.name, role: user.role } : null
+
+  function handleLogout() {
+    dispatch(logout())
+    navigate('/login', { replace: true })
+  }
+
   return (
-    <BrowserRouter>
-      <Routes>
-        {/* Auth routes — no layout */}
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+    <Routes>
+      {/* Public routes — no layout */}
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
 
-        {/* Demo routes — no layout */}
-        <Route path="/demo/create-project" element={<FullPageFormDemo />} />
+      {/* Demo routes — no layout */}
+      <Route path="/demo/create-project" element={<FullPageFormDemo />} />
 
-        {/* Project wizard — no AppShell layout */}
-        <Route path="/projects/create" element={<CreateProjectPage />} />
+      {/* Project wizard — no AppShell layout */}
+      <Route
+        path="/projects/create"
+        element={
+          <ProtectedRoute>
+            <CreateProjectPage />
+          </ProtectedRoute>
+        }
+      />
 
-        {/* App routes — with AppShell layout */}
-        <Route
-          path="/*"
-          element={
+      {/* App routes — with AppShell layout, all protected */}
+      <Route
+        path="/*"
+        element={
+          <ProtectedRoute>
             <ToastProvider>
               <AppShell
                 navConfig={navConfig}
-                user={mockUser}
+                user={topbarUser}
                 appName="IDC Project Accounts"
                 logoMark="DC"
-                onSignOut={() => console.log('sign out')}
-                onProfileClick={() => console.log('profile')}
-                onSettingsClick={() => console.log('settings')}
+                onSignOut={handleLogout}
+                onProfileClick={() => {}}
+                onSettingsClick={() => navigate('/settings')}
+                sidebarUser={sidebarUser}
+                onLogout={handleLogout}
               >
                 <Routes>
                   <Route path="/dashboard" element={<DashboardPage />} />
@@ -208,9 +239,17 @@ export default function App() {
                 </Routes>
               </AppShell>
             </ToastProvider>
-          }
-        />
-      </Routes>
+          </ProtectedRoute>
+        }
+      />
+    </Routes>
+  )
+}
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <AppInner />
     </BrowserRouter>
   )
 }

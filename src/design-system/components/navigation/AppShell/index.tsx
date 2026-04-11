@@ -6,7 +6,7 @@ import type { ReactNode } from 'react'
 import { useLocation } from 'react-router-dom'
 import Topbar, { TOPBAR_HEIGHT } from '../Topbar'
 import Sidebar from '../Sidebar'
-import type { NavConfig } from '../Sidebar'
+import type { NavConfig, SidebarUser } from '../Sidebar'
 import type { UserMenuUser } from '../Topbar/UserMenu'
 import CommandPalette from '../CommandPalette'
 import type { SearchResults } from '../CommandPalette'
@@ -32,6 +32,8 @@ export interface AppShellProps {
   onProfileClick?: () => void
   onSettingsClick?: () => void
   onSearch?: (query: string) => Promise<SearchResults>
+  sidebarUser?: SidebarUser | null
+  onLogout?: () => void
 }
 
 function defaultSearch(): Promise<SearchResults> {
@@ -54,6 +56,8 @@ export default function AppShell({
   onProfileClick,
   onSettingsClick,
   onSearch = defaultSearch,
+  sidebarUser,
+  onLogout,
 }: AppShellProps) {
   const theme = useTheme()
   const location = useLocation()
@@ -132,6 +136,8 @@ export default function AppShell({
             appName={appName}
             logoFullSrc={logoFullSrc}
             logoMarkSrc={logoMarkSrc}
+            sidebarUser={sidebarUser}
+            onLogout={onLogout}
           />
         </Box>
       )}
@@ -171,6 +177,8 @@ export default function AppShell({
             appName={appName}
             logoFullSrc={logoFullSrc}
             logoMarkSrc={logoMarkSrc}
+            sidebarUser={sidebarUser}
+            onLogout={onLogout}
           />
         </MuiDrawer>
       )}

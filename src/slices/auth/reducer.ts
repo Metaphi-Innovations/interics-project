@@ -2,7 +2,7 @@ import { createSlice } from '@reduxjs/toolkit'
 import type { PayloadAction } from '@reduxjs/toolkit'
 import { loginThunk, logoutThunk, fetchMeThunk } from './thunk'
 
-interface AuthUser {
+export interface AuthUser {
   id: string
   name: string
   email: string
@@ -43,6 +43,13 @@ const authSlice = createSlice({
       state.loading = false
       state.error = null
     },
+    logout(state) {
+      state.user = null
+      state.token = null
+      state.error = null
+      localStorage.removeItem('auth_token')
+      localStorage.removeItem('ids_user')
+    },
   },
   extraReducers: (builder) => {
     builder
@@ -54,6 +61,7 @@ const authSlice = createSlice({
         state.loading = false
         state.user = action.payload.user
         state.token = action.payload.token
+        localStorage.setItem('ids_user', JSON.stringify(action.payload.user))
       })
       .addCase(loginThunk.rejected, (state, action) => {
         state.loading = false
@@ -62,6 +70,7 @@ const authSlice = createSlice({
       .addCase(logoutThunk.fulfilled, (state) => {
         state.user = null
         state.token = null
+        localStorage.removeItem('ids_user')
       })
       .addCase(fetchMeThunk.fulfilled, (state, action) => {
         state.user = action.payload
@@ -69,9 +78,10 @@ const authSlice = createSlice({
       .addCase(fetchMeThunk.rejected, (state) => {
         state.user = null
         state.token = null
+        localStorage.removeItem('ids_user')
       })
   },
 })
 
-export const { setUser, setToken, clearAuth, reset } = authSlice.actions
+export const { setUser, setToken, clearAuth, reset, logout } = authSlice.actions
 export default authSlice.reducer
