@@ -35,14 +35,14 @@ export default function NavGroup({
           <Typography
             sx={{
               display: 'block',
-              fontSize: '10.5px',
-              fontWeight: 500,
-              letterSpacing: '0.06em',
+              fontSize: '10px',
+              fontWeight: 700,
+              letterSpacing: '1px',
               textTransform: 'uppercase',
-              color: alpha(theme.palette.text.primary, 0.35),
-              px: '16px',
-              pt: '20px',
-              pb: '2px',
+              color: tokens.color.neutral[400],
+              px: '12px',
+              mt: '16px',
+              mb: '4px',
             }}
           >
             {label}
@@ -71,7 +71,7 @@ export default function NavGroup({
               justifyContent: 'center',
               width: 32,
               height: 32,
-              borderRadius: tokens.borderRadius.md,
+              borderRadius: '6px',
               cursor: 'pointer',
               color: 'text.secondary',
               mx: '8px',
@@ -101,7 +101,7 @@ export default function NavGroup({
               ml: 1,
               py: 0.5,
               minWidth: 180,
-              borderRadius: tokens.borderRadius.md,
+              borderRadius: '6px',
               border: '1px solid',
               borderColor: 'divider',
             }}
@@ -112,11 +112,11 @@ export default function NavGroup({
                 px: 2,
                 pt: 0.5,
                 pb: 0.25,
-                fontSize: '10.5px',
-                fontWeight: 500,
-                letterSpacing: '0.06em',
+                fontSize: '10px',
+                fontWeight: 600,
+                letterSpacing: '0.8px',
                 textTransform: 'uppercase',
-                color: alpha(theme.palette.text.primary, 0.35),
+                color: tokens.color.neutral[400],
               }}
             >
               {label}
@@ -139,10 +139,10 @@ export default function NavGroup({
           gap: '8px',
           px: '10px',
           mx: '8px',
-          height: '32px',
-          borderRadius: tokens.borderRadius.md,
+          height: '34px',
+          borderRadius: '6px',
           cursor: 'pointer',
-          color: 'text.secondary',
+          color: tokens.color.neutral[600],
           my: '1px',
           transition: 'background-color 150ms ease',
           '&:hover': {
@@ -158,7 +158,7 @@ export default function NavGroup({
         <Typography
           sx={{
             fontSize: '13px',
-            fontWeight: 450,
+            fontWeight: 400,
             lineHeight: 1,
             flex: 1,
             whiteSpace: 'nowrap',

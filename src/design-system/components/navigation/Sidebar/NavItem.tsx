@@ -1,5 +1,5 @@
 import { Box, Typography, Tooltip } from '@mui/material'
-import { alpha, useTheme } from '@mui/material/styles'
+import { useTheme, alpha } from '@mui/material/styles'
 import { Link } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { tokens } from '../../../tokens'
@@ -30,9 +30,9 @@ export default function NavItem({
   const theme = useTheme()
   const isSubItem = depth >= 1
 
-  const height = isSubItem ? '28px' : '32px'
-  const fontSize = isSubItem ? '12.5px' : '13px'
-  const fontWeight = active ? 600 : isSubItem ? 400 : 450
+  const height = isSubItem ? '28px' : '34px'
+  const fontSize = isSubItem ? '12px' : '13px'
+  const fontWeight = active ? 600 : 500
 
   const rootSx = {
     display: 'flex',
@@ -41,23 +41,23 @@ export default function NavItem({
     px: '10px',
     mx: '8px',
     height,
-    borderRadius: tokens.borderRadius.md,
+    borderRadius: '8px',
     cursor: disabled ? 'default' : 'pointer',
     opacity: disabled ? 0.4 : 1,
     textDecoration: 'none',
     color: active
-      ? theme.palette.primary.main
-      : theme.palette.text.secondary,
-    bgcolor: active ? alpha(theme.palette.primary.main, 0.08) : 'transparent',
-    fontWeight: active ? 600 : (isSubItem ? 400 : 450),
+      ? '#ffffff'
+      : theme.palette.mode === 'light' ? tokens.color.neutral[600] : tokens.color.neutral[400],
+    bgcolor: active ? theme.palette.primary.main : 'transparent',
+    fontWeight,
     transition: 'background-color 150ms ease, color 150ms ease',
     my: '1px',
     userSelect: 'none' as const,
     '&:hover': disabled ? {} : {
       bgcolor: active
-        ? alpha(theme.palette.primary.main, 0.12)
-        : alpha(theme.palette.mode === 'light' ? '#000000' : '#ffffff', 0.04),
-      color: active ? theme.palette.primary.main : theme.palette.text.primary,
+        ? theme.palette.primary.dark
+        : theme.palette.mode === 'light' ? alpha(theme.palette.primary.main, 0.08) : 'rgba(255,255,255,0.06)',
+      color: active ? '#ffffff' : theme.palette.mode === 'light' ? theme.palette.primary.main : theme.palette.text.primary,
     },
     width: '100%',
     minWidth: 0,
@@ -107,8 +107,8 @@ export default function NavItem({
         borderRadius: '8px',
         px: '4px',
         lineHeight: '16px',
-        bgcolor: alpha(theme.palette.primary.main, 0.1),
-        color: theme.palette.primary.main,
+        bgcolor: active ? 'rgba(255,255,255,0.2)' : `${theme.palette.primary.main}1a`,
+        color: active ? '#ffffff' : theme.palette.primary.main,
         ml: 'auto',
         flexShrink: 0,
         display: 'flex',

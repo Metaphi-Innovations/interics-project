@@ -51,7 +51,7 @@ export default function TableToolbar({
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
       {/* Main toolbar row */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minHeight: 48 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, height: 48 }}>
         {/* Bulk mode */}
         <Fade in={selectedCount > 0} unmountOnExit>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1 }}>
@@ -82,7 +82,7 @@ export default function TableToolbar({
                 alignItems: 'center',
                 flex: 1,
                 maxWidth: { xs: '100%', md: 360 },
-                height: 36,
+                height: 32,
                 border: '1px solid',
                 borderColor: 'divider',
                 borderRadius: 1,
@@ -91,12 +91,12 @@ export default function TableToolbar({
                 '&:focus-within': { borderColor: 'primary.main' },
               }}
             >
-              <SearchIcon sx={{ fontSize: 18, color: 'text.disabled', mr: 0.75 }} />
+              <SearchIcon sx={{ fontSize: 16, color: 'text.disabled', mr: 0.75 }} />
               <InputBase
                 value={searchValue}
                 onChange={(e) => onSearch(e.target.value)}
                 placeholder="Search..."
-                sx={{ flex: 1, fontSize: 14, '& input': { p: 0 } }}
+                sx={{ flex: 1, fontSize: 12, '& input': { p: 0 } }}
               />
               {searchValue && (
                 <IconButton size="small" sx={{ p: 0.25 }} onClick={() => onSearch('')}>

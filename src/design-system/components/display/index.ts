@@ -24,3 +24,6 @@ export type { NotificationBellProps } from './NotificationBell'
 
 export { default as ActivityFeed } from './ActivityFeed'
 export type { ActivityFeedProps } from './ActivityFeed'
+
+export { default as StatusBadge } from './StatusBadge'
+export type { StatusBadgeProps, StatusType } from './StatusBadge'

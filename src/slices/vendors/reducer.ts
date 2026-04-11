@@ -1,0 +1,156 @@
+import { createSlice } from '@reduxjs/toolkit'
+import type { PayloadAction } from '@reduxjs/toolkit'
+import {
+  fetchVendors,
+  fetchVendorById,
+  createVendor,
+  updateVendor,
+  deleteVendor,
+} from './thunk'
+
+export interface Vendor {
+  id: string
+  name: string
+  type: 'Measurable' | 'Non-measurable'
+  gstin: string | null
+  pan: string | null
+  gstStatus: 'Registered' | 'Unregistered'
+  contactPerson: string
+  designation?: string | null
+  phone: string
+  email: string
+  city: string
+  state: string
+  address: string | null
+  pincode?: string | null
+  tags: string[]
+  paymentTerms?: string | null
+  notes: string | null
+  status: 'Active' | 'Inactive'
+  activeProjects: number
+  totalPayables: number
+  createdAt: string
+}
+
+interface Pagination {
+  page: number
+  pageSize: number
+  total: number
+}
+
+interface Filters {
+  search: string
+  status: string
+  type: string
+  gstStatus: string
+  state: string
+}
+
+interface SortConfig {
+  field: string | null
+  direction: 'asc' | 'desc'
+}
+
+interface VendorsState {
+  items: Vendor[]
+  selectedItem: Vendor | null
+  loading: boolean
+  saving: boolean
+  error: string | null
+  pagination: Pagination
+  filters: Filters
+  sortConfig: SortConfig
+}
+
+const initialState: VendorsState = {
+  items: [],
+  selectedItem: null,
+  loading: false,
+  saving: false,
+  error: null,
+  pagination: { page: 1, pageSize: 10, total: 0 },
+  filters: { search: '', status: '', type: '', gstStatus: '', state: '' },
+  sortConfig: { field: null, direction: 'asc' },
+}
+
+const vendorsSlice = createSlice({
+  name: 'vendors',
+  initialState,
+  reducers: {
+    setFilters(state, action: PayloadAction<Partial<Filters>>) {
+      state.filters = { ...state.filters, ...action.payload }
+    },
+    resetFilters(state) {
+      state.filters = { search: state.filters.search, status: state.filters.status, type: '', gstStatus: '', state: '' }
+    },
+    setPage(state, action: PayloadAction<number>) {
+      state.pagination.page = action.payload
+    },
+    setSortConfig(state, action: PayloadAction<SortConfig>) {
+      state.sortConfig = action.payload
+    },
+    clearSelected(state) {
+      state.selectedItem = null
+    },
+    reset() {
+      return initialState
+    },
+  },
+  extraReducers: (builder) => {
+    builder
+      .addCase(fetchVendors.pending, (state) => {
+        state.loading = true
+        state.error = null
+      })
+      .addCase(fetchVendors.fulfilled, (state, action) => {
+        state.loading = false
+        state.items = action.payload.items
+        state.pagination.total = action.payload.total
+      })
+      .addCase(fetchVendors.rejected, (state, action) => {
+        state.loading = false
+        state.error = action.payload as string
+      })
+      .addCase(fetchVendorById.fulfilled, (state, action) => {
+        state.selectedItem = action.payload
+      })
+      .addCase(createVendor.pending, (state) => {
+        state.saving = true
+      })
+      .addCase(createVendor.fulfilled, (state, action) => {
+        state.saving = false
+        state.items.unshift(action.payload)
+        state.pagination.total += 1
+      })
+      .addCase(createVendor.rejected, (state, action) => {
+        state.saving = false
+        state.error = action.payload as string
+      })
+      .addCase(updateVendor.pending, (state) => {
+        state.saving = true
+      })
+      .addCase(updateVendor.fulfilled, (state, action) => {
+        state.saving = false
+        const idx = state.items.findIndex((v) => v.id === action.payload.id)
+        if (idx !== -1) state.items[idx] = action.payload
+        if (state.selectedItem?.id === action.payload.id) {
+          state.selectedItem = action.payload
+        }
+      })
+      .addCase(updateVendor.rejected, (state, action) => {
+        state.saving = false
+        state.error = action.payload as string
+      })
+      .addCase(deleteVendor.fulfilled, (state, action) => {
+        state.items = state.items.filter((v) => v.id !== action.payload)
+        state.pagination.total -= 1
+      })
+      .addCase(deleteVendor.rejected, (state, action) => {
+        state.error = action.payload as string
+      })
+  },
+})
+
+export const { setFilters, resetFilters, setPage, setSortConfig, clearSelected, reset } =
+  vendorsSlice.actions
+export default vendorsSlice.reducer

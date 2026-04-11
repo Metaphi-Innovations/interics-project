@@ -1,9 +1,8 @@
-import { Box, Drawer, IconButton, Tooltip, Typography, Stack } from '@mui/material'
+import { Box, Drawer, IconButton, Tooltip, Stack } from '@mui/material'
 import { alpha, useTheme } from '@mui/material/styles'
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
 import { HelpCircle } from 'lucide-react'
 import type { ReactNode } from 'react'
-import { tokens } from '../../../tokens'
 import NavItem from './NavItem'
 import NavGroup from './NavGroup'
 
@@ -28,6 +27,8 @@ export interface SidebarProps {
   onMobileClose?: () => void
   logoMark?: string
   appName?: string
+  logoFullSrc?: string
+  logoMarkSrc?: string
 }
 
 const TOPBAR_HEIGHT = 52
@@ -70,7 +71,7 @@ function renderNavConfig(
                     key={j}
                     label={child.label ?? ''}
                     href={child.href}
-                    active={!!child.href && currentPath === child.href}
+                    active={!!child.href && (currentPath === child.href || currentPath.startsWith(child.href + '/'))}
                     badge={child.badge}
                     depth={collapsed ? 0 : 1}
                     collapsed={collapsed}
@@ -96,7 +97,7 @@ function renderNavConfig(
           label={item.label ?? ''}
           icon={item.icon}
           href={item.href}
-          active={!!item.href && currentPath === item.href}
+          active={!!item.href && (currentPath === item.href || currentPath.startsWith(item.href + '/'))}
           badge={item.badge}
           collapsed={collapsed}
         />
@@ -112,10 +113,11 @@ function SidebarContent({
   collapsed,
   onCollapse,
   currentPath = '',
-  logoMark = 'F',
-  appName = 'Foundation',
-}: Pick<SidebarProps, 'navConfig' | 'collapsed' | 'onCollapse' | 'currentPath' | 'logoMark' | 'appName'>) {
+  logoFullSrc = '/logo-full.png',
+  logoMarkSrc = '/logo-mark.png',
+}: Pick<SidebarProps, 'navConfig' | 'collapsed' | 'onCollapse' | 'currentPath' | 'logoFullSrc' | 'logoMarkSrc'>) {
   const theme = useTheme()
+  const isDark = theme.palette.mode === 'dark'
 
   return (
     <Box
@@ -125,7 +127,7 @@ function SidebarContent({
         display: 'flex',
         flexDirection: 'column',
         bgcolor: 'background.paper',
-        borderRight: `1px solid ${alpha(theme.palette.mode === 'light' ? '#000000' : '#ffffff', 0.06)}`,
+        borderRight: `1px solid ${alpha(isDark ? '#ffffff' : '#000000', 0.06)}`,
         boxShadow: 'none',
         overflow: 'hidden',
       }}
@@ -140,50 +142,26 @@ function SidebarContent({
             justifyContent: 'space-between',
             px: '12px',
             flexShrink: 0,
-            borderBottom: `1px solid ${alpha(theme.palette.mode === 'light' ? '#000000' : '#ffffff', 0.06)}`,
+            borderBottom: `1px solid ${alpha(isDark ? '#ffffff' : '#000000', 0.06)}`,
             overflow: 'hidden',
             gap: 1.5,
           }}
         >
           <Stack direction="row" alignItems="center" gap={1.5} sx={{ minWidth: 0, flex: 1 }}>
-            {/* Logo mark */}
             <Box
+              component="img"
+              src={logoFullSrc}
+              alt="Logo"
               sx={{
-                width: 28,
                 height: 28,
-                borderRadius: tokens.borderRadius.md,
-                background: `linear-gradient(135deg, ${theme.palette.primary.main}, ${theme.palette.primary.dark})`,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
+                width: 'auto',
+                maxWidth: 160,
+                objectFit: 'contain',
+                objectPosition: 'left center',
+                filter: isDark ? 'brightness(0) invert(1)' : 'none',
                 flexShrink: 0,
               }}
-            >
-              <Typography
-                sx={{
-                  color: '#fff',
-                  fontSize: '12px',
-                  fontWeight: 700,
-                  lineHeight: 1,
-                }}
-              >
-                {logoMark}
-              </Typography>
-            </Box>
-
-            {/* App name */}
-            <Typography
-              sx={{
-                fontSize: '14px',
-                fontWeight: 700,
-                color: theme.palette.text.primary,
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-              }}
-            >
-              {appName}
-            </Typography>
+            />
           </Stack>
 
           {/* Collapse button */}
@@ -197,7 +175,7 @@ function SidebarContent({
               flexShrink: 0,
               '&:hover': {
                 color: theme.palette.text.secondary,
-                background: alpha(theme.palette.mode === 'light' ? '#000000' : '#ffffff', 0.04),
+                background: alpha(isDark ? '#ffffff' : '#000000', 0.04),
               },
             }}
           >
@@ -214,36 +192,25 @@ function SidebarContent({
               alignItems: 'center',
               justifyContent: 'center',
               flexShrink: 0,
-              borderBottom: `1px solid ${alpha(theme.palette.mode === 'light' ? '#000000' : '#ffffff', 0.06)}`,
+              borderBottom: `1px solid ${alpha(isDark ? '#ffffff' : '#000000', 0.06)}`,
               cursor: 'pointer',
               transition: 'background-color 150ms ease',
               '&:hover': {
-                background: alpha(theme.palette.mode === 'light' ? '#000000' : '#ffffff', 0.04),
+                background: alpha(isDark ? '#ffffff' : '#000000', 0.04),
               },
             }}
           >
             <Box
+              component="img"
+              src={logoMarkSrc}
+              alt="Logo"
               sx={{
-                width: 28,
-                height: 28,
-                borderRadius: tokens.borderRadius.md,
-                background: `linear-gradient(135deg, ${theme.palette.primary.main}, ${theme.palette.primary.dark})`,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
+                width: 32,
+                height: 32,
+                objectFit: 'contain',
+                filter: isDark ? 'brightness(0) invert(1)' : 'none',
               }}
-            >
-              <Typography
-                sx={{
-                  color: '#fff',
-                  fontSize: '12px',
-                  fontWeight: 700,
-                  lineHeight: 1,
-                }}
-              >
-                {logoMark}
-              </Typography>
-            </Box>
+            />
           </Box>
         </Tooltip>
       )}
@@ -298,8 +265,8 @@ export default function Sidebar({
   navConfig,
   onCollapse,
   currentPath,
-  logoMark = 'F',
-  appName = 'Foundation',
+  logoFullSrc = '/logo-full.png',
+  logoMarkSrc = '/logo-mark.png',
 }: SidebarProps) {
   return (
     <>
@@ -309,8 +276,8 @@ export default function Sidebar({
         collapsed={collapsed}
         onCollapse={onCollapse}
         currentPath={currentPath}
-        logoMark={logoMark}
-        appName={appName}
+        logoFullSrc={logoFullSrc}
+        logoMarkSrc={logoMarkSrc}
       />
 
       {/* Mobile temporary drawer */}
@@ -323,7 +290,7 @@ export default function Sidebar({
         sx={{
           display: { xs: 'block', md: 'none' },
           '& .MuiDrawer-paper': {
-            width: 240,
+            width: 220,
             top: 0,
             height: '100%',
             border: 'none',
@@ -336,8 +303,8 @@ export default function Sidebar({
           collapsed={false}
           onCollapse={onCollapse}
           currentPath={currentPath}
-          logoMark={logoMark}
-          appName={appName}
+          logoFullSrc={logoFullSrc}
+          logoMarkSrc={logoMarkSrc}
         />
       </Drawer>
     </>

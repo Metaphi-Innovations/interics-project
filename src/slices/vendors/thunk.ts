@@ -1,0 +1,88 @@
+import { createAsyncThunk } from '@reduxjs/toolkit'
+import { vendorsApi } from '../../api/vendorsApi'
+import type { Vendor } from './reducer'
+
+interface FetchVendorsParams {
+  page?: number
+  pageSize?: number
+  search?: string
+  status?: string
+  type?: string
+  gstStatus?: string
+  state?: string
+}
+
+export const fetchVendors = createAsyncThunk(
+  'vendors/fetchAll',
+  async (params: FetchVendorsParams = {}, { rejectWithValue }) => {
+    try {
+      const response = await vendorsApi.getAll(
+        params as Record<string, unknown>
+      )
+      return response.data as { items: Vendor[]; total: number }
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { message?: string } } }
+      return rejectWithValue(error.response?.data?.message ?? 'Failed to fetch vendors')
+    }
+  }
+)
+
+export const fetchVendorById = createAsyncThunk(
+  'vendors/fetchById',
+  async (id: string, { rejectWithValue }) => {
+    try {
+      const response = await vendorsApi.getById(id)
+      return response.data as Vendor
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { message?: string } } }
+      return rejectWithValue(error.response?.data?.message ?? 'Failed to fetch vendor')
+    }
+  }
+)
+
+export const createVendor = createAsyncThunk(
+  'vendors/create',
+  async (data: Omit<Vendor, 'id' | 'createdAt'>, { rejectWithValue }) => {
+    try {
+      const response = await vendorsApi.create(
+        data as unknown as Record<string, unknown>
+      )
+      return response.data as Vendor
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { message?: string } } }
+      return rejectWithValue(error.response?.data?.message ?? 'Failed to create vendor')
+    }
+  }
+)
+
+export const updateVendor = createAsyncThunk(
+  'vendors/update',
+  async (
+    { id, data }: { id: string; data: Partial<Vendor> },
+    { rejectWithValue }
+  ) => {
+    try {
+      const response = await vendorsApi.update(
+        id,
+        data as Record<string, unknown>
+      )
+      return response.data as Vendor
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { message?: string } } }
+      return rejectWithValue(error.response?.data?.message ?? 'Failed to update vendor')
+    }
+  }
+)
+
+export const deleteVendor = createAsyncThunk(
+  'vendors/delete',
+  async (id: string, { rejectWithValue }) => {
+    try {
+      await vendorsApi.delete(id)
+      return id
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { message?: string } } }
+      return rejectWithValue(error.response?.data?.message ?? 'Failed to delete vendor')
+    }
+  }
+)

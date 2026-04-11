@@ -35,7 +35,7 @@ export default function Pagination({
   total,
   onPage,
   onPageSize,
-  pageSizeOptions = [10, 25, 50, 100],
+  pageSizeOptions = [10, 25, 50],
   loading = false,
 }: PaginationProps) {
   const theme = useTheme()
@@ -98,7 +98,7 @@ export default function Pagination({
               size="small"
               variant="outlined"
               disabled={loading}
-              sx={{ fontSize: 13, '& .MuiSelect-select': { py: 0.5, pr: 3 } }}
+              sx={{ fontSize: 12, '& .MuiSelect-select': { py: 0.5, pr: 3 } }}
             >
               {pageSizeOptions.map((s) => (
                 <MenuItem key={s} value={s}>{s}</MenuItem>
@@ -131,7 +131,7 @@ export default function Pagination({
                     minWidth: 32,
                     px: 0.5,
                     py: 0.25,
-                    fontSize: 13,
+                    fontSize: 12,
                     lineHeight: 1.5,
                     color: p === page + 1 ? undefined : 'text.secondary',
                   }}

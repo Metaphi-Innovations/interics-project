@@ -1,0 +1,798 @@
+import { useState, useEffect } from 'react'
+import {
+  Box,
+  Card,
+  Grid,
+  Stack,
+  Typography,
+  Tab,
+  Tabs,
+  InputBase,
+  Button,
+  Badge,
+  IconButton,
+  Divider,
+  useMediaQuery,
+  Popover,
+  Select,
+  MenuItem,
+  FormControl,
+  Checkbox,
+  TextField,
+} from '@mui/material'
+import type { ReactNode } from 'react'
+import FilterListIcon from '@mui/icons-material/FilterList'
+import GridViewIcon from '@mui/icons-material/GridView'
+import ViewListIcon from '@mui/icons-material/ViewList'
+import ViewColumnIcon from '@mui/icons-material/ViewColumn'
+import SearchIcon from '@mui/icons-material/Search'
+import CloseIcon from '@mui/icons-material/Close'
+import DownloadIcon from '@mui/icons-material/Download'
+import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
+import ChevronRightIcon from '@mui/icons-material/ChevronRight'
+import { useTheme, alpha } from '@mui/material/styles'
+import { tokens } from '@/design-system/tokens'
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+export interface StatCardItem {
+  label: string
+  value: string | number
+  color?: 'default' | 'success' | 'warning' | 'error' | 'info'
+  icon?: ReactNode
+}
+
+export interface TabItem {
+  label: string
+  value: string
+  count?: number
+}
+
+export interface PrimaryAction {
+  label: string
+  onClick: () => void
+  startIcon?: ReactNode
+}
+
+export interface SecondaryAction {
+  label: string
+  onClick: () => void
+  startIcon?: ReactNode
+}
+
+export interface ColumnItem {
+  field: string
+  label: string
+  visible: boolean
+}
+
+export interface FilterField {
+  field: string
+  label: string
+  type: 'select' | 'multiselect' | 'text' | 'daterange'
+  options?: { label: string; value: string }[]
+  icon?: ReactNode
+}
+
+export interface ListingTemplateProps {
+  // Header
+  icon?: ReactNode
+  title: string
+  subtitle?: string
+  primaryAction?: PrimaryAction
+  secondaryActions?: SecondaryAction[]
+
+  // Stat cards
+  statCards?: StatCardItem[]
+
+  // Tabs
+  tabs?: TabItem[]
+  activeTab?: string
+  onTabChange?: (value: string) => void
+
+  // Toolbar — search
+  searchPlaceholder?: string
+  searchValue?: string
+  onSearchChange?: (value: string) => void
+
+  // Toolbar — filters
+  filterConfig?: FilterField[]
+  activeFilters?: Record<string, unknown>
+  onFilterChange?: (filters: Record<string, unknown>) => void
+  onFilterReset?: () => void
+  /** Legacy: called when no filterConfig is provided */
+  onFilterClick?: () => void
+  filterCount?: number
+
+  // Toolbar — sort (state owned by parent, passed through)
+  sortField?: string
+  sortDirection?: 'asc' | 'desc'
+  onSortChange?: (field: string, direction: 'asc' | 'desc') => void
+
+  // Toolbar — column visibility
+  columns?: ColumnItem[]
+  onColumnVisibilityChange?: (field: string, visible: boolean) => void
+
+  // Toolbar — view toggle
+  showViewToggle?: boolean
+  onViewModeChange?: (mode: 'grid' | 'list') => void
+
+  // Toolbar — export
+  showExport?: boolean
+  onExport?: () => void
+
+  // Pagination
+  pageSize?: number
+  onPageSizeChange?: (size: number) => void
+  page?: number
+  totalCount?: number
+  onPageChange?: (page: number) => void
+
+  // Content
+  children: ReactNode
+}
+
+// ─── Internal StatCard ────────────────────────────────────────────────────────
+
+function StatCard({ item }: { item: StatCardItem }) {
+  const theme = useTheme()
+
+  const color = item.color ?? 'default'
+
+  const bgMap: Record<NonNullable<StatCardItem['color']>, string> = {
+    default: '#FFFFFF',
+    success: '#F0FDF4',
+    warning: '#FFFBEB',
+    info:    '#EFF6FF',
+    error:   '#FEF2F2',
+  }
+
+  const iconColorMap: Record<NonNullable<StatCardItem['color']>, string> = {
+    default: theme.palette.text.secondary,
+    success: theme.palette.success.main,
+    warning: theme.palette.warning.main,
+    info:    theme.palette.info.main,
+    error:   theme.palette.error.main,
+  }
+
+  const valueColorMap: Record<NonNullable<StatCardItem['color']>, string> = {
+    default: theme.palette.text.primary,
+    success: '#15803D',
+    warning: '#B45309',
+    info:    '#1D4ED8',
+    error:   '#B91C1C',
+  }
+
+  return (
+    <Card
+      elevation={0}
+      sx={{
+        p: '16px 20px',
+        borderRadius: '10px',
+        border: '1px solid #E8EEEC',
+        boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+        backgroundColor: bgMap[color],
+      }}
+    >
+      <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
+        <Typography
+          variant="overline"
+          sx={{ fontSize: '10px', color: 'text.secondary', letterSpacing: '0.8px', display: 'block' }}
+        >
+          {item.label}
+        </Typography>
+        {item.icon && (
+          <Box sx={{ color: iconColorMap[color], opacity: 0.7, display: 'flex', alignItems: 'center', fontSize: '20px' }}>
+            {item.icon}
+          </Box>
+        )}
+      </Stack>
+      <Typography variant="h5" sx={{ fontWeight: 700, mt: '6px', color: valueColorMap[color] }}>
+        {item.value}
+      </Typography>
+    </Card>
+  )
+}
+
+// ─── Filters Popover ──────────────────────────────────────────────────────────
+
+interface FiltersPopoverProps {
+  anchor: HTMLElement | null
+  onClose: () => void
+  filterConfig: FilterField[]
+  activeFilters: Record<string, unknown>
+  onFilterChange: (filters: Record<string, unknown>) => void
+  onFilterReset: () => void
+}
+
+function FiltersPopover({
+  anchor,
+  onClose,
+  filterConfig,
+  activeFilters,
+  onFilterChange,
+  onFilterReset,
+}: FiltersPopoverProps) {
+  const [local, setLocal] = useState<Record<string, unknown>>(activeFilters)
+
+  useEffect(() => {
+    setLocal(activeFilters)
+  }, [activeFilters])
+
+  function handleApply() {
+    onFilterChange(local)
+    onClose()
+  }
+
+  function handleReset() {
+    onFilterReset()
+    onClose()
+  }
+
+  return (
+    <Popover
+      open={Boolean(anchor)}
+      anchorEl={anchor}
+      onClose={onClose}
+      anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+      transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+      PaperProps={{ sx: { width: 280, p: '12px', mt: '4px' } }}
+    >
+      {/* Header */}
+      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: '12px' }}>
+        <Typography sx={{ fontWeight: 600, fontSize: '13px' }}>Filters</Typography>
+        <IconButton size="small" onClick={onClose}>
+          <CloseIcon sx={{ fontSize: 14 }} />
+        </IconButton>
+      </Stack>
+
+      {/* Fields */}
+      <Stack gap="10px">
+        {filterConfig.map((f) => (
+          <Box key={f.field}>
+            <Typography
+              variant="caption"
+              sx={{ fontWeight: 500, display: 'block', mb: '4px', color: 'text.secondary' }}
+            >
+              {f.label}
+            </Typography>
+            {(f.type === 'select' || f.type === 'multiselect') && f.options ? (
+              <FormControl fullWidth size="small">
+                <Select
+                  value={(local[f.field] as string) ?? ''}
+                  onChange={(e) => setLocal((prev) => ({ ...prev, [f.field]: e.target.value }))}
+                  displayEmpty
+                  sx={{ fontSize: '12px' }}
+                >
+                  {f.options.map((opt) => (
+                    <MenuItem key={opt.value} value={opt.value} sx={{ fontSize: '12px' }}>
+                      {opt.label}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            ) : (
+              <TextField
+                fullWidth
+                size="small"
+                value={(local[f.field] as string) ?? ''}
+                onChange={(e) => setLocal((prev) => ({ ...prev, [f.field]: e.target.value }))}
+                sx={{ '& input': { fontSize: '12px' } }}
+              />
+            )}
+          </Box>
+        ))}
+      </Stack>
+
+      {/* Footer */}
+      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: '12px' }}>
+        <Button
+          variant="text"
+          size="small"
+          onClick={handleReset}
+          sx={{ fontSize: '12px', color: 'error.main' }}
+        >
+          Reset
+        </Button>
+        <Button variant="contained" size="small" onClick={handleApply} sx={{ fontSize: '12px' }}>
+          Apply
+        </Button>
+      </Stack>
+    </Popover>
+  )
+}
+
+// ─── Columns Popover ──────────────────────────────────────────────────────────
+
+interface ColumnsPopoverProps {
+  anchor: HTMLElement | null
+  onClose: () => void
+  columns: ColumnItem[]
+  onColumnVisibilityChange: (field: string, visible: boolean) => void
+}
+
+function ColumnsPopover({ anchor, onClose, columns, onColumnVisibilityChange }: ColumnsPopoverProps) {
+  return (
+    <Popover
+      open={Boolean(anchor)}
+      anchorEl={anchor}
+      onClose={onClose}
+      anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+      transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+      PaperProps={{ sx: { width: 200, py: '8px', mt: '4px' } }}
+    >
+      <Typography
+        variant="caption"
+        sx={{ fontWeight: 600, color: 'text.secondary', display: 'block', px: '12px', pt: '4px', pb: '4px' }}
+      >
+        Toggle Columns
+      </Typography>
+      <Divider />
+      {columns.map((col) => (
+        <MenuItem
+          key={col.field}
+          onClick={() => onColumnVisibilityChange(col.field, !col.visible)}
+          sx={{ height: '36px', gap: '6px', px: '12px' }}
+        >
+          <Checkbox
+            size="small"
+            checked={col.visible}
+            disableRipple
+            sx={{ p: 0 }}
+          />
+          <Typography variant="body2" sx={{ fontSize: '12px' }}>{col.label}</Typography>
+        </MenuItem>
+      ))}
+      <Divider />
+      <Box sx={{ px: '12px', pt: '6px' }}>
+        <Button
+          variant="text"
+          size="small"
+          sx={{ fontSize: '11px' }}
+          onClick={() => {
+            columns.forEach((col) => {
+              if (!col.visible) onColumnVisibilityChange(col.field, true)
+            })
+          }}
+        >
+          Reset
+        </Button>
+      </Box>
+    </Popover>
+  )
+}
+
+// ─── ListingTemplate ──────────────────────────────────────────────────────────
+
+export function ListingTemplate({
+  icon,
+  title,
+  subtitle,
+  primaryAction,
+  secondaryActions,
+  statCards,
+  tabs,
+  activeTab,
+  onTabChange,
+  searchPlaceholder = 'Search...',
+  searchValue: searchValueProp,
+  onSearchChange,
+  filterConfig,
+  activeFilters = {},
+  onFilterChange,
+  onFilterReset,
+  onFilterClick,
+  filterCount = 0,
+  columns,
+  onColumnVisibilityChange,
+  showViewToggle = false,
+  showExport = false,
+  onExport,
+  pageSize = 10,
+  onPageSizeChange,
+  page = 0,
+  totalCount,
+  onPageChange,
+  children,
+  onViewModeChange,
+}: ListingTemplateProps) {
+  const theme = useTheme()
+  const isDesktop = useMediaQuery(theme.breakpoints.up('lg'))
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('list')
+  const [internalSearch, setInternalSearch] = useState('')
+  const [searchFocused, setSearchFocused] = useState(false)
+  const [filterAnchor, setFilterAnchor] = useState<HTMLElement | null>(null)
+  const [columnsAnchor, setColumnsAnchor] = useState<HTMLElement | null>(null)
+
+  const searchValue = searchValueProp !== undefined ? searchValueProp : internalSearch
+
+  function handleViewModeChange(mode: 'grid' | 'list') {
+    setViewMode(mode)
+    onViewModeChange?.(mode)
+  }
+
+  function handleSearchChange(e: React.ChangeEvent<HTMLInputElement>) {
+    if (searchValueProp === undefined) setInternalSearch(e.target.value)
+    onSearchChange?.(e.target.value)
+  }
+
+  function handleTabChange(_: React.SyntheticEvent, newValue: string) {
+    onTabChange?.(newValue)
+  }
+
+  // Count active filters
+  const activeFilterCount = filterConfig
+    ? Object.values(activeFilters).filter((v) => v !== '' && v !== undefined && v !== null).length
+    : filterCount
+
+  function handleFilterButtonClick(e: React.MouseEvent<HTMLElement>) {
+    if (filterConfig) {
+      setFilterAnchor(e.currentTarget)
+    } else {
+      onFilterClick?.()
+    }
+  }
+
+  return (
+    <Box>
+      {/* ── Page Header ─────────────────────────────────────────────────── */}
+      <Stack
+        direction="row"
+        alignItems="flex-start"
+        justifyContent="space-between"
+        sx={{ mb: '20px' }}
+      >
+        <Stack direction="row" alignItems="center">
+          {icon && (
+            <Box sx={{ color: 'primary.main', mr: '10px', display: 'flex', alignItems: 'center' }}>
+              {icon}
+            </Box>
+          )}
+          <Box>
+            <Typography variant="h5" fontWeight={700}>{title}</Typography>
+            {subtitle && (
+              <Typography variant="body2" color="text.secondary">{subtitle}</Typography>
+            )}
+          </Box>
+        </Stack>
+
+        <Stack direction="row" alignItems="center" gap={1} sx={{ flexShrink: 0 }}>
+          {secondaryActions?.map((action, i) => (
+            <Button
+              key={i}
+              variant="outlined"
+              size="small"
+              startIcon={action.startIcon}
+              onClick={action.onClick}
+            >
+              {action.label}
+            </Button>
+          ))}
+          {primaryAction && (
+            <Button
+              variant="contained"
+              size="small"
+              startIcon={primaryAction.startIcon}
+              onClick={primaryAction.onClick}
+              color="primary"
+            >
+              {primaryAction.label}
+            </Button>
+          )}
+        </Stack>
+      </Stack>
+
+      {/* ── Stat Cards ──────────────────────────────────────────────────── */}
+      {statCards && statCards.length > 0 && (
+        <Grid
+          container
+          sx={{
+            display: 'grid',
+            gridTemplateColumns: { xs: 'repeat(2, 1fr)', lg: 'repeat(4, 1fr)' },
+            gap: '12px',
+            mb: 2,
+          }}
+        >
+          {statCards.map((card, i) => (
+            <StatCard key={i} item={card} />
+          ))}
+        </Grid>
+      )}
+
+      {/* ── Toolbar + Content Card (tabs inside) ────────────────────────── */}
+      <Card
+        elevation={0}
+        sx={{ border: '1px solid #E8EEEC', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}
+      >
+        {/* Tabs inside card top */}
+        {tabs && tabs.length > 0 && (
+          <Box sx={{ borderBottom: '1px solid #E8EEEC', px: 2, pt: 0.5 }}>
+            <Tabs
+              value={activeTab}
+              onChange={handleTabChange}
+              variant="scrollable"
+              scrollButtons={false}
+              sx={{
+                minHeight: '44px',
+                '& .MuiTab-root': {
+                  fontSize: '12px',
+                  fontWeight: 500,
+                  textTransform: 'none',
+                  minHeight: '44px',
+                  padding: '8px 14px',
+                  color: tokens.color.neutral[500],
+                },
+                '& .MuiTab-root.Mui-selected': {
+                  color: '#107E68',
+                  fontWeight: 600,
+                },
+                '& .MuiTabs-indicator': {
+                  backgroundColor: '#107E68',
+                  height: '2px',
+                  borderRadius: '2px',
+                },
+              }}
+            >
+              {tabs.map((tab) => (
+                <Tab
+                  key={tab.value}
+                  value={tab.value}
+                  label={
+                    tab.count !== undefined ? (
+                      <Box display="flex" alignItems="center" gap={0.75}>
+                        {tab.label}
+                        <Box
+                          sx={{
+                            bgcolor: activeTab === tab.value ? '#DCF0EC' : '#F1F5F4',
+                            color: activeTab === tab.value ? '#107E68' : '#6B7280',
+                            borderRadius: '999px',
+                            fontSize: 10,
+                            fontWeight: 600,
+                            px: '6px',
+                            py: '1px',
+                            lineHeight: 1.6,
+                            minWidth: 20,
+                            textAlign: 'center',
+                          }}
+                        >
+                          {tab.count}
+                        </Box>
+                      </Box>
+                    ) : (
+                      tab.label
+                    )
+                  }
+                />
+              ))}
+            </Tabs>
+          </Box>
+        )}
+
+        {/* Toolbar */}
+        <Stack
+          direction="row"
+          alignItems="center"
+          justifyContent="space-between"
+          sx={{ p: '10px 14px', borderBottom: `1px solid ${tokens.color.neutral[100]}` }}
+        >
+          {/* Search */}
+          <Stack
+            direction="row"
+            alignItems="center"
+            gap={1}
+            sx={{
+              width: { xs: undefined, lg: '260px' },
+              flex: { xs: 1, lg: 'none' },
+              height: '32px',
+              bgcolor: searchFocused ? '#EAEAEF' : '#F3F3F5',
+              border: `1px solid ${searchFocused ? theme.palette.primary.main : 'transparent'}`,
+              borderRadius: '6px',
+              px: '10px',
+              transition: 'background-color 0.15s, border-color 0.15s',
+            }}
+          >
+            <SearchIcon sx={{ fontSize: '14px', color: tokens.color.neutral[400] }} />
+            <InputBase
+              value={searchValue}
+              onChange={handleSearchChange}
+              placeholder={searchPlaceholder}
+              onFocus={() => setSearchFocused(true)}
+              onBlur={() => setSearchFocused(false)}
+              sx={{ fontSize: '12px', flex: 1, '& input': { p: 0 } }}
+            />
+          </Stack>
+
+          {/* Right actions */}
+          <Stack direction="row" alignItems="center" gap="6px">
+            {/* Filters button */}
+            <Badge
+              badgeContent={activeFilterCount > 0 ? activeFilterCount : undefined}
+              color="primary"
+            >
+              {isDesktop ? (
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<FilterListIcon fontSize="small" />}
+                  onClick={handleFilterButtonClick}
+                  sx={{ height: '32px', fontSize: '12px' }}
+                >
+                  Filters
+                </Button>
+              ) : (
+                <IconButton
+                  size="small"
+                  onClick={handleFilterButtonClick}
+                  sx={{
+                    height: '32px',
+                    width: '32px',
+                    border: `1px solid ${tokens.color.neutral[200]}`,
+                    borderRadius: '6px',
+                  }}
+                >
+                  <FilterListIcon fontSize="small" />
+                </IconButton>
+              )}
+            </Badge>
+
+            {/* Columns button */}
+            {columns && onColumnVisibilityChange && (
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<ViewColumnIcon fontSize="small" />}
+                onClick={(e) => setColumnsAnchor(e.currentTarget)}
+                sx={{ height: '32px', fontSize: '12px' }}
+              >
+                Columns
+              </Button>
+            )}
+
+            {/* Export button */}
+            {showExport && (
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<DownloadIcon sx={{ fontSize: 14 }} />}
+                onClick={onExport}
+                sx={{ height: '32px', fontSize: '12px' }}
+              >
+                Export
+              </Button>
+            )}
+
+            {/* View toggle */}
+            {showViewToggle && (
+              <>
+                <Divider
+                  orientation="vertical"
+                  flexItem
+                  sx={{ height: '20px', mx: '4px', alignSelf: 'center' }}
+                />
+                <IconButton
+                  size="small"
+                  onClick={() => handleViewModeChange('grid')}
+                  sx={{
+                    p: '5px',
+                    borderRadius: '4px',
+                    color: viewMode === 'grid' ? 'primary.main' : tokens.color.neutral[400],
+                    bgcolor: viewMode === 'grid' ? alpha(theme.palette.primary.main, 0.08) : 'transparent',
+                  }}
+                >
+                  <GridViewIcon fontSize="small" />
+                </IconButton>
+                <IconButton
+                  size="small"
+                  onClick={() => handleViewModeChange('list')}
+                  sx={{
+                    p: '5px',
+                    borderRadius: '4px',
+                    color: viewMode === 'list' ? 'primary.main' : tokens.color.neutral[400],
+                    bgcolor: viewMode === 'list' ? alpha(theme.palette.primary.main, 0.08) : 'transparent',
+                  }}
+                >
+                  <ViewListIcon fontSize="small" />
+                </IconButton>
+              </>
+            )}
+          </Stack>
+        </Stack>
+
+        {/* Content */}
+        {children}
+
+        {/* Pagination row */}
+        {(totalCount !== undefined || onPageSizeChange) && (
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              p: '10px 16px',
+              borderTop: `1px solid ${tokens.color.neutral[100]}`,
+            }}
+          >
+            {/* Left: showing text */}
+            <Typography variant="caption" color="text.secondary">
+              {totalCount !== undefined
+                ? `Showing ${Math.min(page * pageSize + 1, totalCount)}–${Math.min((page + 1) * pageSize, totalCount)} of ${totalCount}`
+                : ''}
+            </Typography>
+
+            {/* Right: rows per page + pagination */}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              {onPageSizeChange && (
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    Rows per page:
+                  </Typography>
+                  <Select
+                    size="small"
+                    value={pageSize}
+                    onChange={(e) => onPageSizeChange(Number(e.target.value))}
+                    sx={{
+                      fontSize: 12,
+                      height: 28,
+                      bgcolor: tokens.color.neutral[50],
+                      borderRadius: '4px',
+                      '& .MuiOutlinedInput-notchedOutline': { border: 'none' },
+                    }}
+                  >
+                    <MenuItem value={10}>10</MenuItem>
+                    <MenuItem value={25}>25</MenuItem>
+                    <MenuItem value={50}>50</MenuItem>
+                    <MenuItem value={100}>100</MenuItem>
+                  </Select>
+                </Box>
+              )}
+
+              {onPageChange && totalCount !== undefined && (
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  <IconButton
+                    size="small"
+                    disabled={page === 0}
+                    onClick={() => onPageChange(page - 1)}
+                  >
+                    <ChevronLeftIcon fontSize="small" />
+                  </IconButton>
+                  <Typography variant="caption" color="text.secondary">
+                    {page + 1} / {Math.max(1, Math.ceil(totalCount / pageSize))}
+                  </Typography>
+                  <IconButton
+                    size="small"
+                    disabled={(page + 1) * pageSize >= totalCount}
+                    onClick={() => onPageChange(page + 1)}
+                  >
+                    <ChevronRightIcon fontSize="small" />
+                  </IconButton>
+                </Box>
+              )}
+            </Box>
+          </Box>
+        )}
+      </Card>
+
+      {/* Filters Popover */}
+      {filterConfig && onFilterChange && onFilterReset && (
+        <FiltersPopover
+          anchor={filterAnchor}
+          onClose={() => setFilterAnchor(null)}
+          filterConfig={filterConfig}
+          activeFilters={activeFilters}
+          onFilterChange={onFilterChange}
+          onFilterReset={onFilterReset}
+        />
+      )}
+
+      {/* Columns Popover */}
+      {columns && onColumnVisibilityChange && (
+        <ColumnsPopover
+          anchor={columnsAnchor}
+          onClose={() => setColumnsAnchor(null)}
+          columns={columns}
+          onColumnVisibilityChange={onColumnVisibilityChange}
+        />
+      )}
+    </Box>
+  )
+}

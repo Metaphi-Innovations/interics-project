@@ -25,3 +25,6 @@ export type { BackButtonProps } from './BackButton'
 
 export { default as CommandPalette } from './CommandPalette'
 export type { CommandPaletteProps } from './CommandPalette'
+
+export { default as PageHeader } from './PageHeader'
+export type { PageHeaderProps } from './PageHeader'

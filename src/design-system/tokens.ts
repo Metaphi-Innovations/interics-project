@@ -3,7 +3,7 @@ import chroma from 'chroma-js';
 // ─── Brand color ─────────────────────────────────────────────────────────────
 // This is the ONLY value that changes when rebranding.
 // Every color in the system derives from here.
-export const BRAND_COLOR = '#6366F1';
+export const BRAND_COLOR = '#107E68';
 
 // ─── Color scale generation ───────────────────────────────────────────────────
 type ColorScale = {
@@ -83,14 +83,14 @@ export const tokens = {
   },
 
   fontSize: {
-    xs:   '12px',
-    sm:   '14px',
-    base: '16px',
-    lg:   '18px',
-    xl:   '20px',
-    '2xl': '24px',
-    '3xl': '30px',
-    '4xl': '36px',
+    xs:   '11px',
+    sm:   '12px',
+    base: '13px',
+    lg:   '14px',
+    xl:   '16px',
+    '2xl': '18px',
+    '3xl': '22px',
+    '4xl': '30px',
   },
 
   fontWeight: {
@@ -109,10 +109,10 @@ export const tokens = {
   borderRadius: {
     none: '0px',
     sm:   '4px',
-    md:   '8px',
-    lg:   '12px',
-    xl:   '16px',
-    '2xl': '24px',
+    md:   '6px',
+    lg:   '8px',
+    xl:   '10px',
+    '2xl': '16px',
     full: '9999px',
   },
 

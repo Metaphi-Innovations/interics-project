@@ -274,7 +274,7 @@ export default function DataTable({
               {bulkActions && (
                 <TableCell
                   padding="checkbox"
-                  sx={{ bgcolor: headerBg, position: 'sticky', top: 0, zIndex: 3, borderBottom: '2px solid', borderColor: 'divider' }}
+                  sx={{ bgcolor: headerBg, position: 'sticky', top: 0, zIndex: 3, borderBottom: '2px solid', borderColor: 'divider', width: '40px' }}
                 >
                   <Checkbox
                     size="small"
@@ -300,8 +300,8 @@ export default function DataTable({
                     boxShadow: col.sticky ? '4px 0 4px -2px rgba(0,0,0,0.08)' : undefined,
                     display: getHideDisplay(col.hideBelow),
                     verticalAlign: 'top',
-                    py: 1,
-                    px: 2,
+                    py: '6px',
+                    px: '12px',
                   }}
                 >
                   <ColumnHeader
@@ -373,10 +373,10 @@ export default function DataTable({
                         <TableCell
                           key={col.key}
                           sx={{
-                            py: 1.5,
-                            px: 2,
-                            fontSize: 14,
-                            lineHeight: '20px',
+                            py: '8px',
+                            px: '12px',
+                            fontSize: 12,
+                            lineHeight: '18px',
                             borderBottom: '1px solid',
                             borderColor: 'divider',
                             position: col.sticky ? 'sticky' : undefined,

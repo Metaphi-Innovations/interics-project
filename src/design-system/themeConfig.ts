@@ -23,10 +23,10 @@ export const FONT_OPTIONS: { label: string; value: string }[] = [
 // ─── Color presets ────────────────────────────────────────────────────────────
 
 export const COLOR_PRESETS: { label: string; value: string }[] = [
+  { label: 'Teal',   value: '#107E68' },
   { label: 'Indigo', value: '#6366F1' },
   { label: 'Violet', value: '#7C3AED' },
   { label: 'Blue',   value: '#2563EB' },
-  { label: 'Teal',   value: '#0D9488' },
   { label: 'Green',  value: '#059669' },
   { label: 'Orange', value: '#EA580C' },
   { label: 'Rose',   value: '#E11D48' },
@@ -36,8 +36,8 @@ export const COLOR_PRESETS: { label: string; value: string }[] = [
 // ─── Defaults ─────────────────────────────────────────────────────────────────
 
 export const DEFAULT_THEME_CONFIG: ThemeConfig = {
-  brandColor: '#6366F1',
-  fontFamily: 'Inter',
+  brandColor: '#107E68',
+  fontFamily: 'Poppins',
   mode: 'light',
 };
 

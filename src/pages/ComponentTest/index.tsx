@@ -368,7 +368,7 @@ export default function ComponentTest() {
         <Stack direction="row" gap={2} alignItems="center" mb={2}>
           <Avatar name="Alice B" online />
           <Avatar name="Bob C" shape="square" />
-          <Avatar name="Carol D" shape="rounded" color="#0D9488" />
+          <Avatar name="Carol D" shape="rounded" color="#107E68" />
           <Avatar name="Dave E" src="https://i.pravatar.cc/64?u=1" />
         </Stack>
       </Section>

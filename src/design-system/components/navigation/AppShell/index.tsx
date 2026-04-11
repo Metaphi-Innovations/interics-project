@@ -13,8 +13,8 @@ import type { SearchResults } from '../CommandPalette'
 import { tokens } from '../../../tokens'
 
 const STORAGE_KEY = 'foundation:sidebar-collapsed'
-const SIDEBAR_EXPANDED = 240
-const SIDEBAR_COLLAPSED = 64
+const SIDEBAR_EXPANDED = 224
+const SIDEBAR_COLLAPSED = 56
 
 export interface AppShellProps {
   children: ReactNode
@@ -22,6 +22,10 @@ export interface AppShellProps {
   user: UserMenuUser
   logo?: ReactNode
   logoCollapsed?: ReactNode
+  appName?: string
+  logoMark?: string
+  logoFullSrc?: string
+  logoMarkSrc?: string
   notificationCount?: number
   onNotificationClick?: () => void
   onSignOut?: () => void
@@ -40,6 +44,10 @@ export default function AppShell({
   user,
   logo,
   logoCollapsed,
+  appName = 'Foundation',
+  logoMark = 'F',
+  logoFullSrc = '/logo-full.png',
+  logoMarkSrc = '/logo-mark.png',
   notificationCount,
   onNotificationClick,
   onSignOut,
@@ -120,8 +128,10 @@ export default function AppShell({
             currentPath={location.pathname}
             mobileOpen={false}
             onMobileClose={() => {}}
-            logoMark="F"
-            appName="Foundation"
+            logoMark={logoMark}
+            appName={appName}
+            logoFullSrc={logoFullSrc}
+            logoMarkSrc={logoMarkSrc}
           />
         </Box>
       )}
@@ -157,8 +167,10 @@ export default function AppShell({
             currentPath={location.pathname}
             mobileOpen={mobileDrawerOpen}
             onMobileClose={() => setMobileDrawerOpen(false)}
-            logoMark="F"
-            appName="Foundation"
+            logoMark={logoMark}
+            appName={appName}
+            logoFullSrc={logoFullSrc}
+            logoMarkSrc={logoMarkSrc}
           />
         </MuiDrawer>
       )}

@@ -1,0 +1,352 @@
+import { createSlice } from '@reduxjs/toolkit'
+import type { PayloadAction } from '@reduxjs/toolkit'
+import {
+  fetchCompanyProfile,
+  updateCompanyProfile,
+  fetchGSTRates,
+  createGSTRate,
+  updateGSTRate,
+  toggleGSTRateStatus,
+  fetchTDSSections,
+  createTDSSection,
+  updateTDSSection,
+  toggleTDSSectionStatus,
+  fetchSACCodes,
+  createSACCode,
+  updateSACCode,
+  toggleSACCodeStatus,
+  fetchCategories,
+  createCategory,
+  updateCategory,
+  toggleCategoryStatus,
+  fetchServices,
+  createService,
+  updateService,
+  toggleServiceStatus,
+  fetchNumberingSchemes,
+  updateNumberingSchemes,
+  fetchSystemDefaults,
+  updateSystemDefaults,
+} from './thunk'
+
+export interface GSTRate {
+  id: string
+  slabName: string
+  rate: number
+  description: string
+  status: 'active' | 'inactive'
+}
+
+export interface TDSSection {
+  id: string
+  section: string
+  description: string
+  defaultRate: number
+  appliesTo: 'vendors' | 'clients' | 'both'
+  status: 'active' | 'inactive'
+}
+
+export interface SACCode {
+  id: string
+  code: string
+  description: string
+  gstRateId: string
+  gstRate?: number
+  status: 'active' | 'inactive'
+}
+
+export interface Category {
+  id: string
+  name: string
+  description: string
+  servicesCount: number
+  status: 'active' | 'inactive'
+}
+
+export interface Service {
+  id: string
+  name: string
+  categoryId: string
+  sacCodeId: string | null
+  gstRate: number
+  allowGSTOverride: boolean
+  allowVendorMapping: boolean
+  tags: string[]
+  status: 'active' | 'inactive'
+}
+
+export interface CompanyProfile {
+  companyName: string
+  gstin: string
+  pan: string
+  companyType: 'pvt_ltd' | 'llp' | 'proprietorship' | 'partnership'
+  email: string
+  phone: string
+  website: string
+  addressLine1: string
+  addressLine2: string
+  city: string
+  state: string
+  pincode: string
+  logoUrl: string | null
+}
+
+export interface NumberingSchemes {
+  projectPrefix: string
+  projectFormat: 'PRJ-YY-###' | 'PRJ-YYYY-###' | 'PRJ-###'
+  invoicePrefix: string
+  invoiceFormat: 'INV-YYYY-###' | 'INV-YY-###'
+  clientPOPrefix: string
+  vendorPOPrefix: string
+  expensePrefix: string
+}
+
+export interface SystemDefaults {
+  currency: 'INR'
+  financialYearStart: 'april' | 'january'
+  defaultTaxRegime: 'gst' | 'non_gst'
+  defaultProjectType: 'design' | 'design_and_build'
+  defaultPaginationSize: 10 | 25 | 50 | 100
+  dateFormat: 'DD/MM/YYYY' | 'MM/DD/YYYY' | 'YYYY-MM-DD'
+  autoArchiveDays: 0 | 30 | 60 | 90
+}
+
+interface SettingsState {
+  companyProfile: CompanyProfile
+  numberingSchemes: NumberingSchemes
+  systemDefaults: SystemDefaults
+  gstRates: GSTRate[]
+  tdsSections: TDSSection[]
+  sacCodes: SACCode[]
+  categories: Category[]
+  services: Service[]
+  loading: boolean
+  saving: boolean
+}
+
+const initialState: SettingsState = {
+  companyProfile: {
+    companyName: '',
+    gstin: '',
+    pan: '',
+    companyType: 'pvt_ltd',
+    email: '',
+    phone: '',
+    website: '',
+    addressLine1: '',
+    addressLine2: '',
+    city: '',
+    state: '',
+    pincode: '',
+    logoUrl: null,
+  },
+  numberingSchemes: {
+    projectPrefix: 'PRJ',
+    projectFormat: 'PRJ-YY-###',
+    invoicePrefix: 'INV',
+    invoiceFormat: 'INV-YYYY-###',
+    clientPOPrefix: 'PO-CLI',
+    vendorPOPrefix: 'PO-VND',
+    expensePrefix: 'EXP',
+  },
+  systemDefaults: {
+    currency: 'INR',
+    financialYearStart: 'april',
+    defaultTaxRegime: 'gst',
+    defaultProjectType: 'design_and_build',
+    defaultPaginationSize: 25,
+    dateFormat: 'DD/MM/YYYY',
+    autoArchiveDays: 0,
+  },
+  gstRates: [],
+  tdsSections: [],
+  sacCodes: [],
+  categories: [],
+  services: [],
+  loading: false,
+  saving: false,
+}
+
+const settingsSlice = createSlice({
+  name: 'settings',
+  initialState,
+  reducers: {},
+  extraReducers: (builder) => {
+    // Company Profile
+    builder
+      .addCase(fetchCompanyProfile.pending, (state) => { state.loading = true })
+      .addCase(fetchCompanyProfile.fulfilled, (state, action: PayloadAction<CompanyProfile>) => {
+        state.loading = false
+        state.companyProfile = action.payload
+      })
+      .addCase(fetchCompanyProfile.rejected, (state) => { state.loading = false })
+      .addCase(updateCompanyProfile.pending, (state) => { state.saving = true })
+      .addCase(updateCompanyProfile.fulfilled, (state, action: PayloadAction<CompanyProfile>) => {
+        state.saving = false
+        state.companyProfile = action.payload
+      })
+      .addCase(updateCompanyProfile.rejected, (state) => { state.saving = false })
+
+    // GST Rates
+    builder
+      .addCase(fetchGSTRates.pending, (state) => { state.loading = true })
+      .addCase(fetchGSTRates.fulfilled, (state, action: PayloadAction<GSTRate[]>) => {
+        state.loading = false
+        state.gstRates = action.payload
+      })
+      .addCase(fetchGSTRates.rejected, (state) => { state.loading = false })
+      .addCase(createGSTRate.pending, (state) => { state.saving = true })
+      .addCase(createGSTRate.fulfilled, (state, action: PayloadAction<GSTRate>) => {
+        state.saving = false
+        state.gstRates.push(action.payload)
+      })
+      .addCase(createGSTRate.rejected, (state) => { state.saving = false })
+      .addCase(updateGSTRate.pending, (state) => { state.saving = true })
+      .addCase(updateGSTRate.fulfilled, (state, action: PayloadAction<GSTRate>) => {
+        state.saving = false
+        const idx = state.gstRates.findIndex(r => r.id === action.payload.id)
+        if (idx !== -1) state.gstRates[idx] = action.payload
+      })
+      .addCase(updateGSTRate.rejected, (state) => { state.saving = false })
+      .addCase(toggleGSTRateStatus.fulfilled, (state, action: PayloadAction<GSTRate>) => {
+        const idx = state.gstRates.findIndex(r => r.id === action.payload.id)
+        if (idx !== -1) state.gstRates[idx] = action.payload
+      })
+
+    // TDS Sections
+    builder
+      .addCase(fetchTDSSections.pending, (state) => { state.loading = true })
+      .addCase(fetchTDSSections.fulfilled, (state, action: PayloadAction<TDSSection[]>) => {
+        state.loading = false
+        state.tdsSections = action.payload
+      })
+      .addCase(fetchTDSSections.rejected, (state) => { state.loading = false })
+      .addCase(createTDSSection.pending, (state) => { state.saving = true })
+      .addCase(createTDSSection.fulfilled, (state, action: PayloadAction<TDSSection>) => {
+        state.saving = false
+        state.tdsSections.push(action.payload)
+      })
+      .addCase(createTDSSection.rejected, (state) => { state.saving = false })
+      .addCase(updateTDSSection.pending, (state) => { state.saving = true })
+      .addCase(updateTDSSection.fulfilled, (state, action: PayloadAction<TDSSection>) => {
+        state.saving = false
+        const idx = state.tdsSections.findIndex(r => r.id === action.payload.id)
+        if (idx !== -1) state.tdsSections[idx] = action.payload
+      })
+      .addCase(updateTDSSection.rejected, (state) => { state.saving = false })
+      .addCase(toggleTDSSectionStatus.fulfilled, (state, action: PayloadAction<TDSSection>) => {
+        const idx = state.tdsSections.findIndex(r => r.id === action.payload.id)
+        if (idx !== -1) state.tdsSections[idx] = action.payload
+      })
+
+    // SAC Codes
+    builder
+      .addCase(fetchSACCodes.pending, (state) => { state.loading = true })
+      .addCase(fetchSACCodes.fulfilled, (state, action: PayloadAction<SACCode[]>) => {
+        state.loading = false
+        state.sacCodes = action.payload
+      })
+      .addCase(fetchSACCodes.rejected, (state) => { state.loading = false })
+      .addCase(createSACCode.pending, (state) => { state.saving = true })
+      .addCase(createSACCode.fulfilled, (state, action: PayloadAction<SACCode>) => {
+        state.saving = false
+        state.sacCodes.push(action.payload)
+      })
+      .addCase(createSACCode.rejected, (state) => { state.saving = false })
+      .addCase(updateSACCode.pending, (state) => { state.saving = true })
+      .addCase(updateSACCode.fulfilled, (state, action: PayloadAction<SACCode>) => {
+        state.saving = false
+        const idx = state.sacCodes.findIndex(r => r.id === action.payload.id)
+        if (idx !== -1) state.sacCodes[idx] = action.payload
+      })
+      .addCase(updateSACCode.rejected, (state) => { state.saving = false })
+      .addCase(toggleSACCodeStatus.fulfilled, (state, action: PayloadAction<SACCode>) => {
+        const idx = state.sacCodes.findIndex(r => r.id === action.payload.id)
+        if (idx !== -1) state.sacCodes[idx] = action.payload
+      })
+
+    // Categories
+    builder
+      .addCase(fetchCategories.pending, (state) => { state.loading = true })
+      .addCase(fetchCategories.fulfilled, (state, action: PayloadAction<Category[]>) => {
+        state.loading = false
+        state.categories = action.payload
+      })
+      .addCase(fetchCategories.rejected, (state) => { state.loading = false })
+      .addCase(createCategory.pending, (state) => { state.saving = true })
+      .addCase(createCategory.fulfilled, (state, action: PayloadAction<Category>) => {
+        state.saving = false
+        state.categories.push(action.payload)
+      })
+      .addCase(createCategory.rejected, (state) => { state.saving = false })
+      .addCase(updateCategory.pending, (state) => { state.saving = true })
+      .addCase(updateCategory.fulfilled, (state, action: PayloadAction<Category>) => {
+        state.saving = false
+        const idx = state.categories.findIndex(r => r.id === action.payload.id)
+        if (idx !== -1) state.categories[idx] = action.payload
+      })
+      .addCase(updateCategory.rejected, (state) => { state.saving = false })
+      .addCase(toggleCategoryStatus.fulfilled, (state, action: PayloadAction<Category>) => {
+        const idx = state.categories.findIndex(r => r.id === action.payload.id)
+        if (idx !== -1) state.categories[idx] = action.payload
+      })
+
+    // Services
+    builder
+      .addCase(fetchServices.pending, (state) => { state.loading = true })
+      .addCase(fetchServices.fulfilled, (state, action: PayloadAction<Service[]>) => {
+        state.loading = false
+        state.services = action.payload
+      })
+      .addCase(fetchServices.rejected, (state) => { state.loading = false })
+      .addCase(createService.pending, (state) => { state.saving = true })
+      .addCase(createService.fulfilled, (state, action: PayloadAction<Service>) => {
+        state.saving = false
+        state.services.push(action.payload)
+      })
+      .addCase(createService.rejected, (state) => { state.saving = false })
+      .addCase(updateService.pending, (state) => { state.saving = true })
+      .addCase(updateService.fulfilled, (state, action: PayloadAction<Service>) => {
+        state.saving = false
+        const idx = state.services.findIndex(r => r.id === action.payload.id)
+        if (idx !== -1) state.services[idx] = action.payload
+      })
+      .addCase(updateService.rejected, (state) => { state.saving = false })
+      .addCase(toggleServiceStatus.fulfilled, (state, action: PayloadAction<Service>) => {
+        const idx = state.services.findIndex(r => r.id === action.payload.id)
+        if (idx !== -1) state.services[idx] = action.payload
+      })
+
+    // Numbering Schemes
+    builder
+      .addCase(fetchNumberingSchemes.pending, (state) => { state.loading = true })
+      .addCase(fetchNumberingSchemes.fulfilled, (state, action: PayloadAction<NumberingSchemes>) => {
+        state.loading = false
+        state.numberingSchemes = action.payload
+      })
+      .addCase(fetchNumberingSchemes.rejected, (state) => { state.loading = false })
+      .addCase(updateNumberingSchemes.pending, (state) => { state.saving = true })
+      .addCase(updateNumberingSchemes.fulfilled, (state, action: PayloadAction<NumberingSchemes>) => {
+        state.saving = false
+        state.numberingSchemes = action.payload
+      })
+      .addCase(updateNumberingSchemes.rejected, (state) => { state.saving = false })
+
+    // System Defaults
+    builder
+      .addCase(fetchSystemDefaults.pending, (state) => { state.loading = true })
+      .addCase(fetchSystemDefaults.fulfilled, (state, action: PayloadAction<SystemDefaults>) => {
+        state.loading = false
+        state.systemDefaults = action.payload
+      })
+      .addCase(fetchSystemDefaults.rejected, (state) => { state.loading = false })
+      .addCase(updateSystemDefaults.pending, (state) => { state.saving = true })
+      .addCase(updateSystemDefaults.fulfilled, (state, action: PayloadAction<SystemDefaults>) => {
+        state.saving = false
+        state.systemDefaults = action.payload
+      })
+      .addCase(updateSystemDefaults.rejected, (state) => { state.saving = false })
+  },
+})
+
+export default settingsSlice.reducer

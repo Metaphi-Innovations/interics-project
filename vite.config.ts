@@ -5,6 +5,7 @@ import { resolve } from 'path'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  server: { port: 5174 },
   resolve: {
     alias: {
       '@': resolve(__dirname, './src'),

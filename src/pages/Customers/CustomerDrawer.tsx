@@ -1,0 +1,420 @@
+import { useState, useEffect } from 'react'
+import { Box, TextField, MenuItem, Autocomplete, Chip as MuiChip } from '@mui/material'
+import { DrawerForm, FormSection, FormField } from '../../components/templates'
+import { useAppDispatch, useAppSelector } from '../../store/hooks'
+import { createCustomer, updateCustomer } from '../../slices/customers/thunk'
+import { useToast } from '@/design-system/components'
+import type { Customer } from '../../slices/customers/reducer'
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const INDIAN_STATES = [
+  'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh',
+  'Goa', 'Gujarat', 'Haryana', 'Himachal Pradesh', 'Jharkhand',
+  'Karnataka', 'Kerala', 'Madhya Pradesh', 'Maharashtra', 'Manipur',
+  'Meghalaya', 'Mizoram', 'Nagaland', 'Odisha', 'Punjab',
+  'Rajasthan', 'Sikkim', 'Tamil Nadu', 'Telangana', 'Tripura',
+  'Uttar Pradesh', 'Uttarakhand', 'West Bengal',
+  'Andaman and Nicobar Islands', 'Chandigarh', 'Dadra and Nagar Haveli',
+  'Daman and Diu', 'Delhi', 'Jammu and Kashmir', 'Ladakh',
+  'Lakshadweep', 'Puducherry',
+]
+
+const COMMON_TAGS = [
+  'Enterprise', 'Residential', 'High Value', 'Real Estate',
+  'Tech', 'Startup', 'Corporate', 'Repeat Client',
+]
+
+const GSTIN_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface FormState {
+  name: string
+  type: 'Company' | 'Individual' | ''
+  gstStatus: 'Registered' | 'Unregistered'
+  gstin: string
+  pan: string
+  contactPerson: string
+  designation: string
+  phone: string
+  email: string
+  city: string
+  state: string
+  address: string
+  pincode: string
+  tags: string[]
+  notes: string
+}
+
+const defaultForm: FormState = {
+  name: '',
+  type: '',
+  gstStatus: 'Unregistered',
+  gstin: '',
+  pan: '',
+  contactPerson: '',
+  designation: '',
+  phone: '',
+  email: '',
+  city: '',
+  state: '',
+  address: '',
+  pincode: '',
+  tags: [],
+  notes: '',
+}
+
+export interface CustomerDrawerProps {
+  open: boolean
+  onClose: () => void
+  mode: 'add' | 'edit'
+  customer?: Customer | null
+  onSuccess?: (customer: Customer) => void
+}
+
+// ─── Validation ───────────────────────────────────────────────────────────────
+
+function validate(form: FormState): Record<string, string> {
+  const errors: Record<string, string> = {}
+  if (!form.name.trim()) errors.name = 'Name is required'
+  if (!form.type) errors.type = 'Type is required'
+  if (!form.contactPerson.trim()) errors.contactPerson = 'Contact person is required'
+  if (!form.phone.trim()) errors.phone = 'Phone is required'
+  if (!form.email.trim()) {
+    errors.email = 'Email is required'
+  } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
+    errors.email = 'Invalid email format'
+  }
+  if (!form.city.trim()) errors.city = 'City is required'
+  if (!form.state) errors.state = 'State is required'
+  if (form.gstStatus === 'Registered') {
+    if (!form.gstin.trim()) {
+      errors.gstin = 'GSTIN is required for registered customers'
+    } else if (!GSTIN_REGEX.test(form.gstin)) {
+      errors.gstin = 'Invalid GSTIN (e.g. 29ABCDE1234F1Z5)'
+    }
+  }
+  return errors
+}
+
+// ─── CustomerDrawer ───────────────────────────────────────────────────────────
+
+export function CustomerDrawer({ open, onClose, mode, customer, onSuccess }: CustomerDrawerProps) {
+  const dispatch = useAppDispatch()
+  const saving = useAppSelector((s) => s.customers.saving)
+  const { showToast } = useToast()
+
+  const [form, setForm] = useState<FormState>(defaultForm)
+  const [errors, setErrors] = useState<Record<string, string>>({})
+
+  useEffect(() => {
+    if (open) {
+      if (customer && mode === 'edit') {
+        setForm({
+          name: customer.name,
+          type: customer.type,
+          gstStatus: customer.gstStatus,
+          gstin: customer.gstin ?? '',
+          pan: customer.pan ?? '',
+          contactPerson: customer.contactPerson,
+          designation: customer.designation ?? '',
+          phone: customer.phone,
+          email: customer.email,
+          city: customer.city,
+          state: customer.state,
+          address: customer.address ?? '',
+          pincode: customer.pincode ?? '',
+          tags: customer.tags,
+          notes: customer.notes ?? '',
+        })
+      } else {
+        setForm(defaultForm)
+      }
+      setErrors({})
+    }
+  }, [open, customer, mode])
+
+  function update<K extends keyof FormState>(field: K, value: FormState[K]) {
+    setForm((f) => ({ ...f, [field]: value }))
+  }
+
+  async function handleSubmit() {
+    const errs = validate(form)
+    setErrors(errs)
+    if (Object.keys(errs).length > 0) return
+
+    const payload = {
+      name: form.name.trim(),
+      type: form.type as 'Company' | 'Individual',
+      gstStatus: form.gstStatus,
+      gstin: form.gstStatus === 'Registered' ? form.gstin.trim() : null,
+      pan: form.pan.trim() || null,
+      contactPerson: form.contactPerson.trim(),
+      designation: form.designation.trim() || null,
+      phone: form.phone.trim(),
+      email: form.email.trim(),
+      city: form.city.trim(),
+      state: form.state,
+      address: form.address.trim() || null,
+      pincode: form.pincode.trim() || null,
+      tags: form.tags,
+      notes: form.notes.trim() || null,
+      status: (customer?.status ?? 'Active') as 'Active' | 'Inactive',
+      activeProjects: customer?.activeProjects ?? 0,
+      totalReceivables: customer?.totalReceivables ?? 0,
+    }
+
+    try {
+      if (mode === 'add') {
+        const result = await dispatch(createCustomer(payload)).unwrap()
+        showToast({ title: 'Customer saved', variant: 'success' })
+        onClose()
+        onSuccess?.(result)
+        return
+      } else {
+        await dispatch(updateCustomer({ id: customer!.id, data: payload })).unwrap()
+      }
+      showToast({ title: 'Customer saved', variant: 'success' })
+      onClose()
+    } catch {
+      showToast({ title: 'Failed to save customer', variant: 'error' })
+    }
+  }
+
+  return (
+    <DrawerForm
+      open={open}
+      onClose={onClose}
+      title={mode === 'add' ? 'Add Customer' : 'Edit Customer'}
+      subtitle={
+        mode === 'add'
+          ? 'Fill in the details to create a new customer'
+          : 'Update customer information'
+      }
+      onSubmit={handleSubmit}
+      submitLabel={mode === 'add' ? 'Save Customer' : 'Update Customer'}
+      submitLoading={saving}
+    >
+      {/* ── Business Details ─────────────────────────────────────────── */}
+      <FormSection title="Business Details" columns={2}>
+        <Box sx={{ gridColumn: 'span 2' }}>
+          <FormField label="Customer Name" required error={errors.name}>
+            <TextField
+              fullWidth
+              size="small"
+              value={form.name}
+              onChange={(e) => update('name', e.target.value)}
+              placeholder="e.g. Acme Corp"
+              error={!!errors.name}
+            />
+          </FormField>
+        </Box>
+
+        <FormField label="Customer Type" required error={errors.type}>
+          <TextField
+            fullWidth
+            size="small"
+            select
+            value={form.type}
+            onChange={(e) => update('type', e.target.value as 'Company' | 'Individual')}
+            error={!!errors.type}
+          >
+            <MenuItem value="Company">Company</MenuItem>
+            <MenuItem value="Individual">Individual</MenuItem>
+          </TextField>
+        </FormField>
+
+        <FormField label="GST Status">
+          <TextField
+            fullWidth
+            size="small"
+            select
+            value={form.gstStatus}
+            onChange={(e) => {
+              const val = e.target.value as 'Registered' | 'Unregistered'
+              update('gstStatus', val)
+              if (val === 'Unregistered') update('gstin', '')
+            }}
+          >
+            <MenuItem value="Registered">Registered</MenuItem>
+            <MenuItem value="Unregistered">Unregistered</MenuItem>
+          </TextField>
+        </FormField>
+
+        <FormField
+          label="GSTIN"
+          required={form.gstStatus === 'Registered'}
+          hint="15-digit GST number"
+          error={errors.gstin}
+        >
+          <TextField
+            fullWidth
+            size="small"
+            value={form.gstin}
+            onChange={(e) => update('gstin', e.target.value.toUpperCase())}
+            placeholder="29ABCDE1234F1Z5"
+            disabled={form.gstStatus === 'Unregistered'}
+            error={!!errors.gstin}
+          />
+        </FormField>
+
+        <FormField label="PAN Number" hint="10-character PAN">
+          <TextField
+            fullWidth
+            size="small"
+            value={form.pan}
+            onChange={(e) => update('pan', e.target.value.toUpperCase())}
+            placeholder="ABCDE1234F"
+          />
+        </FormField>
+      </FormSection>
+
+      {/* ── Primary Contact ──────────────────────────────────────────── */}
+      <FormSection title="Primary Contact" columns={2}>
+        <FormField label="Contact Person" required error={errors.contactPerson}>
+          <TextField
+            fullWidth
+            size="small"
+            value={form.contactPerson}
+            onChange={(e) => update('contactPerson', e.target.value)}
+            placeholder="Full name"
+            error={!!errors.contactPerson}
+          />
+        </FormField>
+
+        <FormField label="Designation">
+          <TextField
+            fullWidth
+            size="small"
+            value={form.designation}
+            onChange={(e) => update('designation', e.target.value)}
+            placeholder="e.g. Director"
+          />
+        </FormField>
+
+        <FormField label="Phone" required error={errors.phone}>
+          <TextField
+            fullWidth
+            size="small"
+            type="tel"
+            value={form.phone}
+            onChange={(e) => update('phone', e.target.value)}
+            placeholder="+91 98765 43210"
+            error={!!errors.phone}
+          />
+        </FormField>
+
+        <FormField label="Email" required error={errors.email}>
+          <TextField
+            fullWidth
+            size="small"
+            type="email"
+            value={form.email}
+            onChange={(e) => update('email', e.target.value)}
+            placeholder="name@company.com"
+            error={!!errors.email}
+          />
+        </FormField>
+      </FormSection>
+
+      {/* ── Address ─────────────────────────────────────────────────── */}
+      <FormSection title="Address" columns={2}>
+        <Box sx={{ gridColumn: 'span 2' }}>
+          <FormField label="Address">
+            <TextField
+              fullWidth
+              size="small"
+              multiline
+              rows={2}
+              value={form.address}
+              onChange={(e) => update('address', e.target.value)}
+              placeholder="Building, Street"
+            />
+          </FormField>
+        </Box>
+
+        <FormField label="City" required error={errors.city}>
+          <TextField
+            fullWidth
+            size="small"
+            value={form.city}
+            onChange={(e) => update('city', e.target.value)}
+            placeholder="City"
+            error={!!errors.city}
+          />
+        </FormField>
+
+        <FormField label="State" required error={errors.state}>
+          <TextField
+            fullWidth
+            size="small"
+            select
+            value={form.state}
+            onChange={(e) => update('state', e.target.value)}
+            error={!!errors.state}
+          >
+            {INDIAN_STATES.map((s) => (
+              <MenuItem key={s} value={s}>
+                {s}
+              </MenuItem>
+            ))}
+          </TextField>
+        </FormField>
+
+        <FormField label="Pincode">
+          <TextField
+            fullWidth
+            size="small"
+            value={form.pincode}
+            onChange={(e) => update('pincode', e.target.value)}
+            placeholder="560001"
+          />
+        </FormField>
+      </FormSection>
+
+      {/* ── Additional ──────────────────────────────────────────────── */}
+      <FormSection title="Additional" columns={1}>
+        <FormField label="Tags">
+          <Autocomplete
+            multiple
+            freeSolo
+            options={COMMON_TAGS}
+            value={form.tags}
+            onChange={(_, newValue) => update('tags', newValue as string[])}
+            renderTags={(value, getTagProps) =>
+              value.map((option, index) => (
+                <MuiChip
+                  variant="outlined"
+                  label={option}
+                  size="small"
+                  {...getTagProps({ index })}
+                  key={index}
+                />
+              ))
+            }
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                size="small"
+                placeholder={form.tags.length === 0 ? 'Add tags...' : ''}
+              />
+            )}
+          />
+        </FormField>
+
+        <FormField label="Notes">
+          <TextField
+            fullWidth
+            size="small"
+            multiline
+            rows={2}
+            value={form.notes}
+            onChange={(e) => update('notes', e.target.value)}
+            placeholder="Internal notes about this customer"
+          />
+        </FormField>
+      </FormSection>
+    </DrawerForm>
+  )
+}

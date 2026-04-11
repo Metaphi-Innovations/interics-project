@@ -26,7 +26,7 @@ export function generateTheme(config: ThemeConfig): Theme {
   const isLight = config.mode === 'light';
 
   const background = {
-    default: isLight ? '#F7F7F8'  : '#0F0F0F',
+    default: isLight ? '#F8FAFB'  : '#0F0F0F',
     paper:   isLight ? '#FFFFFF'  : neutral[900],
   };
 
@@ -65,10 +65,10 @@ export function generateTheme(config: ThemeConfig): Theme {
         dark:        primary[700],
         contrastText: '#FFFFFF',
       },
-      error:   { main: tokens.color.error[500] },
-      success: { main: tokens.color.success[500] },
-      warning: { main: tokens.color.warning[500] },
-      info:    { main: tokens.color.info[500] },
+      error:   { main: '#DC2626', light: '#FEE2E2', contrastText: '#ffffff' },
+      success: { main: '#16A34A', light: '#DCFCE7', contrastText: '#ffffff' },
+      warning: { main: '#D97706', light: '#FEF3C7', contrastText: '#ffffff' },
+      info:    { main: '#0284C7', light: '#E0F2FE', contrastText: '#ffffff' },
       text: {
         primary:   text.primary,
         secondary: text.secondary,
@@ -80,28 +80,29 @@ export function generateTheme(config: ThemeConfig): Theme {
 
     typography: {
       fontFamily: fontFamilyString,
-      fontSize: 14,
+      fontSize: 13,
+      htmlFontSize: 13,
       fontWeightRegular: tokens.fontWeight.normal,
       fontWeightMedium:  tokens.fontWeight.medium,
       fontWeightBold:    tokens.fontWeight.bold,
-      h1: { fontSize: tokens.fontSize['4xl'], fontWeight: 700, lineHeight: 1.25 },
-      h2: { fontSize: tokens.fontSize['3xl'], fontWeight: 700, lineHeight: 1.25 },
-      h3: { fontSize: tokens.fontSize['2xl'], fontWeight: 600, lineHeight: 1.3  },
-      h4: { fontSize: tokens.fontSize.xl,     fontWeight: 600, lineHeight: 1.4  },
-      h5: { fontSize: tokens.fontSize.lg,     fontWeight: 600, lineHeight: 1.4  },
-      h6: { fontSize: tokens.fontSize.base,   fontWeight: 600, lineHeight: 1.5  },
-      body1:   { fontSize: tokens.fontSize.base, lineHeight: 1.5 },
-      body2:   { fontSize: tokens.fontSize.sm,   lineHeight: 1.5 },
-      caption: { fontSize: tokens.fontSize.xs,   lineHeight: 1.5 },
+      h1: { fontSize: '28px', fontWeight: 700, lineHeight: 1.25 },
+      h2: { fontSize: '22px', fontWeight: 700, lineHeight: 1.25 },
+      h3: { fontSize: '18px', fontWeight: 600, lineHeight: 1.3  },
+      h4: { fontSize: '16px', fontWeight: 600, lineHeight: 1.4  },
+      h5: { fontSize: '14px', fontWeight: 600, lineHeight: 1.4  },
+      h6: { fontSize: '13px', fontWeight: 600, lineHeight: 1.5  },
+      body1:   { fontSize: '13px', lineHeight: 1.5 },
+      body2:   { fontSize: '12px', lineHeight: 1.5 },
+      caption: { fontSize: '11px', lineHeight: 1.5 },
       overline: {
-        fontSize:      tokens.fontSize.xs,
+        fontSize:      '10px',
         fontWeight:    600,
-        letterSpacing: '0.08em',
+        letterSpacing: '0.8px',
         textTransform: 'uppercase',
       },
     },
 
-    shape: { borderRadius: 8 },
+    shape: { borderRadius: 6 },
 
     spacing: 4,
 
@@ -121,6 +122,17 @@ export function generateTheme(config: ThemeConfig): Theme {
           body: {
             transition: 'background-color 200ms ease, color 200ms ease',
           },
+          'input[type=number]': {
+            MozAppearance: 'textfield',
+          },
+          'input[type=number]::-webkit-outer-spin-button': {
+            WebkitAppearance: 'none',
+            margin: 0,
+          },
+          'input[type=number]::-webkit-inner-spin-button': {
+            WebkitAppearance: 'none',
+            margin: 0,
+          },
         },
       },
 
@@ -130,34 +142,119 @@ export function generateTheme(config: ThemeConfig): Theme {
           root: {
             textTransform: 'none',
             fontWeight: 600,
-            borderRadius: tokens.borderRadius.md,
+            borderRadius: '6px',
           },
-          sizeSmall:  { fontSize: tokens.fontSize.sm,   padding: '6px 12px'   },
-          sizeMedium: { fontSize: tokens.fontSize.base, padding: '10px 20px'  },
-          sizeLarge:  { fontSize: tokens.fontSize.lg,   padding: '14px 28px'  },
+          sizeSmall:  { fontSize: '12px', padding: '3px 10px'  },
+          sizeMedium: { fontSize: '13px', padding: '5px 14px'  },
+          sizeLarge:  { fontSize: '14px', padding: '7px 18px'  },
         },
       },
 
       MuiTextField: {
         defaultProps: { variant: 'outlined', size: 'small' },
+      },
+
+      MuiInputBase: {
         styleOverrides: {
-          root: {
-            '& .MuiOutlinedInput-root': {
-              borderRadius: tokens.borderRadius.md,
-            },
+          inputSizeSmall: {
+            fontSize: '12px',
+            padding: '6px 10px',
+          },
+          input: {
+            fontSize: '13px',
+            padding: '8px 12px',
           },
         },
       },
 
       MuiOutlinedInput: {
         styleOverrides: {
-          notchedOutline: {
-            borderColor: isLight ? alpha('#000000', 0.18) : alpha('#ffffff', 0.18),
-          },
           root: {
-            '&:hover:not(.Mui-focused):not(.Mui-disabled) .MuiOutlinedInput-notchedOutline': {
-              borderColor: isLight ? alpha('#000000', 0.32) : alpha('#ffffff', 0.32),
+            borderRadius: '6px',
+            backgroundColor: isLight ? '#F3F3F5' : alpha('#ffffff', 0.06),
+            '& .MuiOutlinedInput-notchedOutline': {
+              border: 'none',
             },
+            '&:hover .MuiOutlinedInput-notchedOutline': {
+              border: 'none',
+            },
+            '&.Mui-focused': {
+              backgroundColor: isLight ? '#EAEAEF' : alpha('#ffffff', 0.10),
+              '& .MuiOutlinedInput-notchedOutline': {
+                border: '1.5px solid',
+                borderColor: primary[500],
+              },
+            },
+            '&.Mui-error': {
+              backgroundColor: '#FEF2F2',
+              '& .MuiOutlinedInput-notchedOutline': {
+                border: '1.5px solid',
+                borderColor: '#DC2626',
+              },
+            },
+            '&.Mui-disabled': {
+              backgroundColor: isLight ? '#F8FAFB' : alpha('#ffffff', 0.03),
+              opacity: 0.6,
+            },
+          },
+        },
+      },
+
+      MuiSelect: {
+        styleOverrides: {
+          root: {
+            '& .MuiOutlinedInput-notchedOutline': {
+              border: 'none',
+            },
+          },
+        },
+      },
+
+      MuiTableCell: {
+        styleOverrides: {
+          root: {
+            fontSize: '12px',
+            padding: '10px 12px',
+            borderColor: isLight ? neutral[100] : alpha('#ffffff', 0.07),
+            verticalAlign: 'middle',
+          },
+          head: {
+            fontWeight: 600,
+            fontSize: '11px',
+            color: isLight ? neutral[500] : neutral[400],
+            textTransform: 'uppercase' as const,
+            letterSpacing: '0.5px',
+            backgroundColor: isLight ? '#F8FAFB' : neutral[900],
+            padding: '10px 12px',
+          },
+        },
+      },
+
+      MuiTableRow: {
+        styleOverrides: {
+          root: {
+            height: '44px',
+            '&:hover': {
+              backgroundColor: isLight ? alpha(primary[500], 0.05) : alpha('#ffffff', 0.03),
+            },
+            '&.Mui-selected': {
+              backgroundColor: isLight ? alpha(primary[500], 0.06) : alpha(primary[500], 0.12),
+            },
+          },
+        },
+      },
+
+      MuiChip: {
+        styleOverrides: {
+          root: {
+            height: '22px',
+            fontSize: '11px',
+            fontWeight: 500,
+            borderRadius: '999px',
+            padding: '0 8px',
+          },
+          label: {
+            padding: '0 4px',
           },
         },
       },
@@ -165,32 +262,169 @@ export function generateTheme(config: ThemeConfig): Theme {
       MuiCard: {
         styleOverrides: {
           root: {
-            borderRadius: tokens.borderRadius.lg,
+            borderRadius: '12px',
             backgroundImage: 'none',
-            border: `1px solid ${alpha(isLight ? '#000000' : '#ffffff', isLight ? 0.07 : 0.08)}`,
-            boxShadow: isLight ? '0 1px 3px rgba(0,0,0,0.07), 0 1px 2px rgba(0,0,0,0.04)' : 'none',
+            border: `1px solid ${isLight ? '#E8EEEC' : alpha('#ffffff', 0.08)}`,
+            boxShadow: isLight ? '0 1px 4px rgba(0,0,0,0.06)' : 'none',
           },
         },
       },
 
-      MuiChip: {
+      MuiCardContent: {
         styleOverrides: {
-          root: { borderRadius: tokens.borderRadius.full },
-        },
-      },
-
-      MuiTooltip: {
-        styleOverrides: {
-          tooltip: { borderRadius: tokens.borderRadius.sm },
+          root: {
+            padding: '16px',
+            '&:last-child': {
+              paddingBottom: '16px',
+            },
+          },
         },
       },
 
       MuiDialog: {
         styleOverrides: {
           paper: {
-            borderRadius: tokens.borderRadius.xl,
+            borderRadius: '10px',
             backgroundImage: 'none',
           },
+        },
+      },
+
+      MuiDialogTitle: {
+        styleOverrides: {
+          root: {
+            fontSize: '15px',
+            fontWeight: 600,
+            padding: '16px 20px',
+          },
+        },
+      },
+
+      MuiDialogContent: {
+        styleOverrides: {
+          root: {
+            padding: '0 20px 16px',
+          },
+        },
+      },
+
+      MuiDialogActions: {
+        styleOverrides: {
+          root: {
+            padding: '12px 20px',
+          },
+        },
+      },
+
+      MuiDrawer: {
+        styleOverrides: {
+          paper: {
+            backgroundImage: 'none',
+            width: 480,
+          },
+        },
+      },
+
+      MuiTabs: {
+        styleOverrides: {
+          root: {
+            minHeight: '40px',
+          },
+          indicator: {
+            height: '2px',
+            borderRadius: '2px',
+          },
+        },
+      },
+
+      MuiTab: {
+        styleOverrides: {
+          root: {
+            fontSize: '12px',
+            fontWeight: 500,
+            textTransform: 'none',
+            minHeight: '40px',
+            padding: '8px 12px',
+            color: isLight ? neutral[500] : neutral[400],
+            '&.Mui-selected': {
+              fontWeight: 600,
+              color: primary[600],
+            },
+          },
+        },
+      },
+
+      MuiMenuItem: {
+        styleOverrides: {
+          root: {
+            fontSize: '13px',
+            padding: '7px 14px',
+            minHeight: '36px',
+            gap: '8px',
+            '&[data-destructive="true"]': {
+              color: tokens.color.error[600],
+            },
+          },
+        },
+      },
+
+      MuiListItemText: {
+        styleOverrides: {
+          primary: {
+            fontSize: '13px',
+          },
+          secondary: {
+            fontSize: '11px',
+          },
+        },
+      },
+
+      MuiTooltip: {
+        styleOverrides: {
+          tooltip: {
+            fontSize: '11px',
+            padding: '4px 8px',
+            borderRadius: tokens.borderRadius.sm,
+          },
+        },
+      },
+
+      MuiBreadcrumbs: {
+        styleOverrides: {
+          root: {
+            fontSize: '12px',
+            color: isLight ? neutral[500] : neutral[400],
+          },
+          separator: {
+            color: isLight ? neutral[300] : neutral[600],
+          },
+        },
+      },
+
+      MuiAvatar: {
+        styleOverrides: {
+          root: {
+            width: '32px',
+            height: '32px',
+            fontSize: '12px',
+            fontWeight: 600,
+          },
+        },
+      },
+
+      MuiDivider: {
+        styleOverrides: {
+          root: {
+            borderColor: isLight ? neutral[100] : alpha('#ffffff', 0.08),
+          },
+        },
+      },
+
+      MuiPaper: {
+        styleOverrides: {
+          elevation0: { boxShadow: 'none' },
+          elevation1: { boxShadow: tokens.shadow.sm },
+          elevation2: { boxShadow: tokens.shadow.md },
         },
       },
 
@@ -203,12 +437,6 @@ export function generateTheme(config: ThemeConfig): Theme {
       MuiMenu: {
         styleOverrides: {
           paper: { borderRadius: tokens.borderRadius.lg },
-        },
-      },
-
-      MuiDrawer: {
-        styleOverrides: {
-          paper: { backgroundImage: 'none' },
         },
       },
     },

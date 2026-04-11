@@ -1,0 +1,11 @@
+import client from './client'
+
+export const vendorsApi = {
+  getAll: (params?: Record<string, unknown>) =>
+    client.get('/vendors', { params }),
+  getById: (id: string) => client.get(`/vendors/${id}`),
+  create: (data: Record<string, unknown>) => client.post('/vendors', data),
+  update: (id: string, data: Record<string, unknown>) =>
+    client.put(`/vendors/${id}`, data),
+  delete: (id: string) => client.delete(`/vendors/${id}`),
+}
