@@ -47,6 +47,8 @@ export interface PitchService {
   subcategoryName: string | null
   customName: string | null
   value: number
+  sacCode?: string
+  gstRate?: number
   clientMilestones: ClientMilestone[]
   vendorMappings: VendorMapping[]
   milestonesTotal: number

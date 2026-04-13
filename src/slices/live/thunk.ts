@@ -1,5 +1,5 @@
 import { createAsyncThunk } from '@reduxjs/toolkit'
-import type { Invoice, VendorInvoice, Expense, ChangeRequest } from './reducer'
+import type { Invoice, VendorInvoice, Expense, ChangeRequest, ComplianceData } from './reducer'
 
 const BASE = '/api/projects'
 
@@ -203,4 +203,16 @@ export const rejectChangeRequest = createAsyncThunk<
   })
   if (!res.ok) return rejectWithValue('Failed to reject change request')
   return res.json() as Promise<ChangeRequest>
+})
+
+// ─── Compliance ───────────────────────────────────────────────────────────────
+
+export const fetchComplianceData = createAsyncThunk<
+  ComplianceData,
+  string,
+  { rejectValue: string }
+>('live/fetchCompliance', async (projectId, { rejectWithValue }) => {
+  const res = await fetch(`${BASE}/${projectId}/compliance`)
+  if (!res.ok) return rejectWithValue('Failed to fetch compliance data')
+  return res.json() as Promise<ComplianceData>
 })

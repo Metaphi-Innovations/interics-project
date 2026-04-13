@@ -25,6 +25,10 @@ import {
   Button as MuiButton,
   InputAdornment,
   Grid,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
+  LinearProgress,
 } from '@mui/material'
 import {
   Add,
@@ -35,6 +39,9 @@ import {
   Close,
   Visibility,
   Edit as EditIcon,
+  ExpandMore,
+  Description as DescriptionIcon,
+  Download as DownloadIcon,
 } from '@mui/icons-material'
 import { useTheme, alpha } from '@mui/material/styles'
 import { useAppDispatch, useAppSelector } from '../../../store/hooks'
@@ -60,6 +67,40 @@ const DEFAULT_CATEGORIES = [
   { id: 'cat-007', name: 'Landscaping' },
   { id: 'cat-008', name: 'Project Management' },
 ]
+
+// ─── Service master list (SAC codes + GST rates) ─────────────────────────────
+
+interface ServiceMaster {
+  id: string
+  name: string
+  sacCode: string
+  gstRate: number
+  categoryId: string
+}
+
+const SERVICE_MASTER: ServiceMaster[] = [
+  { id: 'svc-001', name: 'Interior Design', sacCode: '998391', gstRate: 18, categoryId: 'cat-001' },
+  { id: 'svc-002', name: 'Engineering Services', sacCode: '998392', gstRate: 18, categoryId: 'cat-001' },
+  { id: 'svc-003', name: 'Due Diligence', sacCode: '998393', gstRate: 18, categoryId: 'cat-001' },
+  { id: 'svc-004', name: 'Acoustic Consultancy', sacCode: '998312', gstRate: 18, categoryId: 'cat-001' },
+  { id: 'svc-005', name: 'Lighting Consultancy', sacCode: '998312', gstRate: 18, categoryId: 'cat-001' },
+  { id: 'svc-006', name: 'LEED Consultancy', sacCode: '998312', gstRate: 18, categoryId: 'cat-001' },
+  { id: 'svc-007', name: 'Local Approvals', sacCode: '999799', gstRate: 18, categoryId: 'cat-001' },
+  { id: 'svc-008', name: 'Civil Works', sacCode: '995411', gstRate: 18, categoryId: 'cat-002' },
+  { id: 'svc-009', name: 'Furniture & Fixtures Supply', sacCode: '995481', gstRate: 18, categoryId: 'cat-003' },
+  { id: 'svc-010', name: 'MEP Works', sacCode: '995422', gstRate: 18, categoryId: 'cat-004' },
+  { id: 'svc-011', name: 'AV & IT Installation', sacCode: '998841', gstRate: 18, categoryId: 'cat-005' },
+  { id: 'svc-012', name: 'Signage & Branding', sacCode: '998395', gstRate: 18, categoryId: 'cat-006' },
+  { id: 'svc-013', name: 'Landscaping', sacCode: '998531', gstRate: 18, categoryId: 'cat-007' },
+  { id: 'svc-014', name: 'Project Management', sacCode: '998319', gstRate: 18, categoryId: 'cat-008' },
+  { id: 'svc-015', name: 'Management Consultancy', sacCode: '998311', gstRate: 18, categoryId: 'cat-008' },
+  { id: 'svc-016', name: 'Travel & Expenses', sacCode: '996412', gstRate: 5, categoryId: 'cat-001' },
+  { id: 'svc-017', name: 'Other', sacCode: '999999', gstRate: 18, categoryId: 'cat-001' },
+]
+
+function formatLakh(value: number): string {
+  return (value / 100000).toFixed(1) + ' L'
+}
 
 // ─── Version Management Bar ───────────────────────────────────────────────────
 
@@ -159,80 +200,147 @@ function VersionBar({ versions, activeVersionId, onVersionChange, onNewVersion, 
   )
 }
 
-// ─── Financial Summary Strip ──────────────────────────────────────────────────
+// ─── Financial Sidebar ────────────────────────────────────────────────────────
 
-interface SummaryStripProps {
+interface FinancialSidebarProps {
   version: PitchVersion
 }
 
-function SummaryStrip({ version }: SummaryStripProps) {
+function FinancialSidebar({ version }: FinancialSidebarProps) {
   const margin =
     version.totalRevenue > 0
-      ? ((version.profitability / version.totalRevenue) * 100).toFixed(1)
-      : '0.0'
+      ? ((version.profitability / version.totalRevenue) * 100)
+      : 0
 
-  const cards = [
-    {
-      label: 'TOTAL REVENUE',
-      value: `₹${formatCurrency(version.totalRevenue)}`,
-      color: tokens.color.success?.[600] ?? '#16A34A',
-      bg: tokens.color.success?.[50] ?? '#F0FDF4',
-    },
-    {
-      label: 'TOTAL COST',
-      value: `₹${formatCurrency(version.totalCost)}`,
-      color: tokens.color.warning?.[600] ?? '#D97706',
-      bg: tokens.color.warning?.[50] ?? '#FFFBEB',
-    },
-    {
-      label: 'PROFITABILITY',
-      value: `₹${formatCurrency(Math.abs(version.profitability))}`,
-      color:
-        version.profitability >= 0
-          ? (tokens.color.success?.[600] ?? '#16A34A')
-          : (tokens.color.error?.[600] ?? '#DC2626'),
-      bg:
-        version.profitability >= 0
-          ? (tokens.color.success?.[50] ?? '#F0FDF4')
-          : (tokens.color.error?.[50] ?? '#FEF2F2'),
-    },
-    {
-      label: 'MARGIN %',
-      value: `${margin}%`,
-      color: tokens.color.info?.[600] ?? '#2563EB',
-      bg: tokens.color.info?.[50] ?? '#EFF6FF',
-    },
-  ]
+  const gstRate = 0.18
+  const estGst = version.totalRevenue * gstRate
+  const totalBilling = version.totalRevenue + estGst
+
+  const health =
+    margin > 50 ? { label: 'Excellent', color: '#16A34A' } :
+    margin > 30 ? { label: 'Good', color: '#D97706' } :
+    margin > 10 ? { label: 'At Risk', color: '#EA580C' } :
+    { label: 'Critical', color: '#DC2626' }
+
+  // Expense summary (approx from vendor cost)
+  const expenseTotal = version.totalCost
 
   return (
-    <Grid
-      container
+    <Box
       sx={{
-        display: 'grid',
-        gridTemplateColumns: { xs: 'repeat(2,1fr)', lg: 'repeat(4,1fr)' },
-        gap: '12px',
-        mb: 2,
+        position: 'sticky',
+        top: 80,
+        bgcolor: 'background.paper',
+        border: '1px solid',
+        borderColor: 'divider',
+        borderRadius: 2,
+        p: 2,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 2,
       }}
     >
-      {cards.map((card) => (
-        <Box
-          key={card.label}
-          sx={{
-            p: '14px 16px',
-            border: `1px solid ${tokens.color.neutral[100]}`,
-            borderRadius: 2,
-            bgcolor: card.bg,
-          }}
-        >
-          <Typography variant="overline" sx={{ fontSize: 10, color: 'text.secondary', letterSpacing: '0.8px', display: 'block' }}>
-            {card.label}
+      {/* Section 1 — Revenue Breakdown */}
+      <Box>
+        <Typography variant="overline" sx={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.6, color: 'text.secondary', display: 'block', mb: 1.5 }}>
+          Financial Summary
+        </Typography>
+        <Stack gap={0.75}>
+          <Stack direction="row" justifyContent="space-between" alignItems="center">
+            <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary' }}>Base Revenue</Typography>
+            <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 700, color: '#0D9488' }}>
+              ₹{formatLakh(version.totalRevenue)}
+            </Typography>
+          </Stack>
+          <Stack direction="row" justifyContent="space-between" alignItems="center">
+            <Typography variant="body2" sx={{ fontSize: 11, color: 'text.secondary' }}>Est. GST (18%)</Typography>
+            <Typography variant="body2" sx={{ fontSize: 11, color: 'text.secondary' }}>
+              +₹{formatLakh(estGst)}
+            </Typography>
+          </Stack>
+          <Divider />
+          <Stack direction="row" justifyContent="space-between" alignItems="center">
+            <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 600 }}>Total Billing</Typography>
+            <Typography variant="body2" sx={{ fontSize: 14, fontWeight: 700, color: 'primary.main' }}>
+              ₹{formatLakh(totalBilling)}
+            </Typography>
+          </Stack>
+          <Typography sx={{ fontSize: 10, color: 'text.disabled', mt: 0.5 }}>
+            GST is a pass-through liability, not your revenue
           </Typography>
-          <Typography variant="h6" sx={{ fontWeight: 700, mt: '2px', color: card.color, fontSize: 16 }}>
-            {card.value}
+        </Stack>
+      </Box>
+
+      {/* Section 2 — Cost & Profit */}
+      <Box>
+        <Stack gap={0.75}>
+          <Stack direction="row" justifyContent="space-between" alignItems="center">
+            <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary' }}>Total Cost</Typography>
+            <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 700, color: '#EA580C' }}>
+              ₹{formatLakh(version.totalCost)}
+            </Typography>
+          </Stack>
+          <Stack direction="row" justifyContent="space-between" alignItems="center">
+            <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary' }}>Profitability</Typography>
+            <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 700, color: '#16A34A' }}>
+              ₹{formatLakh(Math.abs(version.profitability))}
+            </Typography>
+          </Stack>
+          <Box>
+            <Stack direction="row" justifyContent="space-between" sx={{ mb: 0.5 }}>
+              <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary' }}>Margin</Typography>
+              <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 700, color: 'success.main' }}>
+                {margin.toFixed(1)}%
+              </Typography>
+            </Stack>
+            <LinearProgress
+              variant="determinate"
+              value={Math.min(margin, 100)}
+              color="success"
+              sx={{ height: 5, borderRadius: 3 }}
+            />
+          </Box>
+        </Stack>
+      </Box>
+
+      {/* Section 3 — Cash Flow Preview */}
+      <Box>
+        <Typography variant="overline" sx={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.6, color: 'text.secondary', display: 'block', mb: 0.75 }}>
+          Cash Flow Preview
+        </Typography>
+        <Stack direction="row" alignItems="center" gap={1}>
+          <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: 'success.main' }} />
+          <Typography variant="body2" sx={{ fontSize: 12, color: 'success.main', fontWeight: 600 }}>Positive</Typography>
+        </Stack>
+        <Typography variant="caption" sx={{ fontSize: 10, color: 'text.disabled' }}>
+          Based on milestone due dates
+        </Typography>
+      </Box>
+
+      {/* Section 4 — Project Health */}
+      <Box>
+        <Typography variant="overline" sx={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.6, color: 'text.secondary', display: 'block', mb: 0.75 }}>
+          Project Health
+        </Typography>
+        <Stack direction="row" alignItems="center" gap={1}>
+          <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: health.color }} />
+          <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600, color: health.color }}>
+            {health.label}
           </Typography>
-        </Box>
-      ))}
-    </Grid>
+        </Stack>
+      </Box>
+
+      {/* Section 5 — Expense Planning */}
+      <Box>
+        <Typography variant="overline" sx={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.6, color: 'text.secondary', display: 'block', mb: 0.75 }}>
+          Expense Planning
+        </Typography>
+        <Stack direction="row" justifyContent="space-between" alignItems="center">
+          <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary' }}>Vendor Costs</Typography>
+          <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 700 }}>₹{formatLakh(expenseTotal)}</Typography>
+        </Stack>
+      </Box>
+    </Box>
   )
 }
 
@@ -1205,21 +1313,32 @@ interface ServiceRowProps {
 function ServiceRow({ service, projectId, versionId, categoryId, onEditMilestones, onEditVendors, onDelete }: ServiceRowProps) {
   const dispatch = useAppDispatch()
   const theme = useTheme()
-  const [editingName, setEditingName] = useState(false)
-  const [name, setName] = useState(service.name)
   const [value, setValue] = useState(service.value)
+  const [selectedServiceId, setSelectedServiceId] = useState<string>('')
+
+  // Try to find the matching master service by name
+  const resolvedMaster = SERVICE_MASTER.find((s) => s.name === service.name)
+  const sacCode = service.sacCode ?? resolvedMaster?.sacCode ?? '—'
+  const gstRate = service.gstRate ?? resolvedMaster?.gstRate ?? 18
 
   const milestoneTotal = service.clientMilestones.reduce((sum, m) => sum + m.value, 0)
   const milestoneBalanced = milestoneTotal === service.value
   const milestoneDiff = service.value - milestoneTotal
   const vendorTotal = service.vendorMappings.reduce((sum, m) => sum + m.value, 0)
 
-  const cellSx = { py: '10px', px: '16px', fontSize: 12, borderBottom: `1px solid ${tokens.color.neutral[50]}` }
+  const gstAmt = value * (gstRate / 100)
+  const totalWithGst = value + gstAmt
 
-  function saveName() {
-    setEditingName(false)
-    if (name !== service.name) {
-      void dispatch(updateService({ projectId, versionId, categoryId, serviceId: service.id, data: { name } }))
+  const cellSx = { py: '10px', px: '10px', fontSize: 12, borderBottom: `1px solid ${tokens.color.neutral[50]}`, verticalAlign: 'top' }
+
+  function handleServiceSelect(svcId: string) {
+    setSelectedServiceId(svcId)
+    const master = SERVICE_MASTER.find((s) => s.id === svcId)
+    if (master) {
+      void dispatch(updateService({
+        projectId, versionId, categoryId, serviceId: service.id,
+        data: { name: master.name, sacCode: master.sacCode, gstRate: master.gstRate },
+      }))
     }
   }
 
@@ -1230,41 +1349,47 @@ function ServiceRow({ service, projectId, versionId, categoryId, onEditMilestone
   }
 
   return (
-    <TableRow
-      sx={{
-        '&:hover': { bgcolor: tokens.color.neutral[50] },
-        '& td': { borderBottom: `1px solid ${tokens.color.neutral[50]}` },
-      }}
-    >
-      {/* Name + subcategory caption */}
+    <TableRow sx={{ '&:hover': { bgcolor: tokens.color.neutral[50] }, '& td': { borderBottom: `1px solid ${tokens.color.neutral[50]}` } }}>
+      {/* Service Name Dropdown */}
       <TableCell sx={cellSx}>
-        {editingName ? (
-          <TextField
-            size="small"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onBlur={saveName}
-            onKeyDown={(e) => e.key === 'Enter' && saveName()}
-            autoFocus
-            sx={{ '& input': { fontSize: 12 } }}
-            fullWidth
-          />
-        ) : (
-          <Box onClick={() => setEditingName(true)} sx={{ cursor: 'text' }}>
-            <Typography variant="body2" sx={{ fontWeight: 500, fontSize: 12 }}>
-              {service.name}
-            </Typography>
-            {(service.subcategoryName ?? service.customName) && (
-              <Typography variant="caption" color="text.secondary" sx={{ fontSize: 10 }}>
-                {service.subcategoryName ?? service.customName}
-              </Typography>
-            )}
-          </Box>
-        )}
+        <FormControl size="small" fullWidth>
+          <MuiSelect
+            value={selectedServiceId || (resolvedMaster?.id ?? '__custom__')}
+            onChange={(e) => handleServiceSelect(e.target.value)}
+            displayEmpty
+            sx={{ fontSize: 12 }}
+            renderValue={(val) => {
+              if (val === '__custom__') return service.name || 'Select service...'
+              const found = SERVICE_MASTER.find((s) => s.id === val)
+              return found?.name ?? service.name
+            }}
+          >
+            <MenuItem value="" disabled sx={{ fontSize: 12 }}>Select service...</MenuItem>
+            {SERVICE_MASTER.map((s) => (
+              <MenuItem key={s.id} value={s.id} sx={{ fontSize: 12 }}>{s.name}</MenuItem>
+            ))}
+          </MuiSelect>
+        </FormControl>
       </TableCell>
 
-      {/* Value */}
-      <TableCell sx={{ ...cellSx, width: 180 }} align="right">
+      {/* SAC Code */}
+      <TableCell sx={{ ...cellSx, width: 100 }}>
+        <Typography variant="body2" sx={{ fontSize: 11, color: 'text.secondary', fontFamily: 'monospace' }}>
+          {sacCode}
+        </Typography>
+      </TableCell>
+
+      {/* GST % */}
+      <TableCell sx={{ ...cellSx, width: 80 }}>
+        <MuiChip
+          label={`${gstRate}%`}
+          size="small"
+          sx={{ fontSize: 11, height: 20, '& .MuiChip-label': { px: '6px' } }}
+        />
+      </TableCell>
+
+      {/* Value + GST breakdown */}
+      <TableCell sx={{ ...cellSx, width: 170 }}>
         <TextField
           size="small"
           type="number"
@@ -1274,110 +1399,91 @@ function ServiceRow({ service, projectId, versionId, categoryId, onEditMilestone
           InputProps={{
             startAdornment: <InputAdornment position="start" sx={{ '& p': { fontSize: 12 } }}>₹</InputAdornment>,
           }}
-          sx={{ width: '160px', '& input': { fontSize: 12, textAlign: 'right' } }}
+          sx={{ width: '150px', '& input': { fontSize: 12, textAlign: 'right' } }}
           inputProps={{ style: { textAlign: 'right' } }}
         />
+        {value > 0 && (
+          <Box sx={{ mt: 0.5 }}>
+            <Typography variant="caption" sx={{ fontSize: 10, color: 'text.secondary', display: 'block' }}>
+              GST: +₹{formatCurrency(Math.round(gstAmt))}
+            </Typography>
+            <Typography variant="caption" sx={{ fontSize: 10, color: 'text.disabled', display: 'block' }}>
+              Total: ₹{formatCurrency(Math.round(totalWithGst))}
+            </Typography>
+          </Box>
+        )}
       </TableCell>
 
-      {/* Milestones — View/Edit pattern */}
-      <TableCell sx={{ ...cellSx, width: 180 }} align="center">
+      {/* Milestones */}
+      <TableCell sx={{ ...cellSx, width: 130 }}>
         <Box display="flex" flexDirection="column" alignItems="flex-start" gap={0.5}>
           {service.clientMilestones.length > 0 ? (
             <Box display="flex" alignItems="center" gap={0.5}>
               {milestoneBalanced
-                ? <CheckCircle sx={{ fontSize: 14, color: theme.palette.success.main }} />
-                : <Warning sx={{ fontSize: 14, color: theme.palette.warning.main }} />
-              }
+                ? <CheckCircle sx={{ fontSize: 12, color: theme.palette.success.main }} />
+                : <Warning sx={{ fontSize: 12, color: theme.palette.warning.main }} />}
               <Typography variant="caption" sx={{ fontSize: 10, color: milestoneBalanced ? 'success.main' : 'warning.main' }}>
-                {milestoneBalanced
-                  ? `${service.clientMilestones.length} milestones`
-                  : `₹${formatCurrency(milestoneDiff)} unallocated`
-                }
+                {milestoneBalanced ? `${service.clientMilestones.length} set` : `₹${formatCurrency(milestoneDiff)} left`}
               </Typography>
             </Box>
           ) : (
-            <Typography variant="caption" sx={{ fontSize: 10, color: 'text.disabled' }}>No milestones</Typography>
+            <Typography variant="caption" sx={{ fontSize: 10, color: 'text.disabled' }}>None</Typography>
           )}
-          <MuiButton
-            size="small"
-            variant="text"
-            startIcon={<Visibility sx={{ fontSize: 12 }} />}
-            sx={{ fontSize: 11, padding: '2px 6px', minWidth: 0, height: 22 }}
-            onClick={() => onEditMilestones(service)}
-          >
-            View
-          </MuiButton>
+          <MuiButton size="small" variant="text" startIcon={<Visibility sx={{ fontSize: 11 }} />}
+            sx={{ fontSize: 11, p: '2px 4px', minWidth: 0, height: 20 }}
+            onClick={() => onEditMilestones(service)}>View</MuiButton>
         </Box>
       </TableCell>
 
-      {/* Vendors — View/Edit pattern */}
-      <TableCell sx={{ ...cellSx, width: 180 }} align="center">
+      {/* Vendors */}
+      <TableCell sx={{ ...cellSx, width: 130 }}>
         <Box display="flex" flexDirection="column" alignItems="flex-start" gap={0.5}>
           {service.vendorMappings.length > 0 ? (
-            <Box display="flex" alignItems="center" gap={0.5}>
-              <Typography variant="caption" sx={{ fontSize: 10, fontWeight: 500 }}>
-                ₹{formatCurrency(vendorTotal)}
-              </Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ fontSize: 10 }}>
-                · {service.vendorMappings.length} vendor{service.vendorMappings.length > 1 ? 's' : ''}
-              </Typography>
-            </Box>
+            <Typography variant="caption" sx={{ fontSize: 10, fontWeight: 500 }}>
+              ₹{formatCurrency(vendorTotal)} · {service.vendorMappings.length}v
+            </Typography>
           ) : (
-            <Typography variant="caption" sx={{ fontSize: 10, color: 'text.disabled' }}>No vendors</Typography>
+            <Typography variant="caption" sx={{ fontSize: 10, color: 'text.disabled' }}>None</Typography>
           )}
-          <MuiButton
-            size="small"
-            variant="text"
-            startIcon={<Visibility sx={{ fontSize: 12 }} />}
-            sx={{ fontSize: 11, padding: '2px 6px', minWidth: 0, height: 22 }}
-            onClick={() => onEditVendors(service)}
-          >
-            View
-          </MuiButton>
+          <MuiButton size="small" variant="text" startIcon={<Visibility sx={{ fontSize: 11 }} />}
+            sx={{ fontSize: 11, p: '2px 4px', minWidth: 0, height: 20 }}
+            onClick={() => onEditVendors(service)}>View</MuiButton>
         </Box>
       </TableCell>
 
-      {/* Actions */}
-      <TableCell sx={{ ...cellSx, width: 48 }} align="center">
-        <MuiIconButton
-          size="small"
-          onClick={onDelete}
-          sx={{ color: tokens.color.neutral[300], '&:hover': { color: 'error.main' } }}
-        >
-          <Delete sx={{ fontSize: 16 }} />
+      {/* Delete */}
+      <TableCell sx={{ ...cellSx, width: 36 }} align="center">
+        <MuiIconButton size="small" onClick={onDelete}
+          sx={{ color: tokens.color.neutral[300], '&:hover': { color: 'error.main' } }}>
+          <Delete sx={{ fontSize: 15 }} />
         </MuiIconButton>
       </TableCell>
     </TableRow>
   )
 }
 
-// ─── Category Section ─────────────────────────────────────────────────────────
+// ─── Category Accordion ───────────────────────────────────────────────────────
 
-interface CategorySectionProps {
+interface CategoryAccordionProps {
   category: PitchCategory
+  index: number
   projectId: string
   versionId: string
   onEditMilestones: (service: PitchService) => void
   onEditVendors: (service: PitchService) => void
 }
 
-function CategorySection({ category, projectId, versionId, onEditMilestones, onEditVendors }: CategorySectionProps) {
+function CategoryAccordion({ category, index, projectId, versionId, onEditMilestones, onEditVendors }: CategoryAccordionProps) {
   const dispatch = useAppDispatch()
 
-  function handleAddService() {
-    void dispatch(
-      addService({
-        projectId,
-        versionId,
-        categoryId: category.id,
-        service: {
-          name: 'New Service',
-          value: 0,
-          clientMilestones: [],
-          vendorMappings: [],
-        },
-      })
-    )
+  const categoryGstEstimate = category.totalValue * 0.18
+
+  function handleAddService(e: React.MouseEvent) {
+    e.stopPropagation()
+    void dispatch(addService({
+      projectId, versionId, categoryId: category.id,
+      service: { name: '', value: 0, clientMilestones: [], vendorMappings: [] },
+    }))
   }
 
   function handleDeleteService(serviceId: string) {
@@ -1385,80 +1491,95 @@ function CategorySection({ category, projectId, versionId, onEditMilestones, onE
   }
 
   const headCellSx = {
-    py: '8px',
-    px: '16px',
-    fontSize: 11,
-    fontWeight: 600,
-    color: 'text.secondary',
-    bgcolor: tokens.color.neutral[50],
+    py: '7px', px: '10px', fontSize: 10, fontWeight: 700,
+    color: tokens.color.neutral[500], letterSpacing: 0.5, textTransform: 'uppercase' as const,
     borderBottom: `1px solid ${tokens.color.neutral[100]}`,
+    bgcolor: tokens.color.neutral[50],
   }
 
   return (
-    <WorkspaceSection
-      title={category.categoryName}
-      noPadding
-      action={
-        <Stack direction="row" alignItems="center" gap={0.5}>
-          <MuiButton
-            size="small"
-            variant="text"
-            startIcon={<Add sx={{ fontSize: 14 }} />}
-            onClick={handleAddService}
-            sx={{ fontSize: 12 }}
-          >
-            Add Service
-          </MuiButton>
-        </Stack>
-      }
+    <Accordion
+      defaultExpanded={index === 0}
+      sx={{
+        mb: 1.5,
+        border: '1px solid',
+        borderColor: 'divider',
+        borderRadius: '8px !important',
+        '&:before': { display: 'none' },
+        boxShadow: 'none',
+      }}
     >
-      <Box sx={{ overflowX: 'auto' }}>
-        <Table size="small" sx={{ minWidth: 700 }}>
-          <TableHead>
-            <TableRow>
-              <TableCell sx={{ ...headCellSx, minWidth: 200 }}>SERVICE NAME</TableCell>
-              <TableCell sx={{ ...headCellSx, width: 180 }} align="right">VALUE (₹)</TableCell>
-              <TableCell sx={{ ...headCellSx, width: 180 }} align="center">MILESTONES</TableCell>
-              <TableCell sx={{ ...headCellSx, width: 180 }} align="center">VENDORS</TableCell>
-              <TableCell sx={{ ...headCellSx, width: 48 }} />
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {category.services.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={5} sx={{ py: 3, textAlign: 'center', color: 'text.disabled', fontSize: 12 }}>
-                  No services yet. Click "Add Service" to get started.
-                </TableCell>
-              </TableRow>
-            ) : (
-              category.services.map((service) => (
-                <ServiceRow
-                  key={service.id}
-                  service={service}
-                  projectId={projectId}
-                  versionId={versionId}
-                  categoryId={category.id}
-                  onEditMilestones={onEditMilestones}
-                  onEditVendors={onEditVendors}
-                  onDelete={() => handleDeleteService(service.id)}
-                />
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </Box>
+      <AccordionSummary expandIcon={<ExpandMore />}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', pr: 1 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+            <Typography variant="subtitle2" fontWeight={600} sx={{ fontSize: 13 }}>
+              {category.categoryName}
+            </Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
+              {category.services.length} service{category.services.length !== 1 ? 's' : ''}
+            </Typography>
+          </Box>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+            <Typography variant="body2" fontWeight={600} color="primary.main" sx={{ fontSize: 13 }}>
+              ₹{formatLakh(category.totalValue)}
+            </Typography>
+            <Typography variant="caption"
+              sx={{ bgcolor: 'action.hover', px: 1, py: 0.25, borderRadius: 1, fontSize: 10 }}>
+              +GST est. ₹{formatLakh(categoryGstEstimate)}
+            </Typography>
+            <MuiIconButton size="small" onClick={handleAddService}>
+              <Add sx={{ fontSize: 14 }} />
+            </MuiIconButton>
+          </Box>
+        </Box>
+      </AccordionSummary>
 
-      {/* Category total */}
-      <Stack
-        direction="row"
-        justifyContent="flex-end"
-        sx={{ px: 2, py: 1, bgcolor: tokens.color.neutral[50], borderTop: `1px solid ${tokens.color.neutral[100]}` }}
-      >
-        <Typography variant="body2" sx={{ fontWeight: 600, fontSize: 12 }}>
-          Category Total: ₹{formatCurrency(category.totalValue)}
-        </Typography>
-      </Stack>
-    </WorkspaceSection>
+      <AccordionDetails sx={{ pt: 0, px: 0, pb: 0 }}>
+        <Box sx={{ overflowX: 'auto' }}>
+          <Table size="small" sx={{ minWidth: 760 }}>
+            <TableHead>
+              <TableRow>
+                <TableCell sx={{ ...headCellSx, minWidth: 180 }}>Service Name</TableCell>
+                <TableCell sx={{ ...headCellSx, width: 100 }}>SAC Code</TableCell>
+                <TableCell sx={{ ...headCellSx, width: 70 }}>GST %</TableCell>
+                <TableCell sx={{ ...headCellSx, width: 170 }}>Value (₹)</TableCell>
+                <TableCell sx={{ ...headCellSx, width: 130 }}>Milestones</TableCell>
+                <TableCell sx={{ ...headCellSx, width: 130 }}>Vendors</TableCell>
+                <TableCell sx={{ ...headCellSx, width: 36 }} />
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {category.services.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={7} sx={{ py: 3, textAlign: 'center', color: 'text.disabled', fontSize: 12 }}>
+                    Click + to add a service
+                  </TableCell>
+                </TableRow>
+              ) : (
+                category.services.map((service) => (
+                  <ServiceRow
+                    key={service.id}
+                    service={service}
+                    projectId={projectId}
+                    versionId={versionId}
+                    categoryId={category.id}
+                    onEditMilestones={onEditMilestones}
+                    onEditVendors={onEditVendors}
+                    onDelete={() => handleDeleteService(service.id)}
+                  />
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </Box>
+        <Stack direction="row" justifyContent="flex-end"
+          sx={{ px: 2, py: 1, bgcolor: tokens.color.neutral[50], borderTop: `1px solid ${tokens.color.neutral[100]}` }}>
+          <Typography variant="body2" sx={{ fontWeight: 600, fontSize: 12 }}>
+            Category Total: ₹{formatCurrency(category.totalValue)}
+          </Typography>
+        </Stack>
+      </AccordionDetails>
+    </Accordion>
   )
 }
 
@@ -1573,9 +1694,13 @@ export default function PitchTab({ project }: PitchTabProps) {
 
   const existingCategoryIds = activeVersion?.categories.map((c) => c.categoryId) ?? []
 
+  // Mock: no quotation uploaded yet (would come from version data in real impl)
+  const hasQuotation = false
+  const quotationMock = { fileName: 'Quotation_v1.pdf', uploadedDate: '15 Jan 2024' }
+
   return (
     <>
-      {/* Version bar */}
+      {/* Version bar — full width above grid */}
       <VersionBar
         versions={versions}
         activeVersionId={activeVersionId}
@@ -1584,33 +1709,61 @@ export default function PitchTab({ project }: PitchTabProps) {
         onUploadQuotation={() => setUploadQuotationOpen(true)}
       />
 
-      {/* Financial summary */}
-      {activeVersion && <SummaryStrip version={activeVersion} />}
+      {/* 2-column grid */}
+      <Box
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: { xs: '1fr', md: '1fr 340px' },
+          gap: '24px',
+          alignItems: 'start',
+        }}
+      >
+        {/* ── LEFT COLUMN ─────────────────────────────────────── */}
+        <Box>
+          {/* Uploaded Quotation Pill */}
+          {hasQuotation && (
+            <Box sx={{
+              display: 'flex', alignItems: 'center', gap: 1, mb: 2,
+              p: 1.5, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', borderRadius: 2,
+            }}>
+              <DescriptionIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
+              <Typography variant="body2" sx={{ flex: 1, fontSize: 13 }}>{quotationMock.fileName}</Typography>
+              <Typography variant="caption" color="text.secondary">{quotationMock.uploadedDate}</Typography>
+              <MuiIconButton size="small"><Visibility sx={{ fontSize: 15 }} /></MuiIconButton>
+              <MuiIconButton size="small"><DownloadIcon sx={{ fontSize: 15 }} /></MuiIconButton>
+            </Box>
+          )}
 
-      {/* Categories */}
-      {activeVersion?.categories.map((cat) => (
-        <CategorySection
-          key={cat.id}
-          category={cat}
-          projectId={project.id}
-          versionId={activeVersion.id}
-          onEditMilestones={setMilestoneDrawerService}
-          onEditVendors={setVendorDrawerService}
-        />
-      ))}
+          {/* Category Accordions */}
+          {activeVersion?.categories.map((cat, idx) => (
+            <CategoryAccordion
+              key={cat.id}
+              category={cat}
+              index={idx}
+              projectId={project.id}
+              versionId={activeVersion.id}
+              onEditMilestones={setMilestoneDrawerService}
+              onEditVendors={setVendorDrawerService}
+            />
+          ))}
 
-      {/* Add category */}
-      <Box sx={{ mt: 1 }}>
-        <MuiButton
-          variant="outlined"
-          size="small"
-          startIcon={<Add fontSize="small" />}
-          onClick={() => setAddCategoryDialogOpen(true)}
-          disabled={existingCategoryIds.length >= DEFAULT_CATEGORIES.length}
-          sx={{ fontSize: 12 }}
-        >
-          + Add Category
-        </MuiButton>
+          {/* Add Category */}
+          <Box sx={{ mt: 1 }}>
+            <MuiButton
+              variant="outlined"
+              size="small"
+              startIcon={<Add fontSize="small" />}
+              onClick={() => setAddCategoryDialogOpen(true)}
+              disabled={existingCategoryIds.length >= DEFAULT_CATEGORIES.length}
+              sx={{ fontSize: 12 }}
+            >
+              + Add Category
+            </MuiButton>
+          </Box>
+        </Box>
+
+        {/* ── RIGHT COLUMN ─────────────────────────────────────── */}
+        {activeVersion && <FinancialSidebar version={activeVersion} />}
       </Box>
 
       {/* Dialogs & Drawers */}

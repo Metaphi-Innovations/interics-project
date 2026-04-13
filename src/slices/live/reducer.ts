@@ -15,6 +15,7 @@ import {
   createChangeRequest,
   approveChangeRequest,
   rejectChangeRequest,
+  fetchComplianceData,
 } from './thunk'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -95,6 +96,31 @@ export interface ChangeRequest {
   notes: string | null
 }
 
+// ─── Compliance Types ─────────────────────────────────────────────────────────
+
+export interface ComplianceData {
+  gstSummary: {
+    collected: number
+    paid: number
+    netPayable: number
+  }
+  tdsSummary: {
+    deducted: number
+    deposited: number
+    pending: number
+  }
+  monthlyTracker: Array<{
+    month: string
+    gstCollected: number
+    gstPaid: number
+    netGst: number
+    tdsDeducted: number
+    tdsDeposited: number
+    status: 'filed' | 'pending' | 'overdue'
+  }>
+  pendingActions: string[]
+}
+
 // ─── State ────────────────────────────────────────────────────────────────────
 
 interface LiveState {
@@ -102,6 +128,7 @@ interface LiveState {
   vendorInvoices: VendorInvoice[]
   expenses: Expense[]
   changeRequests: ChangeRequest[]
+  complianceData: ComplianceData | null
   loading: boolean
   saving: boolean
   error: string | null
@@ -112,6 +139,7 @@ const initialState: LiveState = {
   vendorInvoices: [],
   expenses: [],
   changeRequests: [],
+  complianceData: null,
   loading: false,
   saving: false,
   error: null,
@@ -258,6 +286,11 @@ const liveSlice = createSlice({
       .addCase(rejectChangeRequest.fulfilled, (state, action) => {
         const idx = state.changeRequests.findIndex((c) => c.id === action.payload.id)
         if (idx !== -1) state.changeRequests[idx] = action.payload
+      })
+
+      // fetchComplianceData
+      .addCase(fetchComplianceData.fulfilled, (state, action) => {
+        state.complianceData = action.payload
       })
   },
 })

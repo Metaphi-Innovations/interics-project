@@ -327,4 +327,44 @@ export const liveHandlers = [
     }
     return HttpResponse.json(changeRequests[idx])
   }),
+
+  // GET /api/projects/:id/compliance
+  http.get('/api/projects/:id/compliance', () => {
+    return HttpResponse.json({
+      gstSummary: {
+        collected: 405000,
+        paid: 144000,
+        netPayable: 261000,
+      },
+      tdsSummary: {
+        deducted: 22500,
+        deposited: 22500,
+        pending: 0,
+      },
+      monthlyTracker: [
+        {
+          month: 'March 2024',
+          gstCollected: 153000,
+          gstPaid: 54000,
+          netGst: 99000,
+          tdsDeducted: 8500,
+          tdsDeposited: 8500,
+          status: 'pending',
+        },
+        {
+          month: 'February 2024',
+          gstCollected: 252000,
+          gstPaid: 90000,
+          netGst: 162000,
+          tdsDeducted: 14000,
+          tdsDeposited: 14000,
+          status: 'filed',
+        },
+      ],
+      pendingActions: [
+        'March 2024 GST return due on 20th April',
+        'TDS payment pending for March quarter',
+      ],
+    })
+  }),
 ]

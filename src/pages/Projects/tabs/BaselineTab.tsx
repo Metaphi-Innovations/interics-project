@@ -12,6 +12,7 @@ import {
   TextField,
   Collapse,
   Divider,
+  LinearProgress,
   Select as MuiSelect,
   MenuItem,
   Skeleton,
@@ -28,9 +29,11 @@ import {
 import {
   Assignment,
   Lock,
+  LockOutlined,
   Upload,
   Add,
   CheckCircle,
+  RadioButtonUnchecked,
   Cancel,
   SwapHoriz,
   ExpandMore,
@@ -38,11 +41,14 @@ import {
   Download,
   ContentCopy,
   Edit as EditIcon,
+  EditOutlined,
   Delete as DeleteIcon,
   AttachFile,
   EventNote,
   Group,
   InsertDriveFile,
+  InfoOutlined,
+  RocketLaunch,
 } from '@mui/icons-material'
 import { useTheme, alpha } from '@mui/material/styles'
 import { useAppDispatch, useAppSelector } from '../../../store/hooks'
@@ -1653,88 +1659,159 @@ function VendorFinalization({ version, vendorQuotes, onQuoteUploaded, onRemoveQu
   )
 }
 
-// ─── Create Baseline Sticky CTA ───────────────────────────────────────────────
+// ─── Pre-Baseline Right Panel ─────────────────────────────────────────────────
 
-interface CreateBaselineCTAProps {
-  totalPOValue: number
+interface PreBaselineRightPanelProps {
+  clientPOs: ClientPO[]
   selectedVersionId: string | null
+  versions: PitchVersion[]
   adjustedValues: Record<string, number>
-  version: PitchVersion | null
   saving: boolean
   onCreateBaseline: () => void
 }
 
-function CreateBaselineCTA({
-  totalPOValue,
+function PreBaselineRightPanel({
+  clientPOs,
   selectedVersionId,
+  versions,
   adjustedValues,
-  version,
   saving,
   onCreateBaseline,
-}: CreateBaselineCTAProps) {
-  const hasVersion = !!selectedVersionId
-  const totalAdjusted = version
-    ? version.categories.flatMap((c) => c.services).reduce((sum, s) => sum + (adjustedValues[s.id] ?? s.value), 0)
+}: PreBaselineRightPanelProps) {
+  const rightCardSx = {
+    bgcolor: 'background.paper',
+    border: '1px solid',
+    borderColor: 'divider',
+    borderRadius: 2,
+    p: 2.5,
+    mb: 2,
+  }
+  const labelSx = {
+    textTransform: 'uppercase' as const,
+    fontSize: 10,
+    fontWeight: 700,
+    letterSpacing: 0.8,
+    color: 'text.secondary',
+    display: 'block',
+    mb: 1.5,
+  }
+
+  const totalPOValue = clientPOs.reduce((sum, po) => sum + po.poValue, 0)
+  const selectedVersion = versions.find((v) => v.id === selectedVersionId) ?? null
+
+  const totalAdjusted = selectedVersion
+    ? selectedVersion.categories.flatMap((c) => c.services).reduce((sum, s) => sum + (adjustedValues[s.id] ?? s.value), 0)
     : 0
-  const valuesMatch = Math.abs(totalAdjusted - totalPOValue) < 1
-  const allAdjusted = version
-    ? version.categories.flatMap((c) => c.services).every((s) => (adjustedValues[s.id] ?? s.value) > 0)
+  const valuesMatch = Math.abs(totalAdjusted - totalPOValue) < 1 && totalPOValue > 0
+  const allAdjusted = selectedVersion
+    ? selectedVersion.categories.flatMap((c) => c.services).every((s) => (adjustedValues[s.id] ?? s.value) > 0)
     : false
 
-  const checks = [
-    { label: 'Client PO uploaded', ok: totalPOValue > 0 },
-    { label: 'Version selected', ok: hasVersion },
-    { label: 'All service values adjusted', ok: allAdjusted },
-    { label: 'Values balanced', ok: valuesMatch },
+  const checklistItems = [
+    { label: 'Client PO uploaded', done: clientPOs.length > 0, hint: 'Add a client PO' },
+    { label: 'Version selected', done: !!selectedVersionId, hint: 'Select a pitch version' },
+    { label: 'Service values adjusted', done: allAdjusted, hint: 'Adjust values in PO Alignment' },
+    { label: 'Values balanced', done: valuesMatch, hint: 'Total must match PO value' },
   ]
 
-  const canCreate = checks.every((c) => c.ok)
+  const allChecked = checklistItems.every((item) => item.done)
+
+  const selectedVersionLabel = selectedVersion?.label ?? '—'
 
   return (
-    <Box
-      sx={{
-        position: 'sticky',
-        bottom: 0,
-        bgcolor: 'background.paper',
-        borderTop: `1px solid ${tokens.color.neutral[100]}`,
-        p: '12px 16px',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        zIndex: 10,
-        gap: 2,
-        flexWrap: 'wrap',
-      }}
-    >
-      <Stack direction="row" gap={2} flexWrap="wrap">
-        {checks.map((check) => (
-          <Stack key={check.label} direction="row" alignItems="center" gap={0.5}>
-            {check.ok ? (
-              <CheckCircle sx={{ fontSize: 13, color: 'success.main' }} />
-            ) : (
-              <Cancel sx={{ fontSize: 13, color: tokens.color.neutral[400] }} />
-            )}
-            <Typography
-              variant="caption"
-              sx={{ fontSize: 11, color: check.ok ? 'success.main' : 'text.disabled' }}
-            >
-              {check.label}
+    <>
+      {/* Checklist */}
+      <Box sx={rightCardSx}>
+        <Typography variant="caption" sx={labelSx}>Baseline Checklist</Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2, fontSize: 11 }}>
+          Complete all steps to go live
+        </Typography>
+        <Stack gap={1.5}>
+          {checklistItems.map((item) => (
+            <Stack key={item.label} direction="row" alignItems="center" gap={1}>
+              {item.done ? (
+                <CheckCircle sx={{ fontSize: 16, color: 'primary.main', flexShrink: 0 }} />
+              ) : (
+                <RadioButtonUnchecked sx={{ fontSize: 16, color: 'text.disabled', flexShrink: 0 }} />
+              )}
+              <Box>
+                <Typography variant="body2" sx={{ fontSize: 12, fontWeight: item.done ? 600 : 400 }}>
+                  {item.label}
+                </Typography>
+                {!item.done && (
+                  <Typography variant="caption" color="text.disabled" sx={{ fontSize: 11 }}>
+                    {item.hint}
+                  </Typography>
+                )}
+              </Box>
+            </Stack>
+          ))}
+        </Stack>
+      </Box>
+
+      {/* PO Summary */}
+      <Box sx={rightCardSx}>
+        <Typography variant="caption" sx={labelSx}>PO Summary</Typography>
+        <Stack gap={1.5}>
+          <Stack direction="row" justifyContent="space-between">
+            <Typography variant="caption" color="text.secondary" sx={{ fontSize: 12 }}>Total PO Value</Typography>
+            <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 700, color: 'primary.main' }}>
+              ₹{formatCurrency(totalPOValue)}
             </Typography>
           </Stack>
-        ))}
-      </Stack>
+          <Stack direction="row" justifyContent="space-between">
+            <Typography variant="caption" color="text.secondary" sx={{ fontSize: 12 }}>No. of POs</Typography>
+            <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600 }}>{clientPOs.length}</Typography>
+          </Stack>
+          <Stack direction="row" justifyContent="space-between">
+            <Typography variant="caption" color="text.secondary" sx={{ fontSize: 12 }}>Selected Version</Typography>
+            <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600 }}>{selectedVersionLabel}</Typography>
+          </Stack>
+        </Stack>
+      </Box>
 
-      <MuiButton
-        variant="contained"
-        size="medium"
-        startIcon={<Lock sx={{ fontSize: 16 }} />}
-        disabled={!canCreate || saving}
-        onClick={onCreateBaseline}
-        sx={{ fontSize: 13, height: 36, flexShrink: 0 }}
+      {/* CTA */}
+      <Box sx={rightCardSx}>
+        <MuiButton
+          variant="contained"
+          fullWidth
+          startIcon={allChecked ? <RocketLaunch sx={{ fontSize: 16 }} /> : <LockOutlined sx={{ fontSize: 16 }} />}
+          disabled={!allChecked || saving}
+          onClick={onCreateBaseline}
+          sx={{ fontSize: 13, height: 40 }}
+        >
+          {saving ? 'Creating…' : 'Create Baseline & Go Live'}
+        </MuiButton>
+        {allChecked ? (
+          <Typography variant="caption" color="success.main" sx={{ display: 'block', textAlign: 'center', mt: 1, fontSize: 11 }}>
+            ✓ Ready to create baseline
+          </Typography>
+        ) : (
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', textAlign: 'center', mt: 1, fontSize: 11 }}>
+            Complete all checklist items to proceed
+          </Typography>
+        )}
+      </Box>
+
+      {/* Help tip */}
+      <Box
+        sx={{
+          bgcolor: 'info.50',
+          border: '1px solid',
+          borderColor: 'info.200',
+          borderRadius: 2,
+          p: 2,
+          display: 'flex',
+          gap: 1,
+          alignItems: 'flex-start',
+        }}
       >
-        {saving ? 'Creating…' : 'Create Baseline & Go Live'}
-      </MuiButton>
-    </Box>
+        <InfoOutlined sx={{ fontSize: 16, color: 'info.main', flexShrink: 0, mt: '1px' }} />
+        <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11, lineHeight: 1.5 }}>
+          Align your service values to exactly match the client PO total. Once the baseline is created, the financial structure is locked.
+        </Typography>
+      </Box>
+    </>
   )
 }
 
@@ -1755,29 +1832,7 @@ function LockedServiceTable({ categories, isEditing, editedValues, onEditedValue
   return (
     <WorkspaceSection
       title="Locked Financial Structure"
-      subtitle={isEditing ? undefined : 'Read-only — structure cannot be modified after baseline creation'}
-      action={
-        !isEditing ? (
-          <MuiButton
-            size="small"
-            variant="outlined"
-            startIcon={<EditIcon sx={{ fontSize: 14 }} />}
-            onClick={onStartEdit}
-            sx={{ fontSize: 11, height: 28 }}
-          >
-            Edit Baseline
-          </MuiButton>
-        ) : (
-          <Box display="flex" gap={1}>
-            <MuiButton size="small" variant="outlined" color="error" onClick={onCancelEdit} sx={{ fontSize: 11, height: 28 }}>
-              Cancel
-            </MuiButton>
-            <MuiButton size="small" variant="contained" onClick={onSaveEdit} disabled={saving} sx={{ fontSize: 11, height: 28 }}>
-              Save Changes
-            </MuiButton>
-          </Box>
-        )
-      }
+      subtitle="Read-only — structure cannot be modified after baseline creation"
     >
       {isEditing && (
         <Alert severity="warning" sx={{ mb: 2, fontSize: 12 }}>
@@ -2124,48 +2179,61 @@ function StateB({
   const totalPOValue = clientPOs.reduce((sum, po) => sum + po.poValue, 0)
 
   return (
-    <Box>
-      <POListSection
-        clientPOs={clientPOs}
-        onAddPO={onAddPO}
-        onEditPO={onEditPO}
-        onDeletePO={onDeletePO}
-      />
+    <Box
+      sx={{
+        display: 'grid',
+        gridTemplateColumns: { xs: '1fr', md: '1fr 340px' },
+        gap: 3,
+        alignItems: 'start',
+      }}
+    >
+      {/* LEFT COLUMN */}
+      <Box>
+        <POListSection
+          clientPOs={clientPOs}
+          onAddPO={onAddPO}
+          onEditPO={onEditPO}
+          onDeletePO={onDeletePO}
+        />
 
-      <VersionSelection
-        versions={versions}
-        selectedVersionId={selectedVersionId}
-        onSelect={onSelectVersion}
-      />
+        <VersionSelection
+          versions={versions}
+          selectedVersionId={selectedVersionId}
+          onSelect={onSelectVersion}
+        />
 
-      {selectedVersion && (
-        <>
-          <AlignmentTable
-            version={selectedVersion}
-            totalPOValue={totalPOValue}
-            adjustedValues={adjustedValues}
-            onAdjustedChange={onAdjustedChange}
-            localMilestones={localMilestones}
-            onMilestonesChange={onMilestonesChange}
-          />
+        {selectedVersion && (
+          <>
+            <AlignmentTable
+              version={selectedVersion}
+              totalPOValue={totalPOValue}
+              adjustedValues={adjustedValues}
+              onAdjustedChange={onAdjustedChange}
+              localMilestones={localMilestones}
+              onMilestonesChange={onMilestonesChange}
+            />
 
-          <VendorFinalization
-            version={selectedVersion}
-            vendorQuotes={vendorQuotes}
-            onQuoteUploaded={onQuoteUploaded}
-            onRemoveQuote={onRemoveQuote}
-          />
-        </>
-      )}
+            <VendorFinalization
+              version={selectedVersion}
+              vendorQuotes={vendorQuotes}
+              onQuoteUploaded={onQuoteUploaded}
+              onRemoveQuote={onRemoveQuote}
+            />
+          </>
+        )}
+      </Box>
 
-      <CreateBaselineCTA
-        totalPOValue={totalPOValue}
-        selectedVersionId={selectedVersionId}
-        adjustedValues={adjustedValues}
-        version={selectedVersion}
-        saving={saving}
-        onCreateBaseline={onCreateBaseline}
-      />
+      {/* RIGHT COLUMN */}
+      <Box sx={{ position: { xs: 'static', md: 'sticky' }, top: 80 }}>
+        <PreBaselineRightPanel
+          clientPOs={clientPOs}
+          selectedVersionId={selectedVersionId}
+          versions={versions}
+          adjustedValues={adjustedValues}
+          saving={saving}
+          onCreateBaseline={onCreateBaseline}
+        />
+      </Box>
     </Box>
   )
 }
@@ -2193,8 +2261,27 @@ function StateC({ baseline, clientPOs, vendorPOs, saving, onIssueVendorPO, proje
       ? ((baseline.profitability / baseline.totalRevenue) * 100).toFixed(1)
       : '0.0'
 
-  const totalPOValue = clientPOs.reduce((sum, po) => sum + po.poValue, 0)
+  const totalVendorPOValue = vendorPOs.reduce((sum, vpo) => sum + vpo.poValue, 0)
+  const activeVendorPOs = vendorPOs.filter((vpo) => vpo.status === 'Active' || vpo.status === 'Issued')
   const primaryPO = clientPOs.find((po) => po.isPrimary) ?? clientPOs[0]
+
+  const rightCardSx = {
+    bgcolor: 'background.paper',
+    border: '1px solid',
+    borderColor: 'divider',
+    borderRadius: 2,
+    p: 2.5,
+    mb: 2,
+  }
+  const labelSx = {
+    textTransform: 'uppercase' as const,
+    fontSize: 10,
+    fontWeight: 700,
+    letterSpacing: 0.8,
+    color: 'text.secondary',
+    display: 'block',
+    mb: 1.5,
+  }
 
   function startEditing() {
     const init: Record<string, number> = {}
@@ -2245,86 +2332,219 @@ function StateC({ baseline, clientPOs, vendorPOs, saving, onIssueVendorPO, proje
   }
 
   return (
-    <Box>
-      {/* Locked banner */}
-      <Alert severity="success" icon={<Lock sx={{ fontSize: 16 }} />} sx={{ mb: 2, fontSize: 12 }}>
-        Baseline locked on {formatDate(baseline.lockedAt)}. Project moved to Live status.
-        Financial structure is now read-only.
-      </Alert>
-
-      {/* Baseline Summary */}
-      <WorkspaceSection title="Baseline Summary">
+    <Box
+      sx={{
+        display: 'grid',
+        gridTemplateColumns: { xs: '1fr', md: '1fr 340px' },
+        gap: 3,
+        alignItems: 'start',
+      }}
+    >
+      {/* LEFT COLUMN */}
+      <Box>
+        {/* Locked banner */}
         <Box
           sx={{
-            display: 'grid',
-            gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)' },
-            gap: 2,
-            mb: 2,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1.5,
+            p: 2,
+            borderRadius: 2,
+            bgcolor: 'success.50',
+            border: '1px solid',
+            borderColor: 'success.200',
+            mb: 3,
           }}
         >
-          {[
-            { label: 'Baseline Revenue', value: baseline.totalRevenue, color: 'primary.main' },
-            { label: 'Total Cost', value: baseline.totalCost, color: 'text.primary' },
-            { label: 'Profitability', value: baseline.profitability, color: 'success.main' },
-            { label: 'Margin %', value: null, display: `${margin}%`, color: 'info.main' },
-          ].map((metric) => (
-            <Box
-              key={metric.label}
-              sx={{ p: 2, border: `1px solid ${tokens.color.neutral[100]}`, borderRadius: 1.5 }}
-            >
-              <Typography variant="overline" sx={{ fontSize: 10, color: 'text.secondary', display: 'block' }}>
-                {metric.label}
-              </Typography>
-              <Typography variant="h6" sx={{ fontSize: 18, fontWeight: 700, mt: '2px', color: metric.color }}>
-                {metric.display ?? `₹${formatCurrency(metric.value ?? 0)}`}
-              </Typography>
-            </Box>
-          ))}
+          <LockOutlined sx={{ color: 'success.main', fontSize: 18, flexShrink: 0 }} />
+          <Typography variant="body2" color="success.dark" sx={{ fontSize: 13 }}>
+            Baseline locked on {formatDate(baseline.lockedAt)}. Project moved to Live status.{' '}
+            Financial structure is now read-only.
+          </Typography>
         </Box>
 
-        <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
-          Based on: {baseline.versionLabel}
-          {primaryPO && ` | Client PO: ${primaryPO.poNumber}`}
-          {clientPOs.length > 1 && ` (+${clientPOs.length - 1} more) | Total PO: ₹${formatCurrency(totalPOValue)}`}
-        </Typography>
-      </WorkspaceSection>
+        {/* Locked service structure with edit mode */}
+        <LockedServiceTable
+          categories={baseline.categories}
+          isEditing={isEditingBaseline}
+          editedValues={editedValues}
+          onEditedValueChange={(id, val) => setEditedValues((p) => ({ ...p, [id]: val }))}
+          onStartEdit={startEditing}
+          onCancelEdit={cancelEditing}
+          onSaveEdit={() => void handleSaveBaseline()}
+          saving={saving}
+        />
 
-      {/* Locked service structure with edit mode */}
-      <LockedServiceTable
-        categories={baseline.categories}
-        isEditing={isEditingBaseline}
-        editedValues={editedValues}
-        onEditedValueChange={(id, val) => setEditedValues((p) => ({ ...p, [id]: val }))}
-        onStartEdit={startEditing}
-        onCancelEdit={cancelEditing}
-        onSaveEdit={() => void handleSaveBaseline()}
-        saving={saving}
-      />
+        {/* Vendor POs — no inline action button, moved to right panel */}
+        <WorkspaceSection title="Vendor Purchase Orders">
+          {vendorPOs.length === 0 ? (
+            <Box>
+              <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12 }}>
+                No vendor POs issued yet.
+              </Typography>
+              <Typography variant="caption" color="text.disabled" sx={{ fontSize: 11, display: 'block', mt: 0.5 }}>
+                Issue vendor POs from the actions panel.
+              </Typography>
+            </Box>
+          ) : (
+            vendorPOs.map((vpo) => <VendorPOCard key={vpo.id} vendorPO={vpo} />)
+          )}
+        </WorkspaceSection>
+      </Box>
 
-      {/* Vendor POs */}
-      <WorkspaceSection
-        title="Vendor Purchase Orders"
-        action={
+      {/* RIGHT COLUMN */}
+      <Box sx={{ position: { xs: 'static', md: 'sticky' }, top: 80 }}>
+        {/* Baseline Status */}
+        <Box sx={rightCardSx}>
+          <Typography variant="caption" sx={labelSx}>Baseline Status</Typography>
+          <Stack gap={1.5}>
+            <Stack direction="row" justifyContent="space-between" alignItems="center">
+              <Typography variant="caption" color="text.secondary" sx={{ fontSize: 12 }}>Status</Typography>
+              <MuiChip
+                label="Locked"
+                icon={<LockOutlined sx={{ fontSize: 14 }} />}
+                size="small"
+                sx={{ bgcolor: 'success.100', color: 'success.800', fontWeight: 600, fontSize: 11, height: 24 }}
+              />
+            </Stack>
+            <Stack direction="row" justifyContent="space-between">
+              <Typography variant="caption" color="text.secondary" sx={{ fontSize: 12 }}>Locked on</Typography>
+              <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600 }}>{formatDate(baseline.lockedAt)}</Typography>
+            </Stack>
+            <Stack direction="row" justifyContent="space-between">
+              <Typography variant="caption" color="text.secondary" sx={{ fontSize: 12 }}>Based on</Typography>
+              <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600 }}>Version {baseline.versionLabel}</Typography>
+            </Stack>
+            <Stack direction="row" justifyContent="space-between">
+              <Typography variant="caption" color="text.secondary" sx={{ fontSize: 12 }}>Client PO</Typography>
+              <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600 }}>
+                {primaryPO?.poNumber ?? '—'}
+                {clientPOs.length > 1 && (
+                  <Typography component="span" sx={{ fontSize: 11, color: 'text.secondary', ml: 0.5 }}>
+                    (+{clientPOs.length - 1} more)
+                  </Typography>
+                )}
+              </Typography>
+            </Stack>
+          </Stack>
+        </Box>
+
+        {/* Financial Summary */}
+        <Box sx={rightCardSx}>
+          <Typography variant="caption" sx={labelSx}>Financial Summary</Typography>
+          <Stack gap={1.5} sx={{ mb: 2 }}>
+            {[
+              { label: 'Revenue', value: baseline.totalRevenue, borderColor: 'primary.main' },
+              { label: 'Cost', value: baseline.totalCost, borderColor: 'warning.main' },
+              { label: 'Profitability', value: baseline.profitability, borderColor: 'success.main' },
+            ].map((row) => (
+              <Box
+                key={row.label}
+                sx={{ pl: 1.5, borderLeft: '3px solid', borderColor: row.borderColor }}
+              >
+                <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>{row.label}</Typography>
+                <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 700 }}>
+                  ₹{formatCurrency(row.value)}
+                </Typography>
+              </Box>
+            ))}
+          </Stack>
+          <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
+            <Typography variant="caption" color="text.secondary" sx={{ fontSize: 12 }}>Margin</Typography>
+            <MuiChip
+              label={`${margin}%`}
+              size="small"
+              sx={{ bgcolor: 'success.100', color: 'success.800', fontWeight: 700, fontSize: 11, height: 22 }}
+            />
+          </Stack>
+          <LinearProgress
+            variant="determinate"
+            value={Math.min(Number(margin), 100)}
+            color="success"
+            sx={{ borderRadius: 1, height: 6 }}
+          />
+        </Box>
+
+        {/* Vendor POs Summary */}
+        <Box sx={rightCardSx}>
+          <Typography variant="caption" sx={labelSx}>Vendor POs</Typography>
+          <Stack gap={1.5} sx={{ mb: 2 }}>
+            <Stack direction="row" justifyContent="space-between">
+              <Typography variant="caption" color="text.secondary" sx={{ fontSize: 12 }}>Total Vendor POs</Typography>
+              <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600 }}>{vendorPOs.length}</Typography>
+            </Stack>
+            <Stack direction="row" justifyContent="space-between">
+              <Typography variant="caption" color="text.secondary" sx={{ fontSize: 12 }}>Total Value</Typography>
+              <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 700, color: 'primary.main' }}>
+                ₹{formatCurrency(totalVendorPOValue)}
+              </Typography>
+            </Stack>
+            <Stack direction="row" justifyContent="space-between" alignItems="center">
+              <Typography variant="caption" color="text.secondary" sx={{ fontSize: 12 }}>Active POs</Typography>
+              <MuiChip
+                label={activeVendorPOs.length}
+                size="small"
+                sx={{ bgcolor: 'success.100', color: 'success.800', fontWeight: 700, fontSize: 11, height: 22 }}
+              />
+            </Stack>
+          </Stack>
+          <Divider sx={{ mb: 2 }} />
           <MuiButton
-            size="small"
-            variant="contained"
+            fullWidth
+            variant="outlined"
             startIcon={<Add sx={{ fontSize: 14 }} />}
             onClick={onIssueVendorPO}
             disabled={saving}
-            sx={{ fontSize: 11, height: 28 }}
+            sx={{ fontSize: 12, height: 36 }}
           >
             Issue Vendor PO
           </MuiButton>
-        }
-      >
-        {vendorPOs.length === 0 ? (
-          <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12 }}>
-            No vendor POs issued yet.
-          </Typography>
-        ) : (
-          vendorPOs.map((vpo) => <VendorPOCard key={vpo.id} vendorPO={vpo} />)
-        )}
-      </WorkspaceSection>
+        </Box>
+
+        {/* Actions */}
+        <Box sx={rightCardSx}>
+          <Typography variant="caption" sx={labelSx}>Actions</Typography>
+          {isEditingBaseline ? (
+            <Stack gap={1}>
+              <MuiButton
+                fullWidth
+                variant="contained"
+                size="small"
+                onClick={() => void handleSaveBaseline()}
+                disabled={saving}
+                sx={{ fontSize: 12, height: 36 }}
+              >
+                Save Changes
+              </MuiButton>
+              <MuiButton
+                fullWidth
+                variant="outlined"
+                color="error"
+                size="small"
+                onClick={cancelEditing}
+                sx={{ fontSize: 12, height: 36 }}
+              >
+                Cancel
+              </MuiButton>
+            </Stack>
+          ) : (
+            <>
+              <MuiButton
+                fullWidth
+                variant="outlined"
+                startIcon={<EditOutlined sx={{ fontSize: 16 }} />}
+                onClick={startEditing}
+                sx={{ fontSize: 12, height: 36 }}
+              >
+                Edit Baseline
+              </MuiButton>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', textAlign: 'center', mt: 1, fontSize: 11 }}>
+                Editing baseline creates an audit log entry.
+              </Typography>
+            </>
+          )}
+        </Box>
+      </Box>
     </Box>
   )
 }

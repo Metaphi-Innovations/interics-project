@@ -37,7 +37,9 @@ import {
   TrendingUp,
   TrendingDown,
   AttachMoney,
+  OpenInNew,
 } from '@mui/icons-material'
+import LinearProgress from '@mui/material/LinearProgress'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import PitchTab from './tabs/PitchTab'
 import BaselineTab from './tabs/BaselineTab'
@@ -50,7 +52,6 @@ import type { Project } from '../../slices/projects/reducer'
 import {
   WorkspaceDetail,
   WorkspaceSection,
-  WorkspaceTwoCol,
 } from '../../components/templates'
 import { DrawerForm, FormField, FormSection } from '../../components/templates/DrawerForm'
 import { StatusBadge, useToast, Input, AvatarGroup } from '@/design-system/components'
@@ -233,13 +234,51 @@ function EmptyState({
 
 // ─── Tab content ──────────────────────────────────────────────────────────────
 
+const OVERVIEW_CARD_SX = {
+  bgcolor: 'background.paper',
+  border: '1px solid',
+  borderColor: 'divider',
+  borderRadius: 2,
+  p: 2,
+} as const
+
+const STAGE_STEPS = ['Pitch', 'Transition', 'Live', 'Completed']
+
 function OverviewTab({ project }: { project: Project }) {
-  const progressStyle = getProgressStyle(project.progress)
-  const netPosition = project.totalClientPOValue - project.totalVendorPOValue
+  const revenue = project.totalClientPOValue
+  const cost = project.totalVendorPOValue
+  const profit = revenue - cost
+  const margin = revenue > 0 ? ((profit / revenue) * 100).toFixed(1) : '0.0'
+
+  // Receivables (mock approximation from project data)
+  const totalReceivable = revenue
+  const collected = project.invoicedAmount
+  const outstanding = totalReceivable - collected
+  const collectionPct = totalReceivable > 0 ? Math.round((collected / totalReceivable) * 100) : 0
+
+  // Stage progress
+  const stageIndex = project.status === 'Pitch' ? 1 :
+    project.status === 'Live' ? 2 :
+    project.status === 'Completed' || project.status === 'Archived' ? 3 : 0
+
+  // Completion %
+  const completion = project.status === 'Completed' || project.status === 'Archived' ? 100 :
+    project.status === 'Live' ? 55 :
+    project.status === 'Pitch' ? 15 : 30
+
+  // Team members (just PM for now)
+  const teamMembers = [project.projectManager]
 
   return (
-    <WorkspaceTwoCol sidebarWidth={300}>
-      {/* Left column */}
+    <Box
+      sx={{
+        display: 'grid',
+        gridTemplateColumns: { xs: '1fr', md: '1fr 340px' },
+        gap: '24px',
+        alignItems: 'start',
+      }}
+    >
+      {/* ── LEFT COLUMN ───────────────────────────────────────── */}
       <Box>
         <WorkspaceSection title="Project Details">
           <Box
@@ -260,10 +299,7 @@ function OverviewTab({ project }: { project: Project }) {
               </Typography>
             </LabelValue>
             <LabelValue label="Client">
-              <Typography
-                variant="body2"
-                sx={{ fontSize: 13, color: 'primary.main', cursor: 'pointer' }}
-              >
+              <Typography variant="body2" sx={{ fontSize: 13, color: 'primary.main', cursor: 'pointer' }}>
                 {project.customerName}
               </Typography>
             </LabelValue>
@@ -273,19 +309,14 @@ function OverviewTab({ project }: { project: Project }) {
                 size="small"
                 variant="outlined"
                 sx={{
-                  height: 20,
-                  fontSize: 11,
-                  borderRadius: '4px',
-                  color: tokens.color.neutral[600],
-                  borderColor: tokens.color.neutral[300],
+                  height: 20, fontSize: 11, borderRadius: '4px',
+                  color: tokens.color.neutral[600], borderColor: tokens.color.neutral[300],
                   '& .MuiChip-label': { px: '6px' },
                 }}
               />
             </LabelValue>
             <LabelValue label="Location">
-              <Typography variant="body2" sx={{ fontSize: 13 }}>
-                {project.location || '—'}
-              </Typography>
+              <Typography variant="body2" sx={{ fontSize: 13 }}>{project.location || '—'}</Typography>
             </LabelValue>
             <LabelValue label="Carpet Area">
               <Typography variant="body2" sx={{ fontSize: 13 }}>
@@ -293,167 +324,268 @@ function OverviewTab({ project }: { project: Project }) {
               </Typography>
             </LabelValue>
             <LabelValue label="Headcount">
-              <Typography variant="body2" sx={{ fontSize: 13 }}>
-                {project.headcount ?? '—'}
-              </Typography>
+              <Typography variant="body2" sx={{ fontSize: 13 }}>{project.headcount ?? '—'}</Typography>
             </LabelValue>
             <LabelValue label="Project Manager">
               <Stack direction="row" alignItems="center" gap={1}>
                 <Box
                   sx={{
-                    width: 24,
-                    height: 24,
-                    borderRadius: '50%',
+                    width: 24, height: 24, borderRadius: '50%',
                     bgcolor: alpha(getAvatarColor(project.projectManager).bg, 0.15),
                     color: getAvatarColor(project.projectManager).bg,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: 9,
-                    fontWeight: 700,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 9, fontWeight: 700,
                   }}
                 >
                   {getInitials(project.projectManager)}
                 </Box>
-                <Typography variant="body2" sx={{ fontSize: 13 }}>
-                  {project.projectManager}
-                </Typography>
+                <Typography variant="body2" sx={{ fontSize: 13 }}>{project.projectManager}</Typography>
               </Stack>
             </LabelValue>
             <LabelValue label="Start Date">
-              <Typography variant="body2" sx={{ fontSize: 13 }}>
-                {formatDate(project.startDate)}
-              </Typography>
+              <Typography variant="body2" sx={{ fontSize: 13 }}>{formatDate(project.startDate)}</Typography>
             </LabelValue>
             <LabelValue label="Expected End Date">
-              <Typography variant="body2" sx={{ fontSize: 13 }}>
-                {formatDate(project.expectedEndDate)}
-              </Typography>
+              <Typography variant="body2" sx={{ fontSize: 13 }}>{formatDate(project.expectedEndDate)}</Typography>
             </LabelValue>
           </Box>
         </WorkspaceSection>
-
-        <WorkspaceSection title="Financial Summary">
-          <Stack gap="12px">
-            {[
-              {
-                label: 'Project Value',
-                value: '₹' + formatCurrency(project.projectValue),
-              },
-              {
-                label: 'Client PO Value',
-                value: '₹' + formatCurrency(project.totalClientPOValue),
-              },
-              {
-                label: 'Vendor PO Value',
-                value: '₹' + formatCurrency(project.totalVendorPOValue),
-              },
-              {
-                label: 'Net Position',
-                value: '₹' + formatCurrency(Math.abs(netPosition)),
-                extra: netPosition >= 0 ? '(Positive)' : '(Negative)',
-                positive: netPosition >= 0,
-              },
-            ].map((row) => (
-              <Stack
-                key={row.label}
-                direction="row"
-                justifyContent="space-between"
-                alignItems="center"
-              >
-                <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12 }}>
-                  {row.label}
-                </Typography>
-                <Stack direction="row" alignItems="center" gap={0.5}>
-                  <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 600 }}>
-                    {row.value}
-                  </Typography>
-                  {'extra' in row && row.extra && (
-                    <Typography
-                      variant="caption"
-                      sx={{
-                        fontSize: 11,
-                        color: row.positive ? 'success.main' : 'error.main',
-                      }}
-                    >
-                      {row.extra}
-                    </Typography>
-                  )}
-                </Stack>
-              </Stack>
-            ))}
-          </Stack>
-        </WorkspaceSection>
       </Box>
 
-      {/* Right column */}
-      <Box>
-        <WorkspaceSection title="Status & Progress">
-          <Stack gap="12px">
-            <LabelValue label="Current Status">
+      {/* ── RIGHT COLUMN ──────────────────────────────────────── */}
+      <Box sx={{ position: 'sticky', top: 80, display: 'flex', flexDirection: 'column', gap: 2 }}>
+
+        {/* Card 1 — Status & Progress */}
+        <Box sx={OVERVIEW_CARD_SX}>
+          <Typography variant="overline" sx={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.6, color: 'text.secondary', display: 'block', mb: 1.5 }}>
+            Status & Progress
+          </Typography>
+          <Stack gap={1.5}>
+            <Stack direction="row" justifyContent="space-between" alignItems="center">
+              <Typography variant="caption" sx={{ fontSize: 11, color: 'text.secondary' }}>Current Status</Typography>
               <StatusBadge status={project.status.toLowerCase() as StatusType} />
-            </LabelValue>
-            <LabelValue label="Progress">
+            </Stack>
+            <Stack direction="row" justifyContent="space-between" alignItems="center">
+              <Typography variant="caption" sx={{ fontSize: 11, color: 'text.secondary' }}>Progress</Typography>
               <MuiChip
                 label={project.progress}
                 size="small"
                 sx={{
-                  height: 20,
-                  fontSize: 11,
-                  borderRadius: '4px',
+                  height: 18, fontSize: 10, borderRadius: '4px',
                   bgcolor: getProgressStyle(project.progress).bg,
                   color: getProgressStyle(project.progress).color,
                   '& .MuiChip-label': { px: '6px' },
                 }}
               />
-            </LabelValue>
-            <LabelValue label="Created">
-              <Typography variant="body2" sx={{ fontSize: 13 }}>
-                {formatDate(project.createdAt)}
-              </Typography>
-            </LabelValue>
-          </Stack>
-        </WorkspaceSection>
+            </Stack>
 
-        <WorkspaceSection title="Team">
-          <Stack gap="10px">
-            <LabelValue label="Project Manager">
+            {/* Stage stepper dots */}
+            <Box>
+              <Typography variant="caption" sx={{ fontSize: 10, color: 'text.secondary', display: 'block', mb: 0.75 }}>Stage</Typography>
+              <Stack direction="row" alignItems="center" gap={0.5}>
+                {STAGE_STEPS.map((step, idx) => {
+                  const done = idx < stageIndex
+                  const active = idx === stageIndex
+                  return (
+                    <Stack key={step} direction="row" alignItems="center" gap={0.5} sx={{ flex: 1 }}>
+                      <Box
+                        sx={{
+                          width: 8, height: 8, borderRadius: '50%',
+                          bgcolor: done ? 'success.main' : active ? 'primary.main' : tokens.color.neutral[200],
+                          flexShrink: 0,
+                        }}
+                      />
+                      <Typography
+                        variant="caption"
+                        sx={{
+                          fontSize: 9, fontWeight: active ? 700 : 400,
+                          color: active ? 'primary.main' : done ? 'success.main' : 'text.disabled',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {step}
+                      </Typography>
+                      {idx < STAGE_STEPS.length - 1 && (
+                        <Box sx={{ flex: 1, height: 1, bgcolor: done ? 'success.main' : tokens.color.neutral[100] }} />
+                      )}
+                    </Stack>
+                  )
+                })}
+              </Stack>
+            </Box>
+
+            {/* Overall completion */}
+            <Box>
+              <Stack direction="row" justifyContent="space-between" sx={{ mb: 0.5 }}>
+                <Typography variant="caption" sx={{ fontSize: 10, color: 'text.secondary' }}>Overall Completion</Typography>
+                <Typography variant="caption" sx={{ fontSize: 10, fontWeight: 700, color: 'primary.main' }}>{completion}%</Typography>
+              </Stack>
+              <LinearProgress variant="determinate" value={completion} sx={{ height: 5, borderRadius: 3 }} />
+            </Box>
+
+            <Stack direction="row" justifyContent="space-between" alignItems="center">
+              <Typography variant="caption" sx={{ fontSize: 10, color: 'text.secondary' }}>Created</Typography>
+              <Typography variant="caption" sx={{ fontSize: 11 }}>{formatDate(project.createdAt)}</Typography>
+            </Stack>
+          </Stack>
+        </Box>
+
+        {/* Card 2 — Financial Health */}
+        <Box sx={OVERVIEW_CARD_SX}>
+          <Typography variant="overline" sx={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.6, color: 'text.secondary', display: 'block', mb: 1.5 }}>
+            Financial Health
+          </Typography>
+          <Stack gap={1}>
+            {[
+              { label: 'Revenue', value: revenue, color: '#0D9488' },
+              { label: 'Cost', value: cost, color: '#EA580C' },
+            ].map((row) => (
+              <Box
+                key={row.label}
+                sx={{
+                  borderLeft: '3px solid', borderColor: row.color,
+                  pl: 1.5, py: 0.25,
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                }}
+              >
+                <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary' }}>{row.label}</Typography>
+                <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 700, color: row.color }}>
+                  ₹{formatCurrency(row.value)}
+                </Typography>
+              </Box>
+            ))}
+            <Box
+              sx={{
+                borderLeft: '3px solid', borderColor: '#16A34A',
+                pl: 1.5, py: 0.25,
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              }}
+            >
+              <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary' }}>Profit</Typography>
+              <Stack direction="row" alignItems="center" gap={1}>
+                <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 700, color: '#16A34A' }}>
+                  ₹{formatCurrency(Math.abs(profit))}
+                </Typography>
+                <MuiChip
+                  label={`${margin}%`}
+                  size="small"
+                  sx={{
+                    height: 18, fontSize: 10, borderRadius: '4px',
+                    bgcolor: '#DCFCE7', color: '#16A34A',
+                    '& .MuiChip-label': { px: '6px' },
+                  }}
+                />
+              </Stack>
+            </Box>
+          </Stack>
+        </Box>
+
+        {/* Card 3 — Receivables Snapshot */}
+        <Box sx={OVERVIEW_CARD_SX}>
+          <Typography variant="overline" sx={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.6, color: 'text.secondary', display: 'block', mb: 1.5 }}>
+            Receivables Snapshot
+          </Typography>
+          <Stack gap={1}>
+            <Stack direction="row" justifyContent="space-between" alignItems="center">
+              <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary' }}>Total Receivable</Typography>
+              <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 700 }}>₹{formatCurrency(totalReceivable)}</Typography>
+            </Stack>
+            <Stack direction="row" justifyContent="space-between" alignItems="center">
+              <Stack direction="row" alignItems="center" gap={0.75}>
+                <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: 'success.main' }} />
+                <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary' }}>Collected</Typography>
+              </Stack>
+              <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600, color: 'success.main' }}>₹{formatCurrency(collected)}</Typography>
+            </Stack>
+            <Stack direction="row" justifyContent="space-between" alignItems="center">
+              <Stack direction="row" alignItems="center" gap={0.75}>
+                <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: 'warning.main' }} />
+                <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary' }}>Outstanding</Typography>
+              </Stack>
+              <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600, color: 'warning.main' }}>₹{formatCurrency(outstanding)}</Typography>
+            </Stack>
+
+            <Box>
+              <Stack direction="row" justifyContent="space-between" sx={{ mb: 0.5 }}>
+                <Typography variant="caption" sx={{ fontSize: 10, color: 'text.secondary' }}>Collection Progress</Typography>
+                <Typography variant="caption" sx={{ fontSize: 10, fontWeight: 700 }}>{collectionPct}%</Typography>
+              </Stack>
+              <LinearProgress
+                variant="determinate"
+                value={collectionPct}
+                sx={{ height: 5, borderRadius: 3, '& .MuiLinearProgress-bar': { bgcolor: '#0D9488' } }}
+              />
+            </Box>
+
+            <Box
+              component="span"
+              onClick={() => {}}
+              sx={{
+                display: 'inline-flex', alignItems: 'center', gap: 0.5,
+                color: 'primary.main', cursor: 'pointer', fontSize: 11, fontWeight: 500, mt: 0.5,
+              }}
+            >
+              View Details <OpenInNew sx={{ fontSize: 11 }} />
+            </Box>
+          </Stack>
+        </Box>
+
+        {/* Card 4 — Team */}
+        <Box sx={OVERVIEW_CARD_SX}>
+          <Typography variant="overline" sx={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.6, color: 'text.secondary', display: 'block', mb: 1.5 }}>
+            Team
+          </Typography>
+          <Stack gap={1.5}>
+            <Box>
+              <Typography variant="caption" sx={{ fontSize: 10, color: 'text.secondary', letterSpacing: 0.5, display: 'block', mb: 0.75 }}>
+                PROJECT MANAGER
+              </Typography>
               <Stack direction="row" alignItems="center" gap={1}>
                 <Box
                   sx={{
-                    width: 28,
-                    height: 28,
-                    borderRadius: '50%',
+                    width: 28, height: 28, borderRadius: '50%',
                     bgcolor: alpha(getAvatarColor(project.projectManager).bg, 0.15),
                     color: getAvatarColor(project.projectManager).bg,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: 10,
-                    fontWeight: 700,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 10, fontWeight: 700,
                   }}
                 >
                   {getInitials(project.projectManager)}
                 </Box>
-                <Typography variant="body2" sx={{ fontSize: 13 }}>
-                  {project.projectManager}
-                </Typography>
+                <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 500 }}>{project.projectManager}</Typography>
               </Stack>
-            </LabelValue>
-            <LabelValue label="Team Members">
-              <AvatarGroup
-                users={[project.projectManager].map((name) => ({
-                  name,
-                  color: getAvatarColor(name).bg,
-                }))}
-                max={4}
-                size="sm"
-              />
-            </LabelValue>
+            </Box>
+            <Box>
+              <Typography variant="caption" sx={{ fontSize: 10, color: 'text.secondary', letterSpacing: 0.5, display: 'block', mb: 0.75 }}>
+                TEAM MEMBERS
+              </Typography>
+              <Stack direction="row" alignItems="center" gap={0.75}>
+                {teamMembers.slice(0, 5).map((name) => (
+                  <Box
+                    key={name}
+                    title={name}
+                    sx={{
+                      width: 28, height: 28, borderRadius: '50%',
+                      bgcolor: alpha(getAvatarColor(name).bg, 0.15),
+                      color: getAvatarColor(name).bg,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 9, fontWeight: 700, border: '1px solid white',
+                    }}
+                  >
+                    {getInitials(name)}
+                  </Box>
+                ))}
+                {teamMembers.length > 5 && (
+                  <Typography variant="caption" sx={{ fontSize: 11, color: 'text.secondary' }}>
+                    +{teamMembers.length - 5} more
+                  </Typography>
+                )}
+              </Stack>
+            </Box>
           </Stack>
-        </WorkspaceSection>
+        </Box>
       </Box>
-    </WorkspaceTwoCol>
+    </Box>
   )
 }
 

@@ -24,6 +24,8 @@ let pitchVersions: PitchVersion[] = [
             subcategoryName: 'Interior Design',
             customName: null,
             value: 1500000,
+            sacCode: '998391',
+            gstRate: 18,
             clientMilestones: [
               {
                 id: 'cm-001',
@@ -89,6 +91,8 @@ let pitchVersions: PitchVersion[] = [
             subcategoryName: 'Build Services',
             customName: null,
             value: 2000000,
+            sacCode: '995411',
+            gstRate: 18,
             clientMilestones: [
               {
                 id: 'cm-004',

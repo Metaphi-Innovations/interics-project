@@ -10,7 +10,7 @@ import {
   Receipt,
   Payment,
   AttachMoney,
-  ChangeCircle,
+  Shield,
 } from '@mui/icons-material'
 import { tokens } from '@/design-system/tokens'
 import { useAppDispatch, useAppSelector } from '../../../store/hooks'
@@ -24,7 +24,7 @@ import type { Project } from '../../../slices/projects/reducer'
 import BillingTab from './live/BillingTab'
 import PaymentsTab from './live/PaymentsTab'
 import ExpensesTab from './live/ExpensesTab'
-import ChangesTab from './live/ChangesTab'
+import ComplianceTab from './live/ComplianceTab'
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -49,7 +49,7 @@ export default function LiveTab({ project }: LiveTabProps) {
   const billingBadge = invoices.filter((i) => i.status === 'Sent' || i.status === 'Overdue').length
   const paymentsBadge = vendorInvoices.filter((v) => v.status === 'Pending').length
   const expensesBadge = expenses.filter((e) => e.status === 'Pending').length
-  const changesBadge = changeRequests.filter((c) => c.status === 'Pending Approval').length
+  const complianceBadge = changeRequests.filter((c) => c.status === 'Pending Approval').length
 
   const subTabs = [
     {
@@ -74,10 +74,10 @@ export default function LiveTab({ project }: LiveTabProps) {
       badgeColor: 'warning',
     },
     {
-      label: 'Changes',
-      value: 'changes',
-      icon: <ChangeCircle sx={{ fontSize: 14 }} />,
-      badge: changesBadge,
+      label: 'Compliance',
+      value: 'compliance',
+      icon: <Shield sx={{ fontSize: 14 }} />,
+      badge: complianceBadge,
       badgeColor: 'warning',
     },
   ] as const
@@ -142,7 +142,7 @@ export default function LiveTab({ project }: LiveTabProps) {
       {activeSubTab === 'billing' && <BillingTab projectId={project.id} />}
       {activeSubTab === 'payments' && <PaymentsTab projectId={project.id} />}
       {activeSubTab === 'expenses' && <ExpensesTab projectId={project.id} />}
-      {activeSubTab === 'changes' && <ChangesTab projectId={project.id} />}
+      {activeSubTab === 'compliance' && <ComplianceTab projectId={project.id} />}
     </Box>
   )
 }
