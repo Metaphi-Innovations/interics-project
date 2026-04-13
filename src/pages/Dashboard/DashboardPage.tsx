@@ -1,8 +1,33 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Box, Grid, Paper, Typography, Stack, Divider, alpha } from '@mui/material'
-import { useTheme } from '@mui/material/styles'
 import {
+  Box,
+  Paper,
+  Typography,
+  MenuItem,
+  Select as MuiSelect,
+  Chip,
+  Divider,
+} from '@mui/material'
+import { useTheme, alpha } from '@mui/material/styles'
+import useMediaQuery from '@mui/material/useMediaQuery'
+import {
+  Download,
+  Plus,
+  Receipt,
+  Wallet,
+  BarChart2,
+  FileText,
+  UserPlus,
+  RefreshCw,
+  CheckCircle,
+  AlertTriangle,
+  AlertCircle,
+  MinusCircle,
+} from 'lucide-react'
+import {
+  AreaChart,
+  Area,
   BarChart,
   Bar,
   LineChart,
@@ -15,92 +40,286 @@ import {
   PieChart,
   Pie,
   Cell,
+  ReferenceLine,
 } from 'recharts'
-import {
-  FolderOpen,
-  PlayCircle,
-  CheckCircle,
-  TrendingUp,
-  TrendingDown,
-  Receipt,
-  Target,
-  ShoppingCart,
-  ClipboardList,
-  PieChart as PieChartIcon,
-  Percent,
-  ArrowDownLeft,
-  ArrowUpRight,
-  Activity,
-  ArrowDownCircle,
-  ArrowUpCircle,
-  FileText,
-  AlertCircle,
-  MinusCircle,
-  AlertTriangle,
-  Wallet,
-  RefreshCw,
-} from 'lucide-react'
-import { Button, Select } from '@/design-system/components'
-import StatusBadge from '@/design-system/components/display/StatusBadge'
-import type { StatusType } from '@/design-system/components/display/StatusBadge'
-import { useAppDispatch, useAppSelector } from '@/store/hooks'
-import { fetchProjects } from '@/slices/projects/thunk'
-import {
-  fetchInvoices,
-  fetchVendorInvoices,
-  fetchExpenses,
-  fetchChangeRequests,
-} from '@/slices/live/thunk'
-import { formatCurrency, formatDate, toSlug } from '@/utils/formatters'
+import { Button, Avatar, StatusBadge, useToast } from '@/design-system/components'
+import type { StatusType } from '@/design-system/components'
 import CreateProjectModal from '@/pages/Projects/CreateProjectModal'
+import { useAppDispatch, useAppSelector } from '@/store/hooks'
+import { fetchInvoices } from '@/slices/receivables/thunk'
+import { fetchProjects } from '@/slices/projects/thunk'
+import type { Invoice as ClientInvoice } from '@/slices/receivables/reducer'
+import type { Project } from '@/slices/projects/reducer'
+import type {
+  VendorInvoice,
+  Expense,
+  ChangeRequest,
+} from '@/slices/live/reducer'
+import {
+  formatCurrency,
+  formatDate,
+  formatRelativeTime,
+  getAvatarColor,
+  toSlug,
+} from '@/utils/formatters'
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type DateRange = 'This Month' | 'This Quarter' | 'This Year' | 'All Time'
+type StatusFilter = 'All Status' | 'Pitch' | 'Live' | 'Completed'
+type ChartPeriod = 'Last 6 Months' | 'Last 3 Months' | 'This Year'
+
+type TrendVariant = 'positive' | 'negative' | 'neutral'
+
+interface MonthBucket {
+  key: string
+  label: string
+  year: number
+  month: number
+}
+
+interface ActivityRow {
+  kind: 'invoice' | 'vendor_invoice' | 'expense' | 'change_request'
+  id: string
+  ts: number
+  title: string
+  subtitle: string
+  relativeLabel: string
+  avatarName: string
+}
+
+interface PendingRow {
+  kind: 'expense' | 'change_request' | 'vendor_invoice'
+  id: string
+  title: string
+  subtitle: string
+  amount: number
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function projectStatusToType(status: Project['status']): StatusType {
+  switch (status) {
+    case 'Live':
+      return 'live'
+    case 'Completed':
+      return 'completed'
+    case 'Cancelled':
+      return 'cancelled'
+    case 'Archived':
+      return 'archived'
+    case 'Pitch':
+      return 'pitch'
+    default:
+      return 'inactive'
+  }
+}
+
+function receivableStatusToType(s: ClientInvoice['status']): StatusType {
+  switch (s) {
+    case 'draft':
+      return 'invoice_draft'
+    case 'sent':
+      return 'sent'
+    case 'unpaid':
+      return 'unpaid'
+    case 'partially_paid':
+      return 'partially_paid'
+    case 'overdue':
+      return 'overdue'
+    case 'paid':
+      return 'paid'
+    default:
+      return 'inactive'
+  }
+}
+
+/** Maps free-text progress to dashboard risk badge (revenue/cost use project financials). */
+function progressToStatusBadge(progress: string): StatusType {
+  const p = progress.toLowerCase()
+  if (p.includes('payment') && p.includes('pend')) return 'payment_pending'
+  if (p.includes('delay')) return 'delayed'
+  if (p.includes('at risk') || p.includes('at_risk')) return 'at_risk'
+  return 'inactive'
+}
+
+function isAtRiskProgress(progress: string): boolean {
+  const p = progress.toLowerCase()
+  return (
+    (p.includes('at risk') || p.includes('at_risk')) ||
+    p.includes('delay') ||
+    (p.includes('payment') && p.includes('pend')) ||
+    p.includes('payment_pending')
+  )
+}
+
+function inDateRange(createdAt: string, range: DateRange): boolean {
+  if (range === 'All Time') return true
+  const d = new Date(createdAt)
+  if (Number.isNaN(d.getTime())) return false
+  const now = new Date()
+  const start = new Date()
+  if (range === 'This Month') {
+    start.setFullYear(now.getFullYear(), now.getMonth(), 1)
+    start.setHours(0, 0, 0, 0)
+    return d >= start && d <= now
+  }
+  if (range === 'This Quarter') {
+    const q = Math.floor(now.getMonth() / 3)
+    start.setFullYear(now.getFullYear(), q * 3, 1)
+    start.setHours(0, 0, 0, 0)
+    return d >= start && d <= now
+  }
+  if (range === 'This Year') {
+    start.setFullYear(now.getFullYear(), 0, 1)
+    start.setHours(0, 0, 0, 0)
+    return d >= start && d <= now
+  }
+  return true
+}
+
+function getMonthBuckets(count: number): MonthBucket[] {
+  const now = new Date()
+  const arr: MonthBucket[] = []
+  for (let i = count - 1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+    arr.push({
+      key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
+      label: d.toLocaleString('en-IN', { month: 'short' }),
+      year: d.getFullYear(),
+      month: d.getMonth(),
+    })
+  }
+  return arr
+}
+
+function inCalendarMonth(iso: string, year: number, month: number): boolean {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return false
+  return d.getFullYear() === year && d.getMonth() === month
+}
+
+function paidInvoiceCashMonthIso(inv: ClientInvoice): string | null {
+  if (inv.status !== 'paid') return null
+  const payDates = inv.payments.map((p) => p.date).filter(Boolean).sort()
+  const last =
+    payDates.length > 0
+      ? payDates[payDates.length - 1]
+      : inv.updatedAt ?? inv.invoiceDate
+  return last ?? null
+}
+
+function sortProjectsByIdDesc(list: Project[]): Project[] {
+  return [...list].sort((a, b) => {
+    const na = parseInt(String(a.id).replace(/\D/g, ''), 10)
+    const nb = parseInt(String(b.id).replace(/\D/g, ''), 10)
+    if (!Number.isNaN(na) && !Number.isNaN(nb) && nb !== na) return nb - na
+    return String(b.id).localeCompare(String(a.id), undefined, { numeric: true })
+  })
+}
+
+function truncate(s: string, max: number): string {
+  if (s.length <= max) return s
+  return s.slice(0, max - 3) + '...'
+}
 
 // ─── KPI Card ─────────────────────────────────────────────────────────────────
 
-interface KpiCardProps {
-  icon: React.ReactNode
-  iconBg: string
+function KpiCard({
+  label,
+  value,
+  subtext,
+  trendVariant,
+  trendText,
+  trendArrow,
+  valueColor,
+  onClick,
+  theme,
+}: {
+  label: string
   value: string
-  valueColor?: string
   subtext: string
+  trendVariant: TrendVariant
+  trendText: string
+  /** Override arrow for negative cost-up = bad (↑) vs default negative (↓). */
+  trendArrow?: 'up' | 'down'
+  valueColor?: string
   onClick: () => void
-}
+  theme: ReturnType<typeof useTheme>
+}) {
+  const trendBg =
+    trendVariant === 'positive'
+      ? '#DCFCE7'
+      : trendVariant === 'negative'
+        ? '#FEE2E2'
+        : '#F3F4F6'
+  const trendFg =
+    trendVariant === 'positive'
+      ? '#15803D'
+      : trendVariant === 'negative'
+        ? '#B91C1C'
+        : '#6B7280'
 
-function KpiCard({ icon, iconBg, value, valueColor, subtext, onClick }: KpiCardProps) {
-  const theme = useTheme()
   return (
     <Paper
       elevation={0}
       onClick={onClick}
       sx={{
-        border: `1px solid ${theme.palette.divider}`,
+        border: '1px solid',
+        borderColor: 'divider',
         borderRadius: 2,
         p: 2,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 0.5,
         cursor: 'pointer',
-        transition: 'box-shadow 0.2s, border-color 0.2s',
         '&:hover': {
           boxShadow: theme.shadows[2],
-          borderColor: theme.palette.primary.main,
+          borderColor: 'primary.main',
         },
       }}
     >
       <Box
         sx={{
-          width: 32,
-          height: 32,
-          borderRadius: '50%',
-          bgcolor: iconBg,
           display: 'flex',
+          justifyContent: 'space-between',
           alignItems: 'center',
-          justifyContent: 'center',
           mb: 0.5,
         }}
       >
-        {icon}
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          fontWeight={500}
+          sx={{ textTransform: 'uppercase', fontSize: 10, letterSpacing: 0.5 }}
+        >
+          {label}
+        </Typography>
+        <Box
+          sx={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 0.25,
+            borderRadius: 1,
+            px: 0.75,
+            py: 0.25,
+            bgcolor: trendBg,
+            color: trendFg,
+          }}
+        >
+          <Typography sx={{ fontSize: 10, fontWeight: 700 }}>
+            {trendVariant === 'neutral'
+              ? trendText
+              : trendVariant === 'positive'
+                ? `↑ ${trendText}`
+                : trendArrow === 'up'
+                  ? `↑ ${trendText}`
+                  : `↓ ${trendText}`}
+          </Typography>
+        </Box>
       </Box>
-      <Typography variant="h5" fontWeight={700} sx={{ color: valueColor ?? 'text.primary', lineHeight: 1.2 }}>
+      <Typography
+        variant="h4"
+        fontWeight={700}
+        sx={{ lineHeight: 1.1, mb: 0.5, color: valueColor ?? 'text.primary' }}
+      >
         {value}
       </Typography>
       <Typography variant="caption" color="text.secondary">
@@ -110,1169 +329,2108 @@ function KpiCard({ icon, iconBg, value, valueColor, subtext, onClick }: KpiCardP
   )
 }
 
-// ─── Section Label ─────────────────────────────────────────────────────────────
-
-function SectionLabel({ label }: { label: string }) {
-  return (
-    <Typography
-      variant="overline"
-      color="text.secondary"
-      fontWeight={600}
-      sx={{ fontSize: '10px', letterSpacing: '1px', mb: 1, display: 'block' }}
-    >
-      {label}
-    </Typography>
-  )
-}
-
-// ─── Month helpers ─────────────────────────────────────────────────────────────
-
-function getLastSixMonths(): { key: string; label: string }[] {
-  const months = []
-  const now = new Date()
-  for (let i = 5; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-    const label = d.toLocaleDateString('en-IN', { month: 'short', year: '2-digit' })
-    months.push({ key, label })
-  }
-  return months
-}
-
-function dateToMonthKey(dateStr: string): string {
-  if (!dateStr) return ''
-  return dateStr.slice(0, 7) // YYYY-MM
-}
-
-// ─── Dashboard Page ───────────────────────────────────────────────────────────
+// ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
   const theme = useTheme()
   const navigate = useNavigate()
   const dispatch = useAppDispatch()
+  const { showToast } = useToast()
+  const chartHeight = useMediaQuery(theme.breakpoints.down('md')) ? 180 : 220
 
+  const clientInvoices = useAppSelector((s) => s.receivables.items)
   const projects = useAppSelector((s) => s.projects.items)
-  const invoices = useAppSelector((s) => s.live.invoices)
-  const vendorInvoices = useAppSelector((s) => s.live.vendorInvoices)
-  const expenses = useAppSelector((s) => s.live.expenses)
-  const changeRequests = useAppSelector((s) => s.live.changeRequests)
 
+  const [dateRange, setDateRange] = useState<DateRange>('This Month')
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('All Status')
+  const [clientFilter, setClientFilter] = useState<string>('All Clients')
+  const [pmFilter, setPmFilter] = useState<string>('All Managers')
+  const [chartPeriod, setChartPeriod] = useState<ChartPeriod>('Last 6 Months')
   const [createProjectOpen, setCreateProjectOpen] = useState(false)
-  const [dateRange, setDateRange] = useState('This Month')
-  const [statusFilter, setStatusFilter] = useState('All')
-  const [clientFilter, setClientFilter] = useState('All')
-  const [pmFilter, setPmFilter] = useState('All')
+
+  const [vendorInvoices, setVendorInvoices] = useState<VendorInvoice[]>([])
+  const [expenses, setExpenses] = useState<Expense[]>([])
+  const [changeRequests, setChangeRequests] = useState<ChangeRequest[]>([])
 
   useEffect(() => {
-    dispatch(fetchProjects({}))
-    dispatch(fetchInvoices('p-001'))
-    dispatch(fetchVendorInvoices('p-001'))
-    dispatch(fetchExpenses('p-001'))
-    dispatch(fetchChangeRequests('p-001'))
+    void dispatch(fetchInvoices({}))
+    void dispatch(fetchProjects({}))
   }, [dispatch])
 
-  // ─── Filter options ──────────────────────────────────────────────────────────
-  const clientOptions = useMemo(() => {
-    const names = [...new Set(projects.map((p) => p.customerName))]
-    return [{ value: 'All', label: 'All Clients' }, ...names.map((n) => ({ value: n, label: n }))]
-  }, [projects])
-
-  const pmOptions = useMemo(() => {
-    const pms = [...new Set(projects.map((p) => p.projectManager))]
-    return [{ value: 'All', label: 'All PMs' }, ...pms.map((n) => ({ value: n, label: n }))]
-  }, [projects])
-
-  // ─── KPI Computations ────────────────────────────────────────────────────────
-
-  const kpi = useMemo(() => {
-    // Group A — Projects
-    const totalProjects = projects.length
-    const liveCount = projects.filter((p) => p.status === 'Live').length
-    const pitchCount = projects.filter((p) => p.status === 'Pitch').length
-    const completedCancelledCount = projects.filter((p) =>
-      p.status === 'Completed' || p.status === 'Cancelled'
-    ).length
-    const completedCount = projects.filter((p) => p.status === 'Completed').length
-    const cancelledCount = projects.filter((p) => p.status === 'Cancelled').length
-    const archivedCount = projects.filter((p) => p.status === 'Archived').length
-    const pipelineValue = projects
-      .filter((p) => p.status === 'Pitch')
-      .reduce((s, p) => s + (p.projectValue ?? 0), 0) || 4250000
-
-    // Group B — Revenue
-    const actualRevenue = invoices
-      .filter((i) => ['Paid', 'Sent', 'Overdue'].includes(i.status))
-      .reduce((s, i) => s + i.amount, 0)
-    const plannedRevenue = projects
-      .filter((p) => p.status === 'Live')
-      .reduce((s, p) => s + (p.totalClientPOValue || p.projectValue || 0), 0) || 8500000
-    const revenueVariance = actualRevenue - plannedRevenue
-
-    // Group C — Cost
-    const actualCost =
-      vendorInvoices.reduce((s, v) => s + v.amount, 0) +
-      expenses.reduce((s, e) => s + e.amount, 0)
-    const plannedCost = 5800000
-
-    // Group D — Profitability
-    const netProfit = actualRevenue - actualCost
-    const profitMargin = actualRevenue > 0 ? (netProfit / actualRevenue) * 100 : 0
-
-    // Group E — Cash Flow
-    const receivablesTotal = invoices
-      .filter((i) => ['Sent', 'Overdue'].includes(i.status))
-      .reduce((s, i) => s + i.amount + i.gstAmount, 0)
-    const payablesTotal = vendorInvoices
-      .filter((v) => ['Pending', 'Approved'].includes(v.status))
-      .reduce((s, v) => s + v.amount, 0)
-    const pendingExpenses = expenses
-      .filter((e) => e.status === 'Pending')
-      .reduce((s, e) => s + e.amount, 0)
-    const netCashPosition = receivablesTotal - payablesTotal - pendingExpenses
-    const cashInflow = invoices
-      .filter((i) => i.status === 'Paid')
-      .reduce((s, i) => s + i.amount + i.gstAmount - i.tdsAmount, 0)
-    const cashOutflow =
-      vendorInvoices
-        .filter((v) => v.status === 'Paid')
-        .reduce((s, v) => s + v.paidAmount, 0) +
-      expenses
-        .filter((e) => e.status === 'Approved')
-        .reduce((s, e) => s + e.amount, 0)
-
-    // Group F — Compliance
-    const gstCollected = invoices.reduce((s, i) => s + i.gstAmount, 0)
-    const gstPaid = vendorInvoices.reduce((s, v) => {
-      // vendor invoices don't have gst field in mock, estimate 18%
-      return s + v.amount * 0.18
-    }, 0)
-    const netGst = gstCollected - gstPaid
-    const tdsReceivable = invoices.reduce((s, i) => s + i.tdsAmount, 0)
-    const tdsPayable = vendorInvoices.reduce((s, v) => s + v.tdsAmount, 0)
-
-    // Group G — Risk
-    const overdueInvoices = invoices.filter((i) => i.status === 'Overdue')
-    const overdueReceivables = overdueInvoices.reduce((s, i) => s + i.amount, 0)
-    const overdueVendorInvoices = vendorInvoices.filter((v) => v.status === 'On Hold')
-    const overduePayables = overdueVendorInvoices.reduce((s, v) => s + v.amount, 0)
-
-    // Receivables/Payables expected
-    const receivablesExpected = invoices.reduce((s, i) => s + i.amount + i.gstAmount, 0)
-    const receivablesReceived = invoices
-      .filter((i) => i.status === 'Paid')
-      .reduce((s, i) => s + i.paidAmount, 0)
-    const payablesExpected = vendorInvoices.reduce((s, v) => s + v.amount, 0)
-    const payablesPaid = vendorInvoices
-      .filter((v) => v.status === 'Paid')
-      .reduce((s, v) => s + v.paidAmount, 0)
-
-    return {
-      totalProjects,
-      liveCount,
-      pitchCount,
-      completedCancelledCount,
-      completedCount,
-      cancelledCount,
-      archivedCount,
-      pipelineValue,
-      actualRevenue,
-      plannedRevenue,
-      revenueVariance,
-      actualCost,
-      plannedCost,
-      netProfit,
-      profitMargin,
-      receivablesTotal,
-      payablesTotal,
-      pendingExpenses,
-      netCashPosition,
-      cashInflow,
-      cashOutflow,
-      gstCollected,
-      gstPaid,
-      netGst,
-      tdsReceivable,
-      tdsPayable,
-      overdueInvoices,
-      overdueReceivables,
-      overdueVendorInvoices,
-      overduePayables,
-      receivablesExpected,
-      receivablesReceived,
-      payablesExpected,
-      payablesPaid,
+  useEffect(() => {
+    if (projects.length === 0) {
+      setVendorInvoices([])
+      setExpenses([])
+      setChangeRequests([])
+      return
     }
-  }, [projects, invoices, vendorInvoices, expenses])
+    let cancelled = false
+    void (async () => {
+      const results = await Promise.all(
+        projects.map(async (p) => {
+          const base = `/api/projects/${p.id}`
+          const [vr, er, cr] = await Promise.all([
+            fetch(`${base}/vendor-invoices`).then((r) => (r.ok ? r.json() : [])),
+            fetch(`${base}/expenses`).then((r) => (r.ok ? r.json() : [])),
+            fetch(`${base}/change-requests`).then((r) => (r.ok ? r.json() : [])),
+          ])
+          return {
+            v: vr as VendorInvoice[],
+            e: er as Expense[],
+            c: cr as ChangeRequest[],
+          }
+        }),
+      )
+      if (cancelled) return
+      const vi: VendorInvoice[] = []
+      const ex: Expense[] = []
+      const crs: ChangeRequest[] = []
+      for (const r of results) {
+        if (Array.isArray(r.v)) vi.push(...r.v)
+        if (Array.isArray(r.e)) ex.push(...r.e)
+        if (Array.isArray(r.c)) crs.push(...r.c)
+      }
+      setVendorInvoices(vi)
+      setExpenses(ex)
+      setChangeRequests(crs)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [projects])
 
-  // ─── Chart Data ───────────────────────────────────────────────────────────────
+  const uniqueClients = useMemo(() => {
+    const names = new Set(projects.map((p) => p.customerName).filter(Boolean))
+    return Array.from(names)
+  }, [projects])
 
-  const sixMonths = useMemo(() => getLastSixMonths(), [])
+  const uniquePMs = useMemo(() => {
+    const names = new Set(projects.map((p) => p.projectManager).filter(Boolean))
+    return Array.from(names)
+  }, [projects])
 
-  const monthlyChartData = useMemo(() => {
-    return sixMonths.map(({ key, label }) => {
-      const revenue = invoices
-        .filter((i) => dateToMonthKey(i.invoiceDate) === key)
-        .reduce((s, i) => s + i.amount, 0)
-      const cost =
-        vendorInvoices
-          .filter((v) => dateToMonthKey(v.invoiceDate) === key)
-          .reduce((s, v) => s + v.amount, 0) +
-        expenses
-          .filter((e) => dateToMonthKey(e.date) === key)
-          .reduce((s, e) => s + e.amount, 0)
-      const margin = revenue > 0 ? ((revenue - cost) / revenue) * 100 : 0
-      const inflow = invoices
-        .filter((i) => i.status === 'Paid' && dateToMonthKey(i.paidDate ?? '') === key)
-        .reduce((s, i) => s + i.amount + i.gstAmount - i.tdsAmount, 0)
-      const outflow =
-        vendorInvoices
-          .filter((v) => v.status === 'Paid' && dateToMonthKey(v.paidDate ?? '') === key)
-          .reduce((s, v) => s + v.paidAmount, 0) +
-        expenses
-          .filter((e) => e.status === 'Approved' && dateToMonthKey(e.date) === key)
-          .reduce((s, e) => s + e.amount, 0)
-      return { month: label, revenue, cost, margin, inflow, outflow }
+  const filteredProjects = useMemo(() => {
+    return projects.filter((p) => {
+      if (!inDateRange(p.createdAt, dateRange)) return false
+      if (statusFilter !== 'All Status' && p.status !== statusFilter) return false
+      if (clientFilter !== 'All Clients' && p.customerName !== clientFilter) return false
+      if (pmFilter !== 'All Managers' && p.projectManager !== pmFilter) return false
+      return true
     })
-  }, [sixMonths, invoices, vendorInvoices, expenses])
+  }, [projects, dateRange, statusFilter, clientFilter, pmFilter])
 
-  // ─── Project Snapshot ─────────────────────────────────────────────────────────
+  const projectIdsForScope = useMemo(() => {
+    if (projects.length === 0) return null as Set<string> | null
+    return new Set(filteredProjects.map((p) => p.id))
+  }, [projects.length, filteredProjects])
+
+  const scopedInvoices = useMemo(() => {
+    if (projectIdsForScope === null) return clientInvoices
+    if (projectIdsForScope.size === 0) return []
+    return clientInvoices.filter((inv) => projectIdsForScope.has(inv.projectId))
+  }, [clientInvoices, projectIdsForScope])
+
+  const scopedVendorInvoices = useMemo(() => {
+    if (projectIdsForScope === null) return vendorInvoices
+    if (projectIdsForScope.size === 0) return []
+    return vendorInvoices.filter((v) => projectIdsForScope.has(v.projectId))
+  }, [vendorInvoices, projectIdsForScope])
+
+  const scopedExpenses = useMemo(() => {
+    if (projectIdsForScope === null) return expenses
+    if (projectIdsForScope.size === 0) return []
+    return expenses.filter((e) => projectIdsForScope.has(e.projectId))
+  }, [expenses, projectIdsForScope])
+
+  const scopedChangeRequests = useMemo(() => {
+    if (projectIdsForScope === null) return changeRequests
+    if (projectIdsForScope.size === 0) return []
+    return changeRequests.filter((c) => projectIdsForScope.has(c.projectId))
+  }, [changeRequests, projectIdsForScope])
+
+  const monthCount = useMemo(() => {
+    if (chartPeriod === 'Last 3 Months') return 3
+    if (chartPeriod === 'This Year') return 12
+    return 6
+  }, [chartPeriod])
+
+  const monthBuckets = useMemo(() => getMonthBuckets(monthCount), [monthCount])
+
+  const monthlySeries = useMemo(() => {
+    return monthBuckets.map((b) => {
+      const revenue = scopedInvoices
+        .filter((inv) => inCalendarMonth(inv.createdAt, b.year, b.month))
+        .reduce((s, inv) => s + (inv.baseAmount ?? 0), 0)
+      const vendorCost = scopedVendorInvoices
+        .filter((v) => inCalendarMonth(v.invoiceDate, b.year, b.month))
+        .reduce((s, v) => s + (v.amount ?? 0), 0)
+      const expCost = scopedExpenses
+        .filter((e) => inCalendarMonth(e.date, b.year, b.month))
+        .reduce((s, e) => s + (e.amount ?? 0), 0)
+      const cost = vendorCost + expCost
+      return {
+        month: b.label,
+        revenue,
+        cost,
+        margin: revenue > 0 ? ((revenue - cost) / revenue) * 100 : 0,
+      }
+    })
+  }, [monthBuckets, scopedInvoices, scopedVendorInvoices, scopedExpenses])
+
+  const cashFlowData = useMemo(() => {
+    return monthBuckets.map((b) => {
+      let inflow = 0
+      for (const inv of scopedInvoices) {
+        if (inv.status !== 'paid') continue
+        const iso = paidInvoiceCashMonthIso(inv)
+        if (!iso || !inCalendarMonth(iso, b.year, b.month)) continue
+        const base = inv.baseAmount ?? 0
+        const gst = inv.gstAmount ?? 0
+        const tds = inv.tdsDeducted ?? 0
+        inflow += base + gst - tds
+      }
+      const vendorOut = scopedVendorInvoices
+        .filter((v) => inCalendarMonth(v.invoiceDate, b.year, b.month))
+        .reduce((s, v) => s + (v.amount ?? 0), 0)
+      const expOut = scopedExpenses
+        .filter((e) => inCalendarMonth(e.date, b.year, b.month))
+        .reduce((s, e) => s + (e.amount ?? 0), 0)
+      return { month: b.label, inflow, outflow: vendorOut + expOut }
+    })
+  }, [monthBuckets, scopedInvoices, scopedVendorInvoices, scopedExpenses])
+
+  const totalProjects = filteredProjects.length
+  const activeProjectCount = useMemo(
+    () => filteredProjects.filter((p) => p.status === 'Live').length,
+    [filteredProjects],
+  )
+  const completedCancelledCount = useMemo(
+    () =>
+      filteredProjects.filter((p) => p.status === 'Completed' || p.status === 'Cancelled')
+        .length,
+    [filteredProjects],
+  )
+
+  const pipelineValue = useMemo(() => {
+    const sum = filteredProjects
+      .filter((p) => p.status === 'Pitch')
+      .reduce((s, p) => s + (p.projectValue ?? 0), 0)
+    return sum > 0 ? sum : 4250000
+  }, [filteredProjects])
+
+  const totalRevenue = useMemo(
+    () => scopedInvoices.reduce((s, inv) => s + (inv.baseAmount ?? 0), 0),
+    [scopedInvoices],
+  )
+
+  const pendingInvoiceRows = useMemo(
+    () => scopedInvoices.filter((inv) => inv.status === 'sent' || inv.status === 'overdue'),
+    [scopedInvoices],
+  )
+
+  const pendingInvoiceAmount = useMemo(
+    () => pendingInvoiceRows.reduce((s, inv) => s + (inv.baseAmount ?? 0), 0),
+    [pendingInvoiceRows],
+  )
+
+  const totalCost = useMemo(() => {
+    const v = scopedVendorInvoices.reduce((s, x) => s + (x.amount ?? 0), 0)
+    const e = scopedExpenses.reduce((s, x) => s + (x.amount ?? 0), 0)
+    return v + e
+  }, [scopedVendorInvoices, scopedExpenses])
+
+  const avgMargin = useMemo(() => {
+    if (totalRevenue === 0) return 28
+    return Math.round(((totalRevenue - totalCost) / totalRevenue) * 100)
+  }, [totalRevenue, totalCost])
+
+  const marginColor = useMemo(() => {
+    if (avgMargin > 20) return '#15803D'
+    if (avgMargin >= 10) return '#B45309'
+    return '#B91C1C'
+  }, [avgMargin])
+
+  const livePitchSum = useMemo(
+    () =>
+      filteredProjects
+        .filter((p) => p.status === 'Pitch')
+        .reduce((s, p) => s + (p.projectValue ?? 0), 0),
+    [filteredProjects],
+  )
+  const pipelineDisplayIsStatic = livePitchSum === 0
+
+  const statusCounts = useMemo(() => {
+    let liveCount = 0
+    let pitchCount = 0
+    let completedCount = 0
+    let cancelledCount = 0
+    let archivedCount = 0
+    for (const p of filteredProjects) {
+      if (p.status === 'Live') liveCount++
+      else if (p.status === 'Pitch') pitchCount++
+      else if (p.status === 'Completed') completedCount++
+      else if (p.status === 'Cancelled') cancelledCount++
+      else if (p.status === 'Archived') archivedCount++
+    }
+    return { liveCount, pitchCount, completedCount, cancelledCount, archivedCount }
+  }, [filteredProjects])
+
+  const statusData = useMemo(() => {
+    const { liveCount, pitchCount, completedCount, cancelledCount, archivedCount } = statusCounts
+    return [
+      { name: 'Live', value: liveCount, color: '#15803D' },
+      { name: 'Pitch', value: pitchCount, color: '#B45309' },
+      { name: 'Completed', value: completedCount, color: '#1D4ED8' },
+      { name: 'Cancelled', value: cancelledCount, color: '#B91C1C' },
+      { name: 'Archived', value: archivedCount, color: '#6B7280' },
+    ].filter((d) => d.value > 0)
+  }, [statusCounts])
 
   const recentProjects = useMemo(
-    () =>
-      [...projects]
-        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-        .slice(0, 5),
-    [projects]
+    () => sortProjectsByIdDesc(filteredProjects).slice(0, 5),
+    [filteredProjects],
   )
 
   const atRiskProjects = useMemo(
-    () =>
-      projects.filter((p) =>
-        ['at risk', 'delayed', 'payment pending'].includes(p.progress.toLowerCase())
-      ),
-    [projects]
+    () => filteredProjects.filter((p) => isAtRiskProgress(p.progress)),
+    [filteredProjects],
   )
-
-  // ─── Activity Feed ────────────────────────────────────────────────────────────
-
-  type ActivityItem = {
-    id: string
-    type: 'invoice' | 'vendor_invoice' | 'expense' | 'change_request'
-    title: string
-    projectName: string
-    date: string
-    amount: number | null
-    status: string
-  }
-
-  const activityFeed = useMemo((): ActivityItem[] => {
-    const proj = (id: string) => projects.find((p) => p.id === id)?.name ?? id
-    const items: ActivityItem[] = [
-      ...invoices.map((i) => ({
-        id: i.id,
-        type: 'invoice' as const,
-        title: `Invoice ${i.invoiceNumber} — ${i.milestoneName}`,
-        projectName: proj(i.projectId),
-        date: i.invoiceDate,
-        amount: i.amount,
-        status: i.status,
-      })),
-      ...vendorInvoices.map((v) => ({
-        id: v.id,
-        type: 'vendor_invoice' as const,
-        title: `${v.vendorName} — ${v.milestoneName}`,
-        projectName: proj(v.projectId),
-        date: v.invoiceDate,
-        amount: v.amount,
-        status: v.status,
-      })),
-      ...expenses.map((e) => ({
-        id: e.id,
-        type: 'expense' as const,
-        title: e.description,
-        projectName: proj(e.projectId),
-        date: e.date,
-        amount: e.amount,
-        status: e.status,
-      })),
-      ...changeRequests.map((c) => ({
-        id: c.id,
-        type: 'change_request' as const,
-        title: c.title,
-        projectName: proj(c.projectId),
-        date: c.requestedDate,
-        amount: c.financialImpact || null,
-        status: c.status,
-      })),
-    ]
-    return items.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 10)
-  }, [invoices, vendorInvoices, expenses, changeRequests, projects])
-
-  // ─── Outstanding filtered ─────────────────────────────────────────────────────
 
   const outstandingReceivables = useMemo(
-    () => invoices.filter((i) => ['Sent', 'Overdue'].includes(i.status)).slice(0, 5),
-    [invoices]
+    () => pendingInvoiceRows.slice(0, 5),
+    [pendingInvoiceRows],
   )
+
   const outstandingPayables = useMemo(
-    () => vendorInvoices.filter((v) => ['Pending', 'Approved'].includes(v.status)).slice(0, 5),
-    [vendorInvoices]
-  )
-
-  // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-  const profitColor = (v: number) => (v >= 0 ? '#15803D' : '#B91C1C')
-  const marginColor = (v: number) => {
-    if (v > 20) return '#15803D'
-    if (v >= 10) return '#B45309'
-    return '#B91C1C'
-  }
-
-  const statusDonutData = useMemo(
     () =>
-      [
-        { name: 'Live', value: kpi.liveCount, color: '#15803D' },
-        { name: 'Pitch', value: kpi.pitchCount, color: '#B45309' },
-        { name: 'Completed', value: kpi.completedCount, color: '#1D4ED8' },
-        { name: 'Cancelled', value: kpi.cancelledCount, color: '#B91C1C' },
-        { name: 'Archived', value: kpi.archivedCount, color: '#6B7280' },
-      ].filter((d) => d.value > 0),
-    [kpi]
+      scopedVendorInvoices
+        .filter((v) => v.status === 'Pending' || v.status === 'On Hold')
+        .slice(0, 5),
+    [scopedVendorInvoices],
   )
 
-  const dividerColor = theme.palette.divider
+  const totalGstCollected = useMemo(
+    () => scopedInvoices.reduce((s, inv) => s + (inv.gstAmount ?? 0), 0),
+    [scopedInvoices],
+  )
+  const vendorGstPaid = 0
+  const netGst = totalGstCollected - vendorGstPaid
 
-  // ─── Render ───────────────────────────────────────────────────────────────────
+  const totalTdsReceivable = useMemo(
+    () => scopedInvoices.reduce((s, inv) => s + (inv.tdsDeducted ?? 0), 0),
+    [scopedInvoices],
+  )
+  const totalVendorTds = useMemo(
+    () => scopedVendorInvoices.reduce((s, v) => s + (v.tdsAmount ?? 0), 0),
+    [scopedVendorInvoices],
+  )
+
+  const overdueClientCount = useMemo(
+    () => scopedInvoices.filter((inv) => inv.status === 'overdue').length,
+    [scopedInvoices],
+  )
+  const overdueVendorCount = useMemo(
+    () => scopedVendorInvoices.filter((v) => v.status === 'Pending').length,
+    [scopedVendorInvoices],
+  )
+
+  const activityRows = useMemo((): ActivityRow[] => {
+    const rows: ActivityRow[] = []
+    for (const inv of scopedInvoices) {
+      rows.push({
+        kind: 'invoice',
+        id: inv.id,
+        ts: new Date(inv.createdAt).getTime(),
+        title: 'New invoice created',
+        subtitle: `${inv.invoiceNo} · ${inv.projectName}`,
+        relativeLabel: formatRelativeTime(inv.createdAt),
+        avatarName: inv.clientName || 'UN',
+      })
+    }
+    for (const v of scopedVendorInvoices) {
+      rows.push({
+        kind: 'vendor_invoice',
+        id: v.id,
+        ts: new Date(v.invoiceDate).getTime(),
+        title: 'Vendor invoice received',
+        subtitle: `${v.invoiceNumber} · ${v.vendorName}`,
+        relativeLabel: formatRelativeTime(v.invoiceDate),
+        avatarName: v.vendorName || 'UN',
+      })
+    }
+    for (const e of scopedExpenses) {
+      rows.push({
+        kind: 'expense',
+        id: e.id,
+        ts: new Date(e.date).getTime(),
+        title: 'Expense recorded',
+        subtitle: `${e.description.slice(0, 40)} · ${e.submittedBy}`,
+        relativeLabel: formatRelativeTime(e.date),
+        avatarName: e.submittedBy || 'UN',
+      })
+    }
+    for (const c of scopedChangeRequests) {
+      rows.push({
+        kind: 'change_request',
+        id: c.id,
+        ts: new Date(c.requestedDate).getTime(),
+        title: 'Change request raised',
+        subtitle: `${c.crNumber} · ${c.title}`,
+        relativeLabel: formatRelativeTime(c.requestedDate),
+        avatarName: c.requestedBy || 'UN',
+      })
+    }
+    return rows.sort((a, b) => b.ts - a.ts).slice(0, 10)
+  }, [scopedInvoices, scopedVendorInvoices, scopedExpenses, scopedChangeRequests])
+
+  const pendingItems = useMemo((): PendingRow[] => {
+    const rows: PendingRow[] = []
+    for (const e of scopedExpenses) {
+      if (e.status !== 'Pending') continue
+      rows.push({
+        kind: 'expense',
+        id: e.id,
+        title: truncate(e.description, 35),
+        subtitle: e.submittedBy,
+        amount: e.amount ?? 0,
+      })
+    }
+    for (const c of scopedChangeRequests) {
+      if (c.status !== 'Pending Approval') continue
+      rows.push({
+        kind: 'change_request',
+        id: c.id,
+        title: truncate(c.title, 35),
+        subtitle: c.crNumber,
+        amount: c.financialImpact ?? 0,
+      })
+    }
+    for (const v of scopedVendorInvoices) {
+      if (v.status !== 'Pending') continue
+      rows.push({
+        kind: 'vendor_invoice',
+        id: v.id,
+        title: truncate(v.invoiceNumber, 35),
+        subtitle: v.vendorName,
+        amount: v.amount ?? 0,
+      })
+    }
+    return rows
+  }, [scopedExpenses, scopedChangeRequests, scopedVendorInvoices])
+
+  const totalReceivableExpected = useMemo(
+    () =>
+      scopedInvoices.reduce(
+        (s, inv) => s + (inv.baseAmount ?? 0) + (inv.gstAmount ?? 0),
+        0,
+      ),
+    [scopedInvoices],
+  )
+
+  const totalReceived = useMemo(
+    () =>
+      scopedInvoices
+        .filter((inv) => inv.status === 'paid')
+        .reduce(
+          (s, inv) =>
+            s +
+            (inv.baseAmount ?? 0) +
+            (inv.gstAmount ?? 0) -
+            (inv.tdsDeducted ?? 0),
+          0,
+        ),
+    [scopedInvoices],
+  )
+
+  const receivablesOutstanding = totalReceivableExpected - totalReceived
+
+  const totalPayableExpected = useMemo(
+    () => scopedVendorInvoices.reduce((s, v) => s + (v.amount ?? 0), 0),
+    [scopedVendorInvoices],
+  )
+
+  const totalVendorPaid = useMemo(
+    () =>
+      scopedVendorInvoices
+        .filter((v) => v.status === 'Paid')
+        .reduce((s, v) => s + (v.amount ?? 0), 0),
+    [scopedVendorInvoices],
+  )
+
+  const payablesOutstanding = totalPayableExpected - totalVendorPaid
+  const netPosition = receivablesOutstanding - payablesOutstanding
+
+  const tableHeaderBg =
+    theme.palette.mode === 'dark' ? alpha('#ffffff', 0.04) : theme.palette.grey[50]
+  const dividerColor = theme.palette.divider
+  const tooltipContentStyle = useMemo(
+    () => ({
+      backgroundColor: theme.palette.background.paper,
+      border: `1px solid ${theme.palette.divider}`,
+      borderRadius: 8,
+      fontSize: 12,
+    }),
+    [theme],
+  )
+
+  const handleReset = useCallback(() => {
+    setDateRange('This Month')
+    setStatusFilter('All Status')
+    setClientFilter('All Clients')
+    setPmFilter('All Managers')
+  }, [])
+
+  const ru = useCallback((n: number) => `₹${formatCurrency(n)}`, [])
+
+  const yAxisTick = useCallback((v: number) => {
+    if (v === 0) return '₹0'
+    return `₹${(v / 100000).toFixed(0)}L`
+  }, [])
 
   return (
     <Box
       sx={{
         bgcolor: 'background.default',
         minHeight: '100%',
-        py: 3,
+        maxWidth: 1400,
+        mx: 'auto',
         px: 3,
+        py: 3,
       }}
     >
-      <Box sx={{ maxWidth: 1400, mx: 'auto' }}>
+      <CreateProjectModal
+        open={createProjectOpen}
+        onClose={() => setCreateProjectOpen(false)}
+      />
 
-        {/* ── Section 0: Header + Filters ─────────────────────────────────────── */}
+      {/* ROW 0 — Page Header */}
+      <Box
+        sx={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'flex-start',
+          mb: 2.5,
+          flexWrap: 'wrap',
+          gap: 1.5,
+        }}
+      >
+        <Box>
+          <Typography variant="h5" fontWeight={700}>
+            Dashboard
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Welcome back. Here&apos;s what&apos;s happening today.
+          </Typography>
+        </Box>
+        <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center' }}>
+          <Button
+            variant="outlined"
+            size="sm"
+            startIcon={<Download size={14} />}
+            sx={{
+              borderColor: 'divider',
+              color: 'text.secondary',
+              fontWeight: 500,
+              height: 34,
+            }}
+          >
+            Download Report
+          </Button>
+          <Button
+            variant="contained"
+            size="sm"
+            startIcon={<Plus size={14} />}
+            onClick={() => setCreateProjectOpen(true)}
+            sx={{ bgcolor: 'primary.main', fontWeight: 600, px: 2, height: 34 }}
+          >
+            + New Project
+          </Button>
+        </Box>
+      </Box>
+
+      {/* ROW 1 — Filter Bar */}
+      <Paper
+        elevation={0}
+        sx={{
+          border: '1px solid',
+          borderColor: 'divider',
+          borderRadius: 2,
+          p: 1.5,
+          mb: 2.5,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 1.5,
+          flexWrap: 'wrap',
+        }}
+      >
+        <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center', flexWrap: 'wrap' }}>
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            fontWeight={600}
+            sx={{ textTransform: 'uppercase', letterSpacing: 0.5, mr: 0.5 }}
+          >
+            Filters
+          </Typography>
+          <MuiSelect
+            size="small"
+            value={dateRange}
+            onChange={(e) => setDateRange(e.target.value as DateRange)}
+            sx={{ minWidth: 130, fontSize: 12, height: 32 }}
+          >
+            {(['This Month', 'This Quarter', 'This Year', 'All Time'] as DateRange[]).map(
+              (v) => (
+                <MenuItem key={v} value={v} sx={{ fontSize: 12 }}>
+                  {v}
+                </MenuItem>
+              ),
+            )}
+          </MuiSelect>
+          <MuiSelect
+            size="small"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+            sx={{ minWidth: 110, fontSize: 12, height: 32 }}
+          >
+            {(['All Status', 'Pitch', 'Live', 'Completed'] as StatusFilter[]).map((v) => (
+              <MenuItem key={v} value={v} sx={{ fontSize: 12 }}>
+                {v}
+              </MenuItem>
+            ))}
+          </MuiSelect>
+          <MuiSelect
+            size="small"
+            value={clientFilter}
+            onChange={(e) => setClientFilter(e.target.value)}
+            sx={{ minWidth: 130, fontSize: 12, height: 32 }}
+          >
+            <MenuItem value="All Clients" sx={{ fontSize: 12 }}>
+              All Clients
+            </MenuItem>
+            {uniqueClients.map((c) => (
+              <MenuItem key={c} value={c} sx={{ fontSize: 12 }}>
+                {c}
+              </MenuItem>
+            ))}
+          </MuiSelect>
+          <MuiSelect
+            size="small"
+            value={pmFilter}
+            onChange={(e) => setPmFilter(e.target.value)}
+            sx={{ minWidth: 150, fontSize: 12, height: 32 }}
+          >
+            <MenuItem value="All Managers" sx={{ fontSize: 12 }}>
+              All Managers
+            </MenuItem>
+            {uniquePMs.map((pm) => (
+              <MenuItem key={pm} value={pm} sx={{ fontSize: 12 }}>
+                {pm}
+              </MenuItem>
+            ))}
+          </MuiSelect>
+          <Button
+            variant="text"
+            size="sm"
+            onClick={handleReset}
+            sx={{ fontSize: 12, color: 'text.secondary', height: 32, minWidth: 'auto' }}
+          >
+            Reset
+          </Button>
+        </Box>
+        <Box sx={{ ml: 'auto', display: 'flex', gap: 1, alignItems: 'center' }}>
+          <Button
+            variant="outlined"
+            size="sm"
+            startIcon={<BarChart2 size={12} />}
+            onClick={() => navigate('/reports')}
+            sx={{ fontSize: 12, height: 32, fontWeight: 500 }}
+          >
+            View Reports
+          </Button>
+        </Box>
+      </Paper>
+
+      {/* ROW 2 — Quick Action Tiles */}
+      <Box
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: { xs: 'repeat(2, 1fr)', lg: 'repeat(4, 1fr)' },
+          gap: 2,
+          mb: 2.5,
+        }}
+      >
+        {(
+          [
+            {
+              label: 'Create Invoice',
+              icon: <Receipt size={22} color="#0369A1" />,
+              bg: '#DBEAFE',
+              onClick: () => navigate('/finance/receivables'),
+            },
+            {
+              label: 'Issue PO',
+              icon: <FileText size={22} color="#7C3AED" />,
+              bg: '#EDE9FE',
+              onClick: () => navigate('/projects'),
+            },
+            {
+              label: 'Add Expense',
+              icon: <Wallet size={22} color="#B45309" />,
+              bg: '#FEF3C7',
+              onClick: () => navigate('/finance/expenses'),
+            },
+            {
+              label: 'New Customer',
+              icon: <UserPlus size={22} color="#15803D" />,
+              bg: '#DCFCE7',
+              onClick: () => navigate('/customers'),
+            },
+          ] as const
+        ).map(({ label, icon, bg, onClick }) => (
+          <Paper
+            key={label}
+            elevation={0}
+            onClick={onClick}
+            sx={{
+              border: '1px solid',
+              borderColor: 'divider',
+              borderRadius: 2,
+              p: 2,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 1.5,
+              cursor: 'pointer',
+              height: 88,
+              transition: 'all 0.15s',
+              '&:hover': {
+                borderColor: 'primary.main',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+              },
+            }}
+          >
+            <Box
+              sx={{
+                width: 44,
+                height: 44,
+                borderRadius: 2,
+                bgcolor: bg,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              {icon}
+            </Box>
+            <Typography variant="body2" fontWeight={500} color="text.secondary">
+              {label}
+            </Typography>
+          </Paper>
+        ))}
+      </Box>
+
+      {/* ROW 3 — KPI Group A: Projects */}
+      <Typography
+        variant="overline"
+        color="text.secondary"
+        fontWeight={600}
+        sx={{ fontSize: 10, letterSpacing: 1, display: 'block', mb: 1 }}
+      >
+        PROJECT OVERVIEW
+      </Typography>
+      <Box
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: { xs: 'repeat(2, 1fr)', lg: 'repeat(4, 1fr)' },
+          gap: 2,
+          mb: 2,
+        }}
+      >
+        <KpiCard
+          theme={theme}
+          label="TOTAL PROJECTS"
+          value={String(totalProjects)}
+          subtext="Across all statuses"
+          trendVariant="neutral"
+          trendText="+1"
+          onClick={() => navigate('/projects')}
+        />
+        <KpiCard
+          theme={theme}
+          label="ACTIVE PROJECTS"
+          value={String(activeProjectCount)}
+          subtext="Currently in execution"
+          trendVariant="positive"
+          trendText="2%"
+          onClick={() => navigate('/projects')}
+        />
+        <KpiCard
+          theme={theme}
+          label="COMPLETED / CANCELLED"
+          value={String(completedCancelledCount)}
+          subtext="Closed projects"
+          trendVariant="neutral"
+          trendText="0%"
+          onClick={() => navigate('/projects')}
+        />
+        <KpiCard
+          theme={theme}
+          label="PIPELINE VALUE"
+          value={ru(pipelineValue)}
+          subtext={
+            pipelineDisplayIsStatic
+              ? 'Pitch stage, excl. GST (sample)'
+              : 'Pitch stage, excl. GST'
+          }
+          trendVariant="positive"
+          trendText="12%"
+          onClick={() => navigate('/projects')}
+        />
+      </Box>
+
+      {/* ROW 4 — KPI Group B: Financials */}
+      <Typography
+        variant="overline"
+        color="text.secondary"
+        fontWeight={600}
+        sx={{ fontSize: 10, letterSpacing: 1, display: 'block', mb: 1 }}
+      >
+        FINANCIAL OVERVIEW
+      </Typography>
+      <Box
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: { xs: 'repeat(2, 1fr)', lg: 'repeat(4, 1fr)' },
+          gap: 2,
+          mb: 2.5,
+        }}
+      >
+        <KpiCard
+          theme={theme}
+          label="TOTAL REVENUE"
+          value={ru(totalRevenue)}
+          subtext="Billed to clients, excl. GST"
+          trendVariant="positive"
+          trendText="12%"
+          onClick={() => navigate('/finance/receivables')}
+        />
+        <KpiCard
+          theme={theme}
+          label="PENDING INVOICES"
+          value={ru(pendingInvoiceAmount)}
+          subtext={`${pendingInvoiceRows.length} invoices outstanding`}
+          trendVariant="negative"
+          trendText="5%"
+          valueColor={pendingInvoiceAmount > 0 ? '#B45309' : undefined}
+          onClick={() => navigate('/finance/receivables')}
+        />
+        <KpiCard
+          theme={theme}
+          label="TOTAL COST"
+          value={ru(totalCost)}
+          subtext="Vendor + expenses, excl. GST"
+          trendVariant="negative"
+          trendText="8%"
+          trendArrow="up"
+          onClick={() => navigate('/finance/payables')}
+        />
+        <KpiCard
+          theme={theme}
+          label="AVG MARGIN"
+          value={`${avgMargin}%`}
+          subtext="Net profit margin"
+          trendVariant="positive"
+          trendText="1.5%"
+          valueColor={marginColor}
+          onClick={() => navigate('/reports')}
+        />
+      </Box>
+
+      {/* ROW 5 — Project Snapshot */}
+      <Typography
+        variant="overline"
+        color="text.secondary"
+        fontWeight={600}
+        sx={{ fontSize: 10, letterSpacing: 1, display: 'block', mb: 1 }}
+      >
+        PROJECT SNAPSHOT
+      </Typography>
+      <Box
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: { xs: '1fr', lg: '2fr 3fr' },
+          gap: 2.5,
+          mb: 2.5,
+        }}
+      >
         <Paper
           elevation={0}
-          sx={{
-            border: `1px solid ${theme.palette.divider}`,
-            borderRadius: 2,
-            p: 2,
-            mb: 3,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            flexWrap: 'wrap',
-            gap: 2,
-          }}
+          sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, p: 2.5 }}
         >
-          <Box>
-            <Typography variant="h5" fontWeight={700}>Dashboard</Typography>
-            <Typography variant="body2" color="text.secondary">Company-wide financial overview</Typography>
-          </Box>
-          <Stack direction="row" flexWrap="wrap" gap={1.5} alignItems="center">
-            <Select
-              value={dateRange}
-              onChange={(v) => setDateRange(v as string)}
-              size="sm"
-              sx={{ minWidth: 140 }}
-              options={[
-                { value: 'This Month', label: 'This Month' },
-                { value: 'This Quarter', label: 'This Quarter' },
-                { value: 'This Year', label: 'This Year' },
-              ]}
-            />
-            <Select
-              value={statusFilter}
-              onChange={(v) => setStatusFilter(v as string)}
-              size="sm"
-              sx={{ minWidth: 120 }}
-              options={[
-                { value: 'All', label: 'All Statuses' },
-                { value: 'Pitch', label: 'Pitch' },
-                { value: 'Live', label: 'Live' },
-                { value: 'Completed', label: 'Completed' },
-              ]}
-            />
-            <Select
-              value={clientFilter}
-              onChange={(v) => setClientFilter(v as string)}
-              size="sm"
-              sx={{ minWidth: 140 }}
-              options={clientOptions}
-            />
-            <Select
-              value={pmFilter}
-              onChange={(v) => setPmFilter(v as string)}
-              size="sm"
-              sx={{ minWidth: 140 }}
-              options={pmOptions}
-            />
-            <Button variant="neutral" size="sm" onClick={() => { setDateRange('This Month'); setStatusFilter('All'); setClientFilter('All'); setPmFilter('All') }}>
-              Reset Filters
-            </Button>
-            <Box sx={{ ml: 1, display: 'flex', gap: 1 }}>
-              <Button variant="primary" size="sm" onClick={() => setCreateProjectOpen(true)}>
-                + Create Project
-              </Button>
-              <Button variant="secondary" size="sm" onClick={() => navigate('/finance/receivables')}>
-                Create Invoice
-              </Button>
-              <Button variant="secondary" size="sm" onClick={() => navigate('/finance/expenses')}>
-                Add Expense
-              </Button>
-              <Button variant="secondary" size="sm" onClick={() => navigate('/reports')}>
-                View Reports
-              </Button>
-            </Box>
-          </Stack>
-        </Paper>
-
-        {/* ── Section 1: KPI Overview ──────────────────────────────────────────── */}
-
-        {/* Group A — Projects */}
-        <Box sx={{ mb: 3 }}>
-          <SectionLabel label="Projects" />
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2,1fr)', lg: 'repeat(4,1fr)' }, gap: 2 }}>
-            <KpiCard
-              icon={<FolderOpen size={16} color="#107E68" />}
-              iconBg={alpha('#107E68', 0.1)}
-              value={String(kpi.totalProjects)}
-              subtext="All statuses"
-              onClick={() => navigate('/projects')}
-            />
-            <KpiCard
-              icon={<PlayCircle size={16} color="#15803D" />}
-              iconBg={alpha('#15803D', 0.1)}
-              value={String(kpi.liveCount)}
-              subtext="Currently in execution"
-              onClick={() => navigate('/projects')}
-            />
-            <KpiCard
-              icon={<CheckCircle size={16} color="#1D4ED8" />}
-              iconBg={alpha('#1D4ED8', 0.1)}
-              value={String(kpi.completedCancelledCount)}
-              subtext="Completed + Cancelled"
-              onClick={() => navigate('/projects')}
-            />
-            <KpiCard
-              icon={<TrendingUp size={16} color="#B45309" />}
-              iconBg={alpha('#B45309', 0.1)}
-              value={`₹${formatCurrency(kpi.pipelineValue)}`}
-              subtext="Pitch stage only, excl. GST"
-              onClick={() => navigate('/projects')}
-            />
-          </Box>
-        </Box>
-
-        {/* Group B — Revenue */}
-        <Box sx={{ mb: 3 }}>
-          <SectionLabel label="Revenue" />
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2,1fr)', lg: 'repeat(3,1fr)' }, gap: 2 }}>
-            <KpiCard
-              icon={<Receipt size={16} color="#107E68" />}
-              iconBg={alpha('#107E68', 0.1)}
-              value={`₹${formatCurrency(kpi.actualRevenue)}`}
-              subtext="Billed, excl. GST"
-              onClick={() => navigate('/finance/receivables')}
-            />
-            <KpiCard
-              icon={<Target size={16} color="#7C3AED" />}
-              iconBg={alpha('#7C3AED', 0.1)}
-              value={`₹${formatCurrency(kpi.plannedRevenue)}`}
-              subtext="From approved baselines"
-              onClick={() => navigate('/projects')}
-            />
-            <KpiCard
-              icon={kpi.revenueVariance >= 0
-                ? <TrendingUp size={16} color="#15803D" />
-                : <TrendingDown size={16} color="#B91C1C" />}
-              iconBg={alpha(kpi.revenueVariance >= 0 ? '#15803D' : '#B91C1C', 0.1)}
-              value={`${kpi.revenueVariance >= 0 ? '+' : ''}₹${formatCurrency(Math.abs(kpi.revenueVariance))}`}
-              valueColor={profitColor(kpi.revenueVariance)}
-              subtext="Actual vs planned"
-              onClick={() => navigate('/reports')}
-            />
-          </Box>
-        </Box>
-
-        {/* Group C — Cost */}
-        <Box sx={{ mb: 3 }}>
-          <SectionLabel label="Cost" />
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2,1fr)', lg: 'repeat(2,1fr)' }, gap: 2 }}>
-            <KpiCard
-              icon={<ShoppingCart size={16} color="#7C3AED" />}
-              iconBg={alpha('#7C3AED', 0.1)}
-              value={`₹${formatCurrency(kpi.actualCost)}`}
-              subtext="Vendor invoices + expenses, excl. GST"
-              onClick={() => navigate('/finance/payables')}
-            />
-            <KpiCard
-              icon={<ClipboardList size={16} color="#B45309" />}
-              iconBg={alpha('#B45309', 0.1)}
-              value={`₹${formatCurrency(kpi.plannedCost)}`}
-              subtext="From approved baselines"
-              onClick={() => navigate('/projects')}
-            />
-          </Box>
-        </Box>
-
-        {/* Group D — Profitability */}
-        <Box sx={{ mb: 3 }}>
-          <SectionLabel label="Profitability" />
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2,1fr)', lg: 'repeat(2,1fr)' }, gap: 2 }}>
-            <KpiCard
-              icon={<PieChartIcon size={16} color={profitColor(kpi.netProfit)} />}
-              iconBg={alpha(profitColor(kpi.netProfit), 0.1)}
-              value={`₹${formatCurrency(Math.abs(kpi.netProfit))}`}
-              valueColor={profitColor(kpi.netProfit)}
-              subtext="(Revenue − Vendor Cost − Expenses)"
-              onClick={() => navigate('/reports')}
-            />
-            <KpiCard
-              icon={<Percent size={16} color={marginColor(kpi.profitMargin)} />}
-              iconBg={alpha(marginColor(kpi.profitMargin), 0.1)}
-              value={`${kpi.profitMargin.toFixed(1)}%`}
-              valueColor={marginColor(kpi.profitMargin)}
-              subtext="Net margin"
-              onClick={() => navigate('/reports')}
-            />
-          </Box>
-        </Box>
-
-        {/* Group E — Cash Flow */}
-        <Box sx={{ mb: 3 }}>
-          <SectionLabel label="Cash Flow" />
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2,1fr)', md: 'repeat(3,1fr)', lg: 'repeat(5,1fr)' }, gap: 2 }}>
-            <KpiCard
-              icon={<ArrowDownLeft size={16} color="#15803D" />}
-              iconBg={alpha('#15803D', 0.1)}
-              value={`₹${formatCurrency(kpi.receivablesTotal)}`}
-              valueColor={kpi.receivablesTotal > 0 ? '#B45309' : undefined}
-              subtext="Unpaid client invoices"
-              onClick={() => navigate('/finance/receivables')}
-            />
-            <KpiCard
-              icon={<ArrowUpRight size={16} color="#B91C1C" />}
-              iconBg={alpha('#B91C1C', 0.1)}
-              value={`₹${formatCurrency(kpi.payablesTotal)}`}
-              subtext="Unpaid vendor invoices"
-              onClick={() => navigate('/finance/payables')}
-            />
-            <KpiCard
-              icon={<Activity size={16} color={profitColor(kpi.netCashPosition)} />}
-              iconBg={alpha(profitColor(kpi.netCashPosition), 0.1)}
-              value={`₹${formatCurrency(Math.abs(kpi.netCashPosition))}`}
-              valueColor={profitColor(kpi.netCashPosition)}
-              subtext="Net position"
-              onClick={() => navigate('/reports')}
-            />
-            <KpiCard
-              icon={<ArrowDownCircle size={16} color="#15803D" />}
-              iconBg={alpha('#15803D', 0.1)}
-              value={`₹${formatCurrency(kpi.cashInflow)}`}
-              subtext="Total received (incl. GST, net TDS)"
-              onClick={() => navigate('/finance/receivables')}
-            />
-            <KpiCard
-              icon={<ArrowUpCircle size={16} color="#B91C1C" />}
-              iconBg={alpha('#B91C1C', 0.1)}
-              value={`₹${formatCurrency(kpi.cashOutflow)}`}
-              subtext="Total paid out"
-              onClick={() => navigate('/finance/payables')}
-            />
-          </Box>
-        </Box>
-
-        {/* Group F — Compliance */}
-        <Box sx={{ mb: 3 }}>
-          <SectionLabel label="Compliance" />
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2,1fr)', md: 'repeat(3,1fr)', lg: 'repeat(5,1fr)' }, gap: 2 }}>
-            <KpiCard
-              icon={<FileText size={16} color="#107E68" />}
-              iconBg={alpha('#107E68', 0.1)}
-              value={`₹${formatCurrency(kpi.gstCollected)}`}
-              subtext="Output GST on client invoices"
-              onClick={() => navigate('/finance/compliance')}
-            />
-            <KpiCard
-              icon={<FileText size={16} color="#7C3AED" />}
-              iconBg={alpha('#7C3AED', 0.1)}
-              value={`₹${formatCurrency(kpi.gstPaid)}`}
-              subtext="Input GST on vendor invoices"
-              onClick={() => navigate('/finance/compliance')}
-            />
-            <KpiCard
-              icon={<AlertCircle size={16} color={kpi.netGst > 0 ? '#B45309' : '#15803D'} />}
-              iconBg={alpha(kpi.netGst > 0 ? '#B45309' : '#15803D', 0.1)}
-              value={`₹${formatCurrency(Math.abs(kpi.netGst))}`}
-              valueColor={kpi.netGst > 0 ? '#B45309' : '#15803D'}
-              subtext="Output − Input"
-              onClick={() => navigate('/finance/compliance')}
-            />
-            <KpiCard
-              icon={<MinusCircle size={16} color="#B45309" />}
-              iconBg={alpha('#B45309', 0.1)}
-              value={`₹${formatCurrency(kpi.tdsReceivable)}`}
-              subtext="Deducted by clients"
-              onClick={() => navigate('/finance/compliance')}
-            />
-            <KpiCard
-              icon={<MinusCircle size={16} color="#7C3AED" />}
-              iconBg={alpha('#7C3AED', 0.1)}
-              value={`₹${formatCurrency(kpi.tdsPayable)}`}
-              subtext="Deducted from vendors"
-              onClick={() => navigate('/finance/compliance')}
-            />
-          </Box>
-        </Box>
-
-        {/* Group G — Risk */}
-        <Box sx={{ mb: 3 }}>
-          <SectionLabel label="Risk" />
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2,1fr)', lg: 'repeat(2,1fr)' }, gap: 2 }}>
-            <KpiCard
-              icon={<AlertTriangle size={16} color="#B91C1C" />}
-              iconBg={alpha('#B91C1C', 0.1)}
-              value={`₹${formatCurrency(kpi.overdueReceivables)}`}
-              valueColor={kpi.overdueReceivables > 0 ? '#B91C1C' : undefined}
-              subtext={`${kpi.overdueInvoices.length} overdue invoices`}
-              onClick={() => navigate('/finance/receivables')}
-            />
-            <KpiCard
-              icon={<AlertTriangle size={16} color="#B91C1C" />}
-              iconBg={alpha('#B91C1C', 0.1)}
-              value={`₹${formatCurrency(kpi.overduePayables)}`}
-              valueColor={kpi.overduePayables > 0 ? '#B91C1C' : undefined}
-              subtext={`${kpi.overdueVendorInvoices.length} overdue payables`}
-              onClick={() => navigate('/finance/payables')}
-            />
-          </Box>
-        </Box>
-
-        {/* ── Section 2: Project Snapshot ───────────────────────────────────────── */}
-
-        {/* 2A: Status Donut + Recent Projects */}
-        <Box
-          sx={{
-            display: 'grid',
-            gridTemplateColumns: { xs: '1fr', lg: '2fr 3fr' },
-            gap: 3,
-            mb: 3,
-          }}
-        >
-          {/* Left: Donut */}
-          <Paper elevation={0} sx={{ border: `1px solid ${dividerColor}`, borderRadius: 2, p: 2.5 }}>
-            <Typography variant="h6" fontWeight={600} mb={2}>Project Status</Typography>
-            <Box sx={{ position: 'relative' }}>
-              <ResponsiveContainer width="100%" height={260}>
+          <Typography variant="h6" fontWeight={600} sx={{ mb: 2 }}>
+            Status Distribution
+          </Typography>
+          <Box sx={{ position: 'relative', height: chartHeight }}>
+            {statusData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
-                    data={statusDonutData}
+                    data={statusData}
                     cx="50%"
                     cy="50%"
-                    innerRadius={70}
-                    outerRadius={100}
+                    innerRadius={60}
+                    outerRadius={88}
                     paddingAngle={3}
                     dataKey="value"
+                    onClick={() => navigate('/projects')}
+                    style={{ cursor: 'pointer' }}
                   >
-                    {statusDonutData.map((entry, i) => (
-                      <Cell
-                        key={i}
-                        fill={entry.color}
-                        style={{ cursor: 'pointer' }}
-                        onClick={() => navigate('/projects')}
-                      />
+                    {statusData.map((entry) => (
+                      <Cell key={entry.name} fill={entry.color} />
                     ))}
                   </Pie>
                 </PieChart>
               </ResponsiveContainer>
+            ) : (
               <Box
                 sx={{
-                  position: 'absolute',
-                  top: '50%',
-                  left: '50%',
-                  transform: 'translate(-50%, -50%)',
-                  textAlign: 'center',
-                  pointerEvents: 'none',
+                  height: chartHeight,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
                 }}
               >
-                <Typography variant="h4" fontWeight={700}>{kpi.totalProjects}</Typography>
-                <Typography variant="caption" color="text.secondary">Projects</Typography>
+                <Typography variant="caption" color="text.secondary">
+                  No data
+                </Typography>
               </Box>
-            </Box>
-            <Stack direction="row" flexWrap="wrap" gap={2} mt={1}>
-              {statusDonutData.map((d) => (
-                <Stack key={d.name} direction="row" alignItems="center" gap={0.75}>
-                  <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: d.color, flexShrink: 0 }} />
-                  <Typography variant="caption">{d.name}</Typography>
-                  <Box
-                    sx={{
-                      fontSize: '10px',
-                      fontWeight: 600,
-                      bgcolor: alpha(d.color, 0.1),
-                      color: d.color,
-                      px: 0.75,
-                      borderRadius: 1,
-                    }}
-                  >
-                    {d.value}
-                  </Box>
-                </Stack>
-              ))}
-            </Stack>
-          </Paper>
-
-          {/* Right: Recent Projects */}
-          <Paper elevation={0} sx={{ border: `1px solid ${dividerColor}`, borderRadius: 2, p: 2.5 }}>
-            <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
-              <Typography variant="h6" fontWeight={600}>Recent Projects</Typography>
-              <Typography
-                variant="body2"
-                color="primary"
-                sx={{ cursor: 'pointer' }}
-                onClick={() => navigate('/projects')}
-              >
-                View All →
+            )}
+            <Box
+              sx={{
+                position: 'absolute',
+                left: '50%',
+                top: '50%',
+                transform: 'translate(-50%, -50%)',
+                textAlign: 'center',
+                pointerEvents: 'none',
+              }}
+            >
+              <Typography variant="h5" fontWeight={700}>
+                {totalProjects}
               </Typography>
-            </Stack>
-            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 130px 90px 110px 110px', gap: 0 }}>
-              {['PROJECT', 'CLIENT', 'STATUS', 'REVENUE', 'PROFIT'].map((h) => (
-                <Typography key={h} variant="caption" color="text.secondary" fontWeight={600} sx={{ pb: 1, borderBottom: `1px solid ${dividerColor}` }}>
-                  {h}
-                </Typography>
-              ))}
-              {recentProjects.map((p) => {
-                const rev = p.invoicedAmount ?? 0
-                const cost = p.totalVendorPOValue ?? 0
-                const profit = rev - cost
-                return (
-                  <Box
-                    key={p.id}
-                    sx={{
-                      display: 'contents',
-                      cursor: 'pointer',
-                    }}
-                    onClick={() => navigate(`/projects/${toSlug(p.name)}`)}
-                  >
-                    <Box sx={{ py: 1, borderBottom: `1px solid ${dividerColor}` }}>
-                      <Typography variant="body2" fontWeight={500} noWrap>{p.name}</Typography>
-                      <Typography variant="caption" color="text.secondary">{p.customerName}</Typography>
-                    </Box>
-                    <Box sx={{ py: 1, borderBottom: `1px solid ${dividerColor}`, display: 'flex', alignItems: 'center' }}>
-                      <Typography variant="caption" color="text.secondary">{p.customerName}</Typography>
-                    </Box>
-                    <Box sx={{ py: 1, borderBottom: `1px solid ${dividerColor}`, display: 'flex', alignItems: 'center' }}>
-                      <StatusBadge status={p.status.toLowerCase() as StatusType} />
-                    </Box>
-                    <Box sx={{ py: 1, borderBottom: `1px solid ${dividerColor}`, display: 'flex', alignItems: 'center' }}>
-                      <Typography variant="body2">₹{formatCurrency(rev)}</Typography>
-                    </Box>
-                    <Box sx={{ py: 1, borderBottom: `1px solid ${dividerColor}`, display: 'flex', alignItems: 'center' }}>
-                      <Typography variant="body2" sx={{ color: profitColor(profit) }}>₹{formatCurrency(Math.abs(profit))}</Typography>
-                    </Box>
-                  </Box>
-                )
-              })}
+              <Typography variant="caption" color="text.secondary">
+                Projects
+              </Typography>
             </Box>
-          </Paper>
-        </Box>
+          </Box>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mt: 1.5 }}>
+            {statusData.map((d) => (
+              <Box key={d.name} sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                <Box
+                  sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: d.color }}
+                />
+                <Typography variant="caption">
+                  {d.name} ({d.value})
+                </Typography>
+              </Box>
+            ))}
+          </Box>
+        </Paper>
 
-        {/* 2B: At-Risk Projects */}
-        <Paper elevation={0} sx={{ border: `1px solid ${dividerColor}`, borderRadius: 2, p: 2.5, mb: 3 }}>
-          <Typography variant="h6" fontWeight={600} mb={2}>At-Risk Projects</Typography>
-          {atRiskProjects.length === 0 ? (
-            <Stack alignItems="center" py={4} gap={1}>
-              <CheckCircle size={40} color="#15803D" />
-              <Typography variant="body2" fontWeight={600}>No at-risk projects</Typography>
-              <Typography variant="caption" color="text.secondary">All projects on track</Typography>
-            </Stack>
+        <Paper
+          elevation={0}
+          sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, p: 2.5 }}
+        >
+          <Box
+            sx={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              mb: 1.5,
+            }}
+          >
+            <Typography variant="h6" fontWeight={600}>
+              Recent Projects
+            </Typography>
+            <Typography
+              variant="body2"
+              color="primary.main"
+              fontWeight={500}
+              sx={{ cursor: 'pointer' }}
+              onClick={() => navigate('/projects')}
+            >
+              View All →
+            </Typography>
+          </Box>
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 130px 90px 100px 90px',
+              px: 1,
+              py: 0.75,
+              bgcolor: tableHeaderBg,
+              borderRadius: 1,
+              mb: 0.5,
+            }}
+          >
+            {['PROJECT', 'CLIENT', 'VALUE', 'STATUS', 'MARGIN'].map((col) => (
+              <Typography
+                key={col}
+                variant="caption"
+                color="text.secondary"
+                sx={{ textTransform: 'uppercase', fontSize: 10, fontWeight: 600 }}
+              >
+                {col}
+              </Typography>
+            ))}
+          </Box>
+          {recentProjects.length === 0 ? (
+            <Typography
+              variant="body2"
+              color="text.secondary"
+              sx={{ textAlign: 'center', py: 4 }}
+            >
+              No projects yet
+            </Typography>
           ) : (
-            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 130px 120px 110px 110px 90px', gap: 0 }}>
-              {['PROJECT', 'CLIENT', 'PROGRESS', 'REVENUE', 'COST', 'MARGIN%'].map((h) => (
-                <Typography key={h} variant="caption" color="text.secondary" fontWeight={600} sx={{ pb: 1, borderBottom: `1px solid ${dividerColor}` }}>
-                  {h}
+            recentProjects.map((project, idx) => (
+              <Box
+                key={project.id}
+                onClick={() => navigate('/projects/' + toSlug(project.name))}
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 130px 90px 100px 90px',
+                  px: 1,
+                  py: 1,
+                  alignItems: 'center',
+                  borderBottom:
+                    idx < recentProjects.length - 1 ? '1px solid' : 'none',
+                  borderColor: 'divider',
+                  cursor: 'pointer',
+                  '&:hover': { bgcolor: alpha(theme.palette.primary.main, 0.03) },
+                }}
+              >
+                <Box>
+                  <Typography variant="body2" fontWeight={500}>
+                    {project.name}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {project.type}
+                  </Typography>
+                </Box>
+                <Typography variant="caption" color="text.secondary" noWrap>
+                  {project.customerName}
+                </Typography>
+                <Typography variant="body2" fontWeight={500}>
+                  ₹{formatCurrency(project.projectValue ?? 0)}
+                </Typography>
+                <StatusBadge status={projectStatusToType(project.status)} size="small" />
+                <Typography variant="caption">—</Typography>
+              </Box>
+            ))
+          )}
+        </Paper>
+      </Box>
+
+      {/* ROW 6 — At-Risk Projects */}
+      <Paper
+        elevation={0}
+        sx={{
+          border: '1px solid',
+          borderColor: 'divider',
+          borderRadius: 2,
+          p: 2.5,
+          mb: 2.5,
+        }}
+      >
+        <Typography variant="h6" fontWeight={600} sx={{ mb: atRiskProjects.length ? 1.5 : 0 }}>
+          At-Risk Projects
+        </Typography>
+        {atRiskProjects.length === 0 ? (
+          <Box
+            sx={{
+              py: 4,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 1,
+            }}
+          >
+            <CheckCircle size={36} color="#15803D" />
+            <Typography variant="body2" fontWeight={500}>
+              No at-risk projects
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              All projects are on track
+            </Typography>
+          </Box>
+        ) : (
+          <>
+            <Box
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 140px 130px 110px 110px 90px',
+                px: 1,
+                py: 0.75,
+                bgcolor: tableHeaderBg,
+                borderRadius: 1,
+                mb: 0.5,
+              }}
+            >
+              {['PROJECT', 'CLIENT', 'PROGRESS', 'REVENUE', 'COST', 'STATUS'].map((col) => (
+                <Typography
+                  key={col}
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{ textTransform: 'uppercase', fontSize: 10, fontWeight: 600 }}
+                >
+                  {col}
                 </Typography>
               ))}
-              {atRiskProjects.map((p) => {
-                const rev = p.invoicedAmount ?? 0
-                const cost = p.totalVendorPOValue ?? 0
-                const margin = rev > 0 ? ((rev - cost) / rev * 100) : 0
-                return (
-                  <Box key={p.id} sx={{ display: 'contents' }}>
-                    <Box sx={{ py: 1, borderBottom: `1px solid ${dividerColor}`, display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Box sx={{ width: 32, height: 32, borderRadius: '50%', bgcolor: '#E4DDF5', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                        <Typography variant="caption" fontWeight={700} color="#4A3AAF">{p.name[0]}</Typography>
-                      </Box>
-                      <Box>
-                        <Typography variant="body2" fontWeight={500}>{p.name}</Typography>
-                        <Typography variant="caption" color="text.secondary">{p.projectCode}</Typography>
-                      </Box>
-                    </Box>
-                    <Box sx={{ py: 1, borderBottom: `1px solid ${dividerColor}`, display: 'flex', alignItems: 'center' }}>
-                      <Typography variant="caption" color="text.secondary">{p.customerName}</Typography>
-                    </Box>
-                    <Box sx={{ py: 1, borderBottom: `1px solid ${dividerColor}`, display: 'flex', alignItems: 'center' }}>
-                      <StatusBadge status="at_risk" label={p.progress} />
-                    </Box>
-                    <Box sx={{ py: 1, borderBottom: `1px solid ${dividerColor}`, display: 'flex', alignItems: 'center' }}>
-                      <Typography variant="body2">₹{formatCurrency(rev)}</Typography>
-                    </Box>
-                    <Box sx={{ py: 1, borderBottom: `1px solid ${dividerColor}`, display: 'flex', alignItems: 'center' }}>
-                      <Typography variant="body2">₹{formatCurrency(cost)}</Typography>
-                    </Box>
-                    <Box sx={{ py: 1, borderBottom: `1px solid ${dividerColor}`, display: 'flex', alignItems: 'center' }}>
-                      <Typography variant="body2" sx={{ color: margin < 10 ? '#B91C1C' : 'text.primary' }}>
-                        {margin.toFixed(1)}%
+            </Box>
+            {atRiskProjects.map((project, idx) => {
+              const av = getAvatarColor(project.name)
+              return (
+                <Box
+                  key={project.id}
+                  sx={{
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 140px 130px 110px 110px 90px',
+                    px: 1,
+                    py: 1,
+                    alignItems: 'center',
+                    borderBottom: idx < atRiskProjects.length - 1 ? '1px solid' : 'none',
+                    borderColor: 'divider',
+                  }}
+                >
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Avatar
+                      name={project.name}
+                      size="sm"
+                      color={av.bg}
+                      sx={{ width: 28, height: 28, fontSize: 11, fontWeight: 600 }}
+                    />
+                    <Box>
+                      <Typography variant="body2" fontWeight={500}>
+                        {project.name}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {project.projectCode}
                       </Typography>
                     </Box>
                   </Box>
-                )
-              })}
-            </Box>
-          )}
-        </Paper>
+                  <Typography variant="caption" color="text.secondary">
+                    {project.customerName}
+                  </Typography>
+                  <StatusBadge status={progressToStatusBadge(project.progress)} size="small" />
+                  <Typography variant="body2">{ru(project.projectValue ?? 0)}</Typography>
+                  {/* Cost: paid vendor spend to date (excl. GST in model). */}
+                  <Typography variant="body2">{ru(project.paidVendorAmount ?? 0)}</Typography>
+                  <StatusBadge status={projectStatusToType(project.status)} size="small" />
+                </Box>
+              )
+            })}
+          </>
+        )}
+      </Paper>
 
-        {/* ── Section 3: Financial Insights ─────────────────────────────────────── */}
-        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '1fr 1fr' }, gap: 3, mb: 3 }}>
-          {/* Revenue vs Cost Bar Chart */}
-          <Paper elevation={0} sx={{ border: `1px solid ${dividerColor}`, borderRadius: 2, p: 2.5 }}>
-            <Typography variant="h6" fontWeight={600}>Revenue vs Cost</Typography>
-            <Typography variant="caption" color="text.secondary">Last 6 months, excl. GST</Typography>
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={monthlyChartData} margin={{ top: 16, right: 8, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={dividerColor} />
-                <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-                <YAxis tickFormatter={(v: number) => '₹' + (v / 100000).toFixed(0) + 'L'} tick={{ fontSize: 11 }} />
-                <Tooltip formatter={(v: number) => `₹${formatCurrency(v)}`} />
-                <Bar dataKey="revenue" name="Revenue" fill="#107E68" radius={[3, 3, 0, 0]} />
-                <Bar dataKey="cost" name="Cost" fill="#F59E0B" radius={[3, 3, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-            <Stack direction="row" gap={2} mt={1}>
-              {[{ color: '#107E68', label: 'Revenue' }, { color: '#F59E0B', label: 'Cost' }].map((l) => (
-                <Stack key={l.label} direction="row" alignItems="center" gap={0.75}>
-                  <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: l.color }} />
-                  <Typography variant="caption">{l.label}</Typography>
-                </Stack>
+      {/* ROW 7 — Financial Insights */}
+      <Typography
+        variant="overline"
+        color="text.secondary"
+        fontWeight={600}
+        sx={{ fontSize: 10, letterSpacing: 1, display: 'block', mb: 1 }}
+      >
+        FINANCIAL INSIGHTS
+      </Typography>
+      <Box
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: { xs: '1fr', lg: '1fr 1fr' },
+          gap: 2.5,
+          mb: 2.5,
+        }}
+      >
+        <Paper
+          elevation={0}
+          sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, p: 2.5 }}
+        >
+          <Box
+            sx={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              mb: 2,
+            }}
+          >
+            <Typography variant="h6" fontWeight={600}>
+              Revenue vs Cost
+            </Typography>
+            <MuiSelect
+              size="small"
+              value={chartPeriod}
+              onChange={(e) => setChartPeriod(e.target.value as ChartPeriod)}
+              sx={{ fontSize: 12, height: 28, minWidth: 130 }}
+            >
+              {(['Last 6 Months', 'Last 3 Months', 'This Year'] as ChartPeriod[]).map((v) => (
+                <MenuItem key={v} value={v} sx={{ fontSize: 12 }}>
+                  {v}
+                </MenuItem>
               ))}
-            </Stack>
-          </Paper>
-
-          {/* Profitability Trend Line Chart */}
-          <Paper elevation={0} sx={{ border: `1px solid ${dividerColor}`, borderRadius: 2, p: 2.5 }}>
-            <Typography variant="h6" fontWeight={600}>Profitability Trend</Typography>
-            <Typography variant="caption" color="text.secondary">Margin % over time</Typography>
-            <ResponsiveContainer width="100%" height={260}>
-              <LineChart data={monthlyChartData} margin={{ top: 16, right: 8, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={dividerColor} />
-                <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-                <YAxis tickFormatter={(v: number) => v + '%'} tick={{ fontSize: 11 }} />
-                <Tooltip formatter={(v: number) => v.toFixed(1) + '%'} />
-                <Line
-                  dataKey="margin"
-                  name="Margin %"
+            </MuiSelect>
+          </Box>
+          <Box sx={{ height: chartHeight }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart
+                data={monthlySeries}
+                margin={{ top: 4, right: 4, left: -20, bottom: 0 }}
+              >
+                <defs>
+                  <linearGradient id="revGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#107E68" stopOpacity={0.15} />
+                    <stop offset="95%" stopColor="#107E68" stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="costGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#F87171" stopOpacity={0.15} />
+                    <stop offset="95%" stopColor="#F87171" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                  stroke={dividerColor}
+                  vertical={false}
+                />
+                <XAxis
+                  dataKey="month"
+                  tick={{ fontSize: 11 }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <YAxis
+                  tick={{ fontSize: 11 }}
+                  axisLine={false}
+                  tickLine={false}
+                  tickFormatter={yAxisTick}
+                />
+                <Tooltip
+                  contentStyle={tooltipContentStyle}
+                  formatter={(value: number, name: string) => [
+                    ru(value),
+                    name,
+                  ]}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="revenue"
+                  name="Revenue"
                   stroke="#107E68"
                   strokeWidth={2}
-                  dot={{ fill: '#107E68', r: 4 }}
+                  fill="url(#revGrad)"
                 />
-              </LineChart>
+                <Area
+                  type="monotone"
+                  dataKey="cost"
+                  name="Cost"
+                  stroke="#F87171"
+                  strokeWidth={2}
+                  fill="url(#costGrad)"
+                />
+              </AreaChart>
             </ResponsiveContainer>
-          </Paper>
-        </Box>
-
-        {/* ── Section 4: Cash Flow + Position ──────────────────────────────────── */}
-        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '1fr 1fr' }, gap: 3, mb: 3 }}>
-          {/* Cash Flow Chart */}
-          <Paper elevation={0} sx={{ border: `1px solid ${dividerColor}`, borderRadius: 2, p: 2.5 }}>
-            <Typography variant="h6" fontWeight={600}>Cash Flow</Typography>
-            <Typography variant="caption" color="text.secondary">Inflow (incl. GST) vs Outflow</Typography>
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={monthlyChartData} margin={{ top: 16, right: 8, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={dividerColor} />
-                <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-                <YAxis tickFormatter={(v: number) => '₹' + (v / 100000).toFixed(0) + 'L'} tick={{ fontSize: 11 }} />
-                <Tooltip formatter={(v: number) => `₹${formatCurrency(v)}`} />
-                <Bar dataKey="inflow" name="Inflow" fill="#DCFCE7" stroke="#15803D" strokeWidth={1} radius={[3, 3, 0, 0]} />
-                <Bar dataKey="outflow" name="Outflow" fill="#FEE2E2" stroke="#B91C1C" strokeWidth={1} radius={[3, 3, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </Paper>
-
-          {/* Cash Flow Position Summary */}
-          <Paper elevation={0} sx={{ border: `1px solid ${dividerColor}`, borderRadius: 2, p: 2.5 }}>
-            <Typography variant="h6" fontWeight={600} mb={2}>Cash Flow Position</Typography>
-
-            {/* Receivables */}
-            <Typography variant="overline" color="primary" fontWeight={600} sx={{ fontSize: '10px', letterSpacing: '1px' }}>
-              RECEIVABLES
-            </Typography>
-            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 1, mt: 0.5 }}>
-              {[
-                { label: 'Expected', value: kpi.receivablesExpected },
-                { label: 'Received', value: kpi.receivablesReceived },
-                { label: 'Outstanding', value: kpi.receivablesExpected - kpi.receivablesReceived, highlight: true },
-              ].map((row) => (
-                <Box key={row.label}>
-                  <Typography variant="caption" color="text.secondary">{row.label}</Typography>
-                  <Typography variant="body2" fontWeight={600} sx={{ color: row.highlight && (kpi.receivablesExpected - kpi.receivablesReceived) > 0 ? '#B45309' : 'text.primary' }}>
-                    ₹{formatCurrency(row.value)}
-                  </Typography>
-                </Box>
-              ))}
-            </Box>
-            <Divider sx={{ mt: 1.5, mb: 2 }} />
-
-            {/* Payables */}
-            <Typography variant="overline" color="primary" fontWeight={600} sx={{ fontSize: '10px', letterSpacing: '1px' }}>
-              PAYABLES
-            </Typography>
-            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 1, mt: 0.5 }}>
-              {[
-                { label: 'Expected', value: kpi.payablesExpected },
-                { label: 'Paid', value: kpi.payablesPaid },
-                { label: 'Outstanding', value: kpi.payablesExpected - kpi.payablesPaid },
-              ].map((row) => (
-                <Box key={row.label}>
-                  <Typography variant="caption" color="text.secondary">{row.label}</Typography>
-                  <Typography variant="body2" fontWeight={600}>₹{formatCurrency(row.value)}</Typography>
-                </Box>
-              ))}
-            </Box>
-            <Divider sx={{ mt: 1.5, mb: 2 }} />
-
-            {/* Net Position */}
-            <Box>
-              <Typography
-                variant="h4"
-                fontWeight={700}
-                sx={{ color: profitColor(kpi.receivablesTotal - kpi.payablesTotal) }}
-              >
-                ₹{formatCurrency(Math.abs(kpi.receivablesTotal - kpi.payablesTotal))}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">Net cash position</Typography>
-            </Box>
-          </Paper>
-        </Box>
-
-        {/* ── Section 5: Outstanding Tables ────────────────────────────────────── */}
-        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '1fr 1fr' }, gap: 3, mb: 3 }}>
-          {/* Outstanding Receivables */}
-          <Paper elevation={0} sx={{ border: `1px solid ${dividerColor}`, borderRadius: 2, p: 2.5 }}>
-            <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
-              <Typography variant="h6" fontWeight={600}>Outstanding Receivables</Typography>
-              <Typography variant="body2" color="primary" sx={{ cursor: 'pointer' }} onClick={() => navigate('/finance/receivables')}>
-                View All →
-              </Typography>
-            </Stack>
-            {outstandingReceivables.length === 0 ? (
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', textAlign: 'center', py: 3 }}>
-                No outstanding invoices
-              </Typography>
-            ) : (
-              <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 110px 90px 80px', gap: 0 }}>
-                {['CLIENT', 'AMOUNT', 'DUE DATE', 'STATUS'].map((h) => (
-                  <Typography key={h} variant="caption" color="text.secondary" fontWeight={600} sx={{ pb: 1, borderBottom: `1px solid ${dividerColor}` }}>
-                    {h}
-                  </Typography>
-                ))}
-                {outstandingReceivables.map((inv) => {
-                  const proj = projects.find((p) => p.id === inv.projectId)
-                  const isOverdue = inv.status === 'Overdue'
-                  return (
-                    <Box key={inv.id} sx={{ display: 'contents' }}>
-                      <Box sx={{ py: 1, borderBottom: `1px solid ${dividerColor}`, display: 'flex', alignItems: 'center' }}>
-                        <Typography variant="body2" fontWeight={500}>{proj?.name ?? inv.projectId}</Typography>
-                      </Box>
-                      <Box sx={{ py: 1, borderBottom: `1px solid ${dividerColor}`, display: 'flex', alignItems: 'center' }}>
-                        <Typography variant="body2">₹{formatCurrency(inv.amount)}</Typography>
-                      </Box>
-                      <Box sx={{ py: 1, borderBottom: `1px solid ${dividerColor}`, display: 'flex', alignItems: 'center' }}>
-                        <Typography variant="caption" sx={{ color: isOverdue ? '#B91C1C' : 'text.secondary' }}>{formatDate(inv.dueDate)}</Typography>
-                      </Box>
-                      <Box sx={{ py: 1, borderBottom: `1px solid ${dividerColor}`, display: 'flex', alignItems: 'center' }}>
-                        <StatusBadge status={inv.status.toLowerCase() as StatusType} />
-                      </Box>
-                    </Box>
-                  )
-                })}
-              </Box>
-            )}
-          </Paper>
-
-          {/* Outstanding Payables */}
-          <Paper elevation={0} sx={{ border: `1px solid ${dividerColor}`, borderRadius: 2, p: 2.5 }}>
-            <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
-              <Typography variant="h6" fontWeight={600}>Outstanding Payables</Typography>
-              <Typography variant="body2" color="primary" sx={{ cursor: 'pointer' }} onClick={() => navigate('/finance/payables')}>
-                View All →
-              </Typography>
-            </Stack>
-            {outstandingPayables.length === 0 ? (
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', textAlign: 'center', py: 3 }}>
-                No outstanding payables
-              </Typography>
-            ) : (
-              <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 110px 90px 80px', gap: 0 }}>
-                {['VENDOR', 'AMOUNT', 'DUE DATE', 'STATUS'].map((h) => (
-                  <Typography key={h} variant="caption" color="text.secondary" fontWeight={600} sx={{ pb: 1, borderBottom: `1px solid ${dividerColor}` }}>
-                    {h}
-                  </Typography>
-                ))}
-                {outstandingPayables.map((vi) => (
-                  <Box key={vi.id} sx={{ display: 'contents' }}>
-                    <Box sx={{ py: 1, borderBottom: `1px solid ${dividerColor}`, display: 'flex', alignItems: 'center' }}>
-                      <Typography variant="body2" fontWeight={500}>{vi.vendorName}</Typography>
-                    </Box>
-                    <Box sx={{ py: 1, borderBottom: `1px solid ${dividerColor}`, display: 'flex', alignItems: 'center' }}>
-                      <Typography variant="body2">₹{formatCurrency(vi.amount)}</Typography>
-                    </Box>
-                    <Box sx={{ py: 1, borderBottom: `1px solid ${dividerColor}`, display: 'flex', alignItems: 'center' }}>
-                      <Typography variant="caption" color="text.secondary">—</Typography>
-                    </Box>
-                    <Box sx={{ py: 1, borderBottom: `1px solid ${dividerColor}`, display: 'flex', alignItems: 'center' }}>
-                      <StatusBadge status={vi.status.toLowerCase() as StatusType} />
-                    </Box>
-                  </Box>
-                ))}
-              </Box>
-            )}
-          </Paper>
-        </Box>
-
-        {/* ── Section 6: Compliance Alerts ─────────────────────────────────────── */}
-        <Paper elevation={0} sx={{ border: `1px solid ${dividerColor}`, borderRadius: 2, p: 2.5, mb: 3 }}>
-          <Typography variant="h6" fontWeight={600} mb={2}>Compliance Summary</Typography>
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: 'repeat(3, 1fr)' }, gap: 2 }}>
-            {/* GST Summary */}
-            <Box sx={{ bgcolor: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 2, p: 2 }}>
-              <Stack direction="row" alignItems="center" gap={1} mb={1}>
-                <FileText size={16} color="#15803D" />
-                <Typography variant="body2" fontWeight={600} color="#15803D">GST Summary</Typography>
-              </Stack>
-              <Typography variant="h5" fontWeight={700}>₹{formatCurrency(kpi.gstCollected)}</Typography>
+          </Box>
+          <Box sx={{ display: 'flex', flexDirection: 'row', gap: 3, mt: 1.5 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+              <Box sx={{ width: 10, height: 3, bgcolor: '#107E68', borderRadius: 0.5 }} />
               <Typography variant="caption" color="text.secondary">
-                Collected · ₹{formatCurrency(kpi.gstPaid)} paid · Net: ₹{formatCurrency(kpi.netGst)}
-              </Typography>
-              <Typography
-                variant="caption"
-                color="primary"
-                sx={{ display: 'block', mt: 1, cursor: 'pointer' }}
-                onClick={() => navigate('/finance/compliance')}
-              >
-                Go to Compliance →
+                Revenue
               </Typography>
             </Box>
-
-            {/* TDS Summary */}
-            <Box sx={{ bgcolor: '#FEF3C7', border: '1px solid #FDE68A', borderRadius: 2, p: 2 }}>
-              <Stack direction="row" alignItems="center" gap={1} mb={1}>
-                <MinusCircle size={16} color="#B45309" />
-                <Typography variant="body2" fontWeight={600} color="#B45309">TDS Summary</Typography>
-              </Stack>
-              <Typography variant="h5" fontWeight={700}>₹{formatCurrency(kpi.tdsReceivable)}</Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+              <Box sx={{ width: 10, height: 3, bgcolor: '#F87171', borderRadius: 0.5 }} />
               <Typography variant="caption" color="text.secondary">
-                Receivable from clients · ₹{formatCurrency(kpi.tdsPayable)} payable to government
+                Cost
               </Typography>
-            </Box>
-
-            {/* Alerts */}
-            <Box sx={{ bgcolor: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 2, p: 2 }}>
-              <Stack direction="row" alignItems="center" gap={1} mb={1}>
-                <AlertTriangle size={16} color="#B91C1C" />
-                <Typography variant="body2" fontWeight={600} color="#B91C1C">Pending Actions</Typography>
-              </Stack>
-              {kpi.overdueInvoices.length === 0 && kpi.overdueVendorInvoices.length === 0 ? (
-                <Typography variant="caption" color="#15803D">All compliance items up to date</Typography>
-              ) : (
-                <Stack gap={0.5}>
-                  {kpi.overdueInvoices.length > 0 && (
-                    <Typography variant="caption" color="text.secondary">· {kpi.overdueInvoices.length} overdue client invoices</Typography>
-                  )}
-                  {kpi.overdueVendorInvoices.length > 0 && (
-                    <Typography variant="caption" color="text.secondary">· {kpi.overdueVendorInvoices.length} overdue vendor payments</Typography>
-                  )}
-                  <Typography variant="caption" color="text.secondary">· GST filing due end of month</Typography>
-                  <Typography variant="caption" color="text.secondary">· TDS return Q4 due</Typography>
-                </Stack>
-              )}
             </Box>
           </Box>
         </Paper>
 
-        {/* ── Section 7: Activity Feed ──────────────────────────────────────────── */}
-        <Paper elevation={0} sx={{ border: `1px solid ${dividerColor}`, borderRadius: 2, p: 2.5, mb: 3 }}>
-          <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
-            <Typography variant="h6" fontWeight={600}>Recent Activity</Typography>
-            <Typography variant="body2" color="primary" sx={{ cursor: 'pointer' }}>
+        <Paper
+          elevation={0}
+          sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, p: 2.5 }}
+        >
+          <Box sx={{ mb: 2 }}>
+            <Typography variant="h6" fontWeight={600}>
+              Profitability Trend
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              Net margin % over time
+            </Typography>
+          </Box>
+          <Box sx={{ height: chartHeight }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart
+                data={monthlySeries}
+                margin={{ top: 4, right: 4, left: -20, bottom: 0 }}
+              >
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                  vertical={false}
+                  stroke={dividerColor}
+                />
+                <XAxis
+                  dataKey="month"
+                  tick={{ fontSize: 11 }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <YAxis
+                  tick={{ fontSize: 11 }}
+                  axisLine={false}
+                  tickLine={false}
+                  tickFormatter={(v: number) => `${v}%`}
+                />
+                <Tooltip
+                  contentStyle={tooltipContentStyle}
+                  formatter={(value: number) => [`${value.toFixed(1)}%`, 'Margin']}
+                />
+                <ReferenceLine y={0} stroke={dividerColor} strokeDasharray="4 4" />
+                <Line
+                  type="monotone"
+                  dataKey="margin"
+                  name="Margin %"
+                  stroke="#107E68"
+                  strokeWidth={2}
+                  dot={{ fill: '#107E68', r: 3 }}
+                  activeDot={{ r: 5 }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </Box>
+        </Paper>
+      </Box>
+
+      {/* ROW 8 — Cash Flow */}
+      <Typography
+        variant="overline"
+        color="text.secondary"
+        fontWeight={600}
+        sx={{ fontSize: 10, letterSpacing: 1, display: 'block', mb: 1 }}
+      >
+        CASH FLOW
+      </Typography>
+      <Box
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: { xs: '1fr', lg: '1fr 1fr' },
+          gap: 2.5,
+          mb: 2.5,
+        }}
+      >
+        <Paper
+          elevation={0}
+          sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, p: 2.5 }}
+        >
+          <Typography variant="h6" fontWeight={600} sx={{ mb: 0.5 }}>
+            Cash Flow Overview
+          </Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ mb: 2, display: 'block' }}>
+            Monthly inflow (incl. GST) vs outflow
+          </Typography>
+          <Box sx={{ height: chartHeight - 20 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={cashFlowData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                  stroke={dividerColor}
+                  vertical={false}
+                />
+                <XAxis
+                  dataKey="month"
+                  tick={{ fontSize: 11 }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <YAxis
+                  tick={{ fontSize: 11 }}
+                  axisLine={false}
+                  tickLine={false}
+                  tickFormatter={yAxisTick}
+                />
+                <Tooltip
+                  contentStyle={tooltipContentStyle}
+                  formatter={(value: number, name: string) => [ru(value), name]}
+                />
+                <Bar
+                  dataKey="inflow"
+                  name="Inflow"
+                  fill="#DCFCE7"
+                  stroke="#15803D"
+                  strokeWidth={1}
+                  radius={[3, 3, 0, 0]}
+                />
+                <Bar
+                  dataKey="outflow"
+                  name="Outflow"
+                  fill="#FEE2E2"
+                  stroke="#B91C1C"
+                  strokeWidth={1}
+                  radius={[3, 3, 0, 0]}
+                />
+              </BarChart>
+            </ResponsiveContainer>
+          </Box>
+          <Box sx={{ display: 'flex', gap: 3, mt: 1.5 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+              <Box sx={{ width: 10, height: 3, bgcolor: '#15803D', borderRadius: 0.5 }} />
+              <Typography variant="caption" color="text.secondary">
+                Inflow
+              </Typography>
+            </Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+              <Box sx={{ width: 10, height: 3, bgcolor: '#B91C1C', borderRadius: 0.5 }} />
+              <Typography variant="caption" color="text.secondary">
+                Outflow
+              </Typography>
+            </Box>
+          </Box>
+        </Paper>
+
+        <Paper
+          elevation={0}
+          sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, p: 2.5 }}
+        >
+          <Typography variant="h6" fontWeight={600} sx={{ mb: 2 }}>
+            Cash Position
+          </Typography>
+          <Typography
+            variant="overline"
+            fontWeight={600}
+            color="primary"
+            sx={{ letterSpacing: 0.5 }}
+          >
+            RECEIVABLES
+          </Typography>
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(3, 1fr)',
+              gap: 1,
+              mt: 1,
+              mb: 1.5,
+            }}
+          >
+            <Box>
+              <Typography variant="caption" color="text.secondary">
+                Expected
+              </Typography>
+              <Typography variant="body2" fontWeight={600}>
+                {ru(totalReceivableExpected)}
+              </Typography>
+            </Box>
+            <Box>
+              <Typography variant="caption" color="text.secondary">
+                Received
+              </Typography>
+              <Typography variant="body2" fontWeight={600}>
+                {ru(totalReceived)}
+              </Typography>
+            </Box>
+            <Box>
+              <Typography variant="caption" color="text.secondary">
+                Outstanding
+              </Typography>
+              <Typography
+                variant="body2"
+                fontWeight={600}
+                color={receivablesOutstanding > 0 ? '#B45309' : 'text.primary'}
+              >
+                {ru(receivablesOutstanding)}
+              </Typography>
+            </Box>
+          </Box>
+          <Divider sx={{ my: 1 }} />
+          <Typography
+            variant="overline"
+            fontWeight={600}
+            color="primary"
+            sx={{ letterSpacing: 0.5 }}
+          >
+            PAYABLES
+          </Typography>
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(3, 1fr)',
+              gap: 1,
+              mt: 1,
+              mb: 1.5,
+            }}
+          >
+            <Box>
+              <Typography variant="caption" color="text.secondary">
+                Expected
+              </Typography>
+              <Typography variant="body2" fontWeight={600}>
+                {ru(totalPayableExpected)}
+              </Typography>
+            </Box>
+            <Box>
+              <Typography variant="caption" color="text.secondary">
+                Paid
+              </Typography>
+              <Typography variant="body2" fontWeight={600}>
+                {ru(totalVendorPaid)}
+              </Typography>
+            </Box>
+            <Box>
+              <Typography variant="caption" color="text.secondary">
+                Outstanding
+              </Typography>
+              <Typography
+                variant="body2"
+                fontWeight={600}
+                color={payablesOutstanding > 0 ? '#B45309' : 'text.primary'}
+              >
+                {ru(payablesOutstanding)}
+              </Typography>
+            </Box>
+          </Box>
+          <Divider sx={{ my: 1 }} />
+          <Box
+            sx={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              mt: 1.5,
+            }}
+          >
+            <Typography variant="body2" fontWeight={600}>
+              Net Cash Position
+            </Typography>
+            <Typography
+              variant="h5"
+              fontWeight={700}
+              sx={{ color: netPosition >= 0 ? '#15803D' : '#B91C1C' }}
+            >
+              {ru(Math.abs(netPosition))}
+              {netPosition < 0 ? ' deficit' : ' surplus'}
+            </Typography>
+          </Box>
+        </Paper>
+      </Box>
+
+      {/* ROW 9 — Outstanding */}
+      <Typography
+        variant="overline"
+        color="text.secondary"
+        fontWeight={600}
+        sx={{ fontSize: 10, letterSpacing: 1, display: 'block', mb: 1 }}
+      >
+        OUTSTANDING
+      </Typography>
+      <Box
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: { xs: '1fr', lg: '1fr 1fr' },
+          gap: 2.5,
+          mb: 2.5,
+        }}
+      >
+        <Paper
+          elevation={0}
+          sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, p: 2.5 }}
+        >
+          <Box
+            sx={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              mb: 1.5,
+            }}
+          >
+            <Typography variant="h6" fontWeight={600}>
+              Outstanding Receivables
+            </Typography>
+            <Typography
+              variant="body2"
+              color="primary.main"
+              fontWeight={500}
+              sx={{ cursor: 'pointer' }}
+              onClick={() => navigate('/finance/receivables')}
+            >
               View All →
             </Typography>
-          </Stack>
-          {activityFeed.length === 0 ? (
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', textAlign: 'center', py: 4 }}>
-              No recent activity
+          </Box>
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 110px 90px 80px',
+              px: 1,
+              py: 0.75,
+              bgcolor: tableHeaderBg,
+              borderRadius: 1,
+              mb: 0.5,
+            }}
+          >
+            {['CLIENT', 'AMOUNT', 'DUE DATE', 'STATUS'].map((col) => (
+              <Typography
+                key={col}
+                variant="caption"
+                color="text.secondary"
+                sx={{ textTransform: 'uppercase', fontSize: 10, fontWeight: 600 }}
+              >
+                {col}
+              </Typography>
+            ))}
+          </Box>
+          {outstandingReceivables.length === 0 ? (
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ display: 'block', textAlign: 'center', py: 3 }}
+            >
+              No outstanding receivables
             </Typography>
           ) : (
-            <Stack>
-              {activityFeed.map((item, idx) => {
-                const iconMap: Record<string, { icon: React.ReactNode; bg: string; color: string }> = {
-                  invoice: { icon: <Receipt size={14} />, bg: '#E0F2FE', color: '#0369A1' },
-                  vendor_invoice: { icon: <ShoppingCart size={14} />, bg: '#F3E8FF', color: '#7C3AED' },
-                  expense: { icon: <Wallet size={14} />, bg: '#FEF3C7', color: '#B45309' },
-                  change_request: { icon: <RefreshCw size={14} />, bg: '#DCFCE7', color: '#15803D' },
-                }
-                const cfg = iconMap[item.type]
-                const isLast = idx === activityFeed.length - 1
-                return (
-                  <Stack
-                    key={item.id}
-                    direction="row"
-                    gap={2}
-                    sx={{ py: 1.25, borderBottom: isLast ? 'none' : `1px solid ${dividerColor}` }}
-                    alignItems="center"
+            outstandingReceivables.map((inv, idx) => {
+              const overdue = inv.status === 'overdue'
+              return (
+                <Box
+                  key={inv.id}
+                  sx={{
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 110px 90px 80px',
+                    px: 1,
+                    py: 1,
+                    alignItems: 'center',
+                    borderBottom:
+                      idx < outstandingReceivables.length - 1 ? '1px solid' : 'none',
+                    borderColor: 'divider',
+                  }}
+                >
+                  <Typography variant="body2" fontWeight={500}>
+                    {inv.projectName || inv.clientName}
+                  </Typography>
+                  <Typography variant="body2">{ru(inv.baseAmount ?? 0)}</Typography>
+                  <Typography
+                    variant="caption"
+                    sx={{ color: overdue ? '#B91C1C' : 'text.secondary' }}
                   >
-                    <Box
-                      sx={{
-                        width: 32,
-                        height: 32,
-                        borderRadius: '50%',
-                        bgcolor: cfg.bg,
-                        color: cfg.color,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        flexShrink: 0,
-                      }}
-                    >
-                      {cfg.icon}
-                    </Box>
-                    <Box flex={1} minWidth={0}>
-                      <Typography variant="body2" fontWeight={500} noWrap>{item.title}</Typography>
-                      <Typography variant="caption" color="text.secondary">{item.projectName} · {formatDate(item.date)}</Typography>
-                    </Box>
-                    <Stack alignItems="flex-end" gap={0.5}>
-                      {item.amount != null && item.amount > 0 && (
-                        <Typography variant="body2" fontWeight={600}>₹{formatCurrency(item.amount)}</Typography>
-                      )}
-                      <StatusBadge
-                        status={item.status.toLowerCase().replace(/\s+/g, '_') as StatusType}
-                        size="small"
-                      />
-                    </Stack>
-                  </Stack>
-                )
-              })}
-            </Stack>
+                    {formatDate(inv.dueDate)}
+                  </Typography>
+                  <StatusBadge status={receivableStatusToType(inv.status)} size="small" />
+                </Box>
+              )
+            })
           )}
         </Paper>
 
+        <Paper
+          elevation={0}
+          sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, p: 2.5 }}
+        >
+          <Box
+            sx={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              mb: 1.5,
+            }}
+          >
+            <Typography variant="h6" fontWeight={600}>
+              Outstanding Payables
+            </Typography>
+            <Typography
+              variant="body2"
+              color="primary.main"
+              fontWeight={500}
+              sx={{ cursor: 'pointer' }}
+              onClick={() => navigate('/finance/payables')}
+            >
+              View All →
+            </Typography>
+          </Box>
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 110px 90px 80px',
+              px: 1,
+              py: 0.75,
+              bgcolor: tableHeaderBg,
+              borderRadius: 1,
+              mb: 0.5,
+            }}
+          >
+            {['VENDOR', 'AMOUNT', 'DUE DATE', 'STATUS'].map((col) => (
+              <Typography
+                key={col}
+                variant="caption"
+                color="text.secondary"
+                sx={{ textTransform: 'uppercase', fontSize: 10, fontWeight: 600 }}
+              >
+                {col}
+              </Typography>
+            ))}
+          </Box>
+          {outstandingPayables.length === 0 ? (
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ display: 'block', textAlign: 'center', py: 3 }}
+            >
+              No outstanding payables
+            </Typography>
+          ) : (
+            outstandingPayables.map((v, idx) => (
+              <Box
+                key={v.id}
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 110px 90px 80px',
+                  px: 1,
+                  py: 1,
+                  alignItems: 'center',
+                  borderBottom:
+                    idx < outstandingPayables.length - 1 ? '1px solid' : 'none',
+                  borderColor: 'divider',
+                }}
+              >
+                <Typography variant="body2" fontWeight={500}>
+                  {v.vendorName}
+                </Typography>
+                <Typography variant="body2">{ru(v.amount ?? 0)}</Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {formatDate(v.invoiceDate)}
+                </Typography>
+                <StatusBadge status="pending" label={v.status} size="small" />
+              </Box>
+            ))
+          )}
+        </Paper>
       </Box>
 
-      <CreateProjectModal open={createProjectOpen} onClose={() => setCreateProjectOpen(false)} />
+      {/* ROW 10 — Compliance */}
+      <Typography
+        variant="overline"
+        color="text.secondary"
+        fontWeight={600}
+        sx={{ fontSize: 10, letterSpacing: 1, display: 'block', mb: 1 }}
+      >
+        COMPLIANCE
+      </Typography>
+      <Paper
+        elevation={0}
+        sx={{
+          border: '1px solid',
+          borderColor: 'divider',
+          borderRadius: 2,
+          p: 2.5,
+          mb: 2.5,
+        }}
+      >
+        <Typography variant="h6" fontWeight={600} sx={{ mb: 2 }}>
+          Compliance Summary
+        </Typography>
+        <Box
+          sx={{
+            display: 'grid',
+            gridTemplateColumns: { xs: '1fr', lg: 'repeat(3, 1fr)' },
+            gap: 2,
+          }}
+        >
+          <Box
+            sx={{
+              bgcolor: '#F0FDF4',
+              border: '1px solid #BBF7D0',
+              borderRadius: 2,
+              p: 2,
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+              <FileText size={16} color="#15803D" />
+              <Typography variant="body2" fontWeight={600} sx={{ color: '#15803D' }}>
+                GST Summary
+              </Typography>
+            </Box>
+            <Typography variant="h5" fontWeight={700} sx={{ mt: 1 }}>
+              {ru(totalGstCollected)}
+            </Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+              Collected · {ru(vendorGstPaid)} input GST paid
+            </Typography>
+            <Typography variant="caption" sx={{ mt: 1, display: 'block' }}>
+              Net payable:{' '}
+              <Box
+                component="span"
+                sx={{ color: netGst > 0 ? '#B45309' : 'text.primary', fontWeight: 600 }}
+              >
+                {ru(netGst)}
+              </Box>
+            </Typography>
+            <Box
+              sx={{
+                mt: 1.5,
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+              }}
+            >
+              <Typography variant="caption" color="text.secondary">
+                GST filing due end of month
+              </Typography>
+              <Typography
+                variant="caption"
+                color="primary.main"
+                sx={{ cursor: 'pointer' }}
+                onClick={() => navigate('/finance/compliance')}
+              >
+                Go to GST →
+              </Typography>
+            </Box>
+          </Box>
+
+          <Box
+            sx={{
+              bgcolor: '#FEF3C7',
+              border: '1px solid #FDE68A',
+              borderRadius: 2,
+              p: 2,
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+              <MinusCircle size={16} color="#B45309" />
+              <Typography variant="body2" fontWeight={600} sx={{ color: '#B45309' }}>
+                TDS Summary
+              </Typography>
+            </Box>
+            <Typography variant="h5" fontWeight={700} sx={{ mt: 1, color: '#B45309' }}>
+              {ru(totalTdsReceivable)}
+            </Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+              Receivable from clients · {ru(totalVendorTds)} payable to govt
+            </Typography>
+            <Box
+              sx={{
+                mt: 1.5,
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+              }}
+            >
+              <Typography variant="caption" color="text.secondary">
+                TDS return Q4 due
+              </Typography>
+              <Typography
+                variant="caption"
+                color="primary.main"
+                sx={{ cursor: 'pointer' }}
+                onClick={() => navigate('/finance/compliance')}
+              >
+                Go to TDS →
+              </Typography>
+            </Box>
+          </Box>
+
+          <Box
+            sx={{
+              bgcolor: overdueClientCount + overdueVendorCount > 0 ? '#FEF2F2' : '#F0FDF4',
+              border:
+                overdueClientCount + overdueVendorCount > 0
+                  ? '1px solid #FECACA'
+                  : '1px solid #BBF7D0',
+              borderRadius: 2,
+              p: 2,
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+              {overdueClientCount + overdueVendorCount > 0 ? (
+                <AlertTriangle size={16} color="#B91C1C" />
+              ) : (
+                <CheckCircle size={16} color="#15803D" />
+              )}
+              <Typography
+                variant="body2"
+                fontWeight={600}
+                sx={{
+                  color:
+                    overdueClientCount + overdueVendorCount > 0 ? '#B91C1C' : '#15803D',
+                }}
+              >
+                {overdueClientCount + overdueVendorCount > 0
+                  ? 'Pending Actions'
+                  : 'All Clear'}
+              </Typography>
+            </Box>
+            <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+              {overdueClientCount > 0 && (
+                <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center' }}>
+                  <AlertCircle size={12} color="#B91C1C" />
+                  <Typography variant="caption">
+                    {overdueClientCount} overdue client invoice
+                    {overdueClientCount > 1 ? 's' : ''}
+                  </Typography>
+                </Box>
+              )}
+              {overdueVendorCount > 0 && (
+                <Typography variant="caption">
+                  {overdueVendorCount} overdue vendor payment
+                  {overdueVendorCount > 1 ? 's' : ''}
+                </Typography>
+              )}
+              <Typography variant="caption" color="text.secondary">
+                • GST filing due end of month
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                • TDS return Q4 due
+              </Typography>
+              {overdueClientCount + overdueVendorCount === 0 && (
+                <Typography variant="caption" sx={{ color: '#15803D' }}>
+                  No overdue items. All compliance up to date.
+                </Typography>
+              )}
+            </Box>
+          </Box>
+        </Box>
+      </Paper>
+
+      {/* ROW 11 — Activity + Approvals */}
+      <Box
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: { xs: '1fr', lg: '3fr 2fr' },
+          gap: 2.5,
+        }}
+      >
+        <Paper
+          elevation={0}
+          sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, p: 2.5 }}
+        >
+          <Box
+            sx={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              mb: 2,
+            }}
+          >
+            <Typography variant="h6" fontWeight={600}>
+              Recent Activities
+            </Typography>
+            <Typography
+              variant="body2"
+              color="primary.main"
+              fontWeight={500}
+              sx={{ cursor: 'pointer' }}
+              onClick={() => navigate('/audit-logs')}
+            >
+              View All
+            </Typography>
+          </Box>
+          {activityRows.length === 0 ? (
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ display: 'block', textAlign: 'center', py: 4 }}
+            >
+              No recent activity
+            </Typography>
+          ) : (
+            activityRows.map((row, idx) => {
+              const av = getAvatarColor(row.avatarName)
+              return (
+                <Box
+                  key={`${row.kind}-${row.id}`}
+                  sx={{
+                    display: 'flex',
+                    gap: 1.5,
+                    py: 1.25,
+                    borderBottom: idx < activityRows.length - 1 ? '1px solid' : 'none',
+                    borderColor: 'divider',
+                  }}
+                >
+                  <Avatar
+                    name={row.avatarName}
+                    size="md"
+                    color={av.bg}
+                    sx={{
+                      width: 32,
+                      height: 32,
+                      fontSize: 11,
+                      fontWeight: 600,
+                      flexShrink: 0,
+                    }}
+                  />
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                    <Typography variant="body2" fontWeight={500}>
+                      {row.title}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {row.subtitle}
+                    </Typography>
+                    <Typography variant="caption" color="text.disabled" sx={{ display: 'block' }}>
+                      {row.relativeLabel}
+                    </Typography>
+                  </Box>
+                </Box>
+              )
+            })
+          )}
+        </Paper>
+
+        <Paper
+          elevation={0}
+          sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, p: 2.5 }}
+        >
+          <Box
+            sx={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              mb: 2,
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Typography variant="h6" fontWeight={600}>
+                Pending Approvals
+              </Typography>
+              {pendingItems.length > 0 && (
+                <Chip
+                  label={`${pendingItems.length} items`}
+                  size="small"
+                  sx={{
+                    bgcolor: '#FEF3C7',
+                    color: '#B45309',
+                    fontWeight: 600,
+                    fontSize: 11,
+                    height: 20,
+                    borderRadius: 1,
+                  }}
+                />
+              )}
+            </Box>
+            <Typography
+              variant="body2"
+              color="primary.main"
+              fontWeight={500}
+              sx={{ cursor: 'pointer' }}
+              onClick={() => navigate('/finance/expenses')}
+            >
+              Process All
+            </Typography>
+          </Box>
+          {pendingItems.length === 0 ? (
+            <Box
+              sx={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                py: 4,
+                gap: 1,
+              }}
+            >
+              <CheckCircle size={32} color="#15803D" />
+              <Typography variant="body2" fontWeight={500}>
+                All caught up!
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                No pending approvals
+              </Typography>
+            </Box>
+          ) : (
+            pendingItems.map((item, idx) => (
+              <Box
+                key={`${item.kind}-${item.id}`}
+                sx={{
+                  display: 'flex',
+                  gap: 1.5,
+                  py: 1.5,
+                  borderBottom: idx < pendingItems.length - 1 ? '1px solid' : 'none',
+                  borderColor: 'divider',
+                  alignItems: 'flex-start',
+                }}
+              >
+                <Box
+                  sx={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: '50%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                    bgcolor:
+                      item.kind === 'expense'
+                        ? '#FEF3C7'
+                        : item.kind === 'change_request'
+                          ? '#DCFCE7'
+                          : '#F3E8FF',
+                  }}
+                >
+                  {item.kind === 'expense' && <Wallet size={14} color="#B45309" />}
+                  {item.kind === 'change_request' && <RefreshCw size={14} color="#15803D" />}
+                  {item.kind === 'vendor_invoice' && <FileText size={14} color="#7C3AED" />}
+                </Box>
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Typography variant="body2" fontWeight={500}>
+                    {item.title}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {item.subtitle}
+                  </Typography>
+                </Box>
+                <Box
+                  sx={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'flex-end',
+                    gap: 0.5,
+                    flexShrink: 0,
+                  }}
+                >
+                  <Typography variant="body2" fontWeight={600}>
+                    {ru(item.amount)}
+                  </Typography>
+                  <Box sx={{ display: 'flex', gap: 0.5 }}>
+                    <Button
+                      variant="text"
+                      size="sm"
+                      onClick={() => showToast({ title: 'Approved!', variant: 'success' })}
+                      sx={{
+                        fontSize: 10,
+                        fontWeight: 700,
+                        color: '#15803D',
+                        minWidth: 'auto',
+                        px: 0.5,
+                        py: 0.25,
+                        lineHeight: 1.5,
+                      }}
+                    >
+                      APPROVE
+                    </Button>
+                    <Button
+                      variant="text"
+                      size="sm"
+                      onClick={() => showToast({ title: 'Denied!', variant: 'error' })}
+                      sx={{
+                        fontSize: 10,
+                        fontWeight: 700,
+                        color: '#B91C1C',
+                        minWidth: 'auto',
+                        px: 0.5,
+                        py: 0.25,
+                        lineHeight: 1.5,
+                      }}
+                    >
+                      DENY
+                    </Button>
+                  </Box>
+                </Box>
+              </Box>
+            ))
+          )}
+        </Paper>
+      </Box>
     </Box>
   )
 }

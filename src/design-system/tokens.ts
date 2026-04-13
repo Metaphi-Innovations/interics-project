@@ -142,3 +142,28 @@ export const tokens = {
 } as const;
 
 export type Tokens = typeof tokens;
+
+export const CHART_COLORS = {
+  teal:   '#107E68',
+  green:  '#10B981',
+  blue:   '#3B82F6',
+  amber:  '#F59E0B',
+  red:    '#EF4444',
+  purple: '#8B5CF6',
+  grey:   '#9CA3AF',
+}
+
+export const TREND_COLORS = {
+  up:      { color: '#10B981', bg: '#D1FAE5' },
+  down:    { color: '#EF4444', bg: '#FEE2E2' },
+  neutral: { color: '#6B7280', bg: '#F3F4F6' },
+}
+
+export const STATUS_SECTION_COLORS = {
+  projects:      '#107E68',
+  revenue:       '#3B82F6',
+  cost:          '#F59E0B',
+  profitability: '#10B981',
+  risk:          '#EF4444',
+  compliance:    '#8B5CF6',
+}

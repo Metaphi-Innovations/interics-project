@@ -8,6 +8,8 @@ import { usersHandlers } from './usersHandlers'
 import { settingsHandlers } from './settingsHandlers'
 import { categoriesHandlers } from './categoriesHandlers'
 import { liveHandlers } from './liveHandlers'
+import { receivablesHandlers } from './receivablesHandlers'
+import { payablesHandlers } from './payablesHandlers'
 
 export const handlers = [
   ...authHandlers,
@@ -20,4 +22,6 @@ export const handlers = [
   ...settingsHandlers,
   ...categoriesHandlers,
   ...liveHandlers,
+  ...receivablesHandlers,
+  ...payablesHandlers,
 ]

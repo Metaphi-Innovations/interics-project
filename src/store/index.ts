@@ -10,6 +10,8 @@ import usersReducer from '../slices/users/reducer'
 import settingsReducer from '../slices/settings/reducer'
 import categoriesReducer from '../slices/categories/reducer'
 import liveReducer from '../slices/live/reducer'
+import receivablesReducer from '../slices/receivables/reducer'
+import payablesReducer from '../slices/payables/reducer'
 
 const savedToken = localStorage.getItem('auth_token')
 const savedUserRaw = localStorage.getItem('ids_user')
@@ -37,6 +39,8 @@ export const store = configureStore({
     settings: settingsReducer,
     categories: categoriesReducer,
     live: liveReducer,
+    receivables: receivablesReducer,
+    payables: payablesReducer,
   },
   preloadedState,
 })

@@ -7,6 +7,9 @@ export type { IconButtonProps } from './IconButton'
 export { default as Input } from './Input'
 export type { InputProps } from './Input'
 
+export { default as AutocompleteField } from './AutocompleteField'
+export type { AutocompleteFieldProps } from './AutocompleteField'
+
 export { default as Textarea } from './Textarea'
 export type { TextareaProps } from './Textarea'
 

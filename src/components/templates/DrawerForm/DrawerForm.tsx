@@ -11,8 +11,9 @@ interface DrawerFormProps {
   open: boolean
   onClose: () => void
   title: string
-  subtitle?: string
-  onSubmit: () => void
+  subtitle?: ReactNode
+  /** Used by the default footer; omit when using `footer` or `hideFooter`. */
+  onSubmit?: () => void
   onCancel?: () => void
   submitLabel?: string
   cancelLabel?: string
@@ -20,6 +21,10 @@ interface DrawerFormProps {
   submitDisabled?: boolean
   children: ReactNode
   width?: number
+  /** When set, replaces the default Cancel / Submit footer. */
+  footer?: ReactNode
+  /** Hide footer entirely (e.g. read-only drawer with actions in header). */
+  hideFooter?: boolean
 }
 
 export function DrawerForm({
@@ -35,6 +40,8 @@ export function DrawerForm({
   submitDisabled = false,
   children,
   width = 520,
+  footer,
+  hideFooter = false,
 }: DrawerFormProps) {
   const handleCancel = onCancel ?? onClose
 
@@ -45,7 +52,7 @@ export function DrawerForm({
       onClose={onClose}
       PaperProps={{
         sx: {
-          width: { xs: '100vw', lg: '520px' },
+          width: { xs: '100vw', lg: `${width}px` },
           height: '100%',
           display: 'flex',
           flexDirection: 'column',
@@ -71,14 +78,16 @@ export function DrawerForm({
           <Typography variant="h6" fontWeight={600} lineHeight={1.3}>
             {title}
           </Typography>
-          {subtitle && (
-            <Typography
-              variant="body2"
-              color="text.secondary"
-              sx={{ mt: '2px' }}
-            >
-              {subtitle}
-            </Typography>
+          {subtitle != null && subtitle !== '' && (
+            <Box sx={{ mt: 0.5 }}>
+              {typeof subtitle === 'string' || typeof subtitle === 'number' ? (
+                <Typography variant="body2" color="text.secondary">
+                  {subtitle}
+                </Typography>
+              ) : (
+                subtitle
+              )}
+            </Box>
           )}
         </Box>
         <MuiIconButton
@@ -99,42 +108,54 @@ export function DrawerForm({
       </Box>
 
       {/* Footer */}
-      <Stack
-        direction="row"
-        justifyContent="flex-end"
-        gap={1}
-        sx={{
-          px: '20px',
-          py: '14px',
-          flexShrink: 0,
-          borderTop: `1px solid ${tokens.color.neutral[100]}`,
-          bgcolor: 'background.paper',
-        }}
-      >
-        <MuiButton
-          variant="outlined"
-          size="small"
-          onClick={handleCancel}
-          disabled={submitLoading}
-          sx={{ height: 32 }}
+      {footer !== undefined ? (
+        <Box
+          sx={{
+            flexShrink: 0,
+            borderTop: `1px solid ${tokens.color.neutral[100]}`,
+            bgcolor: 'background.paper',
+          }}
         >
-          {cancelLabel}
-        </MuiButton>
-        <MuiButton
-          variant="contained"
-          size="small"
-          onClick={onSubmit}
-          disabled={submitDisabled || submitLoading}
-          endIcon={
-            submitLoading
-              ? <CircularProgress size={12} color="inherit" />
-              : <ArrowForwardIcon fontSize="small" />
-          }
-          sx={{ height: 32, minWidth: 90 }}
+          {footer}
+        </Box>
+      ) : hideFooter ? null : (
+        <Stack
+          direction="row"
+          justifyContent="flex-end"
+          gap={1}
+          sx={{
+            px: '20px',
+            py: '14px',
+            flexShrink: 0,
+            borderTop: `1px solid ${tokens.color.neutral[100]}`,
+            bgcolor: 'background.paper',
+          }}
         >
-          {submitLabel}
-        </MuiButton>
-      </Stack>
+          <MuiButton
+            variant="outlined"
+            size="small"
+            onClick={handleCancel}
+            disabled={submitLoading}
+            sx={{ height: 32 }}
+          >
+            {cancelLabel}
+          </MuiButton>
+          <MuiButton
+            variant="contained"
+            size="small"
+            onClick={onSubmit ?? (() => {})}
+            disabled={submitDisabled || submitLoading}
+            endIcon={
+              submitLoading
+                ? <CircularProgress size={12} color="inherit" />
+                : <ArrowForwardIcon fontSize="small" />
+            }
+            sx={{ height: 32, minWidth: 90 }}
+          >
+            {submitLabel}
+          </MuiButton>
+        </Stack>
+      )}
     </Drawer>
   )
 }

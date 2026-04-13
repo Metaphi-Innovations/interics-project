@@ -5,6 +5,14 @@ export const formatCurrency = (amount: number): string => {
   return amount.toString()
 }
 
+const inrFormatter = new Intl.NumberFormat('en-IN', {
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 2,
+})
+
+/** Full Indian-grouped amount (e.g. listing invoice lines and totals). */
+export const formatInr = (amount: number): string => inrFormatter.format(amount)
+
 export const getInitials = (name: string): string =>
   name
     .split(' ')
@@ -50,4 +58,15 @@ export const formatDate = (date: string | null): string => {
     month: 'short',
     year: 'numeric',
   })
+}
+
+export const formatRelativeTime = (dateStr: string): string => {
+  const diff = Date.now() - new Date(dateStr).getTime()
+  const minutes = Math.floor(diff / 60000)
+  if (minutes < 1) return 'just now'
+  if (minutes < 60) return minutes + ' min ago'
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return hours + ' hour' + (hours > 1 ? 's' : '') + ' ago'
+  const days = Math.floor(hours / 24)
+  return days + ' day' + (days > 1 ? 's' : '') + ' ago'
 }
