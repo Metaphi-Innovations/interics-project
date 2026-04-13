@@ -15,8 +15,8 @@ import {
   Receipt,
   ShieldCheck,
   BarChart3,
-  FileStack,
-  ClipboardList,
+  // FileStack,
+  // ClipboardList,
   Settings2,
   Users,
 } from 'lucide-react'
@@ -127,6 +127,7 @@ const navConfig: NavConfig[] = [
         icon: <BarChart3 size={16} strokeWidth={1.75} />,
         href: '/reports',
       },
+      /* Hidden from sidebar for now — restore by uncommenting this block and the FileStack / ClipboardList imports above.
       {
         type: 'item',
         label: 'Documents',
@@ -139,6 +140,7 @@ const navConfig: NavConfig[] = [
         icon: <ClipboardList size={16} strokeWidth={1.75} />,
         href: '/audit-logs',
       },
+      */
       {
         type: 'item',
         label: 'Settings',
