@@ -17,10 +17,7 @@ export const fetchUsers = createAsyncThunk(
 
 export const createUser = createAsyncThunk(
   'users/create',
-  async (
-    data: Omit<User, 'id' | 'createdAt' | 'lastLogin' | 'assignedProjects'>,
-    { rejectWithValue }
-  ) => {
+  async (data: Omit<User, 'id' | 'createdAt' | 'lastLogin'>, { rejectWithValue }) => {
     try {
       const response = await usersApi.create(data as unknown as Record<string, unknown>)
       return response.data as User

@@ -8,9 +8,9 @@ export const authHandlers = [
         token: 'mock-jwt-token-admin',
         user: {
           id: 'u-001',
-          name: 'Admin User',
+          name: 'Rajan Mehta',
           email: 'admin@interics.com',
-          role: 'Admin',
+          role: 'r-001',
           avatar: null,
         },
       })
@@ -20,9 +20,9 @@ export const authHandlers = [
         token: 'mock-jwt-token-sarah',
         user: {
           id: 'u-002',
-          name: 'Sarah Johnson',
+          name: 'Sarah Kapoor',
           email: 'sarah@interics.com',
-          role: 'Power User',
+          role: 'r-002',
           avatar: null,
         },
       })
@@ -44,9 +44,9 @@ export const authHandlers = [
     }
     return HttpResponse.json({
       id: 'u-001',
-      name: 'Admin User',
+      name: 'Rajan Mehta',
       email: 'admin@interics.com',
-      role: 'Admin',
+      role: 'r-001',
       avatar: null,
     })
   }),

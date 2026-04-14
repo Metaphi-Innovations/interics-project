@@ -13,12 +13,13 @@ export interface User {
   name: string
   email: string
   phone?: string
-  role: 'admin' | 'power_user' | 'project_user' | 'viewer'
-  status: 'active' | 'inactive'
+  employeeId?: string
+  role: string          // role ID reference (e.g. 'r-001')
+  projectAccess: 'all' | 'selected'
   assignedProjects: string[]
+  status: 'active' | 'inactive'
   lastLogin: string | null
   createdAt: string
-  avatar?: string
 }
 
 interface UsersState {
@@ -83,9 +84,7 @@ const usersSlice = createSlice({
         state.loading = false
         state.error = action.payload as string
       })
-      .addCase(createUser.pending, (state) => {
-        state.saving = true
-      })
+      .addCase(createUser.pending, (state) => { state.saving = true })
       .addCase(createUser.fulfilled, (state, action) => {
         state.saving = false
         state.items.push(action.payload)
@@ -95,9 +94,7 @@ const usersSlice = createSlice({
         state.saving = false
         state.error = action.payload as string
       })
-      .addCase(updateUser.pending, (state) => {
-        state.saving = true
-      })
+      .addCase(updateUser.pending, (state) => { state.saving = true })
       .addCase(updateUser.fulfilled, (state, action) => {
         state.saving = false
         const idx = state.items.findIndex((u) => u.id === action.payload.id)

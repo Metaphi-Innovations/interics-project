@@ -48,6 +48,9 @@ import ReportsPage from '@/pages/Reports/ReportsPage'
 import DocumentsPage from '@/pages/Documents/DocumentsPage'
 import AuditLogsPage from '@/pages/AuditLogs/AuditLogsPage'
 import UsersPage from '@/pages/UserManagement/UsersPage'
+import RolesPage from '@/pages/UserManagement/RolesPage'
+import RoleFormPage from '@/pages/UserManagement/RoleFormPage'
+import { UserManagementPermissionRoute } from '@/pages/UserManagement/UserManagementPermissionRoute'
 import SettingsPage from '@/pages/Settings/SettingsPage'
 
 const navConfig: NavConfig[] = [
@@ -234,7 +237,38 @@ function AppInner() {
                   <Route path="/reports" element={<ReportsPage />} />
                   <Route path="/documents" element={<DocumentsPage />} />
                   <Route path="/audit-logs" element={<AuditLogsPage />} />
-                  <Route path="/user-management" element={<UsersPage />} />
+                  <Route
+                    path="/user-management"
+                    element={
+                      <UserManagementPermissionRoute>
+                        <UsersPage />
+                      </UserManagementPermissionRoute>
+                    }
+                  />
+                  <Route
+                    path="/user-management/roles"
+                    element={
+                      <UserManagementPermissionRoute>
+                        <RolesPage />
+                      </UserManagementPermissionRoute>
+                    }
+                  />
+                  <Route
+                    path="/user-management/roles/create"
+                    element={
+                      <UserManagementPermissionRoute>
+                        <RoleFormPage />
+                      </UserManagementPermissionRoute>
+                    }
+                  />
+                  <Route
+                    path="/user-management/roles/:id/edit"
+                    element={
+                      <UserManagementPermissionRoute>
+                        <RoleFormPage />
+                      </UserManagementPermissionRoute>
+                    }
+                  />
                   <Route path="/settings" element={<SettingsPage />} />
                   <Route index element={<Navigate to="/projects" replace />} />
                   <Route path="*" element={<Navigate to="/projects" replace />} />
