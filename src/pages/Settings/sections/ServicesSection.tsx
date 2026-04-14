@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import {
   Box, Typography, Chip, TextField, MenuItem,
   Table, TableHead, TableRow, TableCell, TableBody,
-  Drawer, IconButton, FormControlLabel, Switch, Divider,
+  Drawer, IconButton, Divider,
 } from '@mui/material'
 import { Edit, ToggleOff, ToggleOn } from '@mui/icons-material'
 import { Button } from '@/design-system/components'
@@ -79,20 +79,20 @@ export default function ServicesSection() {
 
   const openEdit = (row: Service) => {
     setEditingRow(row)
+    const sac = sacCodes.find(s => s.id === row.sacCodeId)
+    const linked = gstRates.find(g => g.id === sac?.gstRateId)
+    const rateFromSac = linked?.rate ?? row.gstRate
     setForm({
       name: row.name,
       categoryId: row.categoryId,
       sacCodeId: row.sacCodeId,
-      gstRate: row.gstRate,
-      allowGSTOverride: row.allowGSTOverride,
-      allowVendorMapping: row.allowVendorMapping,
+      gstRate: rateFromSac,
+      allowGSTOverride: false,
+      allowVendorMapping: false,
       tags: row.tags,
       status: row.status,
     })
-    // Resolve GST from SAC
-    const sac = sacCodes.find(s => s.id === row.sacCodeId)
-    const linked = gstRates.find(g => g.id === sac?.gstRateId)
-    setResolvedGSTRate(linked?.rate ?? row.gstRate)
+    setResolvedGSTRate(rateFromSac)
     setDrawerOpen(true)
   }
 
@@ -104,14 +104,23 @@ export default function ServicesSection() {
     setForm(f => ({
       ...f,
       sacCodeId: sacId,
-      gstRate: f.allowGSTOverride ? f.gstRate : rate,
+      gstRate: rate,
     }))
   }
 
   const handleSave = () => {
+    const sac = sacCodes.find(s => s.id === form.sacCodeId)
+    const linked = gstRates.find(g => g.id === sac?.gstRateId)
+    const gstRate = linked?.rate ?? form.gstRate
+    const payload: ServiceForm = {
+      ...form,
+      allowGSTOverride: false,
+      allowVendorMapping: false,
+      gstRate,
+    }
     dispatch(editingRow
-      ? updateService({ id: editingRow.id, ...form })
-      : createService(form)
+      ? updateService({ id: editingRow.id, ...payload })
+      : createService(payload)
     ).unwrap()
       .then(() => {
         setDrawerOpen(false)
@@ -160,7 +169,6 @@ export default function ServicesSection() {
             <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', width: 160 }}>Category</TableCell>
             <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', width: 120 }}>SAC Code</TableCell>
             <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', width: 100 }}>GST Rate</TableCell>
-            <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', width: 120 }}>Vendor Mapping</TableCell>
             <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', width: 100 }}>Status</TableCell>
             <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', width: 80 }}>Actions</TableCell>
           </TableRow>
@@ -178,11 +186,6 @@ export default function ServicesSection() {
                 <TableCell sx={{ fontSize: 12, fontFamily: 'monospace' }}>{sac?.code ?? '—'}</TableCell>
                 <TableCell>
                   <Chip size="small" label={`${row.gstRate}%`} sx={{ fontSize: 11, height: 20, bgcolor: '#E8F5F2', color: '#107E68' }} />
-                </TableCell>
-                <TableCell>
-                  {row.allowVendorMapping
-                    ? <Chip size="small" label="Allowed" sx={{ bgcolor: '#F0FDF4', color: '#15803D', fontSize: 11, height: 20 }} />
-                    : <Chip size="small" label="Not Allowed" sx={{ bgcolor: '#F3F4F6', color: '#9CA3AF', fontSize: 11, height: 20 }} />}
                 </TableCell>
                 <TableCell>
                   <StatusBadge status={row.status} />
@@ -250,66 +253,23 @@ export default function ServicesSection() {
             <Box sx={{ p: 1.5, bgcolor: '#F8FAFB', borderRadius: '8px', border: '1px solid #E8EEEC', display: 'flex', alignItems: 'center', gap: 1 }}>
               <Typography variant="caption" color="text.secondary">GST Rate (from SAC):</Typography>
               <Chip size="small" label={`${resolvedGSTRate}%`} sx={{ bgcolor: '#E8F5F2', color: '#107E68', fontSize: 11, height: 20 }} />
-              {!form.allowGSTOverride && (
-                <Typography variant="caption" color="text.disabled">Auto-applied</Typography>
-              )}
+              <Typography variant="caption" color="text.disabled">Auto-applied</Typography>
             </Box>
-
-            <FormControlLabel
-              control={
-                <Switch
-                  size="small"
-                  checked={form.allowGSTOverride}
-                  onChange={e => {
-                    const checked = e.target.checked
-                    setForm(f => ({
-                      ...f,
-                      allowGSTOverride: checked,
-                      gstRate: checked ? f.gstRate : resolvedGSTRate,
-                    }))
-                  }}
-                />
-              }
-              label={<Typography variant="body2">Allow GST Override</Typography>}
-            />
-            {form.allowGSTOverride && (
-              <TextField
-                size="small"
-                label="Custom GST Rate (%)"
-                type="number"
-                value={form.gstRate}
-                onChange={e => setForm(f => ({ ...f, gstRate: Number(e.target.value) }))}
-              />
-            )}
           </FormSection>
 
-          <FormSection label="Configuration">
-            <FormControlLabel
-              control={
-                <Switch
-                  size="small"
-                  checked={form.allowVendorMapping}
-                  onChange={e => setForm(f => ({ ...f, allowVendorMapping: e.target.checked }))}
-                />
-              }
-              label={
-                <Box>
-                  <Typography variant="body2">Allow Vendor Mapping</Typography>
-                  <Typography variant="caption" color="text.secondary">Vendors can be mapped to this service in the Pitch builder</Typography>
-                </Box>
-              }
-            />
+          <Box sx={{ mb: 2 }}>
             <TextField
               select
               size="small"
               label="Status"
               value={form.status}
               onChange={e => setForm(f => ({ ...f, status: e.target.value as Service['status'] }))}
+              fullWidth
             >
               <MenuItem value="active">Active</MenuItem>
               <MenuItem value="inactive">Inactive</MenuItem>
             </TextField>
-          </FormSection>
+          </Box>
 
           <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, mt: 2 }}>
             <Button size="sm" variant="secondary" onClick={() => setDrawerOpen(false)}>Cancel</Button>

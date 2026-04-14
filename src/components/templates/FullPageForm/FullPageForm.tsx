@@ -93,7 +93,8 @@ export function FullPageForm({
         sx={{
           height: 52,
           backgroundColor: 'background.paper',
-          borderBottom: `1px solid ${tokens.color.neutral[100]}`,
+          borderBottom: '1px solid',
+          borderBottomColor: 'divider',
           px: '24px',
           display: 'flex',
           alignItems: 'center',
@@ -170,7 +171,8 @@ export function FullPageForm({
         <Box
           sx={{
             backgroundColor: 'background.paper',
-            borderBottom: `1px solid ${tokens.color.neutral[100]}`,
+            borderBottom: '1px solid',
+          borderBottomColor: 'divider',
             px: '24px',
             py: '16px',
             flexShrink: 0,
@@ -197,8 +199,8 @@ export function FullPageForm({
                             ? 'success.main'
                             : isActive
                               ? 'primary.main'
-                              : tokens.color.neutral[100],
-                          color: isCompleted || isActive ? 'white' : tokens.color.neutral[400],
+                              : 'action.hover',
+                          color: isCompleted || isActive ? 'primary.contrastText' : 'text.disabled',
                           fontSize: '11px',
                           fontWeight: 600,
                           flexShrink: 0,
@@ -291,7 +293,8 @@ export function FullPageForm({
             position: 'sticky',
             bottom: 0,
             backgroundColor: 'background.paper',
-            borderTop: `1px solid ${tokens.color.neutral[100]}`,
+            borderTop: '1px solid',
+            borderTopColor: 'divider',
             px: '24px',
             py: '12px',
             display: 'flex',

@@ -6,9 +6,9 @@ import ReceiptIcon from '@mui/icons-material/Receipt'
 import QrCode2Icon from '@mui/icons-material/QrCode2'
 import CategoryIcon from '@mui/icons-material/Category'
 import MiscellaneousServicesIcon from '@mui/icons-material/MiscellaneousServices'
-import TagIcon from '@mui/icons-material/Tag'
 import TuneIcon from '@mui/icons-material/Tune'
 import type { SvgIconComponent } from '@mui/icons-material'
+import { useTheme, alpha } from '@mui/material/styles'
 import { useAppDispatch } from '@/store/hooks'
 import { fetchCompanyProfile } from '@/slices/settings/thunk'
 import GeneralSettingsSection from './sections/GeneralSettingsSection'
@@ -16,7 +16,6 @@ import TaxConfigSection from './sections/TaxConfigSection'
 import SACCodesSection from './sections/SACCodesSection'
 import CategoriesSection from './sections/CategoriesSection'
 import ServicesSection from './sections/ServicesSection'
-import NumberingSchemesSection from './sections/NumberingSchemesSection'
 import SystemDefaultsSection from './sections/SystemDefaultsSection'
 
 interface NavItem {
@@ -31,11 +30,11 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'sac', label: 'SAC Codes', icon: QrCode2Icon },
   { id: 'categories', label: 'Categories', icon: CategoryIcon },
   { id: 'services', label: 'Services', icon: MiscellaneousServicesIcon },
-  { id: 'numbering', label: 'Numbering Schemes', icon: TagIcon },
   { id: 'defaults', label: 'System Defaults', icon: TuneIcon },
 ]
 
 export default function SettingsPage() {
+  const theme = useTheme()
   const dispatch = useAppDispatch()
   const [activeSection, setActiveSection] = useState('general')
 
@@ -56,8 +55,9 @@ export default function SettingsPage() {
         sx={{
           width: 240,
           flexShrink: 0,
-          borderRight: '1px solid #E8EEEC',
-          bgcolor: '#FFFFFF',
+          borderRight: '1px solid',
+          borderColor: 'divider',
+          bgcolor: 'background.paper',
           overflowY: 'auto',
           p: 2,
         }}
@@ -70,7 +70,8 @@ export default function SettingsPage() {
             gap: 1.5,
             mb: 3,
             pb: 2,
-            borderBottom: '1px solid #F0F0F0',
+            borderBottom: '1px solid',
+            borderBottomColor: 'divider',
           }}
         >
           <Box
@@ -78,13 +79,13 @@ export default function SettingsPage() {
               width: 36,
               height: 36,
               borderRadius: '8px',
-              bgcolor: '#E8F5F2',
+              bgcolor: alpha(theme.palette.primary.main, 0.1),
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
             }}
           >
-            <SettingsIcon sx={{ fontSize: 18, color: '#107E68' }} />
+            <SettingsIcon sx={{ fontSize: 18, color: 'primary.main' }} />
           </Box>
           <Box>
             <Typography variant="body2" fontWeight={700}>
@@ -113,11 +114,11 @@ export default function SettingsPage() {
                 mb: 0.5,
                 borderRadius: '8px',
                 cursor: 'pointer',
-                bgcolor: isActive ? '#107E68' : 'transparent',
-                color: isActive ? '#FFFFFF' : 'text.secondary',
+                bgcolor: isActive ? 'primary.main' : 'transparent',
+                color: isActive ? 'primary.contrastText' : 'text.secondary',
                 '&:hover': {
-                  bgcolor: isActive ? '#107E68' : '#F0FAF8',
-                  color: isActive ? '#FFFFFF' : '#107E68',
+                  bgcolor: isActive ? 'primary.main' : alpha(theme.palette.primary.main, 0.08),
+                  color: isActive ? 'primary.contrastText' : 'primary.main',
                 },
                 transition: 'all 0.15s ease',
               }}
@@ -137,15 +138,16 @@ export default function SettingsPage() {
           flex: 1,
           overflowY: 'auto',
           p: 3,
-          bgcolor: '#F8FAFB',
+          bgcolor: 'background.default',
         }}
       >
         <Box
           sx={{
             maxWidth: 860,
-            bgcolor: '#FFFFFF',
+            bgcolor: 'background.paper',
             borderRadius: '12px',
-            border: '1px solid #E8EEEC',
+            border: '1px solid',
+            borderColor: 'divider',
             p: 3,
             minHeight: '100%',
           }}
@@ -155,7 +157,6 @@ export default function SettingsPage() {
           {activeSection === 'sac' && <SACCodesSection />}
           {activeSection === 'categories' && <CategoriesSection />}
           {activeSection === 'services' && <ServicesSection />}
-          {activeSection === 'numbering' && <NumberingSchemesSection />}
           {activeSection === 'defaults' && <SystemDefaultsSection />}
         </Box>
       </Box>

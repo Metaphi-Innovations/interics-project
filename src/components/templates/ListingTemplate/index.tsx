@@ -140,11 +140,11 @@ function StatCard({ item }: { item: StatCardItem }) {
   const color = item.color ?? 'default'
 
   const bgMap: Record<NonNullable<StatCardItem['color']>, string> = {
-    default: '#FFFFFF',
-    success: '#F0FDF4',
-    warning: '#FFFBEB',
-    info:    '#EFF6FF',
-    error:   '#FEF2F2',
+    default: theme.palette.background.paper,
+    success: alpha(theme.palette.success.main, 0.12),
+    warning: alpha(theme.palette.warning.main, 0.12),
+    info:    alpha(theme.palette.info.main, 0.12),
+    error:   alpha(theme.palette.error.main, 0.12),
   }
 
   const iconColorMap: Record<NonNullable<StatCardItem['color']>, string> = {
@@ -157,10 +157,10 @@ function StatCard({ item }: { item: StatCardItem }) {
 
   const valueColorMap: Record<NonNullable<StatCardItem['color']>, string> = {
     default: theme.palette.text.primary,
-    success: '#15803D',
-    warning: '#B45309',
-    info:    '#1D4ED8',
-    error:   '#B91C1C',
+    success: theme.palette.success.main,
+    warning: theme.palette.warning.main,
+    info:    theme.palette.info.main,
+    error:   theme.palette.error.main,
   }
 
   return (
@@ -169,8 +169,6 @@ function StatCard({ item }: { item: StatCardItem }) {
       sx={{
         p: '16px 20px',
         borderRadius: '10px',
-        border: '1px solid #E8EEEC',
-        boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
         backgroundColor: bgMap[color],
       }}
     >
@@ -502,11 +500,11 @@ export function ListingTemplate({
       {/* ── Toolbar + Content Card (tabs inside) ────────────────────────── */}
       <Card
         elevation={0}
-        sx={{ border: '1px solid #E8EEEC', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}
+        sx={{ borderRadius: '12px', overflow: 'hidden' }}
       >
         {/* Tabs inside card top */}
         {tabs && tabs.length > 0 && (
-          <Box sx={{ borderBottom: '1px solid #E8EEEC', px: 2, pt: 0.5 }}>
+          <Box sx={{ borderBottom: '1px solid', borderColor: 'divider', px: 2, pt: 0.5 }}>
             <Tabs
               value={activeTab}
               onChange={handleTabChange}
@@ -520,14 +518,14 @@ export function ListingTemplate({
                   textTransform: 'none',
                   minHeight: '44px',
                   padding: '8px 14px',
-                  color: tokens.color.neutral[500],
+                  color: 'text.secondary',
                 },
                 '& .MuiTab-root.Mui-selected': {
-                  color: '#107E68',
+                  color: 'primary.main',
                   fontWeight: 600,
                 },
                 '& .MuiTabs-indicator': {
-                  backgroundColor: '#107E68',
+                  backgroundColor: theme.palette.primary.main,
                   height: '2px',
                   borderRadius: '2px',
                 },
@@ -543,8 +541,8 @@ export function ListingTemplate({
                         {tab.label}
                         <Box
                           sx={{
-                            bgcolor: activeTab === tab.value ? '#DCF0EC' : '#F1F5F4',
-                            color: activeTab === tab.value ? '#107E68' : '#6B7280',
+                            bgcolor: activeTab === tab.value ? alpha(theme.palette.primary.main, 0.12) : 'action.hover',
+                            color: activeTab === tab.value ? 'primary.main' : 'text.secondary',
                             borderRadius: '999px',
                             fontSize: 10,
                             fontWeight: 600,
@@ -584,7 +582,7 @@ export function ListingTemplate({
               width: { xs: undefined, lg: '260px' },
               flex: { xs: 1, lg: 'none' },
               height: '32px',
-              bgcolor: searchFocused ? '#EAEAEF' : '#F3F3F5',
+              bgcolor: searchFocused ? 'action.selected' : 'action.hover',
               border: `1px solid ${searchFocused ? theme.palette.primary.main : 'transparent'}`,
               borderRadius: '6px',
               px: '10px',

@@ -17,6 +17,8 @@ import { useNavigate } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { fetchCustomers } from '../../slices/customers/thunk'
 import { fetchUsers } from '../../slices/users/thunk'
+import { fetchRoles } from '../../slices/roles/thunk'
+import { isProjectManagerRole } from './projectManagerRoles'
 import { createProject } from '../../slices/projects/thunk'
 import type { Customer } from '../../slices/customers/reducer'
 import type { User } from '../../slices/users/reducer'
@@ -222,11 +224,13 @@ function Step3ProjectSetup({
   formData,
   setFormData,
   managers,
+  getRoleLabel,
   errors,
 }: {
   formData: WizardFormData
   setFormData: React.Dispatch<React.SetStateAction<WizardFormData>>
   managers: User[]
+  getRoleLabel: (roleId: string) => string
   errors: StepErrors
 }) {
   function set(key: keyof WizardFormData, value: string) {
@@ -324,7 +328,7 @@ function Step3ProjectSetup({
                 <PersonOutline sx={{ fontSize: 14 }} />
                 {m.name}
                 <MuiChip
-                  label={m.role}
+                  label={getRoleLabel(m.role)}
                   size="small"
                   sx={{ height: 16, fontSize: 10, ml: 'auto', '& .MuiChip-label': { px: '6px' } }}
                 />
@@ -552,6 +556,7 @@ export default function CreateProjectPage() {
   const customers = useAppSelector((s) => s.customers.items)
   const loadingCustomers = useAppSelector((s) => s.customers.loading)
   const users = useAppSelector((s) => s.users.items)
+  const roles = useAppSelector((s) => s.roles.items)
   const saving = useAppSelector((s) => s.projects.saving)
 
   const [activeStep, setActiveStep] = useState(0)
@@ -561,11 +566,14 @@ export default function CreateProjectPage() {
   useEffect(() => {
     dispatch(fetchCustomers({}))
     dispatch(fetchUsers())
+    dispatch(fetchRoles())
   }, [dispatch])
 
-  const managers = users.filter(
-    (u) => u.role === 'Project User' || u.role === 'Power User'
-  )
+  const managers = users.filter((u) => isProjectManagerRole(u.role))
+
+  function getRoleLabel(roleId: string) {
+    return roles.find((r) => r.id === roleId)?.name ?? roleId
+  }
 
   // ── Validation ────────────────────────────────────────────────────────────
 
@@ -651,6 +659,7 @@ export default function CreateProjectPage() {
             formData={formData}
             setFormData={setFormData}
             managers={managers}
+            getRoleLabel={getRoleLabel}
             errors={errors}
           />
         )

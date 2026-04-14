@@ -113,6 +113,7 @@ interface VersionBarProps {
 }
 
 function VersionBar({ versions, activeVersionId, onVersionChange, onNewVersion, onUploadQuotation }: VersionBarProps) {
+  const theme = useTheme()
   const activeVersion = versions.find((v) => v.id === activeVersionId)
 
   return (
@@ -166,8 +167,8 @@ function VersionBar({ versions, activeVersionId, onVersionChange, onNewVersion, 
             sx={{
               height: 20,
               fontSize: 10,
-              bgcolor: tokens.color.success?.[50] ?? '#F0FDF4',
-              color: tokens.color.success?.[700] ?? '#15803D',
+              bgcolor: alpha(theme.palette.success.main, 0.12),
+              color: 'success.main',
               fontWeight: 600,
               '& .MuiChip-label': { px: '8px' },
             }}
@@ -216,11 +217,12 @@ function FinancialSidebar({ version }: FinancialSidebarProps) {
   const estGst = version.totalRevenue * gstRate
   const totalBilling = version.totalRevenue + estGst
 
+  const theme = useTheme()
   const health =
-    margin > 50 ? { label: 'Excellent', color: '#16A34A' } :
-    margin > 30 ? { label: 'Good', color: '#D97706' } :
+    margin > 50 ? { label: 'Excellent', color: theme.palette.success.main } :
+    margin > 30 ? { label: 'Good', color: theme.palette.warning.main } :
     margin > 10 ? { label: 'At Risk', color: '#EA580C' } :
-    { label: 'Critical', color: '#DC2626' }
+    { label: 'Critical', color: theme.palette.error.main }
 
   // Expense summary (approx from vendor cost)
   const expenseTotal = version.totalCost
@@ -282,7 +284,7 @@ function FinancialSidebar({ version }: FinancialSidebarProps) {
           </Stack>
           <Stack direction="row" justifyContent="space-between" alignItems="center">
             <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary' }}>Profitability</Typography>
-            <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 700, color: '#16A34A' }}>
+            <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 700, color: 'success.main' }}>
               ₹{formatLakh(Math.abs(version.profitability))}
             </Typography>
           </Stack>
@@ -622,6 +624,7 @@ interface VendorOption {
 }
 
 function VendorMappingDrawer({ open, onClose, service, onSave, initialMode = 'view' }: VendorMappingDrawerProps) {
+  const theme = useTheme()
   const [mappings, setMappings] = useState<VendorMapping[]>([])
   const [expandedVendor, setExpandedVendor] = useState<string | null>(null)
   const [mode, setMode] = useState<'view' | 'edit'>(initialMode)
@@ -812,8 +815,9 @@ function VendorMappingDrawer({ open, onClose, service, onSave, initialMode = 'vi
               <Box
                 key={mapping.id}
                 sx={{
-                  backgroundColor: '#F8FAFB',
-                  border: '1px solid #E2E8E6',
+                  bgcolor: 'background.default',
+                  border: '1px solid',
+                  borderColor: 'divider',
                   borderRadius: '8px',
                   padding: '12px',
                   mb: 1.5,
@@ -829,7 +833,7 @@ function VendorMappingDrawer({ open, onClose, service, onSave, initialMode = 'vi
                   </Typography>
                   <Box
                     sx={{
-                      bgcolor: '#F3F3F5',
+                      bgcolor: 'action.hover',
                       borderRadius: '6px',
                       padding: '6px 10px',
                       fontSize: 13,
@@ -880,8 +884,9 @@ function VendorMappingDrawer({ open, onClose, service, onSave, initialMode = 'vi
                           <Box
                             key={vm.id}
                             sx={{
-                              bgcolor: '#FAFAFA',
-                              border: '1px solid #EEEEEE',
+                              bgcolor: 'background.default',
+                              border: '1px solid',
+                              borderColor: 'divider',
                               borderRadius: '6px',
                               padding: '8px 10px',
                               marginBottom: '6px',
@@ -910,10 +915,10 @@ function VendorMappingDrawer({ open, onClose, service, onSave, initialMode = 'vi
             <Box
               key={mapping.id}
               sx={{
-                backgroundColor: '#FFFFFF',
-                border: '1px solid #E2E8E6',
+                bgcolor: 'background.paper',
+                border: '1px solid',
+                borderColor: 'divider',
                 borderRadius: '10px',
-                boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
                 padding: '14px',
                 marginBottom: '12px',
               }}
@@ -955,7 +960,7 @@ function VendorMappingDrawer({ open, onClose, service, onSave, initialMode = 'vi
                   }}
                   sx={{
                     '& .MuiOutlinedInput-root': {
-                      backgroundColor: '#F3F3F5',
+                      backgroundColor: 'action.hover',
                       borderRadius: '6px',
                     },
                     width: '180px',
@@ -983,8 +988,8 @@ function VendorMappingDrawer({ open, onClose, service, onSave, initialMode = 'vi
                       height: 16,
                       fontSize: 10,
                       bgcolor: vendorMilestoneTotal === mapping.value
-                        ? (tokens.color.success?.[100] ?? '#DCFCE7')
-                        : (tokens.color.warning?.[100] ?? '#FEF3C7'),
+                        ? alpha(theme.palette.success.main, 0.12)
+                        : alpha(theme.palette.warning.main, 0.12),
                       '& .MuiChip-label': { px: '6px' },
                     }}
                   />
@@ -996,10 +1001,11 @@ function VendorMappingDrawer({ open, onClose, service, onSave, initialMode = 'vi
                 <Box sx={{ mt: 1.5 }}>
                   <Box
                     sx={{
-                      backgroundColor: '#F8FAFB',
+                      bgcolor: 'background.default',
                       borderRadius: '8px',
                       padding: '10px',
-                      border: '1px solid #EEEEEE',
+                      border: '1px solid',
+                      borderColor: 'divider',
                     }}
                   >
                     {/* Header row */}
@@ -1078,10 +1084,10 @@ function VendorMappingDrawer({ open, onClose, service, onSave, initialMode = 'vi
                     onClick={() => addVendorMilestone(mIdx)}
                     sx={{
                       fontSize: 12,
-                      color: '#107E68',
+                      color: 'primary.main',
                       padding: '4px 8px',
                       mt: 1,
-                      '&:hover': { backgroundColor: '#F0FDF9' },
+                      '&:hover': { backgroundColor: alpha(theme.palette.primary.main, 0.08) },
                     }}
                   >
                     Add Milestone
@@ -1100,11 +1106,11 @@ function VendorMappingDrawer({ open, onClose, service, onSave, initialMode = 'vi
             onClick={addVendorMapping}
             sx={{
               fontSize: 12,
-              color: '#107E68',
-              borderColor: '#107E68',
+              color: 'primary.main',
+              borderColor: 'primary.main',
               padding: '6px 14px',
               mt: 2,
-              '&:hover': { backgroundColor: '#F0FDF9' },
+              '&:hover': { backgroundColor: alpha(theme.palette.primary.main, 0.08) },
             }}
           >
             Add Vendor

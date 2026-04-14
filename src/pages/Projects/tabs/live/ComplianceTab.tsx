@@ -17,7 +17,7 @@ import {
   Download,
   CheckCircle,
 } from '@mui/icons-material'
-import { alpha } from '@mui/material/styles'
+import { useTheme, alpha } from '@mui/material/styles'
 import { useAppDispatch, useAppSelector } from '../../../../store/hooks'
 import { fetchComplianceData } from '../../../../slices/live/thunk'
 import { StatusBadge } from '@/design-system/components'
@@ -72,6 +72,7 @@ interface ComplianceTabProps {
 }
 
 export default function ComplianceTab({ projectId }: ComplianceTabProps) {
+  const theme = useTheme()
   const dispatch = useAppDispatch()
   const complianceData = useAppSelector((s) => s.live.complianceData)
 
@@ -101,7 +102,7 @@ export default function ComplianceTab({ projectId }: ComplianceTabProps) {
             borderRadius: 2,
             border: '1px solid',
             borderColor: 'divider',
-            bgcolor: alpha('#2563EB', 0.04),
+            bgcolor: alpha(theme.palette.info.main, 0.04),
           }}
         >
           <Typography
@@ -152,7 +153,7 @@ export default function ComplianceTab({ projectId }: ComplianceTabProps) {
             borderRadius: 2,
             border: '1px solid',
             borderColor: 'divider',
-            bgcolor: alpha('#D97706', 0.04),
+            bgcolor: alpha(theme.palette.warning.main, 0.04),
           }}
         >
           <Typography

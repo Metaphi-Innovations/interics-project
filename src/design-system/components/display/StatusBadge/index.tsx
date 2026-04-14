@@ -1,5 +1,5 @@
 import { Chip } from '@mui/material'
-import { tokens } from '@/design-system/tokens'
+import { useTheme, alpha } from '@mui/material/styles'
 
 export type StatusType =
   | 'live'
@@ -32,49 +32,90 @@ export interface StatusBadgeProps {
   size?: 'small' | 'medium'
 }
 
-type StatusConfig = {
-  label: string
-  bg: string
-  color: string
-  border: string
+type StatusSemantic = 'success' | 'warning' | 'error' | 'info' | 'neutral' | 'primary' | 'secondary'
+
+const STATUS_SEMANTIC: Record<StatusType, StatusSemantic> = {
+  active:            'success',
+  live:              'success',
+  paid:              'success',
+  pitch:             'warning',
+  draft:             'warning',
+  pending:           'warning',
+  unpaid:            'warning',
+  payment_pending:   'warning',
+  cancelled:         'error',
+  at_risk:           'error',
+  delayed:           'error',
+  overdue:           'error',
+  completed:         'info',
+  sent:              'info',
+  issued:            'info',
+  in_progress:       'primary',
+  execution_ongoing: 'primary',
+  partially_paid:    'secondary',
+  archived:          'neutral',
+  inactive:          'neutral',
+  invoice_draft:     'neutral',
 }
 
-const STATUS_CONFIG: Record<StatusType, StatusConfig> = {
-  active:             { label: 'Active',            bg: '#DCFCE7', color: '#15803D', border: '#BBF7D0' },
-  live:               { label: 'Live',              bg: '#DCFCE7', color: '#15803D', border: '#BBF7D0' },
-  pitch:              { label: 'Pitch',             bg: '#FEF3C7', color: '#B45309', border: '#FDE68A' },
-  draft:              { label: 'Draft',             bg: '#FEF3C7', color: '#B45309', border: '#FDE68A' },
-  pending:            { label: 'Pending',           bg: '#FEF3C7', color: '#B45309', border: '#FDE68A' },
-  completed:          { label: 'Completed',         bg: '#DBEAFE', color: '#1D4ED8', border: '#BFDBFE' },
-  cancelled:          { label: 'Cancelled',         bg: '#FEE2E2', color: '#B91C1C', border: '#FECACA' },
-  at_risk:            { label: 'At Risk',           bg: '#FEE2E2', color: '#B91C1C', border: '#FECACA' },
-  delayed:            { label: 'Delayed',           bg: '#FEE2E2', color: '#B91C1C', border: '#FECACA' },
-  payment_pending:    { label: 'Payment Pending',   bg: '#FEF3C7', color: '#B45309', border: '#FDE68A' },
-  archived:           { label: 'Archived',          bg: '#F3F4F6', color: '#6B7280', border: '#E5E7EB' },
-  inactive:           { label: 'Inactive',          bg: '#F3F4F6', color: '#6B7280', border: '#E5E7EB' },
-  in_progress:        { label: 'In Progress',       bg: '#E0F2FE', color: '#0369A1', border: '#BAE6FD' },
-  execution_ongoing:  { label: 'Execution Ongoing', bg: '#E0F2FE', color: '#0369A1', border: '#BAE6FD' },
-  invoice_draft:      { label: 'Draft',             bg: '#F3F4F6', color: '#6B7280', border: '#E5E7EB' },
-  sent:               { label: 'Sent',              bg: '#DBEAFE', color: '#1D4ED8', border: '#BFDBFE' },
-  unpaid:             { label: 'Unpaid',            bg: '#FEF3C7', color: '#B45309', border: '#FDE68A' },
-  partially_paid:     { label: 'Partially Paid',    bg: '#F3E8FF', color: '#7C3AED', border: '#E9D5FF' },
-  overdue:            { label: 'Overdue',           bg: '#FEE2E2', color: '#B91C1C', border: '#FECACA' },
-  paid:               { label: 'Paid',              bg: '#DCFCE7', color: '#15803D', border: '#BBF7D0' },
-  issued:             { label: 'Issued',            bg: tokens.color.info[100], color: tokens.color.info[800], border: tokens.color.info[200] },
+const STATUS_LABEL: Record<StatusType, string> = {
+  active:            'Active',
+  live:              'Live',
+  paid:              'Paid',
+  pitch:             'Pitch',
+  draft:             'Draft',
+  pending:           'Pending',
+  unpaid:            'Unpaid',
+  payment_pending:   'Payment Pending',
+  cancelled:         'Cancelled',
+  at_risk:           'At Risk',
+  delayed:           'Delayed',
+  overdue:           'Overdue',
+  completed:         'Completed',
+  sent:              'Sent',
+  issued:            'Issued',
+  in_progress:       'In Progress',
+  execution_ongoing: 'Execution Ongoing',
+  partially_paid:    'Partially Paid',
+  archived:          'Archived',
+  inactive:          'Inactive',
+  invoice_draft:     'Draft',
 }
 
 export default function StatusBadge({ status, label, size = 'small' }: StatusBadgeProps) {
-  const config = STATUS_CONFIG[status] ?? STATUS_CONFIG.inactive
-  const displayLabel = label ?? config.label
+  const theme = useTheme()
+  const semantic = STATUS_SEMANTIC[status] ?? 'neutral'
+  const displayLabel = label ?? STATUS_LABEL[status] ?? status
+
+  let mainColor: string
+  switch (semantic) {
+    case 'success':   mainColor = theme.palette.success.main; break
+    case 'warning':   mainColor = theme.palette.warning.main; break
+    case 'error':     mainColor = theme.palette.error.main; break
+    case 'info':      mainColor = theme.palette.info.main; break
+    case 'primary':   mainColor = theme.palette.primary.main; break
+    case 'secondary': mainColor = theme.palette.secondary?.main ?? '#7C3AED'; break
+    default:          mainColor = theme.palette.text.secondary; break
+  }
+
+  const bg = semantic === 'neutral'
+    ? alpha(theme.palette.text.secondary, 0.1)
+    : alpha(mainColor, 0.12)
+
+  const border = semantic === 'neutral'
+    ? alpha(theme.palette.text.secondary, 0.2)
+    : alpha(mainColor, 0.25)
+
+  const color = semantic === 'neutral' ? theme.palette.text.secondary : mainColor
 
   return (
     <Chip
       label={displayLabel}
       size={size}
       sx={{
-        backgroundColor: config.bg,
-        color: config.color,
-        border: `1px solid ${config.border}`,
+        backgroundColor: bg,
+        color: color,
+        border: `1px solid ${border}`,
         fontSize: '11px',
         fontWeight: 600,
         height: '22px',

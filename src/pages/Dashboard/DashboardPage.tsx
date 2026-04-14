@@ -249,16 +249,16 @@ function KpiCard({
 }) {
   const trendBg =
     trendVariant === 'positive'
-      ? '#DCFCE7'
+      ? alpha(theme.palette.success.main, 0.12)
       : trendVariant === 'negative'
-        ? '#FEE2E2'
-        : '#F3F4F6'
+        ? alpha(theme.palette.error.main, 0.12)
+        : theme.palette.action.hover
   const trendFg =
     trendVariant === 'positive'
-      ? '#15803D'
+      ? theme.palette.success.main
       : trendVariant === 'negative'
-        ? '#B91C1C'
-        : '#6B7280'
+        ? theme.palette.error.main
+        : theme.palette.text.secondary
 
   return (
     <Paper
@@ -545,10 +545,10 @@ export default function DashboardPage() {
   }, [totalRevenue, totalCost])
 
   const marginColor = useMemo(() => {
-    if (avgMargin > 20) return '#15803D'
-    if (avgMargin >= 10) return '#B45309'
-    return '#B91C1C'
-  }, [avgMargin])
+    if (avgMargin > 20) return theme.palette.success.main
+    if (avgMargin >= 10) return theme.palette.warning.main
+    return theme.palette.error.main
+  }, [avgMargin, theme])
 
   const livePitchSum = useMemo(
     () =>
@@ -578,13 +578,13 @@ export default function DashboardPage() {
   const statusData = useMemo(() => {
     const { liveCount, pitchCount, completedCount, cancelledCount, archivedCount } = statusCounts
     return [
-      { name: 'Live', value: liveCount, color: '#15803D' },
-      { name: 'Pitch', value: pitchCount, color: '#B45309' },
-      { name: 'Completed', value: completedCount, color: '#1D4ED8' },
-      { name: 'Cancelled', value: cancelledCount, color: '#B91C1C' },
-      { name: 'Archived', value: archivedCount, color: '#6B7280' },
+      { name: 'Live', value: liveCount, color: theme.palette.success.main },
+      { name: 'Pitch', value: pitchCount, color: theme.palette.warning.main },
+      { name: 'Completed', value: completedCount, color: theme.palette.info.main },
+      { name: 'Cancelled', value: cancelledCount, color: theme.palette.error.main },
+      { name: 'Archived', value: archivedCount, color: theme.palette.text.secondary },
     ].filter((d) => d.value > 0)
-  }, [statusCounts])
+  }, [statusCounts, theme])
 
   const recentProjects = useMemo(
     () => sortProjectsByIdDesc(filteredProjects).slice(0, 5),
@@ -760,8 +760,7 @@ export default function DashboardPage() {
   const payablesOutstanding = totalPayableExpected - totalVendorPaid
   const netPosition = receivablesOutstanding - payablesOutstanding
 
-  const tableHeaderBg =
-    theme.palette.mode === 'dark' ? alpha('#ffffff', 0.04) : theme.palette.grey[50]
+  const tableHeaderBg = theme.palette.background.default
   const dividerColor = theme.palette.divider
   const tooltipContentStyle = useMemo(
     () => ({
@@ -1122,7 +1121,7 @@ export default function DashboardPage() {
           subtext={`${pendingInvoiceRows.length} invoices outstanding`}
           trendVariant="negative"
           trendText="5%"
-          valueColor={pendingInvoiceAmount > 0 ? '#B45309' : undefined}
+          valueColor={pendingInvoiceAmount > 0 ? theme.palette.warning.main : undefined}
           onClick={() => navigate('/finance/receivables')}
         />
         <KpiCard
@@ -1357,7 +1356,7 @@ export default function DashboardPage() {
               gap: 1,
             }}
           >
-            <CheckCircle size={36} color="#15803D" />
+            <CheckCircle size={36} color={theme.palette.success.main} />
             <Typography variant="body2" fontWeight={500}>
               No at-risk projects
             </Typography>
@@ -1488,12 +1487,12 @@ export default function DashboardPage() {
               >
                 <defs>
                   <linearGradient id="revGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#107E68" stopOpacity={0.15} />
-                    <stop offset="95%" stopColor="#107E68" stopOpacity={0} />
+                    <stop offset="5%" stopColor={theme.palette.primary.main} stopOpacity={0.15} />
+                    <stop offset="95%" stopColor={theme.palette.primary.main} stopOpacity={0} />
                   </linearGradient>
                   <linearGradient id="costGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#F87171" stopOpacity={0.15} />
-                    <stop offset="95%" stopColor="#F87171" stopOpacity={0} />
+                    <stop offset="5%" stopColor={theme.palette.error.light} stopOpacity={0.15} />
+                    <stop offset="95%" stopColor={theme.palette.error.light} stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid
@@ -1524,7 +1523,7 @@ export default function DashboardPage() {
                   type="monotone"
                   dataKey="revenue"
                   name="Revenue"
-                  stroke="#107E68"
+                  stroke={theme.palette.primary.main}
                   strokeWidth={2}
                   fill="url(#revGrad)"
                 />
@@ -1532,7 +1531,7 @@ export default function DashboardPage() {
                   type="monotone"
                   dataKey="cost"
                   name="Cost"
-                  stroke="#F87171"
+                  stroke={theme.palette.error.light}
                   strokeWidth={2}
                   fill="url(#costGrad)"
                 />
@@ -1541,13 +1540,13 @@ export default function DashboardPage() {
           </Box>
           <Box sx={{ display: 'flex', flexDirection: 'row', gap: 3, mt: 1.5 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-              <Box sx={{ width: 10, height: 3, bgcolor: '#107E68', borderRadius: 0.5 }} />
+              <Box sx={{ width: 10, height: 3, bgcolor: 'primary.main', borderRadius: 0.5 }} />
               <Typography variant="caption" color="text.secondary">
                 Revenue
               </Typography>
             </Box>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-              <Box sx={{ width: 10, height: 3, bgcolor: '#F87171', borderRadius: 0.5 }} />
+              <Box sx={{ width: 10, height: 3, bgcolor: 'error.light', borderRadius: 0.5 }} />
               <Typography variant="caption" color="text.secondary">
                 Cost
               </Typography>
@@ -1599,9 +1598,9 @@ export default function DashboardPage() {
                   type="monotone"
                   dataKey="margin"
                   name="Margin %"
-                  stroke="#107E68"
+                  stroke={theme.palette.primary.main}
                   strokeWidth={2}
-                  dot={{ fill: '#107E68', r: 3 }}
+                  dot={{ fill: theme.palette.primary.main, r: 3 }}
                   activeDot={{ r: 5 }}
                 />
               </LineChart>
@@ -1664,16 +1663,16 @@ export default function DashboardPage() {
                 <Bar
                   dataKey="inflow"
                   name="Inflow"
-                  fill="#DCFCE7"
-                  stroke="#15803D"
+                  fill={alpha(theme.palette.success.main, 0.2)}
+                  stroke={theme.palette.success.main}
                   strokeWidth={1}
                   radius={[3, 3, 0, 0]}
                 />
                 <Bar
                   dataKey="outflow"
                   name="Outflow"
-                  fill="#FEE2E2"
-                  stroke="#B91C1C"
+                  fill={alpha(theme.palette.error.main, 0.2)}
+                  stroke={theme.palette.error.main}
                   strokeWidth={1}
                   radius={[3, 3, 0, 0]}
                 />
@@ -1682,13 +1681,13 @@ export default function DashboardPage() {
           </Box>
           <Box sx={{ display: 'flex', gap: 3, mt: 1.5 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-              <Box sx={{ width: 10, height: 3, bgcolor: '#15803D', borderRadius: 0.5 }} />
+              <Box sx={{ width: 10, height: 3, bgcolor: 'success.main', borderRadius: 0.5 }} />
               <Typography variant="caption" color="text.secondary">
                 Inflow
               </Typography>
             </Box>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-              <Box sx={{ width: 10, height: 3, bgcolor: '#B91C1C', borderRadius: 0.5 }} />
+              <Box sx={{ width: 10, height: 3, bgcolor: 'error.main', borderRadius: 0.5 }} />
               <Typography variant="caption" color="text.secondary">
                 Outflow
               </Typography>
@@ -1743,7 +1742,7 @@ export default function DashboardPage() {
               <Typography
                 variant="body2"
                 fontWeight={600}
-                color={receivablesOutstanding > 0 ? '#B45309' : 'text.primary'}
+                color={receivablesOutstanding > 0 ? 'warning.main' : 'text.primary'}
               >
                 {ru(receivablesOutstanding)}
               </Typography>
@@ -1790,7 +1789,7 @@ export default function DashboardPage() {
               <Typography
                 variant="body2"
                 fontWeight={600}
-                color={payablesOutstanding > 0 ? '#B45309' : 'text.primary'}
+                color={payablesOutstanding > 0 ? 'warning.main' : 'text.primary'}
               >
                 {ru(payablesOutstanding)}
               </Typography>
@@ -1811,7 +1810,7 @@ export default function DashboardPage() {
             <Typography
               variant="h5"
               fontWeight={700}
-              sx={{ color: netPosition >= 0 ? '#15803D' : '#B91C1C' }}
+              sx={{ color: netPosition >= 0 ? 'success.main' : 'error.main' }}
             >
               {ru(Math.abs(netPosition))}
               {netPosition < 0 ? ' deficit' : ' surplus'}

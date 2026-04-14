@@ -26,17 +26,17 @@ export function generateTheme(config: ThemeConfig): Theme {
   const isLight = config.mode === 'light';
 
   const background = {
-    default: isLight ? '#F8FAFB'  : '#0F0F0F',
-    paper:   isLight ? '#FFFFFF'  : neutral[900],
+    default: isLight ? '#F8FAFB' : '#0F0F0F',
+    paper:   isLight ? '#FFFFFF' : '#292929',
   };
 
   const text = {
-    primary:   isLight ? neutral[900] : neutral[50],
-    secondary: isLight ? neutral[600] : neutral[400],
-    disabled:  isLight ? neutral[400] : neutral[700],
+    primary:   isLight ? '#111827' : '#FFFFFF',
+    secondary: isLight ? '#6B7280' : '#A0A0A0',
+    disabled:  isLight ? '#9CA3AF' : '#555555',
   };
 
-  const divider = isLight ? alpha('#000000', 0.06) : alpha('#ffffff', 0.08);
+  const divider = isLight ? '#E5E7EB' : '#3A3A3A';
 
   const fontFamilyString =
     config.fontFamily === 'Helvetica Neue'
@@ -60,9 +60,9 @@ export function generateTheme(config: ThemeConfig): Theme {
     palette: {
       mode: config.mode,
       primary: {
-        light:       primary[400],
-        main:        primary[500],
-        dark:        primary[700],
+        main:        '#107E68',
+        light:       '#13A386',
+        dark:        '#0A5C4D',
         contrastText: '#FFFFFF',
       },
       error:   { main: '#DC2626', light: '#FEE2E2', contrastText: '#ffffff' },
@@ -76,6 +76,12 @@ export function generateTheme(config: ThemeConfig): Theme {
       },
       background,
       divider,
+      ...(isLight ? {} : {
+        action: {
+          hover:    'rgba(255,255,255,0.05)',
+          selected: 'rgba(255,255,255,0.08)',
+        },
+      }),
     },
 
     typography: {
@@ -169,9 +175,9 @@ export function generateTheme(config: ThemeConfig): Theme {
 
       MuiOutlinedInput: {
         styleOverrides: {
-          root: {
+          root: ({ theme }) => ({
             borderRadius: '6px',
-            backgroundColor: isLight ? '#F3F3F5' : alpha('#ffffff', 0.06),
+            backgroundColor: theme.palette.action.hover,
             '& .MuiOutlinedInput-notchedOutline': {
               border: 'none',
             },
@@ -179,24 +185,26 @@ export function generateTheme(config: ThemeConfig): Theme {
               border: 'none',
             },
             '&.Mui-focused': {
-              backgroundColor: isLight ? '#EAEAEF' : alpha('#ffffff', 0.10),
+              backgroundColor: theme.palette.action.selected,
               '& .MuiOutlinedInput-notchedOutline': {
                 border: '1.5px solid',
-                borderColor: primary[500],
+                borderColor: theme.palette.primary.main,
               },
             },
             '&.Mui-error': {
-              backgroundColor: '#FEF2F2',
+              backgroundColor: theme.palette.mode === 'light'
+                ? theme.palette.error.light
+                : alpha(theme.palette.error.main, 0.15),
               '& .MuiOutlinedInput-notchedOutline': {
                 border: '1.5px solid',
-                borderColor: '#DC2626',
+                borderColor: theme.palette.error.main,
               },
             },
             '&.Mui-disabled': {
-              backgroundColor: isLight ? '#F8FAFB' : alpha('#ffffff', 0.03),
+              backgroundColor: theme.palette.background.default,
               opacity: 0.6,
             },
-          },
+          }),
         },
       },
 
@@ -212,21 +220,21 @@ export function generateTheme(config: ThemeConfig): Theme {
 
       MuiTableCell: {
         styleOverrides: {
-          root: {
+          root: ({ theme }) => ({
             fontSize: '12px',
             padding: '10px 12px',
-            borderColor: isLight ? neutral[100] : alpha('#ffffff', 0.07),
+            borderColor: theme.palette.divider,
             verticalAlign: 'middle',
-          },
-          head: {
+          }),
+          head: ({ theme }) => ({
             fontWeight: 600,
             fontSize: '11px',
-            color: isLight ? neutral[500] : neutral[400],
+            color: theme.palette.text.secondary,
             textTransform: 'uppercase' as const,
             letterSpacing: '0.5px',
-            backgroundColor: isLight ? '#F8FAFB' : neutral[900],
+            backgroundColor: theme.palette.background.default,
             padding: '10px 12px',
-          },
+          }),
         },
       },
 
@@ -261,12 +269,12 @@ export function generateTheme(config: ThemeConfig): Theme {
 
       MuiCard: {
         styleOverrides: {
-          root: {
+          root: ({ theme }) => ({
             borderRadius: '12px',
             backgroundImage: 'none',
-            border: `1px solid ${isLight ? '#E8EEEC' : alpha('#ffffff', 0.08)}`,
-            boxShadow: isLight ? '0 1px 4px rgba(0,0,0,0.06)' : 'none',
-          },
+            border: `1px solid ${theme.palette.divider}`,
+            boxShadow: theme.palette.mode === 'light' ? tokens.shadow.sm : 'none',
+          }),
         },
       },
 
@@ -339,18 +347,18 @@ export function generateTheme(config: ThemeConfig): Theme {
 
       MuiTab: {
         styleOverrides: {
-          root: {
+          root: ({ theme }) => ({
             fontSize: '12px',
             fontWeight: 500,
             textTransform: 'none',
             minHeight: '40px',
             padding: '8px 12px',
-            color: isLight ? neutral[500] : neutral[400],
+            color: theme.palette.text.secondary,
             '&.Mui-selected': {
               fontWeight: 600,
-              color: primary[600],
+              color: theme.palette.primary.main,
             },
-          },
+          }),
         },
       },
 
@@ -391,13 +399,13 @@ export function generateTheme(config: ThemeConfig): Theme {
 
       MuiBreadcrumbs: {
         styleOverrides: {
-          root: {
+          root: ({ theme }) => ({
             fontSize: '12px',
-            color: isLight ? neutral[500] : neutral[400],
-          },
-          separator: {
-            color: isLight ? neutral[300] : neutral[600],
-          },
+            color: theme.palette.text.secondary,
+          }),
+          separator: ({ theme }) => ({
+            color: theme.palette.text.disabled,
+          }),
         },
       },
 
@@ -414,9 +422,9 @@ export function generateTheme(config: ThemeConfig): Theme {
 
       MuiDivider: {
         styleOverrides: {
-          root: {
-            borderColor: isLight ? neutral[100] : alpha('#ffffff', 0.08),
-          },
+          root: ({ theme }) => ({
+            borderColor: theme.palette.divider,
+          }),
         },
       },
 

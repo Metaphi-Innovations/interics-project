@@ -35,6 +35,8 @@ import { useNavigate } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { fetchCustomers, createCustomer } from '../../slices/customers/thunk'
 import { fetchUsers } from '../../slices/users/thunk'
+import { fetchRoles } from '../../slices/roles/thunk'
+import { isProjectManagerRole } from './projectManagerRoles'
 import { createProject } from '../../slices/projects/thunk'
 import type { Customer } from '../../slices/customers/reducer'
 import type { User } from '../../slices/users/reducer'
@@ -100,6 +102,7 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
   const customers = useAppSelector((s) => s.customers.items)
   const loadingCustomers = useAppSelector((s) => s.customers.loading)
   const users = useAppSelector((s) => s.users.items)
+  const roles = useAppSelector((s) => s.roles.items)
   const saving = useAppSelector((s) => s.projects.saving)
 
   const [activeStep, setActiveStep] = useState(0)
@@ -122,6 +125,7 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
     if (open) {
       dispatch(fetchCustomers({}))
       dispatch(fetchUsers())
+      dispatch(fetchRoles())
     }
   }, [open, dispatch])
 
@@ -134,9 +138,11 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
     }
   }, [open])
 
-  const managers = users.filter(
-    (u) => u.role === 'Project User' || u.role === 'Power User'
-  )
+  const managers = users.filter((u) => isProjectManagerRole(u.role))
+
+  function getRoleLabel(roleId: string) {
+    return roles.find((r) => r.id === roleId)?.name ?? roleId
+  }
 
   function validateStep(step: number): boolean {
     const newErrors: StepErrors = {}
@@ -335,10 +341,11 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
             sx={{
               mt: 2,
               p: 2,
-              border: '1px solid #E8EEEC',
+              border: '1px solid',
+              borderColor: 'divider',
               borderRadius: '10px',
-              backgroundColor: '#F8FAFB',
-              boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+              bgcolor: 'background.default',
+              boxShadow: tokens.shadow.sm,
             }}
           >
             <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 2 }}>
@@ -641,7 +648,7 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
                   <PersonOutline sx={{ fontSize: 14 }} />
                   {m.name}
                   <MuiChip
-                    label={m.role}
+                    label={getRoleLabel(m.role)}
                     size="small"
                     sx={{ height: 16, fontSize: 10, ml: 'auto', '& .MuiChip-label': { px: '6px' } }}
                   />

@@ -47,6 +47,7 @@ import LiveTab from './tabs/LiveTab'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { fetchProjects, fetchProjectById, updateProject, changeProjectStatus } from '../../slices/projects/thunk'
 import { fetchUsers } from '../../slices/users/thunk'
+import { isProjectManagerRole } from './projectManagerRoles'
 import { clearSelected } from '../../slices/projects/reducer'
 import type { Project } from '../../slices/projects/reducer'
 import {
@@ -57,7 +58,7 @@ import { DrawerForm, FormField, FormSection } from '../../components/templates/D
 import { StatusBadge, useToast, Input, AvatarGroup } from '@/design-system/components'
 import type { StatusType } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
-import { alpha } from '@mui/material/styles'
+import { useTheme, alpha } from '@mui/material/styles'
 import {
   getInitials,
   getAvatarColor,
@@ -69,17 +70,22 @@ import {
 
 // ─── Progress badge colours ───────────────────────────────────────────────────
 
-function getProgressStyle(label: string): { bg: string; color: string } {
+function getProgressStyle(
+  label: string,
+  palette: ReturnType<typeof useTheme>['palette'],
+): { bg: string; color: string } {
   const lower = label.toLowerCase()
   if (lower.includes('risk') || lower.includes('cancel'))
-    return { bg: '#FEE2E2', color: '#B91C1C' }
-  if (lower.includes('complete')) return { bg: '#DBEAFE', color: '#1D4ED8' }
+    return { bg: alpha(palette.error.main, 0.12), color: palette.error.main }
+  if (lower.includes('complete'))
+    return { bg: alpha(palette.info.main, 0.12), color: palette.info.main }
   if (lower.includes('ongoing') || lower.includes('execution'))
-    return { bg: '#E0F2FE', color: '#0369A1' }
+    return { bg: alpha(palette.info.main, 0.12), color: palette.info.main }
   if (lower.includes('quotation') || lower.includes('pitch'))
-    return { bg: '#FEF3C7', color: '#B45309' }
-  if (lower.includes('archive')) return { bg: '#F3F4F6', color: '#6B7280' }
-  return { bg: tokens.color.neutral[100], color: tokens.color.neutral[600] }
+    return { bg: alpha(palette.warning.main, 0.12), color: palette.warning.main }
+  if (lower.includes('archive'))
+    return { bg: palette.action.hover as string, color: palette.text.secondary }
+  return { bg: palette.action.hover as string, color: palette.text.secondary }
 }
 
 // ─── Label/Value pair ─────────────────────────────────────────────────────────
@@ -245,10 +251,8 @@ const OVERVIEW_CARD_SX = {
 const STAGE_STEPS = ['Pitch', 'Transition', 'Live', 'Completed']
 
 function OverviewTab({ project }: { project: Project }) {
+  const theme = useTheme()
   const revenue = project.totalClientPOValue
-  const cost = project.totalVendorPOValue
-  const profit = revenue - cost
-  const margin = revenue > 0 ? ((profit / revenue) * 100).toFixed(1) : '0.0'
 
   // Receivables (mock approximation from project data)
   const totalReceivable = revenue
@@ -372,8 +376,8 @@ function OverviewTab({ project }: { project: Project }) {
                 size="small"
                 sx={{
                   height: 18, fontSize: 10, borderRadius: '4px',
-                  bgcolor: getProgressStyle(project.progress).bg,
-                  color: getProgressStyle(project.progress).color,
+                  bgcolor: getProgressStyle(project.progress, theme.palette).bg,
+                  color: getProgressStyle(project.progress, theme.palette).color,
                   '& .MuiChip-label': { px: '6px' },
                 }}
               />
@@ -427,56 +431,6 @@ function OverviewTab({ project }: { project: Project }) {
               <Typography variant="caption" sx={{ fontSize: 10, color: 'text.secondary' }}>Created</Typography>
               <Typography variant="caption" sx={{ fontSize: 11 }}>{formatDate(project.createdAt)}</Typography>
             </Stack>
-          </Stack>
-        </Box>
-
-        {/* Card 2 — Financial Health */}
-        <Box sx={OVERVIEW_CARD_SX}>
-          <Typography variant="overline" sx={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.6, color: 'text.secondary', display: 'block', mb: 1.5 }}>
-            Financial Health
-          </Typography>
-          <Stack gap={1}>
-            {[
-              { label: 'Revenue', value: revenue, color: '#0D9488' },
-              { label: 'Cost', value: cost, color: '#EA580C' },
-            ].map((row) => (
-              <Box
-                key={row.label}
-                sx={{
-                  borderLeft: '3px solid', borderColor: row.color,
-                  pl: 1.5, py: 0.25,
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                }}
-              >
-                <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary' }}>{row.label}</Typography>
-                <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 700, color: row.color }}>
-                  ₹{formatCurrency(row.value)}
-                </Typography>
-              </Box>
-            ))}
-            <Box
-              sx={{
-                borderLeft: '3px solid', borderColor: '#16A34A',
-                pl: 1.5, py: 0.25,
-                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-              }}
-            >
-              <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary' }}>Profit</Typography>
-              <Stack direction="row" alignItems="center" gap={1}>
-                <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 700, color: '#16A34A' }}>
-                  ₹{formatCurrency(Math.abs(profit))}
-                </Typography>
-                <MuiChip
-                  label={`${margin}%`}
-                  size="small"
-                  sx={{
-                    height: 18, fontSize: 10, borderRadius: '4px',
-                    bgcolor: '#DCFCE7', color: '#16A34A',
-                    '& .MuiChip-label': { px: '6px' },
-                  }}
-                />
-              </Stack>
-            </Box>
           </Stack>
         </Box>
 
@@ -880,6 +834,7 @@ function ChangeStatusDialog({ open, project, onClose, onConfirm }: StatusDialogP
 // ─── ProjectDetailPage ────────────────────────────────────────────────────────
 
 export default function ProjectDetailPage() {
+  const theme = useTheme()
   const { id: slug } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const location = useLocation()
@@ -920,7 +875,7 @@ export default function ProjectDetailPage() {
   }, [dispatch, slug])
 
   const managerOptions = users
-    .filter((u) => u.role === 'Project User' || u.role === 'Power User')
+    .filter((u) => isProjectManagerRole(u.role))
     .map((u) => ({ value: u.id, label: u.name }))
 
   async function handleEditSave(data: Partial<Project>) {
@@ -967,7 +922,7 @@ export default function ProjectDetailPage() {
   // ── Tab config ────────────────────────────────────────────────────────────
 
   const tabConfig = getTabConfig(project.status)
-  const progressStyle = getProgressStyle(project.progress)
+  const progressStyle = getProgressStyle(project.progress, theme.palette)
 
   const tabs = tabConfig.map((t) => ({
     label: t.locked ? (
@@ -1074,7 +1029,7 @@ export default function ProjectDetailPage() {
                 label: 'Revenue',
                 value: formatCurrency(project.totalClientPOValue),
                 icon: <TrendingUp sx={{ fontSize: 12 }} />,
-                color: '#107E68',
+                color: 'primary.main',
               },
               {
                 label: 'Cost',
@@ -1088,7 +1043,7 @@ export default function ProjectDetailPage() {
                   project.totalClientPOValue - project.totalVendorPOValue,
                 ),
                 icon: <AttachMoney sx={{ fontSize: 12 }} />,
-                color: '#16A34A',
+                color: 'success.main',
               },
             ].map((metric) => (
               <Box
@@ -1098,7 +1053,8 @@ export default function ProjectDetailPage() {
                   flexDirection: 'column',
                   alignItems: 'flex-start',
                   padding: '6px 12px',
-                  border: '1px solid #E2E8E6',
+                  border: '1px solid',
+                  borderColor: 'divider',
                   borderRadius: '8px',
                   minWidth: 90,
                   bgcolor: 'background.paper',

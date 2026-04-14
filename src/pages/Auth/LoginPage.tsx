@@ -1,11 +1,19 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { Box, Typography, Alert, CircularProgress } from '@mui/material'
+import { Box, Typography, Alert, Divider } from '@mui/material'
 import { alpha, useTheme } from '@mui/material/styles'
-import { Eye, EyeOff, CheckCircle } from 'lucide-react'
-import { Input, Button, IconButton } from '@/design-system/components'
+import { Eye, EyeOff } from 'lucide-react'
+import { Input, Button, IconButton, Checkbox } from '@/design-system/components'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { loginThunk } from '@/slices/auth/thunk'
+import { APP_VERSION } from '@/config/version'
+import AuthSplitLayout from '@/pages/Auth/components/AuthSplitLayout'
+import {
+  AUTH_PRODUCT_NAME,
+  AUTH_SUPPORT_MAILTO,
+  REMEMBER_EMAIL_KEY,
+  SAVED_EMAIL_KEY,
+} from '@/pages/Auth/authConstants'
 
 function validateEmail(value: string): string {
   if (!value) return 'Email is required'
@@ -19,12 +27,6 @@ function validatePassword(value: string): string {
   return ''
 }
 
-const FEATURES = [
-  'Real-time project profitability tracking',
-  'GST & TDS compliance built-in',
-  'Complete milestone-to-invoice workflow',
-]
-
 export default function LoginPage() {
   const navigate = useNavigate()
   const location = useLocation()
@@ -34,9 +36,18 @@ export default function LoginPage() {
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [rememberMe, setRememberMe] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [emailError, setEmailError] = useState('')
   const [passwordError, setPasswordError] = useState('')
+
+  useEffect(() => {
+    if (localStorage.getItem(REMEMBER_EMAIL_KEY) === '1') {
+      setRememberMe(true)
+      const saved = localStorage.getItem(SAVED_EMAIL_KEY)
+      if (saved) setEmail(saved)
+    }
+  }, [])
 
   useEffect(() => {
     if (user && token) {
@@ -53,6 +64,13 @@ export default function LoginPage() {
 
     try {
       await dispatch(loginThunk({ email, password })).unwrap()
+      if (rememberMe) {
+        localStorage.setItem(REMEMBER_EMAIL_KEY, '1')
+        localStorage.setItem(SAVED_EMAIL_KEY, email)
+      } else {
+        localStorage.removeItem(REMEMBER_EMAIL_KEY)
+        localStorage.removeItem(SAVED_EMAIL_KEY)
+      }
       const from = (location.state as { from?: { pathname?: string } })?.from?.pathname || '/dashboard'
       navigate(from, { replace: true })
     } catch {
@@ -61,188 +79,124 @@ export default function LoginPage() {
   }
 
   const isDark = theme.palette.mode === 'dark'
+  const eyeColor = alpha(theme.palette.text.primary, isDark ? 0.55 : 0.45)
 
   return (
-    <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
-      {/* ── LEFT PANEL (lg+) ── */}
-      <Box
-        sx={{
-          display: { xs: 'none', lg: 'flex' },
-          width: '45%',
-          flexShrink: 0,
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          bgcolor: 'primary.main',
-          p: 6,
-          height: '100vh',
-        }}
-      >
-        {/* Logo mark */}
-        <Box
-          sx={{
-            width: 64,
-            height: 64,
-            bgcolor: alpha('#ffffff', 0.15),
-            borderRadius: 2,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <Typography variant="h4" sx={{ fontWeight: 800, color: 'white' }}>
-            IDS
-          </Typography>
-        </Box>
+    <AuthSplitLayout>
+      <Typography variant="h5" sx={{ fontWeight: 700, mb: 0.5 }}>
+        Welcome back
+      </Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+        Sign in to your account to continue
+      </Typography>
 
-        <Typography
-          variant="h5"
-          sx={{ fontWeight: 700, color: 'white', textAlign: 'center', mt: 4 }}
-        >
-          Project Accounts Tracking
-        </Typography>
+      {authError && (
+        <Alert severity="error" sx={{ mb: 2, fontSize: 12 }}>
+          Invalid email or password. Please try again.
+        </Alert>
+      )}
 
-        <Typography
-          variant="body2"
-          sx={{ color: alpha('#ffffff', 0.75), textAlign: 'center', mt: 1 }}
-        >
-          Manage your project finances with clarity
-        </Typography>
-
-        {/* Feature list */}
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, mt: 6 }}>
-          {FEATURES.map(feature => (
-            <Box key={feature} sx={{ display: 'flex', flexDirection: 'row', gap: 1.5, alignItems: 'center' }}>
-              <CheckCircle size={16} color="white" />
-              <Typography variant="caption" sx={{ color: alpha('#ffffff', 0.85) }}>
-                {feature}
-              </Typography>
-            </Box>
-          ))}
-        </Box>
+      <Box sx={{ mb: 2 }}>
+        <Input
+          label="Email address"
+          type="email"
+          size="sm"
+          fullWidth
+          placeholder="you@company.com"
+          value={email}
+          onChange={val => setEmail(val)}
+          onBlur={() => setEmailError(validateEmail(email))}
+          error={!!emailError}
+          helperText={emailError}
+        />
       </Box>
 
-      {/* ── RIGHT PANEL ── */}
-      <Box
-        sx={{
-          flex: 1,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          bgcolor: 'background.default',
-          p: 4,
-          height: '100vh',
-          overflowY: 'auto',
-        }}
-      >
-        <Box sx={{ width: '100%', maxWidth: 400 }}>
-          {/* Logo mark */}
-          <Box
-            sx={{
-              width: 36,
-              height: 36,
-              bgcolor: 'primary.main',
-              borderRadius: 1,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              mb: 3,
-            }}
-          >
-            <Typography variant="caption" sx={{ fontWeight: 800, color: 'white' }}>
-              IDS
-            </Typography>
-          </Box>
-
-          <Typography variant="h5" sx={{ fontWeight: 700, mb: 0.5 }}>
-            Welcome back
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-            Sign in to your account to continue
-          </Typography>
-
-          {/* Error alert */}
-          {authError && (
-            <Alert severity="error" sx={{ mb: 2, fontSize: 12 }}>
-              Invalid email or password. Please try again.
-            </Alert>
-          )}
-
-          {/* Email */}
-          <Box sx={{ mb: 2 }}>
-            <Input
-              label="Email address"
-              type="email"
-              size="sm"
-              fullWidth
-              value={email}
-              onChange={val => setEmail(val)}
-              onBlur={() => setEmailError(validateEmail(email))}
-              error={!!emailError}
-              helperText={emailError}
-            />
-          </Box>
-
-          {/* Password */}
-          <Input
-            label="Password"
-            type={showPassword ? 'text' : 'password'}
+      <Input
+        label="Password"
+        type={showPassword ? 'text' : 'password'}
+        size="sm"
+        fullWidth
+        placeholder="Enter your password"
+        value={password}
+        onChange={val => setPassword(val)}
+        onBlur={() => setPasswordError(validatePassword(password))}
+        error={!!passwordError}
+        helperText={passwordError}
+        endAdornment={
+          <IconButton
             size="sm"
-            fullWidth
-            value={password}
-            onChange={val => setPassword(val)}
-            onBlur={() => setPasswordError(validatePassword(password))}
-            error={!!passwordError}
-            helperText={passwordError}
-            endAdornment={
-              <IconButton
-                size="sm"
-                onClick={() => setShowPassword(v => !v)}
-                sx={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.4)' }}
-                icon={
-                  showPassword
-                    ? <EyeOff size={16} strokeWidth={1.75} />
-                    : <Eye size={16} strokeWidth={1.75} />
-                }
-              />
+            onClick={() => setShowPassword(v => !v)}
+            aria-label={showPassword ? 'Hide password' : 'Show password'}
+            sx={{ color: eyeColor }}
+            icon={
+              showPassword ? <EyeOff size={16} strokeWidth={1.75} /> : <Eye size={16} strokeWidth={1.75} />
             }
           />
+        }
+      />
 
-          {/* Forgot password */}
-          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 0.5, mb: 2.5 }}>
-            <Typography
-              variant="body2"
-              sx={{ color: 'primary.main', cursor: 'pointer', fontWeight: 500 }}
-              onClick={() => navigate('/forgot-password')}
-            >
-              Forgot password?
-            </Typography>
-          </Box>
-
-          {/* Submit */}
-          <Button
-            variant="primary"
-            fullWidth
-            disabled={loading || !email || !password}
-            onClick={handleLogin}
-            sx={{ height: 40, fontSize: 14, fontWeight: 600 }}
-          >
-            {loading
-              ? <CircularProgress size={18} color="inherit" />
-              : 'Sign In'
-            }
-          </Button>
-
-          {/* Bottom text */}
-          <Typography
-            variant="body2"
-            color="text.secondary"
-            sx={{ mt: 3, textAlign: 'center' }}
-          >
-            IDS Project Accounts · Interics Design Consultants
-          </Typography>
-        </Box>
+      <Box
+        sx={{
+          display: 'flex',
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 2,
+          flexWrap: 'wrap',
+          mt: 1.5,
+          mb: 2.5,
+        }}
+      >
+        <Checkbox
+          label="Remember me"
+          size="sm"
+          checked={rememberMe}
+          onChange={setRememberMe}
+        />
+        <Typography
+          component="a"
+          href={AUTH_SUPPORT_MAILTO}
+          variant="body2"
+          sx={{
+            color: 'primary.main',
+            fontWeight: 600,
+            textDecoration: 'none',
+            '&:hover': { textDecoration: 'underline' },
+          }}
+        >
+          Need help?
+        </Typography>
       </Box>
-    </Box>
+
+      <Button
+        variant="contained"
+        color="primary"
+        fullWidth
+        loading={loading}
+        disabled={loading || !email || !password}
+        onClick={handleLogin}
+        sx={{ height: 40, fontSize: 14, fontWeight: 600 }}
+      >
+        Sign In
+      </Button>
+
+      <Divider sx={{ my: 3 }} />
+
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', textAlign: 'center', lineHeight: 1.6 }}>
+        <Box
+          component="span"
+          onClick={() => navigate('/forgot-password')}
+          sx={{ cursor: 'pointer', color: 'primary.main', fontWeight: 600 }}
+        >
+          Forgot password
+        </Box>
+        {' · '}
+        Contact IT support for account issues · v{APP_VERSION}
+      </Typography>
+
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', textAlign: 'center', mt: 1.5 }}>
+        {AUTH_PRODUCT_NAME} Project Accounts · Interics Design Consultants
+      </Typography>
+    </AuthSplitLayout>
   )
 }

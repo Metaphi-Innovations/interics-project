@@ -44,6 +44,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { fetchProjects, changeProjectStatus, updateProject } from '../../slices/projects/thunk'
 import { fetchUsers } from '../../slices/users/thunk'
+import { isProjectManagerRole } from './projectManagerRoles'
 import {
   setFilters,
   resetFilters,
@@ -106,24 +107,25 @@ function ProjectAvatar({ name }: { name: string }) {
 // ─── Progress badge ───────────────────────────────────────────────────────────
 
 function ProgressBadge({ label }: { label: string }) {
+  const theme = useTheme()
   const lower = label.toLowerCase()
-  let bg = tokens.color.neutral[100]
-  let color = tokens.color.neutral[600]
+  let bg = theme.palette.action.hover
+  let color = theme.palette.text.secondary
   if (lower.includes('risk') || lower.includes('cancel')) {
-    bg = '#FEE2E2'
-    color = '#B91C1C'
+    bg = alpha(theme.palette.error.main, 0.12)
+    color = theme.palette.error.main
   } else if (lower.includes('complete')) {
-    bg = '#DBEAFE'
-    color = '#1D4ED8'
+    bg = alpha(theme.palette.info.main, 0.12)
+    color = theme.palette.info.main
   } else if (lower.includes('ongoing') || lower.includes('execution')) {
-    bg = '#E0F2FE'
-    color = '#0369A1'
+    bg = alpha(theme.palette.info.main, 0.12)
+    color = theme.palette.info.main
   } else if (lower.includes('quotation') || lower.includes('pitch')) {
-    bg = '#FEF3C7'
-    color = '#B45309'
+    bg = alpha(theme.palette.warning.main, 0.12)
+    color = theme.palette.warning.main
   } else if (lower.includes('archive')) {
-    bg = '#F3F4F6'
-    color = '#6B7280'
+    bg = theme.palette.action.hover
+    color = theme.palette.text.secondary
   }
   return (
     <MuiChip
@@ -288,7 +290,7 @@ function ProjectsTable({
     fontWeight: 600,
     fontSize: 11,
     color: 'text.secondary',
-    bgcolor: alpha(tokens.color.neutral[50] ?? '#FAFAFA', 1),
+    bgcolor: 'background.default',
     whiteSpace: 'nowrap' as const,
   }
 
@@ -1124,7 +1126,7 @@ export default function ProjectsPage() {
   ]
 
   const managerOptions = users
-    .filter((u) => u.role === 'Project User' || u.role === 'Power User')
+    .filter((u) => isProjectManagerRole(u.role))
     .map((u) => ({ value: u.id, label: u.name }))
 
   const filterConfig = [

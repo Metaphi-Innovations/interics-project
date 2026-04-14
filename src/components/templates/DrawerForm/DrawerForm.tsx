@@ -57,7 +57,8 @@ export function DrawerForm({
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
-          borderLeft: '1px solid #E2E8E6',
+          borderLeft: '1px solid',
+          borderColor: 'divider',
           borderRadius: '12px 0 0 12px',
         },
       }}
@@ -71,7 +72,8 @@ export function DrawerForm({
           px: '20px',
           py: '16px',
           flexShrink: 0,
-          borderBottom: `1px solid ${tokens.color.neutral[100]}`,
+          borderBottom: '1px solid',
+          borderBottomColor: 'divider',
         }}
       >
         <Box>
@@ -95,7 +97,7 @@ export function DrawerForm({
           onClick={onClose}
           sx={{
             color: tokens.color.neutral[400],
-            '&:hover': { bgcolor: tokens.color.neutral[100] },
+            '&:hover': { bgcolor: 'action.hover' },
           }}
         >
           <CloseIcon fontSize="small" />
@@ -112,7 +114,8 @@ export function DrawerForm({
         <Box
           sx={{
             flexShrink: 0,
-            borderTop: `1px solid ${tokens.color.neutral[100]}`,
+            borderTop: '1px solid',
+            borderTopColor: 'divider',
             bgcolor: 'background.paper',
           }}
         >
@@ -127,7 +130,8 @@ export function DrawerForm({
             px: '20px',
             py: '14px',
             flexShrink: 0,
-            borderTop: `1px solid ${tokens.color.neutral[100]}`,
+            borderTop: '1px solid',
+            borderTopColor: 'divider',
             bgcolor: 'background.paper',
           }}
         >

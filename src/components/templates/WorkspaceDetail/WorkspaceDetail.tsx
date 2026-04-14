@@ -144,8 +144,6 @@ export function WorkspaceDetail({
           alignItems: 'center',
           gap: '14px',
           borderRadius: '10px',
-          border: '1px solid #E8EEEC',
-          boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
         }}
       >
         {/* Avatar */}
@@ -263,8 +261,6 @@ export function WorkspaceDetail({
           sx={{
             mb: '12px',
             p: '10px 0',
-            border: '1px solid #E8EEEC',
-            boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
             display: 'grid',
             gridTemplateColumns: {
               xs: 'repeat(2, 1fr)',
@@ -278,11 +274,12 @@ export function WorkspaceDetail({
               sx={(theme) => ({
                 px: '20px',
                 py: '4px',
-                borderRight: `1px solid ${tokens.color.neutral[100]}`,
+                borderRight: `1px solid`,
+                borderRightColor: 'divider',
                 '&:nth-of-type(2n)': { borderRight: 'none' },
-                '&:nth-of-type(-n+2)': { borderBottom: `1px solid ${tokens.color.neutral[100]}` },
+                '&:nth-of-type(-n+2)': { borderBottom: `1px solid`, borderBottomColor: 'divider' },
                 [theme.breakpoints.up('lg')]: {
-                  '&:nth-of-type(2n)': { borderRight: `1px solid ${tokens.color.neutral[100]}` },
+                  '&:nth-of-type(2n)': { borderRight: `1px solid`, borderRightColor: 'divider' },
                   '&:last-of-type': { borderRight: 'none' },
                   '&:nth-of-type(-n+2)': { borderBottom: 'none' },
                 },
@@ -334,21 +331,22 @@ export function WorkspaceDetail({
       {/* Tabs + Content card */}
       <Box
         sx={{
-          border: '1px solid #E8EEEC',
+          border: '1px solid',
+          borderColor: 'divider',
           borderRadius: '12px',
-          boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
           overflow: 'hidden',
-          backgroundColor: '#FFFFFF',
+          bgcolor: 'background.paper',
           mt: 2,
         }}
       >
         {/* Tab bar */}
         <Box
           sx={{
-            borderBottom: '1px solid #E8EEEC',
+            borderBottom: '1px solid',
+            borderColor: 'divider',
             px: 2,
             pt: 0.5,
-            backgroundColor: '#FFFFFF',
+            bgcolor: 'background.paper',
           }}
         >
           <Tabs
@@ -364,19 +362,19 @@ export function WorkspaceDetail({
                 textTransform: 'none',
                 minHeight: 44,
                 padding: '8px 14px',
-                color: '#6B7280',
+                color: 'text.secondary',
               },
               '& .MuiTab-root.Mui-selected': {
-                color: '#107E68',
+                color: 'primary.main',
                 fontWeight: 600,
               },
               '& .MuiTabs-indicator': {
-                backgroundColor: '#107E68',
+                backgroundColor: 'primary.main',
                 height: '2px',
                 borderRadius: '2px',
               },
               '& .MuiTab-root.Mui-disabled': {
-                color: '#D1D5DB',
+                color: 'text.disabled',
               },
             }}
           >

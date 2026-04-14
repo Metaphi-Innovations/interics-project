@@ -463,6 +463,7 @@ interface POListSectionProps {
 }
 
 function POListSection({ clientPOs, onAddPO, onEditPO, onDeletePO }: POListSectionProps) {
+  const theme = useTheme()
   const totalPOValue = clientPOs.reduce((sum, po) => sum + po.poValue, 0)
 
   return (
@@ -487,9 +488,10 @@ function POListSection({ clientPOs, onAddPO, onEditPO, onDeletePO }: POListSecti
           gap: 2,
           mb: 2,
           p: 1.5,
-          bgcolor: '#F8FAFB',
+          bgcolor: 'background.default',
           borderRadius: '8px',
-          border: '1px solid #E8EEEC',
+          border: '1px solid',
+          borderColor: 'divider',
           alignItems: 'center',
         }}
       >
@@ -520,11 +522,11 @@ function POListSection({ clientPOs, onAddPO, onEditPO, onDeletePO }: POListSecti
             display: 'flex',
             alignItems: 'center',
             p: '10px 14px',
-            border: '1px solid #E8EEEC',
+            border: '1px solid',
+            borderColor: 'divider',
             borderRadius: '8px',
             mb: 1,
-            bgcolor: '#FFFFFF',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+            bgcolor: 'background.paper',
           }}
         >
           {po.isPrimary && (
@@ -534,8 +536,8 @@ function POListSection({ clientPOs, onAddPO, onEditPO, onDeletePO }: POListSecti
               sx={{
                 fontSize: 10,
                 height: 18,
-                bgcolor: '#E8F5F2',
-                color: '#107E68',
+                bgcolor: alpha(theme.palette.primary.main, 0.12),
+                color: 'primary.main',
                 mr: 1.5,
                 flexShrink: 0,
                 '& .MuiChip-label': { px: '6px' },
@@ -1062,6 +1064,7 @@ function AlignmentTable({
   localMilestones,
   onMilestonesChange,
 }: AlignmentTableProps) {
+  const theme = useTheme()
   const [milestoneDrawerService, setMilestoneDrawerService] = useState<PitchService | null>(null)
   const [vendorDrawerService, setVendorDrawerService] = useState<PitchService | null>(null)
 
@@ -1098,8 +1101,8 @@ function AlignmentTable({
             p: 1.5,
             mb: 2,
             borderRadius: '8px',
-            bgcolor: isMatch ? '#E8F5F2' : '#FEF3C7',
-            border: `1px solid ${isMatch ? '#A3D7CB' : '#FDE68A'}`,
+            bgcolor: isMatch ? alpha(theme.palette.primary.main, 0.1) : alpha(theme.palette.warning.main, 0.1),
+            border: `1px solid ${isMatch ? alpha(theme.palette.primary.main, 0.3) : alpha(theme.palette.warning.main, 0.3)}`,
             flexWrap: 'wrap',
             gap: 1,
           }}
@@ -1229,7 +1232,7 @@ function AlignmentTable({
                       </TableRow>
                     )
                   }),
-                  <TableRow key={`${cat.id}-total`} sx={{ bgcolor: '#F8FAFB' }}>
+                  <TableRow key={`${cat.id}-total`} sx={{ bgcolor: 'background.default' }}>
                     <TableCell colSpan={2} sx={{ py: 1 }}>
                       <Typography variant="caption" sx={{ fontWeight: 600, fontSize: 11 }}>
                         {cat.categoryName} Total
@@ -1288,6 +1291,7 @@ interface UploadVendorQuoteDrawerProps {
 }
 
 function UploadVendorQuoteDrawer({ open, onClose, vendor, onSave }: UploadVendorQuoteDrawerProps) {
+  const theme = useTheme()
   const toast = useToast()
   const [form, setForm] = useState({
     quoteReference: '',
@@ -1376,11 +1380,12 @@ function UploadVendorQuoteDrawer({ open, onClose, vendor, onSave }: UploadVendor
               flexDirection: 'column',
               alignItems: 'center',
               p: 3,
-              border: '2px dashed #E8EEEC',
+              border: '2px dashed',
+              borderColor: 'divider',
               borderRadius: '8px',
               cursor: 'pointer',
-              bgcolor: '#F8FAFB',
-              '&:hover': { borderColor: '#107E68', bgcolor: '#E8F5F2' },
+              bgcolor: 'background.default',
+              '&:hover': { borderColor: 'primary.main', bgcolor: alpha(theme.palette.primary.main, 0.08) },
             }}
           >
             <Upload sx={{ fontSize: 32, color: 'text.disabled', mb: 1 }} />
@@ -1505,6 +1510,7 @@ interface VendorFinalizationProps {
 }
 
 function VendorFinalization({ version, vendorQuotes, onQuoteUploaded, onRemoveQuote }: VendorFinalizationProps) {
+  const theme = useTheme()
   const [uploadQuoteVendor, setUploadQuoteVendor] = useState<VendorFinalizationEntry | null>(null)
   const [milestoneVendor, setMilestoneVendor] = useState<VendorFinalizationEntry | null>(null)
 
@@ -1549,11 +1555,11 @@ function VendorFinalization({ version, vendorQuotes, onQuoteUploaded, onRemoveQu
                 <Box
                   key={vendor.vendorId}
                   sx={{
-                    border: `1px solid ${tokens.color.neutral[100]}`,
+                    border: '1px solid',
+                    borderColor: 'divider',
                     borderRadius: '10px',
                     p: 2,
                     mb: 0,
-                    boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
                   }}
                 >
                   <Stack direction="row" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={1}>
@@ -1608,9 +1614,9 @@ function VendorFinalization({ version, vendorQuotes, onQuoteUploaded, onRemoveQu
                           onDelete={() => onRemoveQuote(vendor.vendorId)}
                           sx={{
                             fontSize: 11,
-                            bgcolor: '#E8F5F2',
-                            color: '#107E68',
-                            border: '1px solid #A3D7CB',
+                            bgcolor: alpha(theme.palette.primary.main, 0.1),
+                            color: 'primary.main',
+                            border: `1px solid ${alpha(theme.palette.primary.main, 0.3)}`,
                             cursor: 'pointer',
                           }}
                         />
@@ -1829,6 +1835,7 @@ interface LockedServiceTableProps {
 }
 
 function LockedServiceTable({ categories, isEditing, editedValues, onEditedValueChange, onStartEdit, onCancelEdit, onSaveEdit, saving }: LockedServiceTableProps) {
+  const theme = useTheme()
   return (
     <WorkspaceSection
       title="Locked Financial Structure"
@@ -1863,7 +1870,7 @@ function LockedServiceTable({ categories, isEditing, editedValues, onEditedValue
                 return (
                   <TableRow
                     key={svc.id}
-                    sx={{ bgcolor: isEditing ? '#FFFBEB' : tokens.color.neutral[50] }}
+                    sx={{ bgcolor: isEditing ? alpha(theme.palette.warning.main, 0.08) : 'background.default' }}
                   >
                     <TableCell sx={{ py: 1 }}>
                       <Stack direction="row" alignItems="center" gap={0.5}>
