@@ -264,36 +264,6 @@ export default function VendorDetailPage() {
             </Stack>
           </WorkspaceSection>
 
-          <WorkspaceSection title="Financial Snapshot">
-            <Stack gap={1.5}>
-              <Stack direction="row" justifyContent="space-between" alignItems="center">
-                <Typography variant="caption" color="text.secondary">Total Payables</Typography>
-                <Typography variant="body2" fontWeight={600}>
-                  ₹{formatCurrency(vendor!.totalPayables)}
-                </Typography>
-              </Stack>
-              <Divider />
-              <Stack direction="row" justifyContent="space-between" alignItems="center">
-                <Typography variant="caption" color="text.secondary">Active Projects</Typography>
-                <Typography
-                  variant="body2"
-                  fontWeight={600}
-                  color={vendor!.activeProjects > 0 ? 'primary.main' : 'text.secondary'}
-                >
-                  {vendor!.activeProjects}
-                </Typography>
-              </Stack>
-              {vendor!.paymentTerms && (
-                <>
-                  <Divider />
-                  <Stack direction="row" justifyContent="space-between" alignItems="center">
-                    <Typography variant="caption" color="text.secondary">Payment Terms</Typography>
-                    <Typography variant="body2" fontWeight={500}>{vendor!.paymentTerms}</Typography>
-                  </Stack>
-                </>
-              )}
-            </Stack>
-          </WorkspaceSection>
         </Box>
       </WorkspaceTwoCol>
     )

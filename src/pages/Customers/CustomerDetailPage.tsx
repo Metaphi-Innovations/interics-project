@@ -3,7 +3,6 @@ import {
   Box,
   Stack,
   Typography,
-  LinearProgress,
   Chip as MuiChip,
   Divider,
   Skeleton,
@@ -161,7 +160,6 @@ export default function CustomerDetailPage() {
   if (notFound || !customer) return <NotFound />
 
   const outstanding = customer.totalReceivables
-  const receivablesProgress = Math.min((customer.totalReceivables / 1000000) * 100, 100)
 
   const tabs = [
     { label: 'Overview', value: 'overview' },
@@ -271,37 +269,6 @@ export default function CustomerDetailPage() {
             </Stack>
           </WorkspaceSection>
 
-          <WorkspaceSection title="Financial Snapshot">
-            <Stack gap={1.5}>
-              <Box>
-                <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 0.5 }}>
-                  <Typography variant="caption" color="text.secondary">Receivables</Typography>
-                  <Typography variant="body2" fontWeight={600}>
-                    ₹{formatCurrency(customer!.totalReceivables)}
-                  </Typography>
-                </Stack>
-                <LinearProgress
-                  variant="determinate"
-                  value={receivablesProgress}
-                  sx={{ height: 4, borderRadius: 2 }}
-                />
-              </Box>
-              <Stack direction="row" justifyContent="space-between" alignItems="center">
-                <Typography variant="caption" color="text.secondary">Credit Used</Typography>
-                <Typography variant="body2" fontWeight={600}>₹0</Typography>
-              </Stack>
-              <Stack direction="row" justifyContent="space-between" alignItems="center">
-                <Typography variant="caption" color="text.secondary">Active Projects</Typography>
-                <Typography
-                  variant="body2"
-                  fontWeight={600}
-                  color={customer!.activeProjects > 0 ? 'primary.main' : 'text.secondary'}
-                >
-                  {customer!.activeProjects}
-                </Typography>
-              </Stack>
-            </Stack>
-          </WorkspaceSection>
         </Box>
       </WorkspaceTwoCol>
     )

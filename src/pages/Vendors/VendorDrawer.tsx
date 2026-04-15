@@ -370,49 +370,35 @@ export function VendorDrawer({ open, onClose, mode, vendor }: VendorDrawerProps)
 
       {/* ── Vendor Profile ───────────────────────────────────────────── */}
       <FormSection title="Vendor Profile" columns={2}>
-        <FormField label="Specialization Tags">
-          <Autocomplete
-            multiple
-            freeSolo
-            options={VENDOR_TAGS}
-            value={form.tags}
-            onChange={(_, newValue) => update('tags', newValue as string[])}
-            renderTags={(value, getTagProps) =>
-              value.map((option, index) => (
-                <MuiChip
-                  variant="outlined"
-                  label={option}
+        <Box sx={{ gridColumn: 'span 2' }}>
+          <FormField label="Specialization Tags">
+            <Autocomplete
+              multiple
+              freeSolo
+              options={VENDOR_TAGS}
+              value={form.tags}
+              onChange={(_, newValue) => update('tags', newValue as string[])}
+              renderTags={(value, getTagProps) =>
+                value.map((option, index) => (
+                  <MuiChip
+                    variant="outlined"
+                    label={option}
+                    size="small"
+                    {...getTagProps({ index })}
+                    key={index}
+                  />
+                ))
+              }
+              renderInput={(params) => (
+                <TextField
+                  {...params}
                   size="small"
-                  {...getTagProps({ index })}
-                  key={index}
+                  placeholder={form.tags.length === 0 ? 'e.g. Civil, Furniture, MEP' : ''}
                 />
-              ))
-            }
-            renderInput={(params) => (
-              <TextField
-                {...params}
-                size="small"
-                placeholder={form.tags.length === 0 ? 'e.g. Civil, Furniture, MEP' : ''}
-              />
-            )}
-          />
-        </FormField>
-
-        <FormField label="Payment Terms">
-          <TextField
-            fullWidth
-            size="small"
-            select
-            value={form.paymentTerms}
-            onChange={(e) => update('paymentTerms', e.target.value)}
-          >
-            <MenuItem value="">None</MenuItem>
-            <MenuItem value="Net 30">Net 30</MenuItem>
-            <MenuItem value="Net 45">Net 45</MenuItem>
-            <MenuItem value="Net 60">Net 60</MenuItem>
-            <MenuItem value="Immediate">Immediate</MenuItem>
-          </TextField>
-        </FormField>
+              )}
+            />
+          </FormField>
+        </Box>
 
         <Box sx={{ gridColumn: 'span 2' }}>
           <FormField label="Notes">
