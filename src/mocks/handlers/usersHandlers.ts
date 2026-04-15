@@ -1,4 +1,13 @@
 import { http, HttpResponse } from 'msw'
+import type { UserPermissions } from '@/types/permissions'
+import {
+  makeEmptyUserPermissions,
+  makeFullUserPermissions,
+  makePowerUserStylePermissions,
+  makeProjectUserPermissions,
+  makeViewerUserPermissions,
+} from '@/types/permissions'
+import { recalculateRoleUserCountsFromUsers } from './rolesHandlers'
 
 interface MockUser {
   id: string
@@ -6,7 +15,8 @@ interface MockUser {
   email: string
   phone?: string
   employeeId?: string
-  role: string        // role ID reference
+  role: string
+  permissions: UserPermissions
   projectAccess: 'all' | 'selected'
   assignedProjects: string[]
   status: 'active' | 'inactive'
@@ -39,6 +49,7 @@ let mockUsers: MockUser[] = [
     phone: '+91 98200 00001',
     employeeId: 'EMP-001',
     role: 'r-001',
+    permissions: makeFullUserPermissions(),
     projectAccess: 'all',
     assignedProjects: [],
     status: 'active',
@@ -52,6 +63,7 @@ let mockUsers: MockUser[] = [
     phone: '+91 98200 00002',
     employeeId: 'EMP-002',
     role: 'r-002',
+    permissions: makePowerUserStylePermissions(),
     projectAccess: 'all',
     assignedProjects: [],
     status: 'active',
@@ -65,6 +77,7 @@ let mockUsers: MockUser[] = [
     phone: '+91 98200 00003',
     employeeId: 'EMP-003',
     role: 'r-003',
+    permissions: makeProjectUserPermissions(),
     projectAccess: 'selected',
     assignedProjects: ['p-001', 'p-002'],
     status: 'active',
@@ -78,6 +91,7 @@ let mockUsers: MockUser[] = [
     phone: '+91 98200 00004',
     employeeId: 'EMP-004',
     role: 'r-003',
+    permissions: makeProjectUserPermissions(),
     projectAccess: 'selected',
     assignedProjects: ['p-001'],
     status: 'active',
@@ -91,6 +105,7 @@ let mockUsers: MockUser[] = [
     phone: '+91 98200 00005',
     employeeId: 'EMP-005',
     role: 'r-004',
+    permissions: makeViewerUserPermissions(),
     projectAccess: 'selected',
     assignedProjects: ['p-003'],
     status: 'active',
@@ -104,6 +119,7 @@ let mockUsers: MockUser[] = [
     phone: '+91 98200 00006',
     employeeId: 'EMP-006',
     role: 'r-002',
+    permissions: makePowerUserStylePermissions(),
     projectAccess: 'all',
     assignedProjects: [],
     status: 'inactive',
@@ -114,13 +130,16 @@ let mockUsers: MockUser[] = [
 
 let idCounter = 7
 
-export const usersHandlers = [
-  // ─── Projects (for user form dropdown) ──────────────────────────────────────
-  http.get('/api/projects-list', () => {
-    return HttpResponse.json(mockProjects)
-  }),
+function syncRoleCounts() {
+  recalculateRoleUserCountsFromUsers(mockUsers)
+}
 
-  // ─── Users ──────────────────────────────────────────────────────────────────
+syncRoleCounts()
+
+export const usersHandlers = [
+  /** Lightweight options for user form (full `/api/projects` is paginated in projectsHandlers). */
+  http.get('/api/projects-list', () => HttpResponse.json(mockProjects)),
+
   http.get('/api/users', ({ request }) => {
     const url = new URL(request.url)
     const search = url.searchParams.get('search')?.toLowerCase() ?? ''
@@ -158,11 +177,13 @@ export const usersHandlers = [
     const data = (await request.json()) as Omit<MockUser, 'id' | 'createdAt' | 'lastLogin'>
     const newUser: MockUser = {
       ...data,
+      permissions: data.permissions ?? makeEmptyUserPermissions(),
       id: `u-${String(idCounter++).padStart(3, '0')}`,
       lastLogin: null,
       createdAt: new Date().toISOString().split('T')[0],
     }
     mockUsers.push(newUser)
+    syncRoleCounts()
     return HttpResponse.json(newUser, { status: 201 })
   }),
 
@@ -173,6 +194,7 @@ export const usersHandlers = [
     }
     const data = (await request.json()) as Partial<MockUser>
     mockUsers[idx] = { ...mockUsers[idx], ...data }
+    syncRoleCounts()
     return HttpResponse.json(mockUsers[idx])
   }),
 
@@ -196,12 +218,10 @@ export const usersHandlers = [
       return HttpResponse.json({ message: 'User not found' }, { status: 404 })
     }
     if (user.assignedProjects.length > 0) {
-      return HttpResponse.json(
-        { message: 'Cannot delete user with assigned projects. Reassign projects first.' },
-        { status: 400 }
-      )
+      return HttpResponse.json({ message: 'Cannot delete user with assigned projects.' }, { status: 400 })
     }
     mockUsers = mockUsers.filter((u) => u.id !== params.id)
+    syncRoleCounts()
     return HttpResponse.json({ success: true })
   }),
 ]

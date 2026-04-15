@@ -25,6 +25,8 @@ interface DrawerFormProps {
   footer?: ReactNode
   /** Hide footer entirely (e.g. read-only drawer with actions in header). */
   hideFooter?: boolean
+  /** Rendered in the header row before the close button (e.g. Edit). */
+  headerActions?: ReactNode
 }
 
 export function DrawerForm({
@@ -42,6 +44,7 @@ export function DrawerForm({
   width = 520,
   footer,
   hideFooter = false,
+  headerActions,
 }: DrawerFormProps) {
   const handleCancel = onCancel ?? onClose
 
@@ -92,6 +95,11 @@ export function DrawerForm({
             </Box>
           )}
         </Box>
+        {headerActions != null && (
+          <Box sx={{ display: 'flex', alignItems: 'center', mr: 0.5 }}>
+            {headerActions}
+          </Box>
+        )}
         <MuiIconButton
           size="small"
           onClick={onClose}

@@ -1,7 +1,7 @@
 import { Box, Typography, Collapse, Popper, Paper } from '@mui/material'
 import { alpha, useTheme } from '@mui/material/styles'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import type { ReactNode } from 'react'
 import { tokens } from '../../../tokens'
 
@@ -10,6 +10,8 @@ export interface NavGroupProps {
   icon?: ReactNode
   children: ReactNode
   defaultExpanded?: boolean
+  /** Highlight group header when current route belongs to this section */
+  headerActive?: boolean
   collapsed?: boolean
   badge?: number
 }
@@ -19,11 +21,16 @@ export default function NavGroup({
   icon,
   children,
   defaultExpanded = true,
+  headerActive = false,
   collapsed = false,
   badge,
 }: NavGroupProps) {
   const theme = useTheme()
   const [expanded, setExpanded] = useState(defaultExpanded)
+
+  useEffect(() => {
+    if (defaultExpanded) setExpanded(true)
+  }, [defaultExpanded])
   const [flyoutOpen, setFlyoutOpen] = useState(false)
   const anchorRef = useRef<HTMLDivElement>(null)
 
@@ -73,9 +80,10 @@ export default function NavGroup({
               height: 32,
               borderRadius: '6px',
               cursor: 'pointer',
-              color: 'text.secondary',
+              color: headerActive ? 'primary.main' : 'text.secondary',
               mx: '8px',
               transition: 'background-color 150ms ease',
+              bgcolor: headerActive ? alpha(theme.palette.primary.main, 0.08) : 'transparent',
               '&:hover': {
                 bgcolor: alpha(theme.palette.mode === 'light' ? '#000000' : '#ffffff', 0.04),
                 color: 'text.primary',
@@ -132,7 +140,7 @@ export default function NavGroup({
   return (
     <Box>
       <Box
-        onClick={() => setExpanded(e => !e)}
+        onClick={() => setExpanded((e) => !e)}
         sx={{
           display: 'flex',
           alignItems: 'center',
@@ -142,9 +150,10 @@ export default function NavGroup({
           height: '34px',
           borderRadius: '6px',
           cursor: 'pointer',
-          color: tokens.color.neutral[600],
+          color: headerActive ? 'primary.main' : tokens.color.neutral[600],
           my: '1px',
           transition: 'background-color 150ms ease',
+          bgcolor: headerActive ? alpha(theme.palette.primary.main, 0.08) : 'transparent',
           '&:hover': {
             bgcolor: alpha(theme.palette.mode === 'light' ? '#000000' : '#ffffff', 0.04),
             color: 'text.primary',

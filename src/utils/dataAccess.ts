@@ -1,10 +1,9 @@
-import type { Role, DataScope } from '@/types/permissions'
+import type { DataScope } from '@/types/permissions'
 import type { User } from '@/slices/users/reducer'
 
 const ADMIN_ROLE_ID = 'r-001'
 
 export interface ResolvedDataAccess {
-  /** Effective data scope per domain after role ∩ user project access */
   projectsDataScope: DataScope
   financialDataScope: DataScope
   complianceDataScope: DataScope
@@ -12,12 +11,22 @@ export interface ResolvedDataAccess {
   effectiveProjectIds: string[] | 'all'
 }
 
+function defaultScopes(): ResolvedDataAccess {
+  return {
+    projectsDataScope: 'assigned',
+    financialDataScope: 'assigned',
+    complianceDataScope: 'assigned',
+    effectiveProjectIds: [],
+  }
+}
+
 /**
- * Final access = role permissions/dataScope ∩ user project access.
- * Admin users bypass to full access.
+ * Effective data scope from project access only (V2 — no per-module dataScope on permissions).
+ * When projectAccess is `selected`, effectiveProjectIds is assignedProjects only.
+ * Admin bypasses to full access.
  */
-export function resolveDataAccess(role: Role | null | undefined, user: User): ResolvedDataAccess {
-  if (user.role === ADMIN_ROLE_ID || !role) {
+export function resolveDataAccess(user: User): ResolvedDataAccess {
+  if (user.role === ADMIN_ROLE_ID) {
     return {
       projectsDataScope: 'all',
       financialDataScope: 'all',
@@ -26,33 +35,17 @@ export function resolveDataAccess(role: Role | null | undefined, user: User): Re
     }
   }
 
-  const { permissions: p } = role
-
-  let projectsDataScope = p.projects_dataScope
-  let financialDataScope = p.financial_dataScope
-  let complianceDataScope = p.compliance_dataScope
-
-  if (user.projectAccess === 'selected') {
-    const ids = user.assignedProjects
-    const narrow = (scope: DataScope): DataScope => {
-      if (scope === 'all') return 'assigned'
-      return scope
-    }
-    projectsDataScope = narrow(projectsDataScope)
-    financialDataScope = narrow(financialDataScope)
-    complianceDataScope = narrow(complianceDataScope)
+  if (user.projectAccess === 'all') {
     return {
-      projectsDataScope,
-      financialDataScope,
-      complianceDataScope,
-      effectiveProjectIds: ids,
+      projectsDataScope: 'all',
+      financialDataScope: 'all',
+      complianceDataScope: 'all',
+      effectiveProjectIds: 'all',
     }
   }
 
   return {
-    projectsDataScope,
-    financialDataScope,
-    complianceDataScope,
-    effectiveProjectIds: 'all',
+    ...defaultScopes(),
+    effectiveProjectIds: [...user.assignedProjects],
   }
 }

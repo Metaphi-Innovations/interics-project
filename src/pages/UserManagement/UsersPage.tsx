@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   Box,
   Stack,
@@ -44,8 +45,7 @@ import { getInitials, getAvatarColor, formatDate } from '@/utils/formatters'
 import { tokens } from '@/design-system/tokens'
 import { usePermission } from '@/hooks/usePermission'
 import { UserManagementLayout } from './components/UserManagementLayout'
-import { UserDrawer } from './components/UserDrawer'
-import { UserDetailDrawer } from './components/UserDetailDrawer'
+import { UserDetailsDrawer } from './components/UserDetailsDrawer'
 import { getRoleChip } from './userRoleChips'
 
 function UserAvatar({ name }: { name: string }) {
@@ -202,7 +202,15 @@ function UsersTable({
               const chip = getRoleChip(user.role)
               const projectCount = user.assignedProjects.length
               return (
-                <TableRow key={user.id} sx={{ '&:hover': { bgcolor: hoverBg }, '&:last-child td': { border: 0 } }}>
+                <TableRow
+                  key={user.id}
+                  onClick={() => canView && onView(user)}
+                  sx={{
+                    '&:hover': { bgcolor: hoverBg },
+                    '&:last-child td': { border: 0 },
+                    cursor: canView ? 'pointer' : 'default',
+                  }}
+                >
                   <TableCell sx={{ py: 1.25, px: 1.75 }}>
                     <Stack direction="row" alignItems="center" gap={1.5}>
                       <UserAvatar name={user.name} />
@@ -352,7 +360,7 @@ function DeactivateDialog({
       <DialogTitle sx={{ fontSize: 15, fontWeight: 600 }}>Deactivate User</DialogTitle>
       <DialogContent>
         <Typography variant="body2">
-          Deactivating <strong>{user?.name}</strong> will immediately revoke their system access. This can be undone.
+          Deactivating <strong>{user?.name}</strong> will immediately revoke their access.
         </Typography>
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2 }}>
@@ -469,17 +477,16 @@ const ROLE_FILTER_OPTIONS = [
 ]
 
 export default function UsersPage() {
+  const navigate = useNavigate()
   const dispatch = useAppDispatch()
   const { items, loading, filters, sortConfig } = useAppSelector((s) => s.users)
   const roles = useAppSelector((s) => s.roles.items)
   const { showToast } = useToast()
-  const canCreate = usePermission('users.create')
-  const canView = usePermission('users.view')
-  const canEdit = usePermission('users.edit')
-  const canDelete = usePermission('users.delete')
+  const canCreate = usePermission('userManagement', 'create')
+  const canView = usePermission('userManagement', 'view')
+  const canEdit = usePermission('userManagement', 'edit')
+  const canDelete = usePermission('userManagement', 'delete')
 
-  const [addDrawerOpen, setAddDrawerOpen] = useState(false)
-  const [editUser, setEditUser] = useState<User | null>(null)
   const [detailUser, setDetailUser] = useState<User | null>(null)
   const [toggleTarget, setToggleTarget] = useState<User | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<User | null>(null)
@@ -533,14 +540,21 @@ export default function UsersPage() {
 
   const totalUsers = items.length
   const activeUsers = items.filter((u) => u.status === 'active').length
-  const privileged = items.filter((u) => u.role === 'r-001' || u.role === 'r-002').length
+  const privileged = useMemo(
+    () =>
+      items.filter((u) => {
+        const r = roles.find((x) => x.id === u.role)
+        return r !== undefined && (r.level === 0 || r.level === 1)
+      }).length,
+    [items, roles],
+  )
   const inactiveUsers = items.filter((u) => u.status === 'inactive').length
 
   const statCards: StatCardItem[] = useMemo(
     () => [
       { label: 'Total Users', value: totalUsers, color: 'default', icon: <Group sx={{ fontSize: 20 }} /> },
       { label: 'Active Users', value: activeUsers, color: 'success', icon: <CheckCircle sx={{ fontSize: 20 }} /> },
-      { label: 'Privileged Users', value: privileged, color: 'info', icon: <Group sx={{ fontSize: 20 }} /> },
+      { label: 'Privileged', value: privileged, color: 'info', icon: <Group sx={{ fontSize: 20 }} /> },
       { label: 'Inactive Users', value: inactiveUsers, color: 'warning', icon: <Block sx={{ fontSize: 20 }} /> },
     ],
     [totalUsers, activeUsers, privileged, inactiveUsers],
@@ -601,7 +615,7 @@ export default function UsersPage() {
 
   function handleDeleteClick(user: User) {
     if (user.assignedProjects.length > 0) {
-      showToast({ title: 'Cannot delete user with assigned projects. Reassign projects first.', variant: 'error' })
+      showToast({ title: 'Cannot delete user with assigned projects.', variant: 'error' })
       return
     }
     setDeleteTarget(user)
@@ -636,7 +650,7 @@ export default function UsersPage() {
             canCreate
               ? {
                   label: '+ Add User',
-                  onClick: () => setAddDrawerOpen(true),
+                  onClick: () => navigate('/user-management/users/create'),
                   startIcon: <Add sx={{ fontSize: 16 }} />,
                 }
               : undefined
@@ -658,7 +672,7 @@ export default function UsersPage() {
               sortDirection={sortConfig.direction}
               onSort={handleSort}
               onView={(u) => setDetailUser(u)}
-              onEdit={(u) => setEditUser(u)}
+              onEdit={(u) => navigate(`/user-management/users/${u.id}/edit`)}
               onToggleStatus={(u) => setToggleTarget(u)}
               onDelete={handleDeleteClick}
               canView={canView}
@@ -669,9 +683,19 @@ export default function UsersPage() {
         </ListingTemplate>
       </UserManagementLayout>
 
-      <UserDrawer open={addDrawerOpen} onClose={() => setAddDrawerOpen(false)} mode="add" />
-      <UserDrawer open={Boolean(editUser)} onClose={() => setEditUser(null)} mode="edit" user={editUser} />
-      <UserDetailDrawer open={Boolean(detailUser)} onClose={() => setDetailUser(null)} user={detailUser} />
+      <UserDetailsDrawer
+        open={Boolean(detailUser)}
+        onClose={() => setDetailUser(null)}
+        user={detailUser}
+        onEdit={
+          canEdit && detailUser
+            ? () => {
+                navigate(`/user-management/users/${detailUser.id}/edit`)
+                setDetailUser(null)
+              }
+            : undefined
+        }
+      />
 
       {toggleTarget?.status === 'active' ? (
         <DeactivateDialog

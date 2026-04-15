@@ -48,8 +48,8 @@ import ReportsPage from '@/pages/Reports/ReportsPage'
 import DocumentsPage from '@/pages/Documents/DocumentsPage'
 import AuditLogsPage from '@/pages/AuditLogs/AuditLogsPage'
 import UsersPage from '@/pages/UserManagement/UsersPage'
+import UserFormPage from '@/pages/UserManagement/UserFormPage'
 import RolesPage from '@/pages/UserManagement/RolesPage'
-import RoleFormPage from '@/pages/UserManagement/RoleFormPage'
 import { UserManagementPermissionRoute } from '@/pages/UserManagement/UserManagementPermissionRoute'
 import SettingsPage from '@/pages/Settings/SettingsPage'
 
@@ -151,10 +151,24 @@ const navConfig: NavConfig[] = [
         href: '/settings',
       },
       {
-        type: 'item',
+        type: 'group',
         label: 'User Management',
         icon: <Users size={16} strokeWidth={1.75} />,
-        href: '/user-management',
+        expandWhenPathPrefix: '/user-management',
+        children: [
+          {
+            type: 'item',
+            label: 'Users',
+            href: '/user-management/users',
+            activeMatch: 'exact',
+          },
+          {
+            type: 'item',
+            label: 'Roles',
+            href: '/user-management/roles',
+            activeMatch: 'prefix',
+          },
+        ],
       },
     ],
   },
@@ -237,8 +251,25 @@ function AppInner() {
                   <Route path="/reports" element={<ReportsPage />} />
                   <Route path="/documents" element={<DocumentsPage />} />
                   <Route path="/audit-logs" element={<AuditLogsPage />} />
+                  <Route path="/user-management" element={<Navigate to="/user-management/users" replace />} />
                   <Route
-                    path="/user-management"
+                    path="/user-management/users/create"
+                    element={
+                      <UserManagementPermissionRoute>
+                        <UserFormPage />
+                      </UserManagementPermissionRoute>
+                    }
+                  />
+                  <Route
+                    path="/user-management/users/:id/edit"
+                    element={
+                      <UserManagementPermissionRoute>
+                        <UserFormPage />
+                      </UserManagementPermissionRoute>
+                    }
+                  />
+                  <Route
+                    path="/user-management/users"
                     element={
                       <UserManagementPermissionRoute>
                         <UsersPage />
@@ -246,26 +277,10 @@ function AppInner() {
                     }
                   />
                   <Route
-                    path="/user-management/roles"
+                    path="/user-management/roles/*"
                     element={
                       <UserManagementPermissionRoute>
                         <RolesPage />
-                      </UserManagementPermissionRoute>
-                    }
-                  />
-                  <Route
-                    path="/user-management/roles/create"
-                    element={
-                      <UserManagementPermissionRoute>
-                        <RoleFormPage />
-                      </UserManagementPermissionRoute>
-                    }
-                  />
-                  <Route
-                    path="/user-management/roles/:id/edit"
-                    element={
-                      <UserManagementPermissionRoute>
-                        <RoleFormPage />
                       </UserManagementPermissionRoute>
                     }
                   />

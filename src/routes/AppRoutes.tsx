@@ -22,6 +22,9 @@ import ReportsPage from '@/pages/Reports/ReportsPage'
 import DocumentsPage from '@/pages/Documents/DocumentsPage'
 import AuditLogsPage from '@/pages/AuditLogs/AuditLogsPage'
 import UsersPage from '@/pages/UserManagement/UsersPage'
+import UserFormPage from '@/pages/UserManagement/UserFormPage'
+import RolesPage from '@/pages/UserManagement/RolesPage'
+import { UserManagementPermissionRoute } from '@/pages/UserManagement/UserManagementPermissionRoute'
 import SettingsPage from '@/pages/Settings/SettingsPage'
 
 interface AppRoutesProps {
@@ -66,7 +69,39 @@ export default function AppRoutes({ navConfig, user, onSignOut, onProfileClick, 
                 <Route path="/reports" element={<ReportsPage />} />
                 <Route path="/documents" element={<DocumentsPage />} />
                 <Route path="/audit-logs" element={<AuditLogsPage />} />
-                <Route path="/user-management" element={<UsersPage />} />
+                <Route path="/user-management" element={<Navigate to="/user-management/users" replace />} />
+                <Route
+                  path="/user-management/users/create"
+                  element={
+                    <UserManagementPermissionRoute>
+                      <UserFormPage />
+                    </UserManagementPermissionRoute>
+                  }
+                />
+                <Route
+                  path="/user-management/users/:id/edit"
+                  element={
+                    <UserManagementPermissionRoute>
+                      <UserFormPage />
+                    </UserManagementPermissionRoute>
+                  }
+                />
+                <Route
+                  path="/user-management/users"
+                  element={
+                    <UserManagementPermissionRoute>
+                      <UsersPage />
+                    </UserManagementPermissionRoute>
+                  }
+                />
+                <Route
+                  path="/user-management/roles/*"
+                  element={
+                    <UserManagementPermissionRoute>
+                      <RolesPage />
+                    </UserManagementPermissionRoute>
+                  }
+                />
                 <Route path="/settings" element={<SettingsPage />} />
                 <Route index element={<Navigate to="/projects" replace />} />
                 <Route path="*" element={<Navigate to="/projects" replace />} />

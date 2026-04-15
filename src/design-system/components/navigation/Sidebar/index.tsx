@@ -6,6 +6,8 @@ import type { ReactNode } from 'react'
 import NavItem from './NavItem'
 import NavGroup from './NavGroup'
 
+export type NavActiveMatch = 'exact' | 'prefix' | 'default'
+
 export interface NavConfig {
   type: 'item' | 'group' | 'divider'
   label?: string
@@ -14,6 +16,10 @@ export interface NavConfig {
   badge?: number | string
   children?: NavConfig[]
   roles?: string[]
+  /** For `type: 'item'`: how `href` matches `currentPath` (default = prefix). */
+  activeMatch?: NavActiveMatch
+  /** For collapsible `type: 'group'` with icon: auto-expand while path matches this prefix. */
+  expandWhenPathPrefix?: string
 }
 
 export interface SidebarUser {
@@ -40,6 +46,12 @@ export interface SidebarProps {
 
 const TOPBAR_HEIGHT = 52
 
+function isNavHrefActive(href: string, currentPath: string, match: NavActiveMatch = 'default'): boolean {
+  if (match === 'exact') return currentPath === href
+  if (match === 'prefix') return currentPath === href || currentPath.startsWith(`${href}/`)
+  return currentPath === href || currentPath.startsWith(`${href}/`)
+}
+
 function renderNavConfig(
   items: NavConfig[],
   collapsed: boolean,
@@ -63,6 +75,14 @@ function renderNavConfig(
 
     if (item.type === 'group') {
       if (item.icon) {
+        const expand =
+          item.expandWhenPathPrefix != null && item.expandWhenPathPrefix !== ''
+            ? currentPath.startsWith(item.expandWhenPathPrefix)
+            : true
+        const headerActive =
+          item.expandWhenPathPrefix != null && item.expandWhenPathPrefix !== ''
+            ? currentPath.startsWith(item.expandWhenPathPrefix)
+            : false
         return (
           <NavGroup
             key={i}
@@ -70,15 +90,18 @@ function renderNavConfig(
             icon={item.icon}
             collapsed={collapsed}
             badge={typeof item.badge === 'number' ? item.badge : undefined}
+            defaultExpanded={expand}
+            headerActive={headerActive}
           >
             {item.children?.map((child, j) => {
               if (child.type === 'item') {
+                const m = child.activeMatch ?? 'default'
                 return (
                   <NavItem
                     key={j}
                     label={child.label ?? ''}
                     href={child.href}
-                    active={!!child.href && (currentPath === child.href || currentPath.startsWith(child.href + '/'))}
+                    active={!!child.href && isNavHrefActive(child.href, currentPath, m)}
                     badge={child.badge}
                     depth={collapsed ? 0 : 1}
                     collapsed={collapsed}
@@ -98,13 +121,14 @@ function renderNavConfig(
     }
 
     if (item.type === 'item') {
+      const m = item.activeMatch ?? 'default'
       return (
         <NavItem
           key={i}
           label={item.label ?? ''}
           icon={item.icon}
           href={item.href}
-          active={!!item.href && (currentPath === item.href || currentPath.startsWith(item.href + '/'))}
+          active={!!item.href && isNavHrefActive(item.href, currentPath, m)}
           badge={item.badge}
           collapsed={collapsed}
         />

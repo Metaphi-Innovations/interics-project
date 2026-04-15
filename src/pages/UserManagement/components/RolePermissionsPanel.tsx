@@ -8,32 +8,31 @@ import {
   AccordionDetails,
   Checkbox,
   FormControlLabel,
-  Radio,
-  RadioGroup,
   Button as MuiButton,
   Chip as MuiChip,
   Paper,
-  Alert,
 } from '@mui/material'
 import { ExpandMore } from '@mui/icons-material'
 import { FolderKanban, DollarSign, Shield, Users, Settings2 } from 'lucide-react'
 import { tokens } from '@/design-system/tokens'
-import type { PermissionKey, RolePermissions, DataScope } from '@/types/permissions'
+import type {
+  ModuleCrudAction,
+  UserPermissions,
+  UserPermissionModuleKey,
+} from '@/types/permissions'
+import { MODULE_CRUD_ACTIONS, cloneUserPermissions } from '@/types/permissions'
 
-type SectionKey = 'basic' | 'advanced' | 'data'
-
-interface PermDef {
-  key: PermissionKey
-  label: string
-  section: SectionKey
+const ACTION_LABELS: Record<ModuleCrudAction, string> = {
+  view: 'View',
+  create: 'Create',
+  edit: 'Edit',
+  delete: 'Delete',
 }
 
 export interface ModuleDef {
-  id: string
+  id: UserPermissionModuleKey
   label: string
   icon: React.ReactNode
-  permissions: PermDef[]
-  dataScopeKey?: 'projects_dataScope' | 'financial_dataScope' | 'compliance_dataScope'
 }
 
 export const MODULE_DEFS: ModuleDef[] = [
@@ -41,70 +40,40 @@ export const MODULE_DEFS: ModuleDef[] = [
     id: 'projects',
     label: 'Projects',
     icon: <FolderKanban size={16} strokeWidth={1.75} />,
-    dataScopeKey: 'projects_dataScope',
-    permissions: [
-      { key: 'projects.view', label: 'View', section: 'basic' },
-      { key: 'projects.create', label: 'Create', section: 'basic' },
-      { key: 'projects.edit', label: 'Edit', section: 'basic' },
-      { key: 'projects.delete', label: 'Delete', section: 'basic' },
-      { key: 'projects.approve', label: 'Approve', section: 'advanced' },
-      { key: 'projects.assign', label: 'Assign', section: 'advanced' },
-    ],
   },
   {
     id: 'financial',
     label: 'Financial',
     icon: <DollarSign size={16} strokeWidth={1.75} />,
-    dataScopeKey: 'financial_dataScope',
-    permissions: [
-      { key: 'financial.view', label: 'View', section: 'basic' },
-      { key: 'financial.create', label: 'Create', section: 'basic' },
-      { key: 'financial.edit', label: 'Edit', section: 'basic' },
-      { key: 'financial.delete', label: 'Delete', section: 'basic' },
-      { key: 'financial.approve', label: 'Approve', section: 'advanced' },
-    ],
   },
   {
     id: 'compliance',
     label: 'Compliance',
     icon: <Shield size={16} strokeWidth={1.75} />,
-    dataScopeKey: 'compliance_dataScope',
-    permissions: [
-      { key: 'compliance.view', label: 'View', section: 'basic' },
-      { key: 'compliance.create', label: 'Create', section: 'basic' },
-      { key: 'compliance.approve', label: 'Approve', section: 'advanced' },
-    ],
   },
   {
-    id: 'users',
+    id: 'userManagement',
     label: 'User Management',
     icon: <Users size={16} strokeWidth={1.75} />,
-    permissions: [
-      { key: 'users.view', label: 'View Users', section: 'basic' },
-      { key: 'users.create', label: 'Create Users', section: 'basic' },
-      { key: 'users.edit', label: 'Edit Users', section: 'basic' },
-      { key: 'users.delete', label: 'Delete Users', section: 'basic' },
-      { key: 'roles.view', label: 'View Roles', section: 'advanced' },
-      { key: 'roles.create', label: 'Create Roles', section: 'advanced' },
-      { key: 'roles.edit', label: 'Edit Roles', section: 'advanced' },
-      { key: 'roles.delete', label: 'Delete Roles', section: 'advanced' },
-    ],
   },
   {
     id: 'settings',
     label: 'Settings',
     icon: <Settings2 size={16} strokeWidth={1.75} />,
-    permissions: [{ key: 'settings.manage', label: 'Manage Settings', section: 'basic' }],
   },
 ]
 
 export type ModStatus = 'full' | 'partial' | 'none'
 
-export function getModuleStatus(perms: RolePermissions, mod: ModuleDef): ModStatus {
-  const allTrue = mod.permissions.every((p) => perms[p.key])
-  const anyTrue = mod.permissions.some((p) => perms[p.key])
-  const scopeAll = !mod.dataScopeKey || (perms[mod.dataScopeKey] as DataScope) === 'all'
-  if (allTrue && scopeAll) return 'full'
+function bundleFor(perms: UserPermissions, modId: UserPermissionModuleKey) {
+  return perms[modId]
+}
+
+export function getModuleStatus(perms: UserPermissions, mod: ModuleDef): ModStatus {
+  const b = bundleFor(perms, mod.id)
+  const allTrue = MODULE_CRUD_ACTIONS.every((a) => b[a] === true)
+  const anyTrue = MODULE_CRUD_ACTIONS.some((a) => b[a] === true)
+  if (allTrue) return 'full'
   if (anyTrue) return 'partial'
   return 'none'
 }
@@ -125,41 +94,46 @@ function ModuleStatusBadge({ status }: { status: ModStatus }) {
   )
 }
 
-export function applyDependencies(perms: RolePermissions, changedKey: PermissionKey, newVal: boolean): RolePermissions {
-  const updated = { ...perms, [changedKey]: newVal }
-  const mod = changedKey.split('.')[0]
+export function applyDependencies(
+  perms: UserPermissions,
+  modId: UserPermissionModuleKey,
+  changed: ModuleCrudAction,
+  newVal: boolean,
+): UserPermissions {
+  const next = cloneUserPermissions(perms)
+  const b = next[modId]
 
-  if (newVal && (changedKey.endsWith('.create') || changedKey.endsWith('.edit'))) {
-    const viewKey = `${mod}.view` as PermissionKey
-    if (viewKey in updated) updated[viewKey] = true
+  if (changed === 'view' && !newVal) {
+    b.view = false
+    b.create = false
+    b.edit = false
+    b.delete = false
+    return next
   }
 
-  if (!newVal && changedKey.endsWith('.view')) {
-    for (const key of Object.keys(updated) as PermissionKey[]) {
-      if (key !== changedKey && key.startsWith(`${mod}.`)) {
-        (updated as Record<string, unknown>)[key] = false
-      }
-    }
+  b[changed] = newVal
+
+  if (newVal && (changed === 'create' || changed === 'edit')) {
+    b.view = true
   }
 
-  return updated
+  return next
 }
 
-export function applyFullAccess(perms: RolePermissions, mod: ModuleDef, checked: boolean): RolePermissions {
-  const updated = { ...perms }
-  for (const p of mod.permissions) {
-    (updated as Record<string, unknown>)[p.key] = checked
-  }
-  if (checked && mod.dataScopeKey) {
-    (updated as Record<string, unknown>)[mod.dataScopeKey] = 'all'
-  }
-  return updated
-}
-
-function moduleViewState(mod: ModuleDef, perms: RolePermissions): { viewPerm: PermDef | undefined; viewGateOn: boolean } {
-  const viewPerm = mod.permissions.find((p) => p.key.endsWith('.view'))
-  const viewGateOn = viewPerm ? perms[viewPerm.key] === true : true
-  return { viewPerm, viewGateOn }
+/** Full Access checked → all four true. Unchecked → no automatic change. */
+export function applyFullAccess(
+  perms: UserPermissions,
+  modId: UserPermissionModuleKey,
+  checked: boolean,
+): UserPermissions {
+  const next = cloneUserPermissions(perms)
+  if (!checked) return next
+  const b = next[modId]
+  b.view = true
+  b.create = true
+  b.edit = true
+  b.delete = true
+  return next
 }
 
 function ModulePanel({
@@ -168,26 +142,24 @@ function ModulePanel({
   readOnly,
   expanded,
   onExpandChange,
-  onChange,
+  onFullAccessChange,
+  onCrudChange,
 }: {
   mod: ModuleDef
-  perms: RolePermissions
+  perms: UserPermissions
   readOnly: boolean
   expanded: boolean
   onExpandChange: (val: boolean) => void
-  onChange: (key: PermissionKey | string, val: boolean | DataScope) => void
+  onFullAccessChange: (modId: UserPermissionModuleKey, checked: boolean) => void
+  onCrudChange: (modId: UserPermissionModuleKey, action: ModuleCrudAction, val: boolean) => void
 }) {
   const status = getModuleStatus(perms, mod)
-  const { viewPerm, viewGateOn } = moduleViewState(mod, perms)
+  const b = bundleFor(perms, mod.id)
+  const viewGateOn = b.view === true
 
-  const basicPerms = mod.permissions.filter((p) => p.section === 'basic')
-  const advancedPerms = mod.permissions.filter((p) => p.section === 'advanced')
-
-  const allChecked = mod.permissions.every((p) => perms[p.key])
-  const noneChecked = mod.permissions.every((p) => !perms[p.key])
+  const allChecked = MODULE_CRUD_ACTIONS.every((a) => b[a] === true)
+  const noneChecked = MODULE_CRUD_ACTIONS.every((a) => !b[a])
   const fullAccessIndeterminate = !allChecked && !noneChecked
-
-  const scopeDisabled = readOnly || (viewPerm ? !viewGateOn : false)
 
   return (
     <Accordion
@@ -222,7 +194,7 @@ function ModulePanel({
               checked={allChecked}
               indeterminate={fullAccessIndeterminate}
               disabled={readOnly}
-              onChange={(e) => onChange('__fullAccess__' + mod.id, e.target.checked as unknown as DataScope)}
+              onChange={(e) => onFullAccessChange(mod.id, e.target.checked)}
             />
           }
           label={
@@ -232,155 +204,73 @@ function ModulePanel({
           }
         />
 
-        {basicPerms.length > 0 && (
-          <Box sx={{ mb: 1.5 }}>
-            <Typography
-              variant="caption"
-              sx={{
-                color: tokens.color.neutral[500],
-                fontWeight: 700,
-                textTransform: 'uppercase',
-                letterSpacing: '0.5px',
-                fontSize: 10,
-                display: 'block',
-                mb: 0.5,
-              }}
-            >
-              Basic Actions
-            </Typography>
-            <Stack direction="row" flexWrap="wrap" gap={0}>
-              {basicPerms.map((p) => {
-                const isView = p.key.endsWith('.view')
-                const disabled = readOnly || (!isView && !viewGateOn)
-                return (
-                  <FormControlLabel
-                    key={p.key}
-                    sx={{ width: '50%', m: 0 }}
-                    control={
-                      <Checkbox
-                        size="small"
-                        checked={perms[p.key] === true}
-                        disabled={disabled}
-                        onChange={(e) => onChange(p.key, e.target.checked as unknown as DataScope)}
-                      />
-                    }
-                    label={
-                      <Typography
-                        variant="body2"
-                        sx={{ fontSize: 13, color: disabled && !readOnly ? 'text.disabled' : undefined }}
-                      >
-                        {p.label}
-                      </Typography>
-                    }
-                  />
-                )
-              })}
-            </Stack>
-          </Box>
-        )}
-
-        {advancedPerms.length > 0 && (
-          <Box sx={{ mb: 1.5 }}>
-            <Typography
-              variant="caption"
-              sx={{
-                color: tokens.color.neutral[500],
-                fontWeight: 700,
-                textTransform: 'uppercase',
-                letterSpacing: '0.5px',
-                fontSize: 10,
-                display: 'block',
-                mb: 0.5,
-              }}
-            >
-              Advanced Actions
-            </Typography>
-            <Stack direction="row" flexWrap="wrap" gap={0}>
-              {advancedPerms.map((p) => (
+        <Box sx={{ mb: 0 }}>
+          <Typography
+            variant="caption"
+            sx={{
+              color: tokens.color.neutral[500],
+              fontWeight: 700,
+              textTransform: 'uppercase',
+              letterSpacing: '0.5px',
+              fontSize: 10,
+              display: 'block',
+              mb: 0.5,
+            }}
+          >
+            Actions
+          </Typography>
+          <Stack direction="row" flexWrap="wrap" gap={0}>
+            {MODULE_CRUD_ACTIONS.map((action) => {
+              const isView = action === 'view'
+              const disabled = readOnly || (!isView && !viewGateOn)
+              return (
                 <FormControlLabel
-                  key={p.key}
+                  key={action}
                   sx={{ width: '50%', m: 0 }}
                   control={
                     <Checkbox
                       size="small"
-                      checked={perms[p.key] === true}
-                      disabled={readOnly || !viewGateOn}
-                      onChange={(e) => onChange(p.key, e.target.checked as unknown as DataScope)}
+                      checked={b[action]}
+                      disabled={disabled}
+                      onChange={(e) => onCrudChange(mod.id, action, e.target.checked)}
                     />
                   }
                   label={
                     <Typography
                       variant="body2"
-                      sx={{
-                        fontSize: 13,
-                        color: !viewGateOn && !readOnly ? 'text.disabled' : undefined,
-                      }}
+                      sx={{ fontSize: 13, color: disabled && !readOnly ? 'text.disabled' : undefined }}
                     >
-                      {p.label}
+                      {ACTION_LABELS[action]}
                     </Typography>
                   }
                 />
-              ))}
-            </Stack>
-          </Box>
-        )}
-
-        {mod.dataScopeKey && (
-          <Box>
-            <Typography
-              variant="caption"
-              sx={{
-                color: tokens.color.neutral[500],
-                fontWeight: 700,
-                textTransform: 'uppercase',
-                letterSpacing: '0.5px',
-                fontSize: 10,
-                display: 'block',
-                mb: 0.5,
-              }}
-            >
-              Data Scope
-            </Typography>
-            <RadioGroup
-              value={(perms[mod.dataScopeKey] as DataScope) ?? 'assigned'}
-              onChange={(e) => onChange(mod.dataScopeKey!, e.target.value as unknown as DataScope)}
-            >
-              <FormControlLabel
-                value="all"
-                disabled={scopeDisabled}
-                control={<Radio size="small" />}
-                label={<Typography variant="body2" sx={{ fontSize: 13 }}>All Data</Typography>}
-              />
-              <FormControlLabel
-                value="assigned"
-                disabled={scopeDisabled}
-                control={<Radio size="small" />}
-                label={<Typography variant="body2" sx={{ fontSize: 13 }}>Assigned Only</Typography>}
-              />
-              <FormControlLabel
-                value="own"
-                disabled={scopeDisabled}
-                control={<Radio size="small" />}
-                label={<Typography variant="body2" sx={{ fontSize: 13 }}>Own Data Only</Typography>}
-              />
-            </RadioGroup>
-          </Box>
-        )}
+              )
+            })}
+          </Stack>
+        </Box>
       </AccordionDetails>
     </Accordion>
   )
 }
 
-export interface RoleModuleSummaryProps {
-  perms: RolePermissions
-  isSystem: boolean
+export interface UserPermissionsSummaryProps {
+  perms: UserPermissions
 }
 
-/** Live module summary for the left column (read-only chips). */
-export function RoleModuleSummary({ perms, isSystem }: RoleModuleSummaryProps) {
+/** Read-only module summary chips. */
+export function UserPermissionsSummary({ perms }: UserPermissionsSummaryProps) {
   return (
     <>
-      <Typography variant="caption" sx={{ fontWeight: 700, color: tokens.color.neutral[500], textTransform: 'uppercase', letterSpacing: '0.5px', fontSize: 10 }}>
+      <Typography
+        variant="caption"
+        sx={{
+          fontWeight: 700,
+          color: tokens.color.neutral[500],
+          textTransform: 'uppercase',
+          letterSpacing: '0.5px',
+          fontSize: 10,
+        }}
+      >
         Module Summary
       </Typography>
       <Stack gap={1} sx={{ mt: 1 }}>
@@ -397,36 +287,25 @@ export function RoleModuleSummary({ perms, isSystem }: RoleModuleSummaryProps) {
           )
         })}
       </Stack>
-      {isSystem && (
-        <MuiChip
-          label="System Role"
-          size="small"
-          sx={{
-            mt: 2,
-            bgcolor: tokens.color.neutral[100],
-            color: tokens.color.neutral[600],
-            fontSize: 11,
-            height: 22,
-            fontWeight: 600,
-          }}
-        />
-      )}
     </>
   )
 }
 
+/** @deprecated Use UserPermissionsSummary */
+export const RoleModuleSummary = UserPermissionsSummary
+
 export interface RolePermissionsPanelProps {
-  perms: RolePermissions
+  value: UserPermissions
   readOnly: boolean
   expandedModules: string[]
   onExpandChange: (modId: string, expanded: boolean) => void
-  onChange: (key: string, val: boolean | DataScope) => void
+  onChange: (next: UserPermissions) => void
   onExpandAll: () => void
   onCollapseAll: () => void
 }
 
 export function RolePermissionsPanel({
-  perms,
+  value,
   readOnly,
   expandedModules,
   onExpandChange,
@@ -456,21 +335,16 @@ export function RolePermissionsPanel({
         )}
       </Stack>
 
-      {readOnly && (
-        <Alert severity="warning" sx={{ mb: 2, fontSize: 13 }}>
-          Full System Access — Read Only. All permissions are granted for this role and cannot be modified.
-        </Alert>
-      )}
-
       {MODULE_DEFS.map((mod) => (
         <ModulePanel
           key={mod.id}
           mod={mod}
-          perms={perms}
+          perms={value}
           readOnly={readOnly}
           expanded={expandedModules.includes(mod.id)}
           onExpandChange={(val) => onExpandChange(mod.id, val)}
-          onChange={onChange}
+          onFullAccessChange={(modId, checked) => onChange(applyFullAccess(value, modId, checked))}
+          onCrudChange={(modId, action, val) => onChange(applyDependencies(value, modId, action, val))}
         />
       ))}
     </Paper>

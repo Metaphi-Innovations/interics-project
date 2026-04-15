@@ -53,16 +53,3 @@ export const deleteRole = createAsyncThunk(
     }
   }
 )
-
-export const cloneRole = createAsyncThunk(
-  'roles/clone',
-  async (id: string, { rejectWithValue }) => {
-    try {
-      const response = await rolesApi.clone(id)
-      return response.data as Role
-    } catch (err: unknown) {
-      const error = err as { response?: { data?: { message?: string } } }
-      return rejectWithValue(error.response?.data?.message ?? 'Failed to clone role')
-    }
-  }
-)

@@ -1,5 +1,6 @@
 import { createSlice } from '@reduxjs/toolkit'
 import type { PayloadAction } from '@reduxjs/toolkit'
+import type { UserPermissions } from '@/types/permissions'
 import {
   fetchUsers,
   createUser,
@@ -15,6 +16,7 @@ export interface User {
   phone?: string
   employeeId?: string
   role: string          // role ID reference (e.g. 'r-001')
+  permissions: UserPermissions
   projectAccess: 'all' | 'selected'
   assignedProjects: string[]
   status: 'active' | 'inactive'
@@ -117,4 +119,8 @@ const usersSlice = createSlice({
 
 export const { setFilters, resetFilters, setPage, setSortConfig, clearSelected, reset } =
   usersSlice.actions
+
+/** Alias for spec naming */
+export const setFilter = setFilters
+
 export default usersSlice.reducer

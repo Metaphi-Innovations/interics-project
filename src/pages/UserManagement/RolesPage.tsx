@@ -20,112 +20,24 @@ import {
   Button as MuiButton,
 } from '@mui/material'
 import { useTheme, alpha } from '@mui/material/styles'
-import { Edit, Delete, ContentCopy } from '@mui/icons-material'
+import { Edit, Delete } from '@mui/icons-material'
 import { ShieldCheck } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
-import { fetchRoles, deleteRole, cloneRole } from '@/slices/roles/thunk'
+import { fetchRoles, deleteRole } from '@/slices/roles/thunk'
 import { fetchUsers } from '@/slices/users/thunk'
 import type { Role } from '@/types/permissions'
 import { tokens } from '@/design-system/tokens'
-import { useToast } from '@/design-system/components'
+import { Button, useToast } from '@/design-system/components'
 import { usePermission } from '@/hooks/usePermission'
 import { UserManagementLayout } from './components/UserManagementLayout'
+import { RoleDrawer } from './components/RoleDrawer'
 
-type ModuleStatus = 'full' | 'partial' | 'none'
-
-const MODULES: {
-  key: string
-  label: string
-  permKeys: (keyof Role['permissions'])[]
-  hasDataScope: boolean
-}[] = [
-  {
-    key: 'projects',
-    label: 'Projects',
-    permKeys: [
-      'projects.view',
-      'projects.create',
-      'projects.edit',
-      'projects.delete',
-      'projects.assign',
-      'projects.approve',
-    ],
-    hasDataScope: true,
-  },
-  {
-    key: 'financial',
-    label: 'Financial',
-    permKeys: ['financial.view', 'financial.create', 'financial.edit', 'financial.delete', 'financial.approve'],
-    hasDataScope: true,
-  },
-  {
-    key: 'compliance',
-    label: 'Compliance',
-    permKeys: ['compliance.view', 'compliance.create', 'compliance.approve'],
-    hasDataScope: true,
-  },
-  {
-    key: 'users',
-    label: 'Users',
-    permKeys: [
-      'users.view',
-      'users.create',
-      'users.edit',
-      'users.delete',
-      'roles.view',
-      'roles.create',
-      'roles.edit',
-      'roles.delete',
-    ],
-    hasDataScope: false,
-  },
-  {
-    key: 'settings',
-    label: 'Settings',
-    permKeys: ['settings.manage'],
-    hasDataScope: false,
-  },
-]
-
-function getModuleStatus(role: Role, mod: (typeof MODULES)[number]): ModuleStatus {
-  const perms = role.permissions
-  const allTrue = mod.permKeys.every((k) => perms[k] === true)
-  const anyTrue = mod.permKeys.some((k) => perms[k] === true)
-  const scopeKey = `${mod.key}_dataScope` as keyof Role['permissions']
-  const scopeAll = !mod.hasDataScope || perms[scopeKey] === 'all'
-
-  if (allTrue && scopeAll) return 'full'
-  if (anyTrue) return 'partial'
-  return 'none'
-}
-
-function ModuleDot({ status, label }: { status: ModuleStatus; label: string }) {
-  const colors: Record<ModuleStatus, string> = {
-    full: tokens.color.success[500],
-    partial: tokens.color.warning[500],
-    none: tokens.color.neutral[300],
-  }
-  const tooltipText: Record<ModuleStatus, string> = {
-    full: 'Full Access',
-    partial: 'Partial Access',
-    none: 'No Access',
-  }
-  return (
-    <Tooltip title={`${label} — ${tooltipText[status]}`} placement="top">
-      <Box
-        component="span"
-        sx={{
-          width: 10,
-          height: 10,
-          borderRadius: '50%',
-          bgcolor: colors[status],
-          display: 'inline-block',
-          cursor: 'default',
-        }}
-      />
-    </Tooltip>
-  )
+const LEVEL_LABELS: Record<0 | 1 | 2 | 3, string> = {
+  0: 'Admin',
+  1: 'Power User',
+  2: 'Project User',
+  3: 'Viewer',
 }
 
 function DeleteRoleDialog({
@@ -173,16 +85,27 @@ const STATIC_CELL_SX = {
 export default function RolesPage() {
   const dispatch = useAppDispatch()
   const navigate = useNavigate()
+  const { pathname } = useLocation()
   const { items: roles, loading, saving } = useAppSelector((s) => s.roles)
   const { showToast } = useToast()
   const theme = useTheme()
   const hoverBg = alpha(theme.palette.primary.main, 0.04)
 
-  const canEdit = usePermission('roles.edit')
-  const canCreate = usePermission('roles.create')
-  const canDelete = usePermission('roles.delete')
+  const canEdit = usePermission('userManagement', 'edit')
+  const canCreate = usePermission('userManagement', 'create')
+  const canDelete = usePermission('userManagement', 'delete')
 
   const [deleteTarget, setDeleteTarget] = useState<Role | null>(null)
+
+  const isCreate = /\/user-management\/roles\/create\/?$/.test(pathname)
+  const editMatch = /\/user-management\/roles\/([^/]+)\/edit\/?$/.exec(pathname)
+  const editId = editMatch?.[1] ?? null
+  const drawerOpen = isCreate || Boolean(editId)
+  const drawerMode: 'create' | 'edit' | null = isCreate ? 'create' : editId ? 'edit' : null
+
+  function closeDrawer() {
+    navigate('/user-management/roles')
+  }
 
   useEffect(() => {
     dispatch(fetchRoles())
@@ -191,15 +114,6 @@ export default function RolesPage() {
 
   function handleEdit(role: Role) {
     navigate(`/user-management/roles/${role.id}/edit`)
-  }
-
-  function handleClone(role: Role) {
-    dispatch(cloneRole(role.id))
-      .unwrap()
-      .then((cloned) => {
-        showToast({ title: `Cloned as "${cloned.name}"`, variant: 'success' })
-      })
-      .catch(() => showToast({ title: 'Failed to clone role', variant: 'error' }))
   }
 
   function handleDeleteClick(role: Role) {
@@ -227,32 +141,26 @@ export default function RolesPage() {
 
   return (
     <>
-      <UserManagementLayout
-        endAdornment={
-          canCreate ? (
-            <MuiButton
-              variant="contained"
-              size="small"
-              onClick={() => navigate('/user-management/roles/create')}
-              sx={{ fontWeight: 600, fontSize: 13 }}
-            >
+      <UserManagementLayout>
+        <Stack direction="row" alignItems="flex-start" justifyContent="space-between" sx={{ mb: 3 }}>
+          <Stack direction="row" alignItems="center" gap={1}>
+            <Box sx={{ color: 'primary.main', display: 'flex' }}>
+              <ShieldCheck size={22} strokeWidth={1.75} />
+            </Box>
+            <Box>
+              <Typography variant="h5" fontWeight={700} sx={{ fontSize: 18 }}>
+                Roles
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Manage role labels and access levels
+              </Typography>
+            </Box>
+          </Stack>
+          {canCreate && (
+            <Button variant="contained" color="primary" size="sm" onClick={() => navigate('/user-management/roles/create')}>
               + Create Role
-            </MuiButton>
-          ) : undefined
-        }
-      >
-        <Stack direction="row" alignItems="center" gap={1} sx={{ mb: 2 }}>
-          <Box sx={{ color: 'primary.main', display: 'flex' }}>
-            <ShieldCheck size={22} strokeWidth={1.75} />
-          </Box>
-          <Box>
-            <Typography variant="h5" fontWeight={700} sx={{ fontSize: 18 }}>
-              Roles & Permissions
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              Define access for modules and data
-            </Typography>
-          </Box>
+            </Button>
+          )}
         </Stack>
 
         <Box
@@ -268,9 +176,9 @@ export default function RolesPage() {
               <TableHead>
                 <TableRow sx={{ bgcolor: alpha(theme.palette.text.primary, 0.02) }}>
                   <TableCell sx={{ ...STATIC_CELL_SX, minWidth: 200 }}>Role Name</TableCell>
+                  <TableCell sx={{ ...STATIC_CELL_SX, width: 140 }}>Level</TableCell>
                   <TableCell sx={{ ...STATIC_CELL_SX, width: 90 }}>Users</TableCell>
                   <TableCell sx={{ ...STATIC_CELL_SX, width: 100 }}>Type</TableCell>
-                  <TableCell sx={{ ...STATIC_CELL_SX, width: 160 }}>Module Access</TableCell>
                   <TableCell sx={{ ...STATIC_CELL_SX, width: 80, position: 'sticky', right: 0, bgcolor: 'background.paper' }}>
                     Actions
                   </TableCell>
@@ -309,10 +217,25 @@ export default function RolesPage() {
                           {role.name}
                         </Typography>
                         {role.description && (
-                          <Typography variant="caption" color="text.secondary">
+                          <Typography variant="caption" color="text.secondary" display="block">
                             {role.description}
                           </Typography>
                         )}
+                      </TableCell>
+
+                      <TableCell sx={{ py: 1.25, px: 1.75 }}>
+                        <MuiChip
+                          label={`${role.level} — ${LEVEL_LABELS[role.level]}`}
+                          size="small"
+                          sx={{
+                            bgcolor: tokens.color.neutral[100],
+                            color: tokens.color.neutral[700],
+                            fontSize: 11,
+                            height: 22,
+                            fontWeight: 600,
+                            '& .MuiChip-label': { px: 1 },
+                          }}
+                        />
                       </TableCell>
 
                       <TableCell sx={{ py: 1.25, px: 1.75 }}>
@@ -360,17 +283,17 @@ export default function RolesPage() {
                         )}
                       </TableCell>
 
-                      <TableCell sx={{ py: 1.25, px: 1.75 }}>
-                        <Stack direction="row" gap={1} alignItems="center">
-                          {MODULES.map((mod) => (
-                            <ModuleDot key={mod.key} status={getModuleStatus(role, mod)} label={mod.label} />
-                          ))}
-                        </Stack>
-                      </TableCell>
-
                       <TableCell sx={{ py: 1, px: 1, position: 'sticky', right: 0, bgcolor: 'background.paper' }}>
                         <Stack direction="row" alignItems="center" gap={0.25}>
-                          <Tooltip title={role.isSystem ? 'System roles cannot be edited' : canEdit ? 'Edit role' : 'No permission'}>
+                          <Tooltip
+                            title={
+                              role.isSystem
+                                ? 'System roles cannot be edited'
+                                : canEdit
+                                  ? 'Edit role'
+                                  : 'No permission'
+                            }
+                          >
                             <span>
                               <MuiIconButton
                                 size="small"
@@ -381,12 +304,6 @@ export default function RolesPage() {
                                 <Edit sx={{ fontSize: 15 }} />
                               </MuiIconButton>
                             </span>
-                          </Tooltip>
-
-                          <Tooltip title="Clone role">
-                            <MuiIconButton size="small" onClick={() => handleClone(role)} sx={{ color: 'text.secondary' }}>
-                              <ContentCopy sx={{ fontSize: 15 }} />
-                            </MuiIconButton>
                           </Tooltip>
 
                           {canDelete && (
@@ -420,6 +337,8 @@ export default function RolesPage() {
           </TableContainer>
         </Box>
       </UserManagementLayout>
+
+      <RoleDrawer open={drawerOpen} mode={drawerMode} roleId={editId} onClose={closeDrawer} />
 
       <DeleteRoleDialog
         open={Boolean(deleteTarget)}

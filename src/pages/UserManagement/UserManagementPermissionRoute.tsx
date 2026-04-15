@@ -1,14 +1,12 @@
 import type { JSX } from 'react'
 import { Navigate } from 'react-router-dom'
-import { useHasAnyPermission } from '@/hooks/usePermission'
-
-const KEYS = ['users.view', 'roles.view'] as const
+import { usePermission } from '@/hooks/usePermission'
 
 /**
- * Allows User Management when the user can view users or roles (Admin bypass in hook).
+ * Allows User Management when the user can view the User Management module.
  */
 export function UserManagementPermissionRoute({ children }: { children: JSX.Element }) {
-  const allowed = useHasAnyPermission([...KEYS])
+  const allowed = usePermission('userManagement', 'view')
   if (!allowed) {
     return <Navigate to="/dashboard" replace />
   }

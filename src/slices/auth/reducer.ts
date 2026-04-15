@@ -1,5 +1,6 @@
 import { createSlice } from '@reduxjs/toolkit'
 import type { PayloadAction } from '@reduxjs/toolkit'
+import type { UserPermissions } from '@/types/permissions'
 import { loginThunk, logoutThunk, fetchMeThunk } from './thunk'
 
 export interface AuthUser {
@@ -8,6 +9,8 @@ export interface AuthUser {
   email: string
   role: string
   avatar: string | null
+  /** Source of truth for UI permission checks (V2). */
+  permissions?: UserPermissions
 }
 
 interface AuthState {
