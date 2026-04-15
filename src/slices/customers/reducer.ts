@@ -8,11 +8,51 @@ import {
   deleteCustomer,
 } from './thunk'
 
+export interface Contact {
+  id: string
+  name: string
+  designation: string
+  phone: string
+  email: string
+  isPrimary: boolean
+}
+
+export type ActivityType =
+  | 'record_created'
+  | 'profile_edited'
+  | 'contact_added'
+  | 'contact_removed'
+  | 'primary_changed'
+  | 'document_uploaded'
+  | 'status_changed'
+
+export interface ActivityEntry {
+  id: string
+  type: ActivityType
+  description: string
+  user: string
+  timestamp: string
+}
+
+export interface CustomerFinancialDetails {
+  totalBilled: number
+  amountReceived: number
+  outstanding: number
+  tdsWithheld: number
+  activeProjects: number
+  completedProjects: number
+  totalProjectValue: number
+  lastInvoiceDate: string
+  paymentTerms: string
+  creditLimit: number | null
+  gstStatus: string
+}
+
 export interface Customer {
   id: string
   name: string
   type: 'Company' | 'Individual'
-  gstStatus: 'Registered' | 'Unregistered'
+  gstStatus: 'Registered' | 'Unregistered' | 'Composition' | 'SEZ'
   gstin: string | null
   pan: string | null
   contactPerson: string
@@ -29,6 +69,11 @@ export interface Customer {
   activeProjects: number
   totalReceivables: number
   createdAt: string
+  contacts?: Contact[]
+  gstDocument?: { name: string; url: string } | null
+  panDocument?: { name: string; url: string } | null
+  activityLog?: ActivityEntry[]
+  financialDetails?: CustomerFinancialDetails
 }
 
 interface Pagination {

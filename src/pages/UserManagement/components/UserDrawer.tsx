@@ -38,7 +38,6 @@ interface FormState {
   role: string
   projectAccess: 'all' | 'selected'
   assignedProjects: ProjectOption[]
-  status: 'active' | 'inactive'
 }
 
 const defaultForm: FormState = {
@@ -49,7 +48,6 @@ const defaultForm: FormState = {
   role: '',
   projectAccess: 'all',
   assignedProjects: [],
-  status: 'active',
 }
 
 function validateForm(form: FormState, allUsers: User[], editId?: string): Record<string, string> {
@@ -100,7 +98,6 @@ export function UserDrawer({ open, onClose, mode, user }: UserDrawerProps) {
         role: user.role,
         projectAccess: user.projectAccess,
         assignedProjects: assignedObjs,
-        status: user.status,
       })
     } else {
       setForm(defaultForm)
@@ -142,7 +139,7 @@ export function UserDrawer({ open, onClose, mode, user }: UserDrawerProps) {
       role: form.role,
       projectAccess: form.projectAccess,
       assignedProjects: form.projectAccess === 'selected' ? form.assignedProjects.map((p) => p.id) : [],
-      status: form.status,
+      status: mode === 'edit' && user ? user.status : 'active',
     }
 
     if (mode === 'add') {
@@ -347,24 +344,6 @@ export function UserDrawer({ open, onClose, mode, user }: UserDrawerProps) {
           </FormField>
         )}
       </FormSection>
-
-      {mode === 'edit' && (
-        <FormSection title="Account Status" columns={1}>
-          <FormField label="Status">
-            <TextField
-              select
-              size="small"
-              fullWidth
-              value={form.status}
-              onChange={(e) => handleChange('status', e.target.value as 'active' | 'inactive')}
-              inputProps={{ style: { fontSize: 13 } }}
-            >
-              <MenuItem value="active">Active</MenuItem>
-              <MenuItem value="inactive">Inactive</MenuItem>
-            </TextField>
-          </FormField>
-        </FormSection>
-      )}
     </DrawerForm>
   )
 }

@@ -1,5 +1,5 @@
 import { createAsyncThunk } from '@reduxjs/toolkit'
-import type { Invoice, VendorInvoice, Expense, ChangeRequest, ComplianceData } from './reducer'
+import type { Invoice, VendorMilestonePayment, Expense, ChangeRequest, ComplianceData } from './reducer'
 
 const BASE = '/api/projects'
 
@@ -43,9 +43,19 @@ export const updateInvoice = createAsyncThunk<
   return res.json() as Promise<Invoice>
 })
 
+export type RecordReceiptPayload = {
+  paidAmount: number
+  paidDate: string
+  receiptReference: string
+  paymentMode: string
+  receiptTdsRate: number
+  receiptTdsAmount: number
+  netReceived: number
+}
+
 export const recordReceipt = createAsyncThunk<
   Invoice,
-  { projectId: string; invoiceId: string; data: { paidAmount: number; paidDate: string; receiptReference: string; paymentMode: string } },
+  { projectId: string; invoiceId: string; data: RecordReceiptPayload },
   { rejectValue: string }
 >('live/recordReceipt', async ({ projectId, invoiceId, data }, { rejectWithValue }) => {
   const res = await fetch(`${BASE}/${projectId}/invoices/${invoiceId}/status`, {
@@ -60,18 +70,18 @@ export const recordReceipt = createAsyncThunk<
 // ─── Vendor Invoices ──────────────────────────────────────────────────────────
 
 export const fetchVendorInvoices = createAsyncThunk<
-  VendorInvoice[],
+  VendorMilestonePayment[],
   string,
   { rejectValue: string }
 >('live/fetchVendorInvoices', async (projectId, { rejectWithValue }) => {
   const res = await fetch(`${BASE}/${projectId}/vendor-invoices`)
   if (!res.ok) return rejectWithValue('Failed to fetch vendor invoices')
-  return res.json() as Promise<VendorInvoice[]>
+  return res.json() as Promise<VendorMilestonePayment[]>
 })
 
 export const createVendorInvoice = createAsyncThunk<
-  VendorInvoice,
-  { projectId: string; data: Omit<VendorInvoice, 'id' | 'projectId'> },
+  VendorMilestonePayment,
+  { projectId: string; data: Omit<VendorMilestonePayment, 'id' | 'projectId'> },
   { rejectValue: string }
 >('live/createVendorInvoice', async ({ projectId, data }, { rejectWithValue }) => {
   const res = await fetch(`${BASE}/${projectId}/vendor-invoices`, {
@@ -80,21 +90,45 @@ export const createVendorInvoice = createAsyncThunk<
     body: JSON.stringify(data),
   })
   if (!res.ok) return rejectWithValue('Failed to create vendor invoice')
-  return res.json() as Promise<VendorInvoice>
+  return res.json() as Promise<VendorMilestonePayment>
 })
 
+export const updateVendorMilestonePayment = createAsyncThunk<
+  VendorMilestonePayment,
+  { projectId: string; id: string; data: Partial<VendorMilestonePayment> },
+  { rejectValue: string }
+>('live/updateVendorMilestonePayment', async ({ projectId, id, data }, { rejectWithValue }) => {
+  const res = await fetch(`${BASE}/${projectId}/vendor-invoices/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) return rejectWithValue('Failed to update vendor milestone payment')
+  return res.json() as Promise<VendorMilestonePayment>
+})
+
+export type PayVendorMilestonePayload = {
+  paidAmount: number
+  paidDate: string
+  paymentMode: string
+  referenceNumber: string
+  tdsPercent: number
+  tdsAmount: number
+  netPayable: number
+}
+
 export const payVendorInvoice = createAsyncThunk<
-  VendorInvoice,
-  { projectId: string; id: string; data: { paidAmount: number; paidDate: string; paymentReference: string; paymentMode: string } },
+  VendorMilestonePayment,
+  { projectId: string; id: string; data: PayVendorMilestonePayload },
   { rejectValue: string }
 >('live/payVendorInvoice', async ({ projectId, id, data }, { rejectWithValue }) => {
   const res = await fetch(`${BASE}/${projectId}/vendor-invoices/${id}/pay`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
+    body: JSON.stringify({ status: 'Paid', ...data }),
   })
   if (!res.ok) return rejectWithValue('Failed to pay vendor invoice')
-  return res.json() as Promise<VendorInvoice>
+  return res.json() as Promise<VendorMilestonePayment>
 })
 
 // ─── Expenses ─────────────────────────────────────────────────────────────────

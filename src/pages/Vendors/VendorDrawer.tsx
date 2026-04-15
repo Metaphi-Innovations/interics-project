@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react'
-import { Box, TextField, MenuItem, Autocomplete, Chip as MuiChip } from '@mui/material'
+import { useState, useEffect, useRef } from 'react'
+import { Box, Stack, TextField, MenuItem, Autocomplete, Chip as MuiChip, Typography } from '@mui/material'
 import { DrawerForm, FormSection, FormField } from '../../components/templates'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { createVendor, updateVendor } from '../../slices/vendors/thunk'
-import { useToast } from '@/design-system/components'
+import { useToast, Button } from '@/design-system/components'
 import type { Vendor } from '../../slices/vendors/reducer'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -108,9 +108,15 @@ export function VendorDrawer({ open, onClose, mode, vendor }: VendorDrawerProps)
 
   const [form, setForm] = useState<FormState>(defaultForm)
   const [errors, setErrors] = useState<Record<string, string>>({})
+  const [gstCertFile, setGstCertFile] = useState<File | null>(null)
+  const [panDocFile, setPanDocFile] = useState<File | null>(null)
+  const gstFileInputRef = useRef<HTMLInputElement>(null)
+  const panFileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (open) {
+      setGstCertFile(null)
+      setPanDocFile(null)
       if (vendor && mode === 'edit') {
         setForm({
           name: vendor.name,
@@ -146,12 +152,28 @@ export function VendorDrawer({ open, onClose, mode, vendor }: VendorDrawerProps)
     setErrors(errs)
     if (Object.keys(errs).length > 0) return
 
+    const gstDocument =
+      gstCertFile !== null
+        ? { name: gstCertFile.name, url: URL.createObjectURL(gstCertFile) }
+        : mode === 'edit'
+          ? (vendor?.gstDocument ?? null)
+          : null
+
+    const panDocument =
+      panDocFile !== null
+        ? { name: panDocFile.name, url: URL.createObjectURL(panDocFile) }
+        : mode === 'edit'
+          ? (vendor?.panDocument ?? null)
+          : null
+
     const payload = {
       name: form.name.trim(),
       type: form.type as 'Measurable' | 'Non-measurable',
       gstStatus: form.gstStatus,
       gstin: form.gstStatus === 'Registered' ? form.gstin.trim() : null,
       pan: form.pan.trim() || null,
+      gstDocument,
+      panDocument,
       contactPerson: form.contactPerson.trim(),
       designation: form.designation.trim() || null,
       phone: form.phone.trim(),
@@ -219,7 +241,10 @@ export function VendorDrawer({ open, onClose, mode, vendor }: VendorDrawerProps)
             <MenuItem value="Non-measurable">Non-measurable</MenuItem>
           </TextField>
         </FormField>
+      </FormSection>
 
+      {/* ── Tax & Compliance ─────────────────────────────────────────── */}
+      <FormSection title="Tax & Compliance" columns={2}>
         <FormField label="GST Status">
           <TextField
             fullWidth
@@ -254,6 +279,38 @@ export function VendorDrawer({ open, onClose, mode, vendor }: VendorDrawerProps)
           />
         </FormField>
 
+        <Box sx={{ gridColumn: 'span 2' }}>
+          <FormField label="Upload GST Certificate" hint="PDF or image (optional)">
+            <Stack direction="row" alignItems="center" gap={2} flexWrap="wrap">
+              <input
+                ref={gstFileInputRef}
+                type="file"
+                accept=".pdf,application/pdf,image/*"
+                hidden
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  if (file) setGstCertFile(file)
+                  e.target.value = ''
+                }}
+              />
+              <Button
+                type="button"
+                variant="outlined"
+                color="secondary"
+                size="sm"
+                onClick={() => gstFileInputRef.current?.click()}
+              >
+                {gstCertFile || (mode === 'edit' && vendor?.gstDocument) ? 'Replace' : 'Upload'}
+              </Button>
+              {(gstCertFile?.name ?? (mode === 'edit' ? vendor?.gstDocument?.name : undefined)) && (
+                <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12 }}>
+                  {gstCertFile?.name ?? vendor?.gstDocument?.name}
+                </Typography>
+              )}
+            </Stack>
+          </FormField>
+        </Box>
+
         <FormField label="PAN Number" hint="10-character PAN">
           <TextField
             fullWidth
@@ -263,6 +320,38 @@ export function VendorDrawer({ open, onClose, mode, vendor }: VendorDrawerProps)
             placeholder="ABCDE1234F"
           />
         </FormField>
+
+        <Box sx={{ gridColumn: 'span 2' }}>
+          <FormField label="Upload PAN Document" hint="PDF or image (optional)">
+            <Stack direction="row" alignItems="center" gap={2} flexWrap="wrap">
+              <input
+                ref={panFileInputRef}
+                type="file"
+                accept=".pdf,application/pdf,image/*"
+                hidden
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  if (file) setPanDocFile(file)
+                  e.target.value = ''
+                }}
+              />
+              <Button
+                type="button"
+                variant="outlined"
+                color="secondary"
+                size="sm"
+                onClick={() => panFileInputRef.current?.click()}
+              >
+                {panDocFile || (mode === 'edit' && vendor?.panDocument) ? 'Replace' : 'Upload'}
+              </Button>
+              {(panDocFile?.name ?? (mode === 'edit' ? vendor?.panDocument?.name : undefined)) && (
+                <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12 }}>
+                  {panDocFile?.name ?? vendor?.panDocument?.name}
+                </Typography>
+              )}
+            </Stack>
+          </FormField>
+        </Box>
       </FormSection>
 
       {/* ── Contact Details ──────────────────────────────────────────── */}

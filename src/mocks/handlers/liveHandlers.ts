@@ -1,5 +1,5 @@
 import { http, HttpResponse } from 'msw'
-import type { Invoice, VendorInvoice, Expense, ChangeRequest } from '../../slices/live/reducer'
+import type { Invoice, VendorMilestonePayment, Expense, ChangeRequest } from '../../slices/live/reducer'
 
 // ─── Seed data ────────────────────────────────────────────────────────────────
 
@@ -18,14 +18,15 @@ let invoices: Invoice[] = [
     amount: 300000,
     gstRate: 18,
     gstAmount: 54000,
-    tdsRate: 10,
-    tdsAmount: 30000,
     grossAmount: 354000,
-    netReceivable: 324000,
+    netReceivable: 354000,
     status: 'Paid',
     paidAmount: 324000,
     paidDate: '2025-11-28',
     receiptReference: 'NEFT-20251128-001',
+    paymentMode: 'NEFT',
+    receiptTdsRate: 10,
+    receiptTdsAmount: 30000,
   },
   {
     id: 'inv-002',
@@ -40,14 +41,15 @@ let invoices: Invoice[] = [
     amount: 600000,
     gstRate: 18,
     gstAmount: 108000,
-    tdsRate: 10,
-    tdsAmount: 60000,
     grossAmount: 708000,
-    netReceivable: 648000,
+    netReceivable: 708000,
     status: 'Sent',
     paidAmount: 0,
     paidDate: null,
     receiptReference: null,
+    paymentMode: null,
+    receiptTdsRate: null,
+    receiptTdsAmount: 0,
   },
   {
     id: 'inv-003',
@@ -62,14 +64,15 @@ let invoices: Invoice[] = [
     amount: 500000,
     gstRate: 18,
     gstAmount: 90000,
-    tdsRate: 10,
-    tdsAmount: 50000,
     grossAmount: 590000,
-    netReceivable: 540000,
+    netReceivable: 590000,
     status: 'Overdue',
     paidAmount: 0,
     paidDate: null,
     receiptReference: null,
+    paymentMode: null,
+    receiptTdsRate: null,
+    receiptTdsAmount: 0,
   },
   {
     id: 'inv-004',
@@ -84,14 +87,15 @@ let invoices: Invoice[] = [
     amount: 420000,
     gstRate: 18,
     gstAmount: 75600,
-    tdsRate: 10,
-    tdsAmount: 42000,
     grossAmount: 495600,
-    netReceivable: 453600,
+    netReceivable: 495600,
     status: 'Paid',
     paidAmount: 453600,
     paidDate: '2026-02-01',
     receiptReference: 'NEFT-20260201-002',
+    paymentMode: 'NEFT',
+    receiptTdsRate: 10,
+    receiptTdsAmount: 42000,
   },
   {
     id: 'inv-005',
@@ -106,14 +110,15 @@ let invoices: Invoice[] = [
     amount: 280000,
     gstRate: 18,
     gstAmount: 50400,
-    tdsRate: 10,
-    tdsAmount: 28000,
     grossAmount: 330400,
-    netReceivable: 302400,
-    status: 'Sent',
+    netReceivable: 330400,
+    status: 'Generated',
     paidAmount: 0,
     paidDate: null,
     receiptReference: null,
+    paymentMode: null,
+    receiptTdsRate: null,
+    receiptTdsAmount: 0,
   },
   {
     id: 'inv-006',
@@ -128,150 +133,94 @@ let invoices: Invoice[] = [
     amount: 195000,
     gstRate: 18,
     gstAmount: 35100,
-    tdsRate: 10,
-    tdsAmount: 19500,
     grossAmount: 230100,
-    netReceivable: 210600,
+    netReceivable: 230100,
     status: 'Paid',
     paidAmount: 210600,
     paidDate: '2025-12-20',
     receiptReference: 'UPI-20251220-004',
+    paymentMode: 'UPI',
+    receiptTdsRate: 10,
+    receiptTdsAmount: 19500,
   },
 ]
 
-let vendorInvoices: VendorInvoice[] = [
+/** Live vendor milestone payments: p-001 has 2 pending + 1 uploaded + 1 paid per product spec. */
+let vendorInvoices: VendorMilestonePayment[] = [
   {
-    id: 'vi-001',
+    id: 'vi-p01-1',
     projectId: 'p-001',
     vendorPOId: 'vpo-001',
     vendorId: 'v-001',
     vendorName: 'BuildWell Constructions',
-    invoiceNumber: 'BWC-INV-001',
-    invoiceDate: '2025-11-25',
-    milestoneId: 'vml-001',
+    serviceId: 'svc-civil',
+    serviceName: 'Civil Works',
+    milestoneId: 'vml-p01-a',
     milestoneName: 'Advance',
     amount: 270000,
-    tdsRate: 2,
-    tdsAmount: 5400,
-    netPayable: 264600,
-    status: 'Paid',
-    paidAmount: 264600,
-    paidDate: '2025-12-02',
-    paymentReference: 'NEFT-20251202-001',
+    status: 'PendingInvoice',
+    paidAmount: 0,
+    paidDate: null,
   },
   {
-    id: 'vi-002',
+    id: 'vi-p01-2',
+    projectId: 'p-001',
+    vendorPOId: 'vpo-001',
+    vendorId: 'v-004',
+    vendorName: 'FloorMaster Pvt Ltd',
+    serviceId: 'svc-floor',
+    serviceName: 'Flooring',
+    milestoneId: 'vml-p01-b',
+    milestoneName: 'Supply & fix',
+    amount: 180000,
+    status: 'PendingInvoice',
+    paidAmount: 0,
+    paidDate: null,
+  },
+  {
+    id: 'vi-p01-3',
     projectId: 'p-001',
     vendorPOId: 'vpo-001',
     vendorId: 'v-001',
     vendorName: 'BuildWell Constructions',
-    invoiceNumber: 'BWC-INV-002',
-    invoiceDate: '2026-04-01',
-    milestoneId: 'vml-002',
+    serviceId: 'svc-civil',
+    serviceName: 'Civil Works',
+    milestoneId: 'vml-p01-c',
     milestoneName: 'Midpoint',
     amount: 630000,
-    tdsRate: 2,
-    tdsAmount: 12600,
-    netPayable: 617400,
-    status: 'Pending',
+    status: 'InvoiceUploaded',
+    invoiceNumber: 'BWC-INV-UP-003',
+    invoiceDate: '2026-04-01',
+    invoiceAmount: 630000,
+    dueDate: '2026-05-01',
+    attachmentUrl: null,
     paidAmount: 0,
     paidDate: null,
-    paymentReference: null,
   },
   {
-    id: 'vi-003',
-    projectId: 'p-002',
-    vendorPOId: 'vpo-102',
-    vendorId: 'v-001',
-    vendorName: 'BuildWell Constructions',
-    invoiceNumber: 'BWC-INV-HYD-001',
-    invoiceDate: '2026-03-05',
-    milestoneId: 'vml-101',
-    milestoneName: 'Mobilization',
-    amount: 185000,
-    tdsRate: 2,
-    tdsAmount: 3700,
-    netPayable: 181300,
-    status: 'Paid',
-    paidAmount: 181300,
-    paidDate: '2026-03-12',
-    paymentReference: 'NEFT-20260312-002',
-  },
-  {
-    id: 'vi-004',
-    projectId: 'p-002',
-    vendorPOId: 'vpo-102',
-    vendorId: 'v-004',
-    vendorName: 'FloorMaster Pvt Ltd',
-    invoiceNumber: 'FM-HYD-042',
-    invoiceDate: '2026-04-08',
-    milestoneId: 'vml-102',
-    milestoneName: 'Flooring supply',
-    amount: 92000,
-    tdsRate: 2,
-    tdsAmount: 1840,
-    netPayable: 90160,
-    status: 'Pending',
-    paidAmount: 0,
-    paidDate: null,
-    paymentReference: null,
-  },
-  {
-    id: 'vi-005',
-    projectId: 'p-004',
-    vendorPOId: 'vpo-401',
+    id: 'vi-p01-4',
+    projectId: 'p-001',
+    vendorPOId: 'vpo-001',
     vendorId: 'v-002',
     vendorName: 'Chennai Fitouts Co',
-    invoiceNumber: 'CFC-MAA-118',
-    invoiceDate: '2026-01-18',
-    milestoneId: 'vml-401',
+    serviceId: 'svc-fit',
+    serviceName: 'Fit-out',
+    milestoneId: 'vml-p01-d',
     milestoneName: 'Materials',
     amount: 142000,
-    tdsRate: 2,
-    tdsAmount: 2840,
-    netPayable: 139160,
     status: 'Paid',
-    paidAmount: 139160,
+    invoiceNumber: 'CFC-MAA-118',
+    invoiceDate: '2026-01-18',
+    invoiceAmount: 142000,
+    dueDate: '2026-02-17',
+    tdsPercent: 10,
+    tdsAmount: 14200,
+    netPayable: 127800,
+    paymentDate: '2026-01-25',
+    paymentMode: 'Bank Transfer',
+    referenceNumber: 'NEFT-20260125-004',
+    paidAmount: 127800,
     paidDate: '2026-01-25',
-    paymentReference: 'NEFT-20260125-004',
-  },
-  {
-    id: 'vi-006',
-    projectId: 'p-004',
-    vendorPOId: 'vpo-401',
-    vendorId: 'v-002',
-    vendorName: 'Chennai Fitouts Co',
-    invoiceNumber: 'CFC-MAA-119',
-    invoiceDate: '2026-04-02',
-    milestoneId: 'vml-402',
-    milestoneName: 'Fixtures',
-    amount: 88000,
-    tdsRate: 2,
-    tdsAmount: 1760,
-    netPayable: 86240,
-    status: 'On Hold',
-    paidAmount: 0,
-    paidDate: null,
-    paymentReference: null,
-  },
-  {
-    id: 'vi-007',
-    projectId: 'p-006',
-    vendorPOId: 'vpo-601',
-    vendorId: 'v-003',
-    vendorName: 'Mumbai Glassworks',
-    invoiceNumber: 'MGW-BOM-009',
-    invoiceDate: '2026-03-28',
-    milestoneId: 'vml-601',
-    milestoneName: 'Glazing',
-    amount: 310000,
-    tdsRate: 2,
-    tdsAmount: 6200,
-    netPayable: 303800,
-    status: 'Pending',
-    paidAmount: 0,
-    paidDate: null,
-    paymentReference: null,
   },
 ]
 
@@ -438,7 +387,7 @@ let changeRequests: ChangeRequest[] = [
 ]
 
 let invCounter = 7
-let viCounter = 8
+let viCounter = 5
 let expCounter = 7
 let crCounter = 5
 
@@ -493,8 +442,8 @@ export const liveHandlers = [
   // POST /api/projects/:id/vendor-invoices
   http.post('/api/projects/:id/vendor-invoices', async ({ params, request }) => {
     const id = params.id as string
-    const body = await request.json() as Omit<VendorInvoice, 'id' | 'projectId'>
-    const newVI: VendorInvoice = {
+    const body = await request.json() as Omit<VendorMilestonePayment, 'id' | 'projectId'>
+    const newVI: VendorMilestonePayment = {
       id: `vi-${String(viCounter++).padStart(3, '0')}`,
       projectId: id,
       ...body,
@@ -503,13 +452,36 @@ export const liveHandlers = [
     return HttpResponse.json(newVI, { status: 201 })
   }),
 
+  // PATCH /api/projects/:id/vendor-invoices/:viId
+  http.patch('/api/projects/:id/vendor-invoices/:viId', async ({ params, request }) => {
+    const viId = params.viId as string
+    const idx = vendorInvoices.findIndex((v) => v.id === viId)
+    if (idx === -1) return HttpResponse.json({ message: 'Not found' }, { status: 404 })
+    const body = await request.json() as Partial<VendorMilestonePayment>
+    vendorInvoices[idx] = { ...vendorInvoices[idx], ...body }
+    return HttpResponse.json(vendorInvoices[idx])
+  }),
+
   // PATCH /api/projects/:id/vendor-invoices/:viId/pay
   http.patch('/api/projects/:id/vendor-invoices/:viId/pay', async ({ params, request }) => {
     const viId = params.viId as string
     const idx = vendorInvoices.findIndex((v) => v.id === viId)
     if (idx === -1) return HttpResponse.json({ message: 'Not found' }, { status: 404 })
-    const body = await request.json() as Partial<VendorInvoice>
-    vendorInvoices[idx] = { ...vendorInvoices[idx], ...body, status: 'Paid' }
+    const body = await request.json() as Partial<VendorMilestonePayment>
+    const prev = vendorInvoices[idx]
+    vendorInvoices[idx] = {
+      ...prev,
+      ...body,
+      status: 'Paid',
+      paymentDate: body.paidDate ?? prev.paymentDate,
+      referenceNumber: body.referenceNumber ?? prev.referenceNumber,
+      tdsPercent: body.tdsPercent ?? prev.tdsPercent,
+      tdsAmount: body.tdsAmount ?? prev.tdsAmount,
+      netPayable: body.netPayable ?? prev.netPayable,
+      paidAmount: body.paidAmount ?? prev.paidAmount,
+      paidDate: body.paidDate ?? prev.paidDate,
+      paymentMode: body.paymentMode ?? prev.paymentMode,
+    }
     return HttpResponse.json(vendorInvoices[idx])
   }),
 

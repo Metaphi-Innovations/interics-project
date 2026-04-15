@@ -47,7 +47,9 @@ export default function LiveTab({ project }: LiveTabProps) {
   }, [dispatch, project.id])
 
   const billingBadge = invoices.filter((i) => i.status === 'Sent' || i.status === 'Overdue').length
-  const paymentsBadge = vendorInvoices.filter((v) => v.status === 'Pending').length
+  const paymentsBadge = vendorInvoices.filter(
+    (v) => v.projectId === project.id && (v.status === 'PendingInvoice' || v.status === 'InvoiceUploaded'),
+  ).length
   const expensesBadge = expenses.filter((e) => e.status === 'Pending').length
   const complianceBadge = changeRequests.filter((c) => c.status === 'Pending Approval').length
 
@@ -140,7 +142,9 @@ export default function LiveTab({ project }: LiveTabProps) {
 
       {/* Sub-tab content */}
       {activeSubTab === 'billing' && <BillingTab projectId={project.id} />}
-      {activeSubTab === 'payments' && <PaymentsTab projectId={project.id} />}
+      {activeSubTab === 'payments' && (
+        <PaymentsTab projectId={project.id} totalVendorPOValue={project.totalVendorPOValue} />
+      )}
       {activeSubTab === 'expenses' && <ExpensesTab projectId={project.id} />}
       {activeSubTab === 'compliance' && <ComplianceTab projectId={project.id} />}
     </Box>

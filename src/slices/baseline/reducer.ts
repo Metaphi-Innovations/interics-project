@@ -19,11 +19,10 @@ export interface ClientPO {
   id: string
   projectId: string
   poNumber: string
-  poDate: string
+  startDate: string
+  endDate: string
   poValue: number
   documentUrl: string | null
-  status: 'Pending' | 'Active'
-  isPrimary: boolean
 }
 
 export interface ClientMilestone {
@@ -31,7 +30,6 @@ export interface ClientMilestone {
   name: string
   percentage: number
   value: number
-  dueDate: string | null
 }
 
 export interface VendorMapping {
@@ -92,7 +90,6 @@ export interface VendorPO {
   poNumber: string
   poDate: string
   poValue: number
-  status: 'Draft' | 'Issued' | 'Active'
   milestones: VendorMilestone[]
 }
 

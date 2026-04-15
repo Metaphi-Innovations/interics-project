@@ -517,13 +517,8 @@ function ConfirmDeleteDialog({ customer, onConfirm, onClose }: ConfirmDeleteProp
       size="xs"
       footer={
         <Stack direction="row" justifyContent="flex-end" gap={1}>
-          <Button variant="secondary" size="sm" onClick={onClose}>Cancel</Button>
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={onConfirm}
-            sx={{ bgcolor: 'error.main', '&:hover': { bgcolor: 'error.dark' } }}
-          >
+          <Button variant="outlined" color="secondary" size="sm" onClick={onClose}>Cancel</Button>
+          <Button variant="contained" color="error" size="sm" onClick={onConfirm}>
             Delete
           </Button>
         </Stack>
@@ -679,6 +674,8 @@ export default function CustomersPage() {
         { label: 'All', value: '' },
         { label: 'Registered', value: 'Registered' },
         { label: 'Unregistered', value: 'Unregistered' },
+        { label: 'Composition', value: 'Composition' },
+        { label: 'SEZ', value: 'SEZ' },
       ],
     },
     {

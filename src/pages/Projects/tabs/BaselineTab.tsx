@@ -27,7 +27,6 @@ import {
   DialogActions,
 } from '@mui/material'
 import {
-  Assignment,
   Lock,
   LockOutlined,
   Upload,
@@ -74,74 +73,6 @@ import { useToast } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { formatCurrency, formatDate, getInitials, getAvatarColor } from '../../../utils/formatters'
 
-// ─── Step Indicator ───────────────────────────────────────────────────────────
-
-interface StepIndicatorProps {
-  currentStep: number
-}
-
-function StepIndicator({ currentStep }: StepIndicatorProps) {
-  const steps = ['Upload Client PO', 'Align & Map', 'Create Baseline']
-  return (
-    <Stack direction="row" alignItems="center" gap={0} sx={{ mb: 4 }}>
-      {steps.map((label, idx) => {
-        const stepNum = idx + 1
-        const isActive = stepNum === currentStep
-        const isComplete = stepNum < currentStep
-        return (
-          <Stack key={label} direction="row" alignItems="center" sx={{ flex: 1 }}>
-            <Stack alignItems="center" gap={0.5} sx={{ flex: 1 }}>
-              <Box
-                sx={{
-                  width: 28,
-                  height: 28,
-                  borderRadius: '50%',
-                  bgcolor: isComplete
-                    ? 'success.main'
-                    : isActive
-                    ? 'primary.main'
-                    : tokens.color.neutral[200],
-                  color: isActive || isComplete ? 'white' : tokens.color.neutral[500],
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: 12,
-                  fontWeight: 700,
-                }}
-              >
-                {isComplete ? <CheckCircle sx={{ fontSize: 16 }} /> : stepNum}
-              </Box>
-              <Typography
-                variant="caption"
-                sx={{
-                  fontSize: 11,
-                  fontWeight: isActive ? 600 : 400,
-                  color: isActive ? 'primary.main' : 'text.secondary',
-                  textAlign: 'center',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {label}
-              </Typography>
-            </Stack>
-            {idx < steps.length - 1 && (
-              <Box
-                sx={{
-                  height: 1,
-                  width: 40,
-                  bgcolor: tokens.color.neutral[200],
-                  flexShrink: 0,
-                  mb: 2,
-                }}
-              />
-            )}
-          </Stack>
-        )
-      })}
-    </Stack>
-  )
-}
-
 // ─── Upload PO Drawer ─────────────────────────────────────────────────────────
 
 interface UploadPODrawerProps {
@@ -149,24 +80,22 @@ interface UploadPODrawerProps {
   onClose: () => void
   projectId: string
   saving: boolean
-  existingPOCount: number
 }
 
-function UploadPODrawer({ open, onClose, projectId, saving, existingPOCount }: UploadPODrawerProps) {
+function UploadPODrawer({ open, onClose, projectId, saving }: UploadPODrawerProps) {
   const dispatch = useAppDispatch()
   const toast = useToast()
   const [poFormData, setPoFormData] = useState({
     poNumber: '',
-    poDate: '',
+    startDate: '',
+    endDate: '',
     poValue: '',
-    status: 'Active',
-    isPrimary: false,
     file: null as File | null,
   })
 
   useEffect(() => {
     if (!open) {
-      setPoFormData({ poNumber: '', poDate: '', poValue: '', status: 'Active', isPrimary: false, file: null })
+      setPoFormData({ poNumber: '', startDate: '', endDate: '', poValue: '', file: null })
     }
   }, [open])
 
@@ -176,7 +105,7 @@ function UploadPODrawer({ open, onClose, projectId, saving, existingPOCount }: U
     }
 
   async function handleSubmit() {
-    if (!poFormData.poNumber || !poFormData.poDate || !poFormData.poValue) {
+    if (!poFormData.poNumber || !poFormData.startDate || !poFormData.endDate || !poFormData.poValue) {
       toast.error('Please fill in all required fields')
       return
     }
@@ -186,11 +115,10 @@ function UploadPODrawer({ open, onClose, projectId, saving, existingPOCount }: U
           projectId,
           data: {
             poNumber: poFormData.poNumber,
-            poDate: poFormData.poDate,
+            startDate: poFormData.startDate,
+            endDate: poFormData.endDate,
             poValue: Number(poFormData.poValue),
             documentUrl: null,
-            status: poFormData.status as 'Active' | 'Pending',
-            isPrimary: existingPOCount === 0 ? true : poFormData.isPrimary,
           },
         })
       ).unwrap()
@@ -221,13 +149,22 @@ function UploadPODrawer({ open, onClose, projectId, saving, existingPOCount }: U
             placeholder="PO-CLI-2024-001"
           />
         </FormField>
-        <FormField label="PO Date" required>
+        <FormField label="Start date" required>
           <TextField
             fullWidth
             size="small"
             type="date"
-            value={poFormData.poDate}
-            onChange={handlePoChange('poDate')}
+            value={poFormData.startDate}
+            onChange={handlePoChange('startDate')}
+          />
+        </FormField>
+        <FormField label="End date" required>
+          <TextField
+            fullWidth
+            size="small"
+            type="date"
+            value={poFormData.endDate}
+            onChange={handlePoChange('endDate')}
           />
         </FormField>
         <FormField label="PO Value (₹)" required>
@@ -239,18 +176,6 @@ function UploadPODrawer({ open, onClose, projectId, saving, existingPOCount }: U
             onChange={handlePoChange('poValue')}
             placeholder="0"
           />
-        </FormField>
-        <FormField label="Status">
-          <MuiSelect
-            value={poFormData.status}
-            onChange={(e) => setPoFormData(prev => ({ ...prev, status: e.target.value }))}
-            size="small"
-            fullWidth
-            sx={{ fontSize: 12 }}
-          >
-            <MenuItem value="Active" sx={{ fontSize: 12 }}>Active</MenuItem>
-            <MenuItem value="Pending" sx={{ fontSize: 12 }}>Pending</MenuItem>
-          </MuiSelect>
         </FormField>
       </FormSection>
 
@@ -302,26 +227,24 @@ function EditPODrawer({ open, onClose, projectId, po, saving }: EditPODrawerProp
   const toast = useToast()
   const [form, setForm] = useState({
     poNumber: '',
-    poDate: '',
+    startDate: '',
+    endDate: '',
     poValue: '',
-    status: 'Active',
-    isPrimary: false,
   })
 
   useEffect(() => {
     if (po && open) {
       setForm({
         poNumber: po.poNumber,
-        poDate: po.poDate,
+        startDate: po.startDate,
+        endDate: po.endDate,
         poValue: String(po.poValue),
-        status: po.status,
-        isPrimary: po.isPrimary,
       })
     }
   }, [po, open])
 
   async function handleSubmit() {
-    if (!po || !form.poNumber || !form.poDate || !form.poValue) {
+    if (!po || !form.poNumber || !form.startDate || !form.endDate || !form.poValue) {
       toast.error('Please fill in all required fields')
       return
     }
@@ -332,10 +255,9 @@ function EditPODrawer({ open, onClose, projectId, po, saving }: EditPODrawerProp
           poId: po.id,
           data: {
             poNumber: form.poNumber,
-            poDate: form.poDate,
+            startDate: form.startDate,
+            endDate: form.endDate,
             poValue: Number(form.poValue),
-            status: form.status as 'Active' | 'Pending',
-            isPrimary: form.isPrimary,
           },
         })
       ).unwrap()
@@ -366,13 +288,22 @@ function EditPODrawer({ open, onClose, projectId, po, saving }: EditPODrawerProp
             placeholder="PO-CLI-2024-001"
           />
         </FormField>
-        <FormField label="PO Date" required>
+        <FormField label="Start date" required>
           <TextField
             fullWidth
             size="small"
             type="date"
-            value={form.poDate}
-            onChange={(e) => setForm(p => ({ ...p, poDate: e.target.value }))}
+            value={form.startDate}
+            onChange={(e) => setForm(p => ({ ...p, startDate: e.target.value }))}
+          />
+        </FormField>
+        <FormField label="End date" required>
+          <TextField
+            fullWidth
+            size="small"
+            type="date"
+            value={form.endDate}
+            onChange={(e) => setForm(p => ({ ...p, endDate: e.target.value }))}
           />
         </FormField>
         <FormField label="PO Value (₹)" required>
@@ -384,18 +315,6 @@ function EditPODrawer({ open, onClose, projectId, po, saving }: EditPODrawerProp
             onChange={(e) => setForm(p => ({ ...p, poValue: e.target.value }))}
             placeholder="0"
           />
-        </FormField>
-        <FormField label="Status">
-          <MuiSelect
-            value={form.status}
-            onChange={(e) => setForm(p => ({ ...p, status: e.target.value }))}
-            size="small"
-            fullWidth
-            sx={{ fontSize: 12 }}
-          >
-            <MenuItem value="Active" sx={{ fontSize: 12 }}>Active</MenuItem>
-            <MenuItem value="Pending" sx={{ fontSize: 12 }}>Pending</MenuItem>
-          </MuiSelect>
         </FormField>
       </FormSection>
     </DrawerForm>
@@ -463,7 +382,6 @@ interface POListSectionProps {
 }
 
 function POListSection({ clientPOs, onAddPO, onEditPO, onDeletePO }: POListSectionProps) {
-  const theme = useTheme()
   const totalPOValue = clientPOs.reduce((sum, po) => sum + po.poValue, 0)
 
   return (
@@ -514,110 +432,87 @@ function POListSection({ clientPOs, onAddPO, onEditPO, onDeletePO }: POListSecti
         </Box>
       </Box>
 
-      {/* PO cards */}
-      {clientPOs.map((po) => (
-        <Box
-          key={po.id}
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            p: '10px 14px',
-            border: '1px solid',
-            borderColor: 'divider',
-            borderRadius: '8px',
-            mb: 1,
-            bgcolor: 'background.paper',
-          }}
-        >
-          {po.isPrimary && (
-            <MuiChip
-              label="Primary"
-              size="small"
-              sx={{
-                fontSize: 10,
-                height: 18,
-                bgcolor: alpha(theme.palette.primary.main, 0.12),
-                color: 'primary.main',
-                mr: 1.5,
-                flexShrink: 0,
-                '& .MuiChip-label': { px: '6px' },
-              }}
-            />
-          )}
-
-          <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Stack direction="row" alignItems="center" gap={1}>
-              <Typography
-                variant="body2"
-                sx={{ fontWeight: 600, fontFamily: 'monospace', fontSize: 12 }}
-              >
-                {po.poNumber}
-              </Typography>
-              <Box
-                sx={{
-                  px: 1,
-                  py: '1px',
-                  borderRadius: '4px',
-                  bgcolor: po.status === 'Active'
-                    ? alpha(tokens.color.success[500], 0.1)
-                    : alpha(tokens.color.warning[500], 0.1),
-                  color: po.status === 'Active'
-                    ? tokens.color.success[700]
-                    : tokens.color.warning[700],
-                  fontSize: 10,
-                  fontWeight: 600,
-                }}
-              >
-                {po.status}
-              </Box>
-            </Stack>
-            <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
-              {formatDate(po.poDate)}
-              {po.documentUrl && (
-                <Box
-                  component="span"
-                  sx={{
-                    ml: 1,
-                    color: 'primary.main',
-                    cursor: 'pointer',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 0.3,
-                  }}
-                  onClick={() => window.open(po.documentUrl!, '_blank')}
-                >
-                  <AttachFile sx={{ fontSize: 11 }} />
-                  document.pdf
-                </Box>
-              )}
-            </Typography>
-          </Box>
-
-          <Typography
-            variant="body2"
-            sx={{ fontWeight: 700, mr: 2, color: 'primary.main', fontSize: 13, flexShrink: 0 }}
-          >
-            ₹{formatCurrency(po.poValue)}
+      {/* PO list or inline empty */}
+      {clientPOs.length === 0 ? (
+        <Box sx={{ py: 3, textAlign: 'center' }}>
+          <Typography variant="body2" color="text.secondary">
+            No purchase orders added yet
           </Typography>
-
-          <Box display="flex" gap={0.5}>
-            <MuiIconButton
-              size="small"
-              onClick={() => onEditPO(po)}
-              sx={{ color: 'text.secondary' }}
-            >
-              <EditIcon sx={{ fontSize: 14 }} />
-            </MuiIconButton>
-            <MuiIconButton
-              size="small"
-              onClick={() => onDeletePO(po)}
-              sx={{ color: 'error.main' }}
-            >
-              <DeleteIcon sx={{ fontSize: 14 }} />
-            </MuiIconButton>
-          </Box>
         </Box>
-      ))}
+      ) : (
+        clientPOs.map((po) => (
+          <Box
+            key={po.id}
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              p: '10px 14px',
+              border: '1px solid',
+              borderColor: 'divider',
+              borderRadius: '8px',
+              mb: 1,
+              bgcolor: 'background.paper',
+            }}
+          >
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Stack direction="row" alignItems="center" gap={1}>
+                <Typography
+                  variant="body2"
+                  sx={{ fontWeight: 600, fontFamily: 'monospace', fontSize: 12 }}
+                >
+                  {po.poNumber}
+                </Typography>
+              </Stack>
+              <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
+                {po.startDate === po.endDate
+                  ? formatDate(po.startDate)
+                  : `${formatDate(po.startDate)} – ${formatDate(po.endDate)}`}
+                {po.documentUrl && (
+                  <Box
+                    component="span"
+                    sx={{
+                      ml: 1,
+                      color: 'primary.main',
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 0.3,
+                    }}
+                    onClick={() => window.open(po.documentUrl!, '_blank')}
+                  >
+                    <AttachFile sx={{ fontSize: 11 }} />
+                    document.pdf
+                  </Box>
+                )}
+              </Typography>
+            </Box>
+
+            <Typography
+              variant="body2"
+              sx={{ fontWeight: 700, mr: 2, color: 'primary.main', fontSize: 13, flexShrink: 0 }}
+            >
+              ₹{formatCurrency(po.poValue)}
+            </Typography>
+
+            <Box display="flex" gap={0.5}>
+              <MuiIconButton
+                size="small"
+                onClick={() => onEditPO(po)}
+                sx={{ color: 'text.secondary' }}
+              >
+                <EditIcon sx={{ fontSize: 14 }} />
+              </MuiIconButton>
+              <MuiIconButton
+                size="small"
+                onClick={() => onDeletePO(po)}
+                sx={{ color: 'error.main' }}
+              >
+                <DeleteIcon sx={{ fontSize: 14 }} />
+              </MuiIconButton>
+            </Box>
+          </Box>
+        ))
+      )}
     </WorkspaceSection>
   )
 }
@@ -652,12 +547,11 @@ function IssueVendorPODrawer({
     poNumber: '',
     poDate: '',
     poValue: '',
-    status: 'Issued' as 'Draft' | 'Issued',
   })
 
   useEffect(() => {
     if (!open) {
-      setForm({ vendorId: '', poNumber: '', poDate: '', poValue: '', status: 'Issued' })
+      setForm({ vendorId: '', poNumber: '', poDate: '', poValue: '' })
     }
   }, [open])
 
@@ -683,7 +577,6 @@ function IssueVendorPODrawer({
             poNumber: form.poNumber,
             poDate: form.poDate,
             poValue: Number(form.poValue),
-            status: form.status,
           },
         })
       ).unwrap()
@@ -759,18 +652,6 @@ function IssueVendorPODrawer({
             onChange={(e) => set('poValue', e.target.value)}
             placeholder="0"
           />
-        </FormField>
-        <FormField label="Status">
-          <MuiSelect
-            value={form.status}
-            onChange={(e) => set('status', e.target.value as 'Draft' | 'Issued')}
-            size="small"
-            fullWidth
-            sx={{ fontSize: 12 }}
-          >
-            <MenuItem value="Issued" sx={{ fontSize: 12 }}>Issued</MenuItem>
-            <MenuItem value="Draft" sx={{ fontSize: 12 }}>Draft</MenuItem>
-          </MuiSelect>
         </FormField>
       </FormSection>
     </DrawerForm>
@@ -913,7 +794,7 @@ function AlignmentMilestoneDrawer({ open, onClose, service, onSave }: AlignmentM
   function addMilestone() {
     setMilestones((prev) => [
       ...prev,
-      { id: `cm-${Date.now()}`, name: '', percentage: 0, value: 0, dueDate: null },
+      { id: `cm-${Date.now()}`, name: '', percentage: 0, value: 0 },
     ])
   }
 
@@ -941,7 +822,7 @@ function AlignmentMilestoneDrawer({ open, onClose, service, onSave }: AlignmentM
               border: `1px solid ${tokens.color.neutral[100]}`,
               borderRadius: 1.5,
               display: 'grid',
-              gridTemplateColumns: '1fr 80px 100px 120px 28px',
+              gridTemplateColumns: '1fr 80px 100px 28px',
               gap: 1,
               alignItems: 'center',
             }}
@@ -968,13 +849,6 @@ function AlignmentMilestoneDrawer({ open, onClose, service, onSave }: AlignmentM
               onChange={(e) => update(idx, 'value', Number(e.target.value))}
               inputProps={{ style: { fontSize: 12 } }}
               placeholder="Value"
-            />
-            <TextField
-              size="small"
-              type="date"
-              value={m.dueDate ?? ''}
-              onChange={(e) => update(idx, 'dueDate', e.target.value || null)}
-              inputProps={{ style: { fontSize: 12 } }}
             />
             <MuiIconButton
               size="small"
@@ -1426,7 +1300,7 @@ interface VendorMilestoneDrawerProps {
 }
 
 function VendorMilestoneDrawer({ open, onClose, vendor }: VendorMilestoneDrawerProps) {
-  const [milestones, setMilestones] = useState<Array<{ id: string; name: string; percentage: number; value: number; dueDate: string }>>([])
+  const [milestones, setMilestones] = useState<Array<{ id: string; name: string; percentage: number; value: number }>>([])
 
   useEffect(() => {
     if (open) setMilestones([])
@@ -1472,7 +1346,7 @@ function VendorMilestoneDrawer({ open, onClose, vendor }: VendorMilestoneDrawerP
               border: `1px solid ${tokens.color.neutral[100]}`,
               borderRadius: 1.5,
               display: 'grid',
-              gridTemplateColumns: '1fr 80px 100px 120px 28px',
+              gridTemplateColumns: '1fr 80px 100px 28px',
               gap: 1,
               alignItems: 'center',
             }}
@@ -1480,7 +1354,6 @@ function VendorMilestoneDrawer({ open, onClose, vendor }: VendorMilestoneDrawerP
             <TextField size="small" value={m.name} onChange={(e) => update(idx, 'name', e.target.value)} placeholder="Milestone" inputProps={{ style: { fontSize: 12 } }} />
             <TextField size="small" type="number" value={m.percentage} onChange={(e) => update(idx, 'percentage', Number(e.target.value))} inputProps={{ style: { fontSize: 12 } }} />
             <TextField size="small" type="number" value={m.value} onChange={(e) => update(idx, 'value', Number(e.target.value))} inputProps={{ style: { fontSize: 12 } }} />
-            <TextField size="small" type="date" value={m.dueDate} onChange={(e) => update(idx, 'dueDate', e.target.value)} inputProps={{ style: { fontSize: 12 } }} />
             <MuiIconButton size="small" onClick={() => setMilestones((p) => p.filter((_, i) => i !== idx))} sx={{ color: 'error.main', p: '2px' }}>
               <DeleteIcon sx={{ fontSize: 14 }} />
             </MuiIconButton>
@@ -1490,7 +1363,7 @@ function VendorMilestoneDrawer({ open, onClose, vendor }: VendorMilestoneDrawerP
           size="small"
           variant="outlined"
           startIcon={<Add sx={{ fontSize: 14 }} />}
-          onClick={() => setMilestones((p) => [...p, { id: `vm-${Date.now()}`, name: '', percentage: 0, value: 0, dueDate: '' }])}
+          onClick={() => setMilestones((p) => [...p, { id: `vm-${Date.now()}`, name: '', percentage: 0, value: 0 }])}
           sx={{ fontSize: 11, alignSelf: 'flex-start' }}
         >
           Add Milestone
@@ -1943,14 +1816,6 @@ function VendorPOCard({ vendorPO }: VendorPOCardProps) {
     return { bg: alpha(tokens.color.neutral[500], 0.1), color: tokens.color.neutral[600] }
   }
 
-  function getVendorPOStatusColor(status: string): { bg: string; color: string } {
-    if (status === 'Active') return { bg: alpha(tokens.color.success[500], 0.1), color: tokens.color.success[700] }
-    if (status === 'Issued') return { bg: alpha(tokens.color.info[500], 0.1), color: tokens.color.info[700] }
-    return { bg: alpha(tokens.color.neutral[500], 0.1), color: tokens.color.neutral[600] }
-  }
-
-  const statusColors = getVendorPOStatusColor(vendorPO.status)
-
   return (
     <Box
       sx={{
@@ -2001,21 +1866,6 @@ function VendorPOCard({ vendorPO }: VendorPOCardProps) {
         <Typography variant="body2" sx={{ fontWeight: 600, fontSize: 13, flexShrink: 0 }}>
           ₹{formatCurrency(vendorPO.poValue)}
         </Typography>
-
-        <Box
-          sx={{
-            px: 1,
-            py: '2px',
-            borderRadius: '4px',
-            bgcolor: statusColors.bg,
-            color: statusColors.color,
-            fontSize: 11,
-            fontWeight: 600,
-            flexShrink: 0,
-          }}
-        >
-          {vendorPO.status}
-        </Box>
 
         <MuiIconButton size="small" sx={{ p: '2px', flexShrink: 0 }}>
           {expanded ? <ExpandLess sx={{ fontSize: 16 }} /> : <ExpandMore sx={{ fontSize: 16 }} />}
@@ -2111,39 +1961,7 @@ function VendorPOCard({ vendorPO }: VendorPOCardProps) {
   )
 }
 
-// ─── State A — No PO ─────────────────────────────────────────────────────────
-
-interface StateAProps {
-  onUploadPO: () => void
-}
-
-function StateA({ onUploadPO }: StateAProps) {
-  return (
-    <Box sx={{ maxWidth: 560, mx: 'auto', pt: 5 }}>
-      <StepIndicator currentStep={1} />
-      <Box sx={{ textAlign: 'center' }}>
-        <Assignment sx={{ fontSize: 64, color: tokens.color.primary[200] }} />
-        <Typography variant="h6" sx={{ fontWeight: 600, mt: 2 }}>
-          Waiting for Client PO
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mt: 1, mb: 3, maxWidth: 400, mx: 'auto' }}>
-          Once the client issues a Purchase Order, upload it here to begin the baseline creation process.
-        </Typography>
-        <MuiButton
-          variant="contained"
-          size="medium"
-          startIcon={<Upload sx={{ fontSize: 16 }} />}
-          onClick={onUploadPO}
-          sx={{ fontSize: 13 }}
-        >
-          Upload Client PO
-        </MuiButton>
-      </Box>
-    </Box>
-  )
-}
-
-// ─── State B — PO uploaded, no baseline ──────────────────────────────────────
+// ─── State B — No baseline (pre-live) ────────────────────────────────────────
 
 interface StateBProps {
   clientPOs: ClientPO[]
@@ -2269,8 +2087,8 @@ function StateC({ baseline, clientPOs, vendorPOs, saving, onIssueVendorPO, proje
       : '0.0'
 
   const totalVendorPOValue = vendorPOs.reduce((sum, vpo) => sum + vpo.poValue, 0)
-  const activeVendorPOs = vendorPOs.filter((vpo) => vpo.status === 'Active' || vpo.status === 'Issued')
-  const primaryPO = clientPOs.find((po) => po.isPrimary) ?? clientPOs[0]
+  const clientPoNumbersLabel =
+    clientPOs.length === 0 ? '—' : clientPOs.map((c) => c.poNumber).join(' · ')
 
   const rightCardSx = {
     bgcolor: 'background.paper',
@@ -2422,15 +2240,12 @@ function StateC({ baseline, clientPOs, vendorPOs, saving, onIssueVendorPO, proje
               <Typography variant="caption" color="text.secondary" sx={{ fontSize: 12 }}>Based on</Typography>
               <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600 }}>Version {baseline.versionLabel}</Typography>
             </Stack>
-            <Stack direction="row" justifyContent="space-between">
-              <Typography variant="caption" color="text.secondary" sx={{ fontSize: 12 }}>Client PO</Typography>
-              <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600 }}>
-                {primaryPO?.poNumber ?? '—'}
-                {clientPOs.length > 1 && (
-                  <Typography component="span" sx={{ fontSize: 11, color: 'text.secondary', ml: 0.5 }}>
-                    (+{clientPOs.length - 1} more)
-                  </Typography>
-                )}
+            <Stack direction="row" justifyContent="space-between" alignItems="flex-start" gap={1}>
+              <Typography variant="caption" color="text.secondary" sx={{ fontSize: 12, flexShrink: 0 }}>
+                Client PO{clientPOs.length > 1 ? 's' : ''}
+              </Typography>
+              <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600, textAlign: 'right' }}>
+                {clientPoNumbersLabel}
               </Typography>
             </Stack>
           </Stack>
@@ -2487,9 +2302,9 @@ function StateC({ baseline, clientPOs, vendorPOs, saving, onIssueVendorPO, proje
               </Typography>
             </Stack>
             <Stack direction="row" justifyContent="space-between" alignItems="center">
-              <Typography variant="caption" color="text.secondary" sx={{ fontSize: 12 }}>Active POs</Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ fontSize: 12 }}>Vendor POs</Typography>
               <MuiChip
-                label={activeVendorPOs.length}
+                label={vendorPOs.length}
                 size="small"
                 sx={{ bgcolor: 'success.100', color: 'success.800', fontWeight: 700, fontSize: 11, height: 22 }}
               />
@@ -2638,7 +2453,7 @@ export default function BaselineTab({ project }: BaselineTabProps) {
     const version = versions.find((v) => v.id === selectedVersionId)
     if (!version) return
 
-    const primaryPO = clientPOs.find((po) => po.isPrimary) ?? clientPOs[0]
+    const referenceClientPoId = clientPOs[0]?.id ?? ''
     const totalPOValue = clientPOs.reduce((sum, po) => sum + po.poValue, 0)
 
     const categories: BaselineCategory[] = version.categories.map((cat) => ({
@@ -2657,7 +2472,6 @@ export default function BaselineTab({ project }: BaselineTabProps) {
           name: m.name,
           percentage: m.percentage,
           value: m.value,
-          dueDate: m.dueDate,
         })),
         vendorMappings: svc.vendorMappings.map((vm) => ({
           id: vm.id,
@@ -2681,7 +2495,7 @@ export default function BaselineTab({ project }: BaselineTabProps) {
           data: {
             versionId: version.id,
             versionLabel: version.label,
-            clientPOId: primaryPO?.id ?? '',
+            clientPOId: referenceClientPoId,
             categories,
             totalRevenue,
             totalCost,
@@ -2727,17 +2541,11 @@ export default function BaselineTab({ project }: BaselineTabProps) {
   }
 
   const hasBaseline = !!baseline
-  const hasPO = clientPOs.length > 0
 
   return (
     <Box>
-      {/* State A — No PO */}
-      {!hasPO && !hasBaseline && (
-        <StateA onUploadPO={() => setUploadPOOpen(true)} />
-      )}
-
-      {/* State B — PO uploaded, no baseline */}
-      {hasPO && !hasBaseline && (
+      {/* Pre-live: full layout (PO section shows inline empty when no POs) */}
+      {!hasBaseline && (
         <StateB
           clientPOs={clientPOs}
           versions={versions}
@@ -2758,7 +2566,7 @@ export default function BaselineTab({ project }: BaselineTabProps) {
         />
       )}
 
-      {/* State C — Baseline locked */}
+      {/* Baseline locked (live) */}
       {hasBaseline && (
         <StateC
           baseline={baseline}
@@ -2777,7 +2585,6 @@ export default function BaselineTab({ project }: BaselineTabProps) {
         onClose={() => setUploadPOOpen(false)}
         projectId={project.id}
         saving={saving}
-        existingPOCount={clientPOs.length}
       />
 
       <EditPODrawer

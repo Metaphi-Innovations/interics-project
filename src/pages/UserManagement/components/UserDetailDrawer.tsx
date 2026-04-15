@@ -3,7 +3,6 @@ import { Stack, Typography, Chip as MuiChip, Divider } from '@mui/material'
 import { useAppSelector } from '@/store/hooks'
 import type { User } from '@/slices/users/reducer'
 import { DrawerForm, FormSection, FormField } from '@/components/templates'
-import { StatusBadge } from '@/design-system/components'
 import { formatDate } from '@/utils/formatters'
 import { getRoleChip } from '../userRoleChips'
 import client from '@/api/client'
@@ -102,9 +101,6 @@ export function UserDetailDrawer({ open, onClose, user }: UserDetailDrawerProps)
               <Typography variant="body2" sx={{ fontSize: 13 }}>
                 {user.lastLogin ? formatDate(user.lastLogin) : <em>Never</em>}
               </Typography>
-            </FormField>
-            <FormField label="Status">
-              <StatusBadge status={user.status} />
             </FormField>
           </FormSection>
         </>

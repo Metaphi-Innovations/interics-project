@@ -1,10 +1,12 @@
-import { useState, useEffect } from 'react'
-import { Box, TextField, MenuItem, Autocomplete, Chip as MuiChip } from '@mui/material'
+import { useState, useEffect, useRef } from 'react'
+import { Box, Stack, TextField, MenuItem, Autocomplete, Chip as MuiChip, Typography } from '@mui/material'
 import { DrawerForm, FormSection, FormField } from '../../components/templates'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { createCustomer, updateCustomer } from '../../slices/customers/thunk'
-import { useToast } from '@/design-system/components'
+import { useToast, Button } from '@/design-system/components'
 import type { Customer } from '../../slices/customers/reducer'
+
+type GstStatus = Customer['gstStatus']
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -27,12 +29,16 @@ const COMMON_TAGS = [
 
 const GSTIN_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/
 
+function gstinRequired(status: GstStatus): boolean {
+  return status !== 'Unregistered'
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface FormState {
   name: string
   type: 'Company' | 'Individual' | ''
-  gstStatus: 'Registered' | 'Unregistered'
+  gstStatus: GstStatus
   gstin: string
   pan: string
   contactPerson: string
@@ -88,9 +94,9 @@ function validate(form: FormState): Record<string, string> {
   }
   if (!form.city.trim()) errors.city = 'City is required'
   if (!form.state) errors.state = 'State is required'
-  if (form.gstStatus === 'Registered') {
+  if (gstinRequired(form.gstStatus)) {
     if (!form.gstin.trim()) {
-      errors.gstin = 'GSTIN is required for registered customers'
+      errors.gstin = 'GSTIN is required for this GST status'
     } else if (!GSTIN_REGEX.test(form.gstin)) {
       errors.gstin = 'Invalid GSTIN (e.g. 29ABCDE1234F1Z5)'
     }
@@ -107,9 +113,15 @@ export function CustomerDrawer({ open, onClose, mode, customer, onSuccess }: Cus
 
   const [form, setForm] = useState<FormState>(defaultForm)
   const [errors, setErrors] = useState<Record<string, string>>({})
+  const [gstCertFile, setGstCertFile] = useState<File | null>(null)
+  const [panDocFile, setPanDocFile] = useState<File | null>(null)
+  const gstFileInputRef = useRef<HTMLInputElement>(null)
+  const panFileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (open) {
+      setGstCertFile(null)
+      setPanDocFile(null)
       if (customer && mode === 'edit') {
         setForm({
           name: customer.name,
@@ -144,12 +156,28 @@ export function CustomerDrawer({ open, onClose, mode, customer, onSuccess }: Cus
     setErrors(errs)
     if (Object.keys(errs).length > 0) return
 
+    const gstDocument =
+      gstCertFile !== null
+        ? { name: gstCertFile.name, url: URL.createObjectURL(gstCertFile) }
+        : mode === 'edit'
+          ? (customer?.gstDocument ?? null)
+          : null
+
+    const panDocument =
+      panDocFile !== null
+        ? { name: panDocFile.name, url: URL.createObjectURL(panDocFile) }
+        : mode === 'edit'
+          ? (customer?.panDocument ?? null)
+          : null
+
     const payload = {
       name: form.name.trim(),
       type: form.type as 'Company' | 'Individual',
       gstStatus: form.gstStatus,
-      gstin: form.gstStatus === 'Registered' ? form.gstin.trim() : null,
+      gstin: gstinRequired(form.gstStatus) ? form.gstin.trim() : null,
       pan: form.pan.trim() || null,
+      gstDocument,
+      panDocument,
       contactPerson: form.contactPerson.trim(),
       designation: form.designation.trim() || null,
       phone: form.phone.trim(),
@@ -224,7 +252,10 @@ export function CustomerDrawer({ open, onClose, mode, customer, onSuccess }: Cus
             <MenuItem value="Individual">Individual</MenuItem>
           </TextField>
         </FormField>
+      </FormSection>
 
+      {/* ── Tax & Compliance ────────────────────────────────────────── */}
+      <FormSection title="Tax & Compliance" columns={2}>
         <FormField label="GST Status">
           <TextField
             fullWidth
@@ -232,19 +263,21 @@ export function CustomerDrawer({ open, onClose, mode, customer, onSuccess }: Cus
             select
             value={form.gstStatus}
             onChange={(e) => {
-              const val = e.target.value as 'Registered' | 'Unregistered'
+              const val = e.target.value as GstStatus
               update('gstStatus', val)
               if (val === 'Unregistered') update('gstin', '')
             }}
           >
             <MenuItem value="Registered">Registered</MenuItem>
             <MenuItem value="Unregistered">Unregistered</MenuItem>
+            <MenuItem value="Composition">Composition</MenuItem>
+            <MenuItem value="SEZ">SEZ</MenuItem>
           </TextField>
         </FormField>
 
         <FormField
           label="GSTIN"
-          required={form.gstStatus === 'Registered'}
+          required={gstinRequired(form.gstStatus)}
           hint="15-digit GST number"
           error={errors.gstin}
         >
@@ -259,6 +292,38 @@ export function CustomerDrawer({ open, onClose, mode, customer, onSuccess }: Cus
           />
         </FormField>
 
+        <Box sx={{ gridColumn: 'span 2' }}>
+          <FormField label="Upload GST Certificate" hint="PDF or image (optional)">
+            <Stack direction="row" alignItems="center" gap={2} flexWrap="wrap">
+              <input
+                ref={gstFileInputRef}
+                type="file"
+                accept=".pdf,application/pdf,image/*"
+                hidden
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  if (file) setGstCertFile(file)
+                  e.target.value = ''
+                }}
+              />
+              <Button
+                type="button"
+                variant="outlined"
+                color="secondary"
+                size="sm"
+                onClick={() => gstFileInputRef.current?.click()}
+              >
+                {gstCertFile || (mode === 'edit' && customer?.gstDocument) ? 'Replace' : 'Upload'}
+              </Button>
+              {(gstCertFile?.name ?? (mode === 'edit' ? customer?.gstDocument?.name : undefined)) && (
+                <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12 }}>
+                  {gstCertFile?.name ?? customer?.gstDocument?.name}
+                </Typography>
+              )}
+            </Stack>
+          </FormField>
+        </Box>
+
         <FormField label="PAN Number" hint="10-character PAN">
           <TextField
             fullWidth
@@ -268,6 +333,38 @@ export function CustomerDrawer({ open, onClose, mode, customer, onSuccess }: Cus
             placeholder="ABCDE1234F"
           />
         </FormField>
+
+        <Box sx={{ gridColumn: 'span 2' }}>
+          <FormField label="Upload PAN Document" hint="PDF or image (optional)">
+            <Stack direction="row" alignItems="center" gap={2} flexWrap="wrap">
+              <input
+                ref={panFileInputRef}
+                type="file"
+                accept=".pdf,application/pdf,image/*"
+                hidden
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  if (file) setPanDocFile(file)
+                  e.target.value = ''
+                }}
+              />
+              <Button
+                type="button"
+                variant="outlined"
+                color="secondary"
+                size="sm"
+                onClick={() => panFileInputRef.current?.click()}
+              >
+                {panDocFile || (mode === 'edit' && customer?.panDocument) ? 'Replace' : 'Upload'}
+              </Button>
+              {(panDocFile?.name ?? (mode === 'edit' ? customer?.panDocument?.name : undefined)) && (
+                <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12 }}>
+                  {panDocFile?.name ?? customer?.panDocument?.name}
+                </Typography>
+              )}
+            </Stack>
+          </FormField>
+        </Box>
       </FormSection>
 
       {/* ── Primary Contact ──────────────────────────────────────────── */}

@@ -20,7 +20,6 @@ export interface ClientMilestone {
   name: string
   percentage: number
   value: number
-  dueDate: string | null
 }
 
 export interface VendorMilestone {
@@ -28,7 +27,6 @@ export interface VendorMilestone {
   name: string
   percentage: number
   value: number
-  dueDate: string | null
 }
 
 export interface VendorMapping {

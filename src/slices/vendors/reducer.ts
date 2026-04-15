@@ -8,6 +8,20 @@ import {
   deleteVendor,
 } from './thunk'
 
+export interface VendorFinancialDetails {
+  totalPayables: number
+  amountPaid: number
+  outstanding: number
+  tdsDeducted: number
+  activeProjects: number
+  completedProjects: number
+  totalContractValue: number
+  lastPaymentDate: string
+  paymentTerms: string
+  vendorType: string
+  gstStatus: string
+}
+
 export interface Vendor {
   id: string
   name: string
@@ -30,6 +44,11 @@ export interface Vendor {
   activeProjects: number
   totalPayables: number
   createdAt: string
+  contacts?: import('../customers/reducer').Contact[]
+  gstDocument?: { name: string; url: string } | null
+  panDocument?: { name: string; url: string } | null
+  activityLog?: import('../customers/reducer').ActivityEntry[]
+  financialDetails?: VendorFinancialDetails
 }
 
 interface Pagination {

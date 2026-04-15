@@ -660,13 +660,8 @@ function ConfirmDeleteDialog({ vendor, onConfirm, onClose }: ConfirmDeleteProps)
       size="xs"
       footer={
         <Stack direction="row" justifyContent="flex-end" gap={1}>
-          <Button variant="secondary" size="sm" onClick={onClose}>Cancel</Button>
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={onConfirm}
-            sx={{ bgcolor: 'error.main', '&:hover': { bgcolor: 'error.dark' } }}
-          >
+          <Button variant="outlined" color="secondary" size="sm" onClick={onClose}>Cancel</Button>
+          <Button variant="contained" color="error" size="sm" onClick={onConfirm}>
             Delete
           </Button>
         </Stack>

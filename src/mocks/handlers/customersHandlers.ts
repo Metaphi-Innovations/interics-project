@@ -1,10 +1,41 @@
 import { http, HttpResponse } from 'msw'
 
+interface Contact {
+  id: string
+  name: string
+  designation: string
+  phone: string
+  email: string
+  isPrimary: boolean
+}
+
+interface ActivityEntry {
+  id: string
+  type: 'record_created' | 'profile_edited' | 'contact_added' | 'contact_removed' | 'primary_changed' | 'document_uploaded' | 'status_changed'
+  description: string
+  user: string
+  timestamp: string
+}
+
+interface CustomerFinancialDetails {
+  totalBilled: number
+  amountReceived: number
+  outstanding: number
+  tdsWithheld: number
+  activeProjects: number
+  completedProjects: number
+  totalProjectValue: number
+  lastInvoiceDate: string
+  paymentTerms: string
+  creditLimit: number | null
+  gstStatus: string
+}
+
 interface Customer {
   id: string
   name: string
   type: 'Company' | 'Individual'
-  gstStatus: 'Registered' | 'Unregistered'
+  gstStatus: 'Registered' | 'Unregistered' | 'Composition' | 'SEZ'
   gstin: string | null
   pan: string | null
   contactPerson: string
@@ -19,6 +50,11 @@ interface Customer {
   activeProjects: number
   totalReceivables: number
   createdAt: string
+  contacts: Contact[]
+  gstDocument: { name: string; url: string } | null
+  panDocument: { name: string; url: string } | null
+  activityLog: ActivityEntry[]
+  financialDetails: CustomerFinancialDetails
 }
 
 let customers: Customer[] = [
@@ -41,6 +77,69 @@ let customers: Customer[] = [
     activeProjects: 2,
     totalReceivables: 450000,
     createdAt: '2024-01-15',
+    contacts: [
+      {
+        id: 'cc-001',
+        name: 'Rajesh Kumar',
+        designation: 'Managing Director',
+        phone: '+91 9876543210',
+        email: 'rajesh@techhub.com',
+        isPrimary: true,
+      },
+      {
+        id: 'cc-002',
+        name: 'Preethi Rao',
+        designation: 'Finance Manager',
+        phone: '+91 9876543219',
+        email: 'preethi@techhub.com',
+        isPrimary: false,
+      },
+    ],
+    gstDocument: { name: 'GST_Certificate.pdf', url: '#' },
+    panDocument: { name: 'PAN_Card.pdf', url: '#' },
+    activityLog: [
+      {
+        id: 'a-001',
+        type: 'record_created',
+        description: 'Customer record created',
+        user: 'Rajan Mehta',
+        timestamp: '2024-01-15T10:30:00Z',
+      },
+      {
+        id: 'a-002',
+        type: 'profile_edited',
+        description: 'Profile updated — Payment Terms changed to Net 30',
+        user: 'Neha Sharma',
+        timestamp: '2024-02-20T14:15:00Z',
+      },
+      {
+        id: 'a-003',
+        type: 'document_uploaded',
+        description: 'GST Certificate uploaded',
+        user: 'Neha Sharma',
+        timestamp: '2024-03-05T09:45:00Z',
+      },
+      {
+        id: 'a-004',
+        type: 'contact_added',
+        description: 'Contact added — Preethi Rao',
+        user: 'Rajan Mehta',
+        timestamp: '2024-03-10T11:00:00Z',
+      },
+    ],
+    financialDetails: {
+      totalBilled: 450000,
+      amountReceived: 200000,
+      outstanding: 250000,
+      tdsWithheld: 45000,
+      activeProjects: 2,
+      completedProjects: 1,
+      totalProjectValue: 1200000,
+      lastInvoiceDate: '15 Mar 2025',
+      paymentTerms: 'Net 30',
+      creditLimit: 500000,
+      gstStatus: 'Registered',
+    },
   },
   {
     id: 'c-002',
@@ -61,6 +160,47 @@ let customers: Customer[] = [
     activeProjects: 1,
     totalReceivables: 120000,
     createdAt: '2024-02-10',
+    contacts: [
+      {
+        id: 'cc-010',
+        name: 'Arun Sharma',
+        designation: 'Owner',
+        phone: '+91 9876543211',
+        email: 'arun.sharma@example.com',
+        isPrimary: true,
+      },
+    ],
+    gstDocument: null,
+    panDocument: { name: 'PAN_Card.pdf', url: '#' },
+    activityLog: [
+      {
+        id: 'a-010',
+        type: 'record_created',
+        description: 'Customer record created',
+        user: 'Rajan Mehta',
+        timestamp: '2024-02-10T09:00:00Z',
+      },
+      {
+        id: 'a-011',
+        type: 'document_uploaded',
+        description: 'PAN Card uploaded',
+        user: 'Rajan Mehta',
+        timestamp: '2024-02-10T09:05:00Z',
+      },
+    ],
+    financialDetails: {
+      totalBilled: 120000,
+      amountReceived: 80000,
+      outstanding: 40000,
+      tdsWithheld: 0,
+      activeProjects: 1,
+      completedProjects: 0,
+      totalProjectValue: 200000,
+      lastInvoiceDate: '10 Jan 2025',
+      paymentTerms: 'Net 15',
+      creditLimit: null,
+      gstStatus: 'Unregistered',
+    },
   },
   {
     id: 'c-003',
@@ -81,6 +221,47 @@ let customers: Customer[] = [
     activeProjects: 0,
     totalReceivables: 0,
     createdAt: '2023-11-20',
+    contacts: [
+      {
+        id: 'cc-020',
+        name: 'Sarah Verma',
+        designation: 'Director',
+        phone: '+91 9876543212',
+        email: 'sarah@greenvilla.com',
+        isPrimary: true,
+      },
+    ],
+    gstDocument: { name: 'GST_Certificate.pdf', url: '#' },
+    panDocument: { name: 'PAN_Card.pdf', url: '#' },
+    activityLog: [
+      {
+        id: 'a-020',
+        type: 'record_created',
+        description: 'Customer record created',
+        user: 'Neha Sharma',
+        timestamp: '2023-11-20T10:00:00Z',
+      },
+      {
+        id: 'a-021',
+        type: 'status_changed',
+        description: 'Status changed from Active to Inactive',
+        user: 'Rajan Mehta',
+        timestamp: '2024-06-01T15:30:00Z',
+      },
+    ],
+    financialDetails: {
+      totalBilled: 0,
+      amountReceived: 0,
+      outstanding: 0,
+      tdsWithheld: 0,
+      activeProjects: 0,
+      completedProjects: 2,
+      totalProjectValue: 800000,
+      lastInvoiceDate: '05 Sep 2023',
+      paymentTerms: 'Net 30',
+      creditLimit: null,
+      gstStatus: 'Registered',
+    },
   },
   {
     id: 'c-004',
@@ -101,6 +282,84 @@ let customers: Customer[] = [
     activeProjects: 3,
     totalReceivables: 850000,
     createdAt: '2023-09-05',
+    contacts: [
+      {
+        id: 'cc-030',
+        name: 'Vikram Singh',
+        designation: 'CEO',
+        phone: '+91 9876543213',
+        email: 'vikram@acmecorp.com',
+        isPrimary: true,
+      },
+      {
+        id: 'cc-031',
+        name: 'Anita Kapoor',
+        designation: 'Procurement Head',
+        phone: '+91 9876543216',
+        email: 'anita@acmecorp.com',
+        isPrimary: false,
+      },
+      {
+        id: 'cc-032',
+        name: 'Sanjay Tiwari',
+        designation: 'Accounts Manager',
+        phone: '+91 9876543217',
+        email: 'sanjay@acmecorp.com',
+        isPrimary: false,
+      },
+    ],
+    gstDocument: { name: 'GST_Certificate.pdf', url: '#' },
+    panDocument: { name: 'PAN_Card.pdf', url: '#' },
+    activityLog: [
+      {
+        id: 'a-030',
+        type: 'record_created',
+        description: 'Customer record created',
+        user: 'Rajan Mehta',
+        timestamp: '2023-09-05T09:00:00Z',
+      },
+      {
+        id: 'a-031',
+        type: 'profile_edited',
+        description: 'Profile updated — Credit Limit set to ₹5L',
+        user: 'Neha Sharma',
+        timestamp: '2023-10-12T14:00:00Z',
+      },
+      {
+        id: 'a-032',
+        type: 'contact_added',
+        description: 'Contact added — Anita Kapoor',
+        user: 'Neha Sharma',
+        timestamp: '2023-11-01T10:30:00Z',
+      },
+      {
+        id: 'a-033',
+        type: 'contact_added',
+        description: 'Contact added — Sanjay Tiwari',
+        user: 'Rajan Mehta',
+        timestamp: '2024-01-15T11:00:00Z',
+      },
+      {
+        id: 'a-034',
+        type: 'document_uploaded',
+        description: 'GST Certificate uploaded',
+        user: 'Neha Sharma',
+        timestamp: '2024-02-05T09:30:00Z',
+      },
+    ],
+    financialDetails: {
+      totalBilled: 850000,
+      amountReceived: 600000,
+      outstanding: 250000,
+      tdsWithheld: 85000,
+      activeProjects: 3,
+      completedProjects: 2,
+      totalProjectValue: 2500000,
+      lastInvoiceDate: '20 Mar 2025',
+      paymentTerms: 'Net 30',
+      creditLimit: 500000,
+      gstStatus: 'Registered',
+    },
   },
   {
     id: 'c-005',
@@ -121,6 +380,47 @@ let customers: Customer[] = [
     activeProjects: 1,
     totalReceivables: 280000,
     createdAt: '2024-03-01',
+    contacts: [
+      {
+        id: 'cc-040',
+        name: 'Priya Nair',
+        designation: 'Co-Founder',
+        phone: '+91 9876543214',
+        email: 'priya@techventures.com',
+        isPrimary: true,
+      },
+    ],
+    gstDocument: { name: 'GST_Certificate.pdf', url: '#' },
+    panDocument: null,
+    activityLog: [
+      {
+        id: 'a-040',
+        type: 'record_created',
+        description: 'Customer record created',
+        user: 'Rajan Mehta',
+        timestamp: '2024-03-01T10:00:00Z',
+      },
+      {
+        id: 'a-041',
+        type: 'document_uploaded',
+        description: 'GST Certificate uploaded',
+        user: 'Rajan Mehta',
+        timestamp: '2024-03-01T10:10:00Z',
+      },
+    ],
+    financialDetails: {
+      totalBilled: 280000,
+      amountReceived: 200000,
+      outstanding: 80000,
+      tdsWithheld: 28000,
+      activeProjects: 1,
+      completedProjects: 0,
+      totalProjectValue: 450000,
+      lastInvoiceDate: '05 Feb 2025',
+      paymentTerms: 'Net 45',
+      creditLimit: null,
+      gstStatus: 'Registered',
+    },
   },
   {
     id: 'c-006',
@@ -141,10 +441,73 @@ let customers: Customer[] = [
     activeProjects: 1,
     totalReceivables: 185000,
     createdAt: '2024-01-28',
+    contacts: [
+      {
+        id: 'cc-050',
+        name: 'Anand Krishnan',
+        designation: 'Managing Partner',
+        phone: '+91 9876543215',
+        email: 'anand@globalsolutions.com',
+        isPrimary: true,
+      },
+      {
+        id: 'cc-051',
+        name: 'Meena Sundaram',
+        designation: 'Operations Lead',
+        phone: '+91 9876543218',
+        email: 'meena@globalsolutions.com',
+        isPrimary: false,
+      },
+    ],
+    gstDocument: { name: 'GST_Certificate.pdf', url: '#' },
+    panDocument: { name: 'PAN_Card.pdf', url: '#' },
+    activityLog: [
+      {
+        id: 'a-050',
+        type: 'record_created',
+        description: 'Customer record created',
+        user: 'Rajan Mehta',
+        timestamp: '2024-01-28T09:00:00Z',
+      },
+      {
+        id: 'a-051',
+        type: 'profile_edited',
+        description: 'Profile updated — Payment Terms changed to Net 30',
+        user: 'Neha Sharma',
+        timestamp: '2024-02-15T11:30:00Z',
+      },
+      {
+        id: 'a-052',
+        type: 'contact_added',
+        description: 'Contact added — Meena Sundaram',
+        user: 'Rajan Mehta',
+        timestamp: '2024-03-20T10:00:00Z',
+      },
+    ],
+    financialDetails: {
+      totalBilled: 185000,
+      amountReceived: 100000,
+      outstanding: 85000,
+      tdsWithheld: 18500,
+      activeProjects: 1,
+      completedProjects: 0,
+      totalProjectValue: 300000,
+      lastInvoiceDate: '01 Mar 2025',
+      paymentTerms: 'Net 30',
+      creditLimit: null,
+      gstStatus: 'Registered',
+    },
   },
 ]
 
+// Per-customer contacts store (for sub-resource CRUD)
+const contactsStore: Record<string, Contact[]> = {}
+customers.forEach((c) => {
+  contactsStore[c.id] = c.contacts
+})
+
 let idCounter = 7
+let contactIdCounter = 100
 
 export const customersHandlers = [
   http.get('/api/customers', ({ request }) => {
@@ -180,24 +543,45 @@ export const customersHandlers = [
     const idOrSlug = params.id as string
     const toSlug = (name: string) =>
       name.toLowerCase().replace(/[^a-z0-9\s-]/g, '').replace(/\s+/g, '-').trim()
-    // Match by id first, then by name slug
     const customer =
       customers.find((c) => c.id === idOrSlug) ??
       customers.find((c) => toSlug(c.name) === idOrSlug)
     if (!customer) {
       return HttpResponse.json({ message: 'Customer not found' }, { status: 404 })
     }
-    return HttpResponse.json(customer)
+    // Merge live contacts
+    return HttpResponse.json({ ...customer, contacts: contactsStore[customer.id] ?? customer.contacts })
   }),
 
   http.post('/api/customers', async ({ request }) => {
     const data = await request.json() as Omit<Customer, 'id' | 'createdAt'>
+    const defaultFinancial: CustomerFinancialDetails = {
+      totalBilled: 0,
+      amountReceived: 0,
+      outstanding: 0,
+      tdsWithheld: 0,
+      activeProjects: 0,
+      completedProjects: 0,
+      totalProjectValue: 0,
+      lastInvoiceDate: '—',
+      paymentTerms: 'Net 30',
+      creditLimit: null,
+      gstStatus: data.gstStatus,
+    }
     const newCustomer: Customer = {
       ...data,
       id: `c-${String(idCounter++).padStart(3, '0')}`,
       createdAt: new Date().toISOString().split('T')[0],
+      contacts: data.contacts ?? [],
+      activityLog: data.activityLog ?? [],
+      financialDetails: {
+        ...defaultFinancial,
+        ...(data.financialDetails ?? {}),
+        gstStatus: data.gstStatus,
+      },
     }
     customers.unshift(newCustomer)
+    contactsStore[newCustomer.id] = newCustomer.contacts
     return HttpResponse.json(newCustomer, { status: 201 })
   }),
 
@@ -207,7 +591,15 @@ export const customersHandlers = [
       return HttpResponse.json({ message: 'Customer not found' }, { status: 404 })
     }
     const data = await request.json() as Partial<Customer>
-    customers[idx] = { ...customers[idx], ...data }
+    const prev = customers[idx]
+    const merged: Customer = { ...prev, ...data }
+    if (data.gstStatus !== undefined && prev.financialDetails) {
+      merged.financialDetails = {
+        ...prev.financialDetails,
+        gstStatus: data.gstStatus,
+      }
+    }
+    customers[idx] = merged
     return HttpResponse.json(customers[idx])
   }),
 
@@ -223,6 +615,64 @@ export const customersHandlers = [
       )
     }
     customers = customers.filter((c) => c.id !== params.id)
+    return HttpResponse.json({ success: true })
+  }),
+
+  // ── Contacts sub-resource ─────────────────────────────────────────────────
+
+  http.get('/api/customers/:id/contacts', ({ params }) => {
+    const id = params.id as string
+    const contacts = contactsStore[id]
+    if (!contacts) {
+      return HttpResponse.json({ message: 'Customer not found' }, { status: 404 })
+    }
+    return HttpResponse.json(contacts)
+  }),
+
+  http.post('/api/customers/:id/contacts', async ({ params, request }) => {
+    const id = params.id as string
+    if (!contactsStore[id]) {
+      return HttpResponse.json({ message: 'Customer not found' }, { status: 404 })
+    }
+    const data = await request.json() as Omit<Contact, 'id'>
+    const newContact: Contact = {
+      ...data,
+      id: `cc-${String(contactIdCounter++).padStart(3, '0')}`,
+    }
+    if (newContact.isPrimary) {
+      contactsStore[id].forEach((c) => { c.isPrimary = false })
+    }
+    contactsStore[id].push(newContact)
+    return HttpResponse.json(newContact, { status: 201 })
+  }),
+
+  http.put('/api/customers/:id/contacts/:contactId', async ({ params, request }) => {
+    const { id, contactId } = params as { id: string; contactId: string }
+    if (!contactsStore[id]) {
+      return HttpResponse.json({ message: 'Customer not found' }, { status: 404 })
+    }
+    const idx = contactsStore[id].findIndex((c) => c.id === contactId)
+    if (idx === -1) {
+      return HttpResponse.json({ message: 'Contact not found' }, { status: 404 })
+    }
+    const data = await request.json() as Partial<Contact>
+    if (data.isPrimary) {
+      contactsStore[id].forEach((c) => { c.isPrimary = false })
+    }
+    contactsStore[id][idx] = { ...contactsStore[id][idx], ...data }
+    return HttpResponse.json(contactsStore[id][idx])
+  }),
+
+  http.delete('/api/customers/:id/contacts/:contactId', ({ params }) => {
+    const { id, contactId } = params as { id: string; contactId: string }
+    if (!contactsStore[id]) {
+      return HttpResponse.json({ message: 'Customer not found' }, { status: 404 })
+    }
+    const contact = contactsStore[id].find((c) => c.id === contactId)
+    if (!contact) {
+      return HttpResponse.json({ message: 'Contact not found' }, { status: 404 })
+    }
+    contactsStore[id] = contactsStore[id].filter((c) => c.id !== contactId)
     return HttpResponse.json({ success: true })
   }),
 ]

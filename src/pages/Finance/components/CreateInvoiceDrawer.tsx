@@ -191,8 +191,6 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved }: C
     [clientPOs, selectedPoId],
   )
 
-  const baselinePrimaryPoId = baseline?.clientPOId
-
   useEffect(() => {
     if (!open) return
     dispatch(fetchProjects({}))
@@ -358,11 +356,6 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved }: C
     [project, projectInvoices],
   )
 
-  const poHelperText =
-    selectedPo && baselinePrimaryPoId && selectedPo.id !== baselinePrimaryPoId
-      ? 'Milestones reflect primary baseline PO; cap applies to selected PO.'
-      : undefined
-
   function validate(): boolean {
     const e: Record<string, string> = {}
     let le = ''
@@ -483,7 +476,7 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved }: C
   const poSelectOptions: { label: string; value: string }[] = [
     { label: 'No PO (optional)', value: '' },
     ...clientPOs.map((po: ClientPO) => ({
-      label: `${po.poNumber} — ₹${formatInr(po.poValue)}`,
+      label: `${po.poNumber} — ₹${formatInr(po.poValue)} (${po.startDate} → ${po.endDate})`,
       value: po.id,
     })),
   ]
@@ -537,7 +530,7 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved }: C
 
         {project && clientPOs.length > 0 && (
           <FormSection title="PO selection">
-            <FormField label="Client PO" hint={poHelperText}>
+            <FormField label="Client PO">
               <Select
                 size="sm"
                 placeholder="Optional"

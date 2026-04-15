@@ -6,6 +6,7 @@ import {
   recordReceipt,
   fetchVendorInvoices,
   createVendorInvoice,
+  updateVendorMilestonePayment,
   payVendorInvoice,
   fetchExpenses,
   createExpense,
@@ -33,34 +34,52 @@ export interface Invoice {
   amount: number
   gstRate: number
   gstAmount: number
-  tdsRate: number
-  tdsAmount: number
   grossAmount: number
+  /** Expected collection equals gross (TDS applied only at receipt). */
   netReceivable: number
-  status: 'Draft' | 'Sent' | 'Paid' | 'Overdue' | 'Cancelled'
+  status: 'Generated' | 'Sent' | 'Paid' | 'Overdue' | 'Cancelled'
   paidAmount: number
   paidDate: string | null
   receiptReference: string | null
+  paymentMode?: string | null
+  /** TDS withheld by client — set when receipt is recorded. */
+  receiptTdsRate?: number | null
+  receiptTdsAmount?: number
 }
 
-export interface VendorInvoice {
+export type VendorMilestonePaymentStatus =
+  | 'PendingInvoice'
+  | 'InvoiceUploaded'
+  | 'PaymentGenerated'
+  | 'Paid'
+
+/** Live tab: vendor milestone line → invoice upload → payment (MSW-backed). */
+export interface VendorMilestonePayment {
   id: string
   projectId: string
   vendorPOId: string
   vendorId: string
   vendorName: string
-  invoiceNumber: string
-  invoiceDate: string
+  serviceId: string
+  serviceName: string
   milestoneId: string
   milestoneName: string
+  /** Milestone / PO line value before invoice differs */
   amount: number
-  tdsRate: number
-  tdsAmount: number
-  netPayable: number
-  status: 'Pending' | 'Approved' | 'Paid' | 'On Hold'
+  status: VendorMilestonePaymentStatus
+  invoiceNumber?: string | null
+  invoiceDate?: string | null
+  invoiceAmount?: number | null
+  dueDate?: string | null
+  attachmentUrl?: string | null
+  tdsPercent?: number | null
+  tdsAmount?: number | null
+  netPayable?: number | null
+  paymentDate?: string | null
+  paymentMode?: string | null
+  referenceNumber?: string | null
   paidAmount: number
   paidDate: string | null
-  paymentReference: string | null
 }
 
 export interface Expense {
@@ -125,7 +144,7 @@ export interface ComplianceData {
 
 interface LiveState {
   invoices: Invoice[]
-  vendorInvoices: VendorInvoice[]
+  vendorInvoices: VendorMilestonePayment[]
   expenses: Expense[]
   changeRequests: ChangeRequest[]
   complianceData: ComplianceData | null
@@ -212,6 +231,20 @@ const liveSlice = createSlice({
       // createVendorInvoice
       .addCase(createVendorInvoice.fulfilled, (state, action) => {
         state.vendorInvoices.push(action.payload)
+      })
+
+      // updateVendorMilestonePayment
+      .addCase(updateVendorMilestonePayment.pending, (state) => {
+        state.saving = true
+      })
+      .addCase(updateVendorMilestonePayment.fulfilled, (state, action) => {
+        state.saving = false
+        const idx = state.vendorInvoices.findIndex((v) => v.id === action.payload.id)
+        if (idx !== -1) state.vendorInvoices[idx] = action.payload
+      })
+      .addCase(updateVendorMilestonePayment.rejected, (state, action) => {
+        state.saving = false
+        state.error = action.payload as string
       })
 
       // payVendorInvoice

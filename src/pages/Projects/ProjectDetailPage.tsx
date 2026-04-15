@@ -37,7 +37,6 @@ import {
   TrendingUp,
   TrendingDown,
   AttachMoney,
-  OpenInNew,
 } from '@mui/icons-material'
 import LinearProgress from '@mui/material/LinearProgress'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
@@ -469,17 +468,6 @@ function OverviewTab({ project }: { project: Project }) {
                 value={collectionPct}
                 sx={{ height: 5, borderRadius: 3, '& .MuiLinearProgress-bar': { bgcolor: '#0D9488' } }}
               />
-            </Box>
-
-            <Box
-              component="span"
-              onClick={() => {}}
-              sx={{
-                display: 'inline-flex', alignItems: 'center', gap: 0.5,
-                color: 'primary.main', cursor: 'pointer', fontSize: 11, fontWeight: 500, mt: 0.5,
-              }}
-            >
-              View Details <OpenInNew sx={{ fontSize: 11 }} />
             </Box>
           </Stack>
         </Box>

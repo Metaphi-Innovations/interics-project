@@ -51,7 +51,7 @@ import { fetchProjects } from '@/slices/projects/thunk'
 import type { Invoice as ClientInvoice } from '@/slices/receivables/reducer'
 import type { Project } from '@/slices/projects/reducer'
 import type {
-  VendorInvoice,
+  VendorMilestonePayment,
   Expense,
   ChangeRequest,
 } from '@/slices/live/reducer'
@@ -131,6 +131,32 @@ function receivableStatusToType(s: ClientInvoice['status']): StatusType {
       return 'paid'
     default:
       return 'inactive'
+  }
+}
+
+function liveVendorMilestoneLabel(s: VendorMilestonePayment['status']): string {
+  switch (s) {
+    case 'PendingInvoice':
+      return 'Pending Invoice'
+    case 'InvoiceUploaded':
+      return 'Invoice Uploaded'
+    case 'PaymentGenerated':
+      return 'Payment Generated'
+    case 'Paid':
+      return 'Paid'
+  }
+}
+
+function liveVendorMilestoneBadgeType(s: VendorMilestonePayment['status']): StatusType {
+  switch (s) {
+    case 'PendingInvoice':
+      return 'draft'
+    case 'InvoiceUploaded':
+      return 'pending'
+    case 'PaymentGenerated':
+      return 'in_progress'
+    case 'Paid':
+      return 'active'
   }
 }
 
@@ -348,7 +374,7 @@ export default function DashboardPage() {
   const [chartPeriod, setChartPeriod] = useState<ChartPeriod>('Last 6 Months')
   const [createProjectOpen, setCreateProjectOpen] = useState(false)
 
-  const [vendorInvoices, setVendorInvoices] = useState<VendorInvoice[]>([])
+  const [vendorInvoices, setVendorInvoices] = useState<VendorMilestonePayment[]>([])
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [changeRequests, setChangeRequests] = useState<ChangeRequest[]>([])
 
@@ -375,14 +401,14 @@ export default function DashboardPage() {
             fetch(`${base}/change-requests`).then((r) => (r.ok ? r.json() : [])),
           ])
           return {
-            v: vr as VendorInvoice[],
+            v: vr as VendorMilestonePayment[],
             e: er as Expense[],
             c: cr as ChangeRequest[],
           }
         }),
       )
       if (cancelled) return
-      const vi: VendorInvoice[] = []
+      const vi: VendorMilestonePayment[] = []
       const ex: Expense[] = []
       const crs: ChangeRequest[] = []
       for (const r of results) {
@@ -490,8 +516,8 @@ export default function DashboardPage() {
         inflow += base + gst - tds
       }
       const vendorOut = scopedVendorInvoices
-        .filter((v) => inCalendarMonth(v.invoiceDate, b.year, b.month))
-        .reduce((s, v) => s + (v.amount ?? 0), 0)
+        .filter((v) => v.invoiceDate && inCalendarMonth(v.invoiceDate, b.year, b.month))
+        .reduce((s, v) => s + (v.invoiceAmount ?? v.amount ?? 0), 0)
       const expOut = scopedExpenses
         .filter((e) => inCalendarMonth(e.date, b.year, b.month))
         .reduce((s, e) => s + (e.amount ?? 0), 0)
@@ -534,7 +560,7 @@ export default function DashboardPage() {
   )
 
   const totalCost = useMemo(() => {
-    const v = scopedVendorInvoices.reduce((s, x) => s + (x.amount ?? 0), 0)
+    const v = scopedVendorInvoices.reduce((s, x) => s + (x.invoiceAmount ?? x.amount ?? 0), 0)
     const e = scopedExpenses.reduce((s, x) => s + (x.amount ?? 0), 0)
     return v + e
   }, [scopedVendorInvoices, scopedExpenses])
@@ -604,7 +630,12 @@ export default function DashboardPage() {
   const outstandingPayables = useMemo(
     () =>
       scopedVendorInvoices
-        .filter((v) => v.status === 'Pending' || v.status === 'On Hold')
+        .filter(
+          (v) =>
+            v.status === 'PendingInvoice' ||
+            v.status === 'InvoiceUploaded' ||
+            v.status === 'PaymentGenerated',
+        )
         .slice(0, 5),
     [scopedVendorInvoices],
   )
@@ -630,7 +661,10 @@ export default function DashboardPage() {
     [scopedInvoices],
   )
   const overdueVendorCount = useMemo(
-    () => scopedVendorInvoices.filter((v) => v.status === 'Pending').length,
+    () =>
+      scopedVendorInvoices.filter(
+        (v) => v.status === 'PendingInvoice' || v.status === 'InvoiceUploaded',
+      ).length,
     [scopedVendorInvoices],
   )
 
@@ -648,12 +682,13 @@ export default function DashboardPage() {
       })
     }
     for (const v of scopedVendorInvoices) {
+      if (v.status === 'PendingInvoice' || !v.invoiceDate) continue
       rows.push({
         kind: 'vendor_invoice',
         id: v.id,
         ts: new Date(v.invoiceDate).getTime(),
         title: 'Vendor invoice received',
-        subtitle: `${v.invoiceNumber} · ${v.vendorName}`,
+        subtitle: `${v.invoiceNumber ?? v.milestoneName} · ${v.vendorName}`,
         relativeLabel: formatRelativeTime(v.invoiceDate),
         avatarName: v.vendorName || 'UN',
       })
@@ -706,13 +741,13 @@ export default function DashboardPage() {
       })
     }
     for (const v of scopedVendorInvoices) {
-      if (v.status !== 'Pending') continue
+      if (v.status !== 'PendingInvoice' && v.status !== 'InvoiceUploaded') continue
       rows.push({
         kind: 'vendor_invoice',
         id: v.id,
-        title: truncate(v.invoiceNumber, 35),
+        title: truncate(v.invoiceNumber ?? v.milestoneName, 35),
         subtitle: v.vendorName,
-        amount: v.amount ?? 0,
+        amount: v.invoiceAmount ?? v.amount ?? 0,
       })
     }
     return rows
@@ -745,7 +780,8 @@ export default function DashboardPage() {
   const receivablesOutstanding = totalReceivableExpected - totalReceived
 
   const totalPayableExpected = useMemo(
-    () => scopedVendorInvoices.reduce((s, v) => s + (v.amount ?? 0), 0),
+    () =>
+      scopedVendorInvoices.reduce((s, v) => s + (v.invoiceAmount ?? v.amount ?? 0), 0),
     [scopedVendorInvoices],
   )
 
@@ -753,7 +789,7 @@ export default function DashboardPage() {
     () =>
       scopedVendorInvoices
         .filter((v) => v.status === 'Paid')
-        .reduce((s, v) => s + (v.amount ?? 0), 0),
+        .reduce((s, v) => s + (v.paidAmount ?? 0), 0),
     [scopedVendorInvoices],
   )
 
@@ -1998,11 +2034,15 @@ export default function DashboardPage() {
                 <Typography variant="body2" fontWeight={500}>
                   {v.vendorName}
                 </Typography>
-                <Typography variant="body2">{ru(v.amount ?? 0)}</Typography>
+                <Typography variant="body2">{ru(v.invoiceAmount ?? v.amount ?? 0)}</Typography>
                 <Typography variant="caption" color="text.secondary">
-                  {formatDate(v.invoiceDate)}
+                  {formatDate(v.invoiceDate ?? v.dueDate ?? null)}
                 </Typography>
-                <StatusBadge status="pending" label={v.status} size="small" />
+                <StatusBadge
+                  status={liveVendorMilestoneBadgeType(v.status)}
+                  label={liveVendorMilestoneLabel(v.status)}
+                  size="small"
+                />
               </Box>
             ))
           )}

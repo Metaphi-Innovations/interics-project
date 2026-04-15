@@ -315,7 +315,7 @@ function FinancialSidebar({ version }: FinancialSidebarProps) {
           <Typography variant="body2" sx={{ fontSize: 12, color: 'success.main', fontWeight: 600 }}>Positive</Typography>
         </Stack>
         <Typography variant="caption" sx={{ fontSize: 10, color: 'text.disabled' }}>
-          Based on milestone due dates
+          Based on milestone values
         </Typography>
       </Box>
 
@@ -392,7 +392,7 @@ function MilestoneDrawer({ open, onClose, service, onSave, initialMode = 'view' 
   function addMilestone() {
     setMilestones((prev) => [
       ...prev,
-      { id: `cm-${Date.now()}`, name: '', percentage: 0, value: 0, dueDate: null },
+      { id: `cm-${Date.now()}`, name: '', percentage: 0, value: 0 },
     ])
   }
 
@@ -492,8 +492,7 @@ function MilestoneDrawer({ open, onClose, service, onSave, initialMode = 'view' 
               <TableCell sx={{ ...cellSx, fontSize: 11, fontWeight: 600, color: 'text.secondary', minWidth: 180 }}>Name</TableCell>
               <TableCell sx={{ ...cellSx, fontSize: 11, fontWeight: 600, color: 'text.secondary', width: 90 }}>%</TableCell>
               <TableCell sx={{ ...cellSx, fontSize: 11, fontWeight: 600, color: 'text.secondary', width: 140 }}>₹ Value</TableCell>
-              <TableCell sx={{ ...cellSx, fontSize: 11, fontWeight: 600, color: 'text.secondary', width: 160 }}>Due Date</TableCell>
-              <TableCell sx={{ ...cellSx, width: 36 }} />
+              <TableCell sx={{ ...cellSx, fontSize: 11, fontWeight: 600, color: 'text.secondary', width: 44 }}>Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -538,16 +537,6 @@ function MilestoneDrawer({ open, onClose, service, onSave, initialMode = 'view' 
                     InputProps={{
                       startAdornment: <InputAdornment position="start" sx={{ '& p': { fontSize: 12 } }}>₹</InputAdornment>,
                     }}
-                    disabled={mode === 'view'}
-                  />
-                </TableCell>
-                <TableCell sx={cellSx}>
-                  <TextField
-                    size="small"
-                    type="date"
-                    value={m.dueDate ?? ''}
-                    onChange={(e) => updateMilestone(idx, 'dueDate', e.target.value || null)}
-                    sx={{ width: 160, '& input': { fontSize: 12 } }}
                     disabled={mode === 'view'}
                   />
                 </TableCell>
@@ -720,7 +709,7 @@ function VendorMappingDrawer({ open, onClose, service, onSave, initialMode = 'vi
               ...m,
               milestones: [
                 ...m.milestones,
-                { id: `vml-${Date.now()}`, name: '', percentage: 0, value: 0, dueDate: null },
+                { id: `vml-${Date.now()}`, name: '', percentage: 0, value: 0 },
               ],
             }
       )
@@ -864,13 +853,13 @@ function VendorMappingDrawer({ open, onClose, service, onSave, initialMode = 'vi
                         <Box
                           sx={{
                             display: 'grid',
-                            gridTemplateColumns: '1fr 80px 140px 150px',
+                            gridTemplateColumns: '1fr 80px 140px',
                             gap: '8px',
                             mb: 1,
                             px: '10px',
                           }}
                         >
-                          {['NAME', '%', '₹ VALUE', 'DUE DATE'].map((h) => (
+                          {['NAME', '%', '₹ VALUE'].map((h) => (
                             <Typography
                               key={h}
                               variant="overline"
@@ -891,7 +880,7 @@ function VendorMappingDrawer({ open, onClose, service, onSave, initialMode = 'vi
                               padding: '8px 10px',
                               marginBottom: '6px',
                               display: 'grid',
-                              gridTemplateColumns: '1fr 80px 140px 150px',
+                              gridTemplateColumns: '1fr 80px 140px',
                               gap: '8px',
                               alignItems: 'center',
                             }}
@@ -899,7 +888,6 @@ function VendorMappingDrawer({ open, onClose, service, onSave, initialMode = 'vi
                             <Typography variant="body2" fontWeight={500} color="text.primary">{vm.name}</Typography>
                             <Typography variant="body2" fontWeight={500} color="text.primary">{vm.percentage}%</Typography>
                             <Typography variant="body2" fontWeight={500} color="text.primary">₹{formatCurrency(vm.value)}</Typography>
-                            <Typography variant="body2" fontWeight={500} color="text.primary">{vm.dueDate || '—'}</Typography>
                           </Box>
                         ))}
                       </Box>
@@ -1012,14 +1000,14 @@ function VendorMappingDrawer({ open, onClose, service, onSave, initialMode = 'vi
                     <Box
                       sx={{
                         display: 'grid',
-                        gridTemplateColumns: '1fr 80px 130px 150px 36px',
+                        gridTemplateColumns: '1fr 80px 130px 36px',
                         gap: 1,
                         px: 1,
                         py: 0.5,
                         mb: 0.5,
                       }}
                     >
-                      {['NAME', '%', '₹ VALUE', 'DUE DATE'].map((h) => (
+                      {['NAME', '%', '₹ VALUE', 'ACTIONS'].map((h) => (
                         <Typography
                           key={h}
                           variant="caption"
@@ -1028,7 +1016,6 @@ function VendorMappingDrawer({ open, onClose, service, onSave, initialMode = 'vi
                           {h}
                         </Typography>
                       ))}
-                      <Box />
                     </Box>
 
                     {/* Milestone rows */}
@@ -1037,7 +1024,7 @@ function VendorMappingDrawer({ open, onClose, service, onSave, initialMode = 'vi
                         key={vm.id}
                         sx={{
                           display: 'grid',
-                          gridTemplateColumns: '1fr 80px 130px 150px 36px',
+                          gridTemplateColumns: '1fr 80px 130px 36px',
                           gap: 1,
                           alignItems: 'center',
                           mb: 0.75,
@@ -1062,13 +1049,6 @@ function VendorMappingDrawer({ open, onClose, service, onSave, initialMode = 'vi
                           type="number"
                           value={vm.value}
                           onChange={(e) => updateVendorMilestone(mIdx, vIdx, 'value', Number(e.target.value))}
-                          sx={{ '& .MuiInputBase-input': { fontSize: 11 } }}
-                        />
-                        <TextField
-                          size="small"
-                          type="date"
-                          value={vm.dueDate ?? ''}
-                          onChange={(e) => updateVendorMilestone(mIdx, vIdx, 'dueDate', e.target.value || null)}
                           sx={{ '& .MuiInputBase-input': { fontSize: 11 } }}
                         />
                         <MuiIconButton size="small" onClick={() => removeVendorMilestone(mIdx, vIdx)} sx={{ color: 'error.main' }}>
