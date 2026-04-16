@@ -1,4 +1,5 @@
 import { http, HttpResponse } from 'msw'
+import type { PitchCategory, PlannedExpense } from '../../slices/pitch/reducer'
 
 interface Project {
   id: string
@@ -214,6 +215,19 @@ let projects: Project[] = [
 let idCounter = 9
 let codeCounter = 9
 
+type TransitionPersisted = {
+  versionId: string | null
+  categories: PitchCategory[]
+  plannedExpenses: PlannedExpense[]
+  versionNumber?: number
+  label?: string
+  totalRevenue?: number
+  totalCost?: number
+  profitability?: number
+}
+
+const transitionByProjectId = new Map<string, TransitionPersisted>()
+
 export const projectsHandlers = [
   http.get('/api/projects', ({ request }) => {
     const url = new URL(request.url)
@@ -286,5 +300,25 @@ export const projectsHandlers = [
     const { status } = await request.json() as { status: Project['status'] }
     projects[idx] = { ...projects[idx], status }
     return HttpResponse.json(projects[idx])
+  }),
+
+  http.get('/api/projects/:id/transition', ({ params }) => {
+    const id = params.id as string
+    const saved = transitionByProjectId.get(id)
+    if (!saved) {
+      return HttpResponse.json({
+        versionId: null,
+        categories: [],
+        plannedExpenses: [],
+      } satisfies TransitionPersisted)
+    }
+    return HttpResponse.json(saved)
+  }),
+
+  http.post('/api/projects/:id/transition/save', async ({ params, request }) => {
+    const id = params.id as string
+    const body = (await request.json()) as TransitionPersisted
+    transitionByProjectId.set(id, body)
+    return HttpResponse.json(body)
   }),
 ]

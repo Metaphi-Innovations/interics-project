@@ -25,7 +25,6 @@ export interface VendorFinancialDetails {
 export interface Vendor {
   id: string
   name: string
-  type: 'Measurable' | 'Non-measurable'
   gstin: string | null
   pan: string | null
   gstStatus: 'Registered' | 'Unregistered'
@@ -60,7 +59,6 @@ interface Pagination {
 interface Filters {
   search: string
   status: string
-  type: string
   gstStatus: string
   state: string
 }
@@ -88,7 +86,7 @@ const initialState: VendorsState = {
   saving: false,
   error: null,
   pagination: { page: 1, pageSize: 10, total: 0 },
-  filters: { search: '', status: '', type: '', gstStatus: '', state: '' },
+  filters: { search: '', status: '', gstStatus: '', state: '' },
   sortConfig: { field: null, direction: 'asc' },
 }
 
@@ -100,7 +98,7 @@ const vendorsSlice = createSlice({
       state.filters = { ...state.filters, ...action.payload }
     },
     resetFilters(state) {
-      state.filters = { search: state.filters.search, status: state.filters.status, type: '', gstStatus: '', state: '' }
+      state.filters = { search: state.filters.search, status: state.filters.status, gstStatus: '', state: '' }
     },
     setPage(state, action: PayloadAction<number>) {
       state.pagination.page = action.payload

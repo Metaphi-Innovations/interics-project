@@ -7,7 +7,6 @@ interface FetchVendorsParams {
   pageSize?: number
   search?: string
   status?: string
-  type?: string
   gstStatus?: string
   state?: string
 }

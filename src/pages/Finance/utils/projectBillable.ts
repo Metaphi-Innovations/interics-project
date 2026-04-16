@@ -25,8 +25,8 @@ export function resolveServiceForBaseline(
   const direct = services.find((s) => s.name.trim().toLowerCase() === n)
   if (direct) return direct
   const aliases: Record<string, string> = {
-    'interior design': 'Concept Design',
-    'civil works': 'Civil Works',
+    'interior design': 'Interior Design',
+    'civil works': 'Construction / Build Services',
   }
   const aliasTarget = aliases[n]
   if (aliasTarget) {
@@ -67,7 +67,7 @@ export function flattenBaselineServices(baseline: Baseline | null): FlatBaseline
       out.push({
         baselineServiceId: svc.id,
         name: svc.name,
-        adjustedValue: svc.adjustedValue,
+        adjustedValue: svc.value,
       })
     }
   }

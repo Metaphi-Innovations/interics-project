@@ -41,7 +41,7 @@ import {
 import LinearProgress from '@mui/material/LinearProgress'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import PitchTab from './tabs/PitchTab'
-import BaselineTab from './tabs/BaselineTab'
+import TransitionTab from './tabs/TransitionTab'
 import LiveTab from './tabs/LiveTab'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { fetchProjects, fetchProjectById, updateProject, changeProjectStatus } from '../../slices/projects/thunk'
@@ -173,8 +173,8 @@ function getTabConfig(status: string): TabConfig[] {
       lockReason: null,
     },
     {
-      label: 'PO & Baseline',
-      value: 'baseline',
+      label: 'PO Transition',
+      value: 'transition',
       icon: <Assignment sx={{ fontSize: 14 }} />,
       locked: false,
       lockReason: null,
@@ -956,8 +956,8 @@ export default function ProjectDetailPage() {
         return <OverviewTab project={project} />
       case 'pitch':
         return <PitchTab project={project} />
-      case 'baseline':
-        return <BaselineTab project={project} />
+      case 'transition':
+        return <TransitionTab project={project} />
       case 'live':
         return <LiveTab project={project} />
       case 'financials':

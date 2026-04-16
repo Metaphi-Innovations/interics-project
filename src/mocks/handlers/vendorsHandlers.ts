@@ -34,7 +34,6 @@ interface VendorFinancialDetails {
 interface Vendor {
   id: string
   name: string
-  type: 'Measurable' | 'Non-measurable'
   gstin: string | null
   pan: string | null
   gstStatus: 'Registered' | 'Unregistered'
@@ -68,7 +67,6 @@ let vendors: Vendor[] = [
   {
     id: 'v-001',
     name: 'BuildWell Constructions',
-    type: 'Measurable',
     gstin: '29BWCON1234A1Z7',
     pan: 'BWCON1234A',
     gstStatus: 'Registered',
@@ -154,7 +152,6 @@ let vendors: Vendor[] = [
   {
     id: 'v-002',
     name: 'Spectrum Interiors',
-    type: 'Non-measurable',
     gstin: null,
     pan: 'SPINT5678B',
     gstStatus: 'Unregistered',
@@ -218,7 +215,6 @@ let vendors: Vendor[] = [
   {
     id: 'v-003',
     name: 'LightCraft Solutions',
-    type: 'Non-measurable',
     gstin: '27LCSOL9012C1Z3',
     pan: 'LCSOL9012C',
     gstStatus: 'Registered',
@@ -297,7 +293,6 @@ let vendors: Vendor[] = [
   {
     id: 'v-004',
     name: 'FloorMaster Pvt Ltd',
-    type: 'Measurable',
     gstin: '07FLRMS3456D1Z5',
     pan: 'FLRMS3456D',
     gstStatus: 'Registered',
@@ -375,7 +370,6 @@ let vendors: Vendor[] = [
   {
     id: 'v-005',
     name: 'AirTech HVAC',
-    type: 'Measurable',
     gstin: '29AIRHV7890E1Z1',
     pan: 'AIRHV7890E',
     gstStatus: 'Registered',
@@ -439,7 +433,6 @@ let vendors: Vendor[] = [
   {
     id: 'v-006',
     name: 'Craft Studio Design',
-    type: 'Non-measurable',
     gstin: null,
     pan: 'CRFSD2345F',
     gstStatus: 'Unregistered',
@@ -516,7 +509,6 @@ export const vendorsHandlers = [
     const url = new URL(request.url)
     const search = url.searchParams.get('search')?.toLowerCase() ?? ''
     const status = url.searchParams.get('status') ?? ''
-    const type = url.searchParams.get('type') ?? ''
     const gstStatus = url.searchParams.get('gstStatus') ?? ''
     const state = url.searchParams.get('state') ?? ''
     const page = parseInt(url.searchParams.get('page') ?? '1', 10)
@@ -532,7 +524,6 @@ export const vendorsHandlers = [
       )
     }
     if (status) filtered = filtered.filter((v) => v.status === status)
-    if (type) filtered = filtered.filter((v) => v.type === type)
     if (gstStatus) filtered = filtered.filter((v) => v.gstStatus === gstStatus)
     if (state) filtered = filtered.filter((v) => v.state === state)
 

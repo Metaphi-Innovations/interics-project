@@ -100,7 +100,7 @@ let purchaseOrders: VendorPO[] = [
     paymentTerms: 'Net 30',
     notes: 'Civil package',
     status: 'issued',
-    scopeBaselineServiceIds: ['bs-001'],
+    scopeBaselineServiceIds: ['ps-001'],
     lineItems: [
       makePoLine('vpol-1', 'Civil Works', 'Shell & core', 1, 1200000),
       makePoLine('vpol-2', 'MEP rough-in', 'Coordination', 1, 350000),

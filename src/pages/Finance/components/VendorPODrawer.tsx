@@ -113,7 +113,6 @@ export function VendorPODrawer({ open, onClose, mode, purchaseOrder, onSaved }: 
       ({
         id: purchaseOrder.vendorId,
         name: purchaseOrder.vendorName,
-        type: 'Measurable',
         gstin: null,
         pan: null,
         gstStatus: 'Registered',

@@ -86,7 +86,6 @@ export function VendorInvoiceDrawer({ open, onClose, mode, invoice, onSaved }: V
       ({
         id: invoice.vendorId,
         name: invoice.vendorName,
-        type: 'Measurable',
         gstin: null,
         pan: null,
         gstStatus: 'Registered',

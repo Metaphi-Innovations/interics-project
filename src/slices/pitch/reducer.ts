@@ -6,11 +6,13 @@ import {
   createVersion,
   updateVersion,
   addCategory,
+  deleteCategory,
   addService,
   updateService,
   deleteService,
   updateMilestones,
   updateVendorMapping,
+  updatePlannedExpenses,
 } from './thunk'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -29,6 +31,19 @@ export interface VendorMilestone {
   value: number
 }
 
+/** Retention is stored separately from regular vendor milestones. */
+export interface VendorRetention {
+  percentage: number
+  amount: number
+}
+
+/** Vendor quotation document (PO Transition); stored per service–vendor mapping. */
+export interface VendorQuotation {
+  fileName: string
+  fileUrl: string
+  uploadedAt: string
+}
+
 export interface VendorMapping {
   id: string
   vendorId: string
@@ -36,6 +51,25 @@ export interface VendorMapping {
   value: number
   percentage: number
   milestones: VendorMilestone[]
+  /** Optional retention slice (single); not part of `milestones`. */
+  retention?: VendorRetention
+  isMeasurable: boolean
+  quotation?: VendorQuotation
+}
+
+export interface PlannedExpenseSplit {
+  vendorId: string
+  percentage: number
+  amount: number
+}
+
+export interface PlannedExpense {
+  id: string
+  type: 'additional' | 'vendor' | 'common'
+  name: string
+  amount: number
+  vendorId?: string
+  vendorSplits?: PlannedExpenseSplit[]
 }
 
 export interface PitchService {
@@ -68,6 +102,7 @@ export interface PitchVersion {
   isActive: boolean
   createdAt: string
   categories: PitchCategory[]
+  plannedExpenses: PlannedExpense[]
   totalRevenue: number
   totalCost: number
   profitability: number
@@ -122,6 +157,9 @@ const pitchSlice = createSlice({
         if (active) {
           state.activeVersionId = active.id
           state.activeVersion = active
+        } else {
+          state.activeVersionId = null
+          state.activeVersion = null
         }
       })
       .addCase(fetchVersions.rejected, (state, action) => {
@@ -178,6 +216,13 @@ const pitchSlice = createSlice({
           state.activeVersion = action.payload
         }
       })
+      .addCase(deleteCategory.fulfilled, (state, action) => {
+        const idx = state.versions.findIndex((v) => v.id === action.payload.id)
+        if (idx !== -1) state.versions[idx] = action.payload
+        if (state.activeVersionId === action.payload.id) {
+          state.activeVersion = action.payload
+        }
+      })
       .addCase(addService.fulfilled, (state, action) => {
         const idx = state.versions.findIndex((v) => v.id === action.payload.id)
         if (idx !== -1) state.versions[idx] = action.payload
@@ -207,6 +252,13 @@ const pitchSlice = createSlice({
         }
       })
       .addCase(updateVendorMapping.fulfilled, (state, action) => {
+        const idx = state.versions.findIndex((v) => v.id === action.payload.id)
+        if (idx !== -1) state.versions[idx] = action.payload
+        if (state.activeVersionId === action.payload.id) {
+          state.activeVersion = action.payload
+        }
+      })
+      .addCase(updatePlannedExpenses.fulfilled, (state, action) => {
         const idx = state.versions.findIndex((v) => v.id === action.payload.id)
         if (idx !== -1) state.versions[idx] = action.payload
         if (state.activeVersionId === action.payload.id) {

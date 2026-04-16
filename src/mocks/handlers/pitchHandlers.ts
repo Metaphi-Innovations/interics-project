@@ -1,5 +1,27 @@
 import { http, HttpResponse } from 'msw'
-import type { PitchVersion, PitchCategory, PitchService, ClientMilestone, VendorMapping } from '../../slices/pitch/reducer'
+import { DEFAULT_CATEGORIES } from '../../config/categories'
+import type {
+  PitchVersion,
+  PitchCategory,
+  PitchService,
+  ClientMilestone,
+  VendorMapping,
+  PlannedExpense,
+} from '../../slices/pitch/reducer'
+import { normalizeVendorMapping } from '../../utils/vendorMilestones'
+
+let pitchCategoryInstanceCounter = 100
+
+/** Empty category rows for a new pitch version (matches Settings / config masters). */
+function buildDefaultEmptyPitchCategories(): PitchCategory[] {
+  return DEFAULT_CATEGORIES.map((c) => ({
+    id: `pc-${String(++pitchCategoryInstanceCounter).padStart(3, '0')}`,
+    categoryId: c.id,
+    categoryName: c.name,
+    services: [],
+    totalValue: 0,
+  }))
+}
 
 // ─── Seed data ────────────────────────────────────────────────────────────────
 
@@ -63,10 +85,12 @@ let pitchVersions: PitchVersion[] = [
                   {
                     id: 'vml-002',
                     name: 'Midpoint',
-                    percentage: 70,
-                    value: 630000,
+                    percentage: 60,
+                    value: 540000,
                   },
                 ],
+                retention: { percentage: 10, amount: 90_000 },
+                isMeasurable: false,
               },
             ],
             milestonesTotal: 1500000,
@@ -81,9 +105,9 @@ let pitchVersions: PitchVersion[] = [
         services: [
           {
             id: 'ps-002',
-            name: 'Civil Works',
+            name: 'Construction / Build Services',
             subcategoryId: 'sub-010',
-            subcategoryName: 'Build Services',
+            subcategoryName: 'Construction / Build Services',
             customName: null,
             value: 2000000,
             sacCode: '995411',
@@ -115,9 +139,24 @@ let pitchVersions: PitchVersion[] = [
         totalValue: 2000000,
       },
     ],
-    totalRevenue: 3500000,
-    totalCost: 900000,
-    profitability: 2600000,
+    plannedExpenses: [
+      {
+        id: 'pe-seed-1',
+        type: 'additional',
+        name: 'Site logistics',
+        amount: 125_000,
+      },
+      {
+        id: 'pe-seed-2',
+        type: 'common',
+        name: 'Shared coordination',
+        amount: 75_000,
+        vendorSplits: [{ vendorId: 'v-001', percentage: 100, amount: 75_000 }],
+      },
+    ],
+    totalRevenue: 3_500_000,
+    totalCost: 1_100_000,
+    profitability: 2_400_000,
   },
 ]
 
@@ -127,20 +166,28 @@ let versionCounter = 2
 
 function recalcVersion(version: PitchVersion): PitchVersion {
   let totalRevenue = 0
-  let totalCost = 0
+  let vendorCostSum = 0
+  const plannedExpenses = version.plannedExpenses ?? []
   const updatedCategories = version.categories.map((cat) => {
     const catTotal = cat.services.reduce((sum, s) => sum + s.value, 0)
     totalRevenue += catTotal
-    const vendorCost = cat.services.reduce(
+    const servicesNormalized = cat.services.map((s) => ({
+      ...s,
+      vendorMappings: s.vendorMappings.map(normalizeVendorMapping),
+    }))
+    const vendorCostInCat = servicesNormalized.reduce(
       (sum, s) => sum + s.vendorMappings.reduce((vs, vm) => vs + vm.value, 0),
-      0
+      0,
     )
-    totalCost += vendorCost
-    return { ...cat, totalValue: catTotal }
+    vendorCostSum += vendorCostInCat
+    return { ...cat, totalValue: catTotal, services: servicesNormalized }
   })
+  const plannedTotal = plannedExpenses.reduce((sum, e) => sum + e.amount, 0)
+  const totalCost = vendorCostSum + plannedTotal
   return {
     ...version,
     categories: updatedCategories,
+    plannedExpenses,
     totalRevenue,
     totalCost,
     profitability: totalRevenue - totalCost,
@@ -189,15 +236,19 @@ export const pitchHandlers = [
         label: body.label,
         isActive: false,
         createdAt: new Date().toISOString().split('T')[0],
-        categories: [],
+        categories: buildDefaultEmptyPitchCategories(),
+        plannedExpenses: [],
         totalRevenue: 0,
         totalCost: 0,
         profitability: 0,
       }
     }
 
-    pitchVersions.push(newVersion)
-    return HttpResponse.json(newVersion, { status: 201 })
+    const normalized: PitchVersion = Array.isArray(newVersion.plannedExpenses)
+      ? newVersion
+      : { ...newVersion, plannedExpenses: [] as PlannedExpense[] }
+    pitchVersions.push(recalcVersion(normalized))
+    return HttpResponse.json(pitchVersions[pitchVersions.length - 1], { status: 201 })
   }),
 
   // GET /api/projects/:projectId/pitch/versions/:versionId
@@ -235,6 +286,21 @@ export const pitchHandlers = [
         categories: [...pitchVersions[idx].categories, newCategory],
       }
       return HttpResponse.json(recalcVersion(pitchVersions[idx]))
+    }
+  ),
+
+  // DELETE /api/projects/:projectId/pitch/versions/:versionId/categories/:categoryId
+  http.delete(
+    '/api/projects/:projectId/pitch/versions/:versionId/categories/:categoryId',
+    ({ params }) => {
+      const idx = pitchVersions.findIndex((v) => v.id === params.versionId)
+      if (idx === -1) {
+        return HttpResponse.json({ message: 'Version not found' }, { status: 404 })
+      }
+      const updated = JSON.parse(JSON.stringify(pitchVersions[idx])) as PitchVersion
+      updated.categories = updated.categories.filter((c) => c.id !== params.categoryId)
+      pitchVersions[idx] = recalcVersion(updated)
+      return HttpResponse.json(pitchVersions[idx])
     }
   ),
 
@@ -339,15 +405,33 @@ export const pitchHandlers = [
         return HttpResponse.json({ message: 'Version not found' }, { status: 404 })
       }
       const { mappings } = await request.json() as { mappings: VendorMapping[] }
+      const normalized = mappings.map((m) => normalizeVendorMapping(m))
       const updated = JSON.parse(JSON.stringify(pitchVersions[idx])) as PitchVersion
       for (const cat of updated.categories) {
         const s = cat.services.find((sv) => sv.id === params.serviceId)
         if (s) {
-          s.vendorMappings = mappings
+          s.vendorMappings = normalized
         }
       }
       pitchVersions[idx] = recalcVersion(updated)
       return HttpResponse.json(pitchVersions[idx])
     }
+  ),
+
+  // PUT .../planned-expenses
+  http.put(
+    '/api/projects/:projectId/pitch/versions/:versionId/planned-expenses',
+    async ({ params, request }) => {
+      const idx = pitchVersions.findIndex((v) => v.id === params.versionId)
+      if (idx === -1) {
+        return HttpResponse.json({ message: 'Version not found' }, { status: 404 })
+      }
+      const { expenses } = await request.json() as { expenses: PlannedExpense[] }
+      pitchVersions[idx] = recalcVersion({
+        ...pitchVersions[idx],
+        plannedExpenses: expenses,
+      })
+      return HttpResponse.json(pitchVersions[idx])
+    },
   ),
 ]

@@ -25,6 +25,14 @@ export type StatusType =
   | 'paid'
   /** Vendor PO issued (commitment active) */
   | 'issued'
+  /** Compliance — return filed */
+  | 'filed'
+  /** Compliance — partial filing */
+  | 'partial'
+  /** Compliance — TDS mapped to challan */
+  | 'mapped'
+  /** Compliance — TDS not mapped */
+  | 'unmapped'
 
 export interface StatusBadgeProps {
   status: StatusType
@@ -56,6 +64,10 @@ const STATUS_SEMANTIC: Record<StatusType, StatusSemantic> = {
   archived:          'neutral',
   inactive:          'neutral',
   invoice_draft:     'neutral',
+  filed:             'success',
+  partial:           'neutral',
+  mapped:            'success',
+  unmapped:          'warning',
 }
 
 const STATUS_LABEL: Record<StatusType, string> = {
@@ -80,6 +92,10 @@ const STATUS_LABEL: Record<StatusType, string> = {
   archived:          'Archived',
   inactive:          'Inactive',
   invoice_draft:     'Draft',
+  filed:             'Filed',
+  partial:           'Partial',
+  mapped:            'Mapped',
+  unmapped:          'Unmapped',
 }
 
 export default function StatusBadge({ status, label, size = 'small' }: StatusBadgeProps) {

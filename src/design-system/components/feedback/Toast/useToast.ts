@@ -21,6 +21,9 @@ interface ToastStore {
   showToast: (toast: Omit<Toast, 'id'>) => void
   dismissToast: (id: string) => void
   dismissAll: () => void
+  success: (title: string, description?: string) => void
+  error: (title: string, description?: string) => void
+  warning: (title: string, description?: string) => void
 }
 
 function createToastId(): string {
@@ -31,7 +34,7 @@ function createToastId(): string {
   return `toast-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 }
 
-export const useToast = create<ToastStore>((set) => ({
+export const useToast = create<ToastStore>((set, get) => ({
   toasts: [],
   showToast: (toast) =>
     set((state) => ({
@@ -49,4 +52,13 @@ export const useToast = create<ToastStore>((set) => ({
       toasts: state.toasts.filter((toast) => toast.id !== id),
     })),
   dismissAll: () => set({ toasts: [] }),
+  success: (title, description) => {
+    get().showToast({ title, description, variant: 'success' })
+  },
+  error: (title, description) => {
+    get().showToast({ title, description, variant: 'error' })
+  },
+  warning: (title, description) => {
+    get().showToast({ title, description, variant: 'warning' })
+  },
 }))

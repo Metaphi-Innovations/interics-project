@@ -297,12 +297,6 @@ function VendorTable({
                     </Typography>
                     <Stack direction="row" gap={0.5} sx={{ mt: '3px' }}>
                       <MuiChip
-                        label={vendor.type}
-                        size="small"
-                        variant="outlined"
-                        sx={{ height: 18, fontSize: 10, '& .MuiChip-label': { px: '6px' } }}
-                      />
-                      <MuiChip
                         label={vendor.gstStatus}
                         size="small"
                         variant="outlined"
@@ -493,9 +487,7 @@ function VendorGridCard({ vendor, onView, onEdit, onDelete }: VendorGridCardProp
         </Menu>
       </Stack>
 
-      {/* Type + GST chips */}
       <Stack direction="row" gap={0.5} sx={{ mt: '6px' }}>
-        <MuiChip label={vendor.type} size="small" variant="outlined" sx={{ height: 18, fontSize: 10, '& .MuiChip-label': { px: '6px' } }} />
         <MuiChip label={vendor.gstStatus} size="small" variant="outlined" sx={{ height: 18, fontSize: 10, '& .MuiChip-label': { px: '6px' } }} />
       </Stack>
 
@@ -798,17 +790,6 @@ export default function VendorsPage() {
       ],
     },
     {
-      field: 'type',
-      label: 'Vendor Type',
-      type: 'select',
-      icon: <LocalShipping sx={{ fontSize: 12 }} />,
-      options: [
-        { label: 'All', value: '' },
-        { label: 'Measurable', value: 'Measurable' },
-        { label: 'Non-measurable', value: 'Non-measurable' },
-      ],
-    },
-    {
       field: 'gstStatus',
       label: 'GST Status',
       type: 'select',
@@ -870,7 +851,7 @@ export default function VendorsPage() {
     for (const [k, v] of Object.entries(newFilters)) {
       params[k] = (v as string) || undefined
     }
-    dispatch(setFilters(params as { search?: string; status?: string; type?: string; gstStatus?: string; state?: string }))
+    dispatch(setFilters(params as { search?: string; status?: string; gstStatus?: string; state?: string }))
     dispatch(setPage(1))
     dispatch(fetchVendors({ page: 1, pageSize: pagination.pageSize, search: filters.search || undefined, ...params }))
   }

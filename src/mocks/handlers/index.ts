@@ -11,6 +11,7 @@ import { categoriesHandlers } from './categoriesHandlers'
 import { liveHandlers } from './liveHandlers'
 import { receivablesHandlers } from './receivablesHandlers'
 import { payablesHandlers } from './payablesHandlers'
+import { complianceHandlers } from './complianceHandlers'
 
 export const handlers = [
   ...authHandlers,
@@ -26,4 +27,5 @@ export const handlers = [
   ...liveHandlers,
   ...receivablesHandlers,
   ...payablesHandlers,
+  ...complianceHandlers,
 ]

@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
+import type { MouseEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Box,
@@ -45,7 +46,6 @@ import { getInitials, getAvatarColor, formatDate } from '@/utils/formatters'
 import { tokens } from '@/design-system/tokens'
 import { usePermission } from '@/hooks/usePermission'
 import { UserManagementLayout } from './components/UserManagementLayout'
-import { UserDetailsDrawer } from './components/UserDetailsDrawer'
 import { getRoleChip } from './userRoleChips'
 
 function UserAvatar({ name }: { name: string }) {
@@ -129,8 +129,9 @@ interface UsersTableProps {
   sortField: string
   sortDirection: 'asc' | 'desc'
   onSort: (field: string, direction: 'asc' | 'desc') => void
-  onView: (user: User) => void
-  onEdit: (user: User) => void
+  onRowClick: (user: User) => void
+  onViewClick: (e: MouseEvent<HTMLButtonElement>, user: User) => void
+  onEditClick: (e: MouseEvent<HTMLButtonElement>, user: User) => void
   onToggleStatus: (user: User) => void
   onDelete: (user: User) => void
   canView: boolean
@@ -144,8 +145,9 @@ function UsersTable({
   sortField,
   sortDirection,
   onSort,
-  onView,
-  onEdit,
+  onRowClick,
+  onViewClick,
+  onEditClick,
   onToggleStatus,
   onDelete,
   canView,
@@ -204,7 +206,7 @@ function UsersTable({
               return (
                 <TableRow
                   key={user.id}
-                  onClick={() => canView && onView(user)}
+                  onClick={() => canView && onRowClick(user)}
                   sx={{
                     '&:hover': { bgcolor: hoverBg },
                     '&:last-child td': { border: 0 },
@@ -287,14 +289,14 @@ function UsersTable({
                     <Stack direction="row" alignItems="center" gap={0.25}>
                       {canView && (
                         <Tooltip title="View user">
-                          <MuiIconButton size="small" onClick={(e) => { e.stopPropagation(); onView(user) }} sx={{ color: 'text.secondary' }}>
+                          <MuiIconButton size="small" onClick={(e) => onViewClick(e, user)} sx={{ color: 'text.secondary' }}>
                             <Eye size={15} strokeWidth={1.75} />
                           </MuiIconButton>
                         </Tooltip>
                       )}
                       {canEdit && (
                         <Tooltip title="Edit user">
-                          <MuiIconButton size="small" onClick={(e) => { e.stopPropagation(); onEdit(user) }} sx={{ color: 'text.secondary' }}>
+                          <MuiIconButton size="small" onClick={(e) => onEditClick(e, user)} sx={{ color: 'text.secondary' }}>
                             <Edit sx={{ fontSize: 15 }} />
                           </MuiIconButton>
                         </Tooltip>
@@ -487,7 +489,6 @@ export default function UsersPage() {
   const canEdit = usePermission('userManagement', 'edit')
   const canDelete = usePermission('userManagement', 'delete')
 
-  const [detailUser, setDetailUser] = useState<User | null>(null)
   const [toggleTarget, setToggleTarget] = useState<User | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<User | null>(null)
   const [actionSaving, setActionSaving] = useState(false)
@@ -586,6 +587,21 @@ export default function UsersPage() {
     dispatch(setSortConfig({ field, direction }))
   }
 
+  function handleRowClick(user: User) {
+    if (!canView) return
+    navigate(`/user-management/users/${user.id}`)
+  }
+
+  function handleViewClick(e: MouseEvent<HTMLButtonElement>, user: User) {
+    e.stopPropagation()
+    navigate(`/user-management/users/${user.id}`)
+  }
+
+  function handleEditClick(e: MouseEvent<HTMLButtonElement>, user: User) {
+    e.stopPropagation()
+    navigate(`/user-management/users/${user.id}/edit`)
+  }
+
   function handleConfirmToggle() {
     if (!toggleTarget) return
     setActionSaving(true)
@@ -671,8 +687,9 @@ export default function UsersPage() {
               sortField={sortConfig.field}
               sortDirection={sortConfig.direction}
               onSort={handleSort}
-              onView={(u) => setDetailUser(u)}
-              onEdit={(u) => navigate(`/user-management/users/${u.id}/edit`)}
+              onRowClick={handleRowClick}
+              onViewClick={handleViewClick}
+              onEditClick={handleEditClick}
               onToggleStatus={(u) => setToggleTarget(u)}
               onDelete={handleDeleteClick}
               canView={canView}
@@ -682,20 +699,6 @@ export default function UsersPage() {
           </Box>
         </ListingTemplate>
       </UserManagementLayout>
-
-      <UserDetailsDrawer
-        open={Boolean(detailUser)}
-        onClose={() => setDetailUser(null)}
-        user={detailUser}
-        onEdit={
-          canEdit && detailUser
-            ? () => {
-                navigate(`/user-management/users/${detailUser.id}/edit`)
-                setDetailUser(null)
-              }
-            : undefined
-        }
-      />
 
       {toggleTarget?.status === 'active' ? (
         <DeactivateDialog

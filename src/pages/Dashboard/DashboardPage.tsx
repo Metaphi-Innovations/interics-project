@@ -2122,7 +2122,7 @@ export default function DashboardPage() {
                 variant="caption"
                 color="primary.main"
                 sx={{ cursor: 'pointer' }}
-                onClick={() => navigate('/finance/compliance')}
+                onClick={() => navigate('/finance/compliance/filing')}
               >
                 Go to GST →
               </Typography>
@@ -2164,7 +2164,7 @@ export default function DashboardPage() {
                 variant="caption"
                 color="primary.main"
                 sx={{ cursor: 'pointer' }}
-                onClick={() => navigate('/finance/compliance')}
+                onClick={() => navigate('/finance/compliance/filing')}
               >
                 Go to TDS →
               </Typography>

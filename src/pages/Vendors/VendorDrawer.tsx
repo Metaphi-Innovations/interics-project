@@ -31,7 +31,6 @@ const GSTIN_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/
 
 interface FormState {
   name: string
-  type: 'Measurable' | 'Non-measurable' | ''
   gstStatus: 'Registered' | 'Unregistered'
   gstin: string
   pan: string
@@ -50,7 +49,6 @@ interface FormState {
 
 const defaultForm: FormState = {
   name: '',
-  type: '',
   gstStatus: 'Unregistered',
   gstin: '',
   pan: '',
@@ -79,7 +77,6 @@ export interface VendorDrawerProps {
 function validate(form: FormState): Record<string, string> {
   const errors: Record<string, string> = {}
   if (!form.name.trim()) errors.name = 'Name is required'
-  if (!form.type) errors.type = 'Type is required'
   if (!form.contactPerson.trim()) errors.contactPerson = 'Contact person is required'
   if (!form.phone.trim()) errors.phone = 'Phone is required'
   if (!form.email.trim()) {
@@ -120,7 +117,6 @@ export function VendorDrawer({ open, onClose, mode, vendor }: VendorDrawerProps)
       if (vendor && mode === 'edit') {
         setForm({
           name: vendor.name,
-          type: vendor.type,
           gstStatus: vendor.gstStatus,
           gstin: vendor.gstin ?? '',
           pan: vendor.pan ?? '',
@@ -168,7 +164,6 @@ export function VendorDrawer({ open, onClose, mode, vendor }: VendorDrawerProps)
 
     const payload = {
       name: form.name.trim(),
-      type: form.type as 'Measurable' | 'Non-measurable',
       gstStatus: form.gstStatus,
       gstin: form.gstStatus === 'Registered' ? form.gstin.trim() : null,
       pan: form.pan.trim() || null,
@@ -227,20 +222,6 @@ export function VendorDrawer({ open, onClose, mode, vendor }: VendorDrawerProps)
             />
           </FormField>
         </Box>
-
-        <FormField label="Vendor Type" required error={errors.type}>
-          <TextField
-            fullWidth
-            size="small"
-            select
-            value={form.type}
-            onChange={(e) => update('type', e.target.value as 'Measurable' | 'Non-measurable')}
-            error={!!errors.type}
-          >
-            <MenuItem value="Measurable">Measurable</MenuItem>
-            <MenuItem value="Non-measurable">Non-measurable</MenuItem>
-          </TextField>
-        </FormField>
       </FormSection>
 
       {/* ── Tax & Compliance ─────────────────────────────────────────── */}

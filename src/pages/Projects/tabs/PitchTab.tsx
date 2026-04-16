@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import {
   Box,
   Stack,
@@ -29,6 +29,8 @@ import {
   AccordionSummary,
   AccordionDetails,
   LinearProgress,
+  Switch,
+  FormControlLabel,
 } from '@mui/material'
 import {
   Add,
@@ -45,32 +47,26 @@ import {
 } from '@mui/icons-material'
 import { useTheme, alpha } from '@mui/material/styles'
 import { useAppDispatch, useAppSelector } from '../../../store/hooks'
-import { fetchVersions, createVersion, addCategory, addService, updateService, deleteService, updateMilestones, updateVendorMapping } from '../../../slices/pitch/thunk'
+import { selectPitchFinancials, sumPlannedExpensesOnVersion } from '../../../store/selectors/pitchSelectors'
+import { fetchVersions, createVersion, addCategory, deleteCategory, addService, updateService, deleteService, updateMilestones, updateVendorMapping, updatePlannedExpenses } from '../../../slices/pitch/thunk'
+import { fetchCategories } from '../../../slices/categories/thunk'
 import { fetchVendors } from '../../../slices/vendors/thunk'
 import { setActiveVersionId } from '../../../slices/pitch/reducer'
-import type { PitchVersion, PitchCategory, PitchService, ClientMilestone, VendorMapping, VendorMilestone } from '../../../slices/pitch/reducer'
+import type { PitchVersion, PitchCategory, PitchService, ClientMilestone, VendorMapping, PlannedExpense } from '../../../slices/pitch/reducer'
 import type { Project } from '../../../slices/projects/reducer'
 import { WorkspaceSection } from '../../../components/templates'
 import { useToast } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
-import { formatCurrency } from '../../../utils/formatters'
+import { formatCurrency, formatInr } from '../../../utils/formatters'
+import { AddExpenseDrawer } from '@/components/expenses/AddExpenseDrawer'
+import { VendorMappingDrawer } from '@/components/vendor/VendorMappingDrawer'
+import { PitchFinancialSidebar } from '@/components/projects/PitchFinancialSidebar'
+import type { Category } from '@/config/categories'
+import { Trash2 } from 'lucide-react'
 
-// ─── Default categories ───────────────────────────────────────────────────────
+// ─── Service master rows (from category master list) ──────────────────────────
 
-const DEFAULT_CATEGORIES = [
-  { id: 'cat-001', name: 'Design & Diligence' },
-  { id: 'cat-002', name: 'Build Services' },
-  { id: 'cat-003', name: 'Furniture & Fixtures' },
-  { id: 'cat-004', name: 'MEP Works' },
-  { id: 'cat-005', name: 'AV & IT' },
-  { id: 'cat-006', name: 'Signage & Branding' },
-  { id: 'cat-007', name: 'Landscaping' },
-  { id: 'cat-008', name: 'Project Management' },
-]
-
-// ─── Service master list (SAC codes + GST rates) ─────────────────────────────
-
-interface ServiceMaster {
+interface PitchServiceMasterRow {
   id: string
   name: string
   sacCode: string
@@ -78,25 +74,31 @@ interface ServiceMaster {
   categoryId: string
 }
 
-const SERVICE_MASTER: ServiceMaster[] = [
-  { id: 'svc-001', name: 'Interior Design', sacCode: '998391', gstRate: 18, categoryId: 'cat-001' },
-  { id: 'svc-002', name: 'Engineering Services', sacCode: '998392', gstRate: 18, categoryId: 'cat-001' },
-  { id: 'svc-003', name: 'Due Diligence', sacCode: '998393', gstRate: 18, categoryId: 'cat-001' },
-  { id: 'svc-004', name: 'Acoustic Consultancy', sacCode: '998312', gstRate: 18, categoryId: 'cat-001' },
-  { id: 'svc-005', name: 'Lighting Consultancy', sacCode: '998312', gstRate: 18, categoryId: 'cat-001' },
-  { id: 'svc-006', name: 'LEED Consultancy', sacCode: '998312', gstRate: 18, categoryId: 'cat-001' },
-  { id: 'svc-007', name: 'Local Approvals', sacCode: '999799', gstRate: 18, categoryId: 'cat-001' },
-  { id: 'svc-008', name: 'Civil Works', sacCode: '995411', gstRate: 18, categoryId: 'cat-002' },
-  { id: 'svc-009', name: 'Furniture & Fixtures Supply', sacCode: '995481', gstRate: 18, categoryId: 'cat-003' },
-  { id: 'svc-010', name: 'MEP Works', sacCode: '995422', gstRate: 18, categoryId: 'cat-004' },
-  { id: 'svc-011', name: 'AV & IT Installation', sacCode: '998841', gstRate: 18, categoryId: 'cat-005' },
-  { id: 'svc-012', name: 'Signage & Branding', sacCode: '998395', gstRate: 18, categoryId: 'cat-006' },
-  { id: 'svc-013', name: 'Landscaping', sacCode: '998531', gstRate: 18, categoryId: 'cat-007' },
-  { id: 'svc-014', name: 'Project Management', sacCode: '998319', gstRate: 18, categoryId: 'cat-008' },
-  { id: 'svc-015', name: 'Management Consultancy', sacCode: '998311', gstRate: 18, categoryId: 'cat-008' },
-  { id: 'svc-016', name: 'Travel & Expenses', sacCode: '996412', gstRate: 5, categoryId: 'cat-001' },
-  { id: 'svc-017', name: 'Other', sacCode: '999999', gstRate: 18, categoryId: 'cat-001' },
-]
+function buildPitchServiceMaster(categories: Category[]): PitchServiceMasterRow[] {
+  return categories.flatMap((cat) =>
+    cat.subcategories.map((sub) => ({
+      id: sub.id,
+      name: sub.name,
+      sacCode: sub.sacCode,
+      gstRate: sub.gstRate,
+      categoryId: cat.id,
+    })),
+  )
+}
+
+const ZERO_PITCH_VERSION: PitchVersion = {
+  id: '__none__',
+  projectId: '',
+  versionNumber: 0,
+  label: '',
+  isActive: false,
+  createdAt: '',
+  categories: [],
+  plannedExpenses: [],
+  totalRevenue: 0,
+  totalCost: 0,
+  profitability: 0,
+}
 
 function formatLakh(value: number): string {
   return (value / 100000).toFixed(1) + ' L'
@@ -115,6 +117,10 @@ interface VersionBarProps {
 function VersionBar({ versions, activeVersionId, onVersionChange, onNewVersion, onUploadQuotation }: VersionBarProps) {
   const theme = useTheme()
   const activeVersion = versions.find((v) => v.id === activeVersionId)
+  const hasVersions = versions.length > 0
+  const selectValue = hasVersions && activeVersionId && versions.some((v) => v.id === activeVersionId)
+    ? activeVersionId
+    : ''
 
   return (
     <Box
@@ -138,13 +144,15 @@ function VersionBar({ versions, activeVersionId, onVersionChange, onNewVersion, 
         </Typography>
         <FormControl size="small" sx={{ minWidth: 220 }}>
           <MuiSelect
-            value={activeVersionId ?? ''}
+            value={selectValue}
             onChange={(e) => onVersionChange(e.target.value)}
             displayEmpty
+            disabled={!hasVersions}
             sx={{ fontSize: 13 }}
             renderValue={(val) => {
+              if (!hasVersions || !val) return 'No versions yet'
               const v = versions.find((ver) => ver.id === val)
-              if (!v) return ''
+              if (!v) return 'No versions yet'
               const defaultLabel = `Version ${v.versionNumber}`
               return v.label !== defaultLabel ? `${defaultLabel} — ${v.label}` : defaultLabel
             }}
@@ -179,13 +187,14 @@ function VersionBar({ versions, activeVersionId, onVersionChange, onNewVersion, 
       {/* Right: actions */}
       <Stack direction="row" alignItems="center" gap={1}>
         <MuiButton
-          variant="outlined"
+          variant="contained"
+          color="primary"
           size="small"
           startIcon={<Add fontSize="small" />}
           onClick={onNewVersion}
-          sx={{ fontSize: 12, height: 32 }}
+          sx={{ fontSize: 12, height: 32, fontWeight: 600 }}
         >
-          New Version
+          + New Version
         </MuiButton>
         <MuiButton
           variant="outlined"
@@ -197,151 +206,6 @@ function VersionBar({ versions, activeVersionId, onVersionChange, onNewVersion, 
           Upload Quotation
         </MuiButton>
       </Stack>
-    </Box>
-  )
-}
-
-// ─── Financial Sidebar ────────────────────────────────────────────────────────
-
-interface FinancialSidebarProps {
-  version: PitchVersion
-}
-
-function FinancialSidebar({ version }: FinancialSidebarProps) {
-  const margin =
-    version.totalRevenue > 0
-      ? ((version.profitability / version.totalRevenue) * 100)
-      : 0
-
-  const gstRate = 0.18
-  const estGst = version.totalRevenue * gstRate
-  const totalBilling = version.totalRevenue + estGst
-
-  const theme = useTheme()
-  const health =
-    margin > 50 ? { label: 'Excellent', color: theme.palette.success.main } :
-    margin > 30 ? { label: 'Good', color: theme.palette.warning.main } :
-    margin > 10 ? { label: 'At Risk', color: '#EA580C' } :
-    { label: 'Critical', color: theme.palette.error.main }
-
-  // Expense summary (approx from vendor cost)
-  const expenseTotal = version.totalCost
-
-  return (
-    <Box
-      sx={{
-        position: 'sticky',
-        top: 80,
-        bgcolor: 'background.paper',
-        border: '1px solid',
-        borderColor: 'divider',
-        borderRadius: 2,
-        p: 2,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 2,
-      }}
-    >
-      {/* Section 1 — Revenue Breakdown */}
-      <Box>
-        <Typography variant="overline" sx={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.6, color: 'text.secondary', display: 'block', mb: 1.5 }}>
-          Financial Summary
-        </Typography>
-        <Stack gap={0.75}>
-          <Stack direction="row" justifyContent="space-between" alignItems="center">
-            <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary' }}>Base Revenue</Typography>
-            <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 700, color: '#0D9488' }}>
-              ₹{formatLakh(version.totalRevenue)}
-            </Typography>
-          </Stack>
-          <Stack direction="row" justifyContent="space-between" alignItems="center">
-            <Typography variant="body2" sx={{ fontSize: 11, color: 'text.secondary' }}>Est. GST (18%)</Typography>
-            <Typography variant="body2" sx={{ fontSize: 11, color: 'text.secondary' }}>
-              +₹{formatLakh(estGst)}
-            </Typography>
-          </Stack>
-          <Divider />
-          <Stack direction="row" justifyContent="space-between" alignItems="center">
-            <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 600 }}>Total Billing</Typography>
-            <Typography variant="body2" sx={{ fontSize: 14, fontWeight: 700, color: 'primary.main' }}>
-              ₹{formatLakh(totalBilling)}
-            </Typography>
-          </Stack>
-          <Typography sx={{ fontSize: 10, color: 'text.disabled', mt: 0.5 }}>
-            GST is a pass-through liability, not your revenue
-          </Typography>
-        </Stack>
-      </Box>
-
-      {/* Section 2 — Cost & Profit */}
-      <Box>
-        <Stack gap={0.75}>
-          <Stack direction="row" justifyContent="space-between" alignItems="center">
-            <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary' }}>Total Cost</Typography>
-            <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 700, color: '#EA580C' }}>
-              ₹{formatLakh(version.totalCost)}
-            </Typography>
-          </Stack>
-          <Stack direction="row" justifyContent="space-between" alignItems="center">
-            <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary' }}>Profitability</Typography>
-            <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 700, color: 'success.main' }}>
-              ₹{formatLakh(Math.abs(version.profitability))}
-            </Typography>
-          </Stack>
-          <Box>
-            <Stack direction="row" justifyContent="space-between" sx={{ mb: 0.5 }}>
-              <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary' }}>Margin</Typography>
-              <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 700, color: 'success.main' }}>
-                {margin.toFixed(1)}%
-              </Typography>
-            </Stack>
-            <LinearProgress
-              variant="determinate"
-              value={Math.min(margin, 100)}
-              color="success"
-              sx={{ height: 5, borderRadius: 3 }}
-            />
-          </Box>
-        </Stack>
-      </Box>
-
-      {/* Section 3 — Cash Flow Preview */}
-      <Box>
-        <Typography variant="overline" sx={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.6, color: 'text.secondary', display: 'block', mb: 0.75 }}>
-          Cash Flow Preview
-        </Typography>
-        <Stack direction="row" alignItems="center" gap={1}>
-          <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: 'success.main' }} />
-          <Typography variant="body2" sx={{ fontSize: 12, color: 'success.main', fontWeight: 600 }}>Positive</Typography>
-        </Stack>
-        <Typography variant="caption" sx={{ fontSize: 10, color: 'text.disabled' }}>
-          Based on milestone values
-        </Typography>
-      </Box>
-
-      {/* Section 4 — Project Health */}
-      <Box>
-        <Typography variant="overline" sx={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.6, color: 'text.secondary', display: 'block', mb: 0.75 }}>
-          Project Health
-        </Typography>
-        <Stack direction="row" alignItems="center" gap={1}>
-          <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: health.color }} />
-          <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600, color: health.color }}>
-            {health.label}
-          </Typography>
-        </Stack>
-      </Box>
-
-      {/* Section 5 — Expense Planning */}
-      <Box>
-        <Typography variant="overline" sx={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.6, color: 'text.secondary', display: 'block', mb: 0.75 }}>
-          Expense Planning
-        </Typography>
-        <Stack direction="row" justifyContent="space-between" alignItems="center">
-          <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary' }}>Vendor Costs</Typography>
-          <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 700 }}>₹{formatLakh(expenseTotal)}</Typography>
-        </Stack>
-      </Box>
     </Box>
   )
 }
@@ -361,7 +225,7 @@ function MilestoneDrawer({ open, onClose, service, onSave, initialMode = 'view' 
   const [mode, setMode] = useState<'view' | 'edit'>(initialMode)
 
   useEffect(() => {
-    if (service) setMilestones(service.clientMilestones.map((m) => ({ ...m })))
+    if (service) setMilestones((service.clientMilestones ?? []).map((m) => ({ ...m })))
   }, [service])
 
   useEffect(() => {
@@ -596,539 +460,6 @@ function MilestoneDrawer({ open, onClose, service, onSave, initialMode = 'view' 
   )
 }
 
-// ─── Vendor Mapping Drawer ────────────────────────────────────────────────────
-
-interface VendorMappingDrawerProps {
-  open: boolean
-  onClose: () => void
-  service: PitchService | null
-  onSave: (mappings: VendorMapping[]) => void
-  initialMode?: 'view' | 'edit'
-}
-
-interface VendorOption {
-  id: string
-  name: string
-  type: string
-}
-
-function VendorMappingDrawer({ open, onClose, service, onSave, initialMode = 'view' }: VendorMappingDrawerProps) {
-  const theme = useTheme()
-  const [mappings, setMappings] = useState<VendorMapping[]>([])
-  const [expandedVendor, setExpandedVendor] = useState<string | null>(null)
-  const [mode, setMode] = useState<'view' | 'edit'>(initialMode)
-  const dispatch = useAppDispatch()
-  const vendorItems = useAppSelector((s) => s.vendors.items)
-
-  useEffect(() => {
-    if (!vendorItems || vendorItems.length === 0) {
-      dispatch(fetchVendors({}))
-    }
-  }, [])
-
-  const vendorOptions: VendorOption[] = vendorItems
-    .filter((v) => v.status === 'Active')
-    .map((v) => ({
-      id: v.id,
-      name: v.name,
-      type: v.type,
-    }))
-
-  useEffect(() => {
-    if (service) setMappings(service.vendorMappings.map((m) => ({ ...m, milestones: [...m.milestones] })))
-  }, [service])
-
-  useEffect(() => {
-    if (open) setMode(initialMode)
-  }, [open, initialMode])
-
-  if (!service) return null
-
-  const totalMapped = mappings.reduce((sum, m) => sum + m.value, 0)
-  const remaining = service.value - totalMapped
-
-  function addVendorMapping() {
-    setMappings((prev) => [
-      ...prev,
-      {
-        id: `vm-${Date.now()}`,
-        vendorId: '',
-        vendorName: '',
-        value: 0,
-        percentage: 0,
-        milestones: [],
-      },
-    ])
-  }
-
-  function removeMapping(idx: number) {
-    setMappings((prev) => prev.filter((_, i) => i !== idx))
-  }
-
-  function updateMapping(idx: number, field: keyof VendorMapping, val: unknown) {
-    setMappings((prev) => {
-      const updated = [...prev]
-      updated[idx] = { ...updated[idx], [field]: val }
-      if (field === 'value') {
-        updated[idx].percentage = service!.value > 0
-          ? Math.round((Number(val) / service!.value) * 100)
-          : 0
-      }
-      return updated
-    })
-  }
-
-  function updateVendorMilestone(mIdx: number, vIdx: number, field: keyof VendorMilestone, val: string | number | null) {
-    setMappings((prev) => {
-      const updated = prev.map((m, i) => {
-        if (i !== mIdx) return m
-        const newMilestones = m.milestones.map((vm, vi) => {
-          if (vi !== vIdx) return vm
-          const updated2 = { ...vm, [field]: val }
-          if (field === 'percentage') {
-            updated2.value = Math.round((Number(val) / 100) * m.value)
-          } else if (field === 'value') {
-            updated2.percentage = m.value > 0
-              ? Math.round((Number(val) / m.value) * 100)
-              : 0
-          }
-          return updated2
-        })
-        return { ...m, milestones: newMilestones }
-      })
-      return updated
-    })
-  }
-
-  function addVendorMilestone(mIdx: number) {
-    setMappings((prev) =>
-      prev.map((m, i) =>
-        i !== mIdx
-          ? m
-          : {
-              ...m,
-              milestones: [
-                ...m.milestones,
-                { id: `vml-${Date.now()}`, name: '', percentage: 0, value: 0 },
-              ],
-            }
-      )
-    )
-  }
-
-  function removeVendorMilestone(mIdx: number, vIdx: number) {
-    setMappings((prev) =>
-      prev.map((m, i) =>
-        i !== mIdx ? m : { ...m, milestones: m.milestones.filter((_, vi) => vi !== vIdx) }
-      )
-    )
-  }
-
-  const cellSx = { py: '4px', px: '6px', border: 'none', fontSize: 12 }
-
-  return (
-    <Drawer
-      anchor="right"
-      open={open}
-      onClose={onClose}
-      PaperProps={{
-        sx: {
-          width: { xs: '100vw', lg: '560px' },
-          display: 'flex',
-          flexDirection: 'column',
-          borderRadius: '12px 0 0 12px',
-          borderLeft: `1px solid ${tokens.color.neutral[100]}`,
-        },
-      }}
-    >
-      {/* Header */}
-      <Stack
-        direction="row"
-        alignItems="flex-start"
-        justifyContent="space-between"
-        sx={{ px: 3, py: 2, borderBottom: `1px solid ${tokens.color.neutral[100]}`, flexShrink: 0 }}
-      >
-        <Box>
-          <Typography variant="h6" fontWeight={600} sx={{ fontSize: 15 }}>
-            {mode === 'view' ? 'Vendor Mapping' : 'Edit Vendor Mapping'}
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12, mt: '2px' }}>
-            {service.name}
-          </Typography>
-        </Box>
-        <Stack direction="row" alignItems="center" gap={1}>
-          {mode === 'view' && (
-            <MuiButton
-              variant="outlined"
-              size="small"
-              startIcon={<EditIcon fontSize="small" />}
-              onClick={() => setMode('edit')}
-              sx={{ height: 30, fontSize: 12 }}
-            >
-              Edit Vendor Mapping
-            </MuiButton>
-          )}
-          <MuiIconButton size="small" onClick={onClose}>
-            <Close fontSize="small" />
-          </MuiIconButton>
-        </Stack>
-      </Stack>
-
-      {/* Content */}
-      <Box sx={{ flex: 1, overflowY: 'auto', p: 3 }}>
-        {/* Summary */}
-        <Stack direction="row" gap={3} sx={{ mb: 2, p: '10px 14px', bgcolor: tokens.color.neutral[50], borderRadius: 1 }}>
-          <Box>
-            <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: 10 }}>SERVICE VALUE</Typography>
-            <Typography variant="body2" sx={{ fontWeight: 600, fontSize: 13 }}>₹{formatCurrency(service.value)}</Typography>
-          </Box>
-          <Box>
-            <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: 10 }}>MAPPED</Typography>
-            <Typography variant="body2" sx={{ fontWeight: 600, fontSize: 13, color: 'primary.main' }}>₹{formatCurrency(totalMapped)}</Typography>
-          </Box>
-          <Box>
-            <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: 10 }}>REMAINING</Typography>
-            <Typography variant="body2" sx={{ fontWeight: 600, fontSize: 13, color: remaining === 0 ? 'success.main' : 'text.secondary' }}>
-              ₹{formatCurrency(remaining)}
-            </Typography>
-          </Box>
-        </Stack>
-
-        {/* Vendor cards */}
-        {mappings.map((mapping, mIdx) => {
-          const vendorMilestoneTotal = mapping.milestones.reduce((sum, m) => sum + m.value, 0)
-          const isExpanded = expandedVendor === mapping.id
-
-          if (mode === 'view') {
-            return (
-              <Box
-                key={mapping.id}
-                sx={{
-                  bgcolor: 'background.default',
-                  border: '1px solid',
-                  borderColor: 'divider',
-                  borderRadius: '8px',
-                  padding: '12px',
-                  mb: 1.5,
-                }}
-              >
-                <Typography sx={{ fontWeight: 600, color: 'text.primary', fontSize: 13, mb: 1 }}>
-                  {mapping.vendorName || '—'}
-                </Typography>
-
-                <Stack direction="row" alignItems="center" gap={1.5} sx={{ mb: 1 }}>
-                  <Typography variant="overline" sx={{ fontSize: 10, fontWeight: 600, color: 'text.secondary', letterSpacing: '0.5px' }}>
-                    ₹ VALUE
-                  </Typography>
-                  <Box
-                    sx={{
-                      bgcolor: 'action.hover',
-                      borderRadius: '6px',
-                      padding: '6px 10px',
-                      fontSize: 13,
-                      color: 'text.primary',
-                      fontWeight: 500,
-                    }}
-                  >
-                    ₹{formatCurrency(mapping.value)}
-                  </Box>
-                  <Typography variant="caption" color="text.secondary">
-                    {mapping.percentage}% of service value
-                  </Typography>
-                </Stack>
-
-                {mapping.milestones.length > 0 && (
-                  <>
-                    <MuiButton
-                      size="small"
-                      variant="text"
-                      onClick={() => setExpandedVendor(isExpanded ? null : mapping.id)}
-                      sx={{ fontSize: 12, p: 0, mb: isExpanded ? 1 : 0 }}
-                    >
-                      {isExpanded ? '▲ Hide Milestones' : `▼ Vendor Milestones (${mapping.milestones.length})`}
-                    </MuiButton>
-
-                    {isExpanded && (
-                      <Box sx={{ mt: 1 }}>
-                        <Box
-                          sx={{
-                            display: 'grid',
-                            gridTemplateColumns: '1fr 80px 140px',
-                            gap: '8px',
-                            mb: 1,
-                            px: '10px',
-                          }}
-                        >
-                          {['NAME', '%', '₹ VALUE'].map((h) => (
-                            <Typography
-                              key={h}
-                              variant="overline"
-                              sx={{ fontSize: 10, fontWeight: 600, color: 'text.secondary', letterSpacing: '0.5px' }}
-                            >
-                              {h}
-                            </Typography>
-                          ))}
-                        </Box>
-                        {mapping.milestones.map((vm) => (
-                          <Box
-                            key={vm.id}
-                            sx={{
-                              bgcolor: 'background.default',
-                              border: '1px solid',
-                              borderColor: 'divider',
-                              borderRadius: '6px',
-                              padding: '8px 10px',
-                              marginBottom: '6px',
-                              display: 'grid',
-                              gridTemplateColumns: '1fr 80px 140px',
-                              gap: '8px',
-                              alignItems: 'center',
-                            }}
-                          >
-                            <Typography variant="body2" fontWeight={500} color="text.primary">{vm.name}</Typography>
-                            <Typography variant="body2" fontWeight={500} color="text.primary">{vm.percentage}%</Typography>
-                            <Typography variant="body2" fontWeight={500} color="text.primary">₹{formatCurrency(vm.value)}</Typography>
-                          </Box>
-                        ))}
-                      </Box>
-                    )}
-                  </>
-                )}
-              </Box>
-            )
-          }
-
-          // Edit mode
-          return (
-            <Box
-              key={mapping.id}
-              sx={{
-                bgcolor: 'background.paper',
-                border: '1px solid',
-                borderColor: 'divider',
-                borderRadius: '10px',
-                padding: '14px',
-                marginBottom: '12px',
-              }}
-            >
-              {/* Vendor selector */}
-              <Stack direction="row" alignItems="center" gap={1.5} sx={{ mb: 1.5 }}>
-                <Autocomplete
-                  options={vendorOptions}
-                  getOptionLabel={(o) => o.name}
-                  value={vendorOptions.find((v) => v.id === mapping.vendorId) ?? null}
-                  onChange={(_, val) => {
-                    updateMapping(mIdx, 'vendorId', val?.id ?? '')
-                    updateMapping(mIdx, 'vendorName', val?.name ?? '')
-                  }}
-                  renderInput={(params) => (
-                    <TextField {...params} size="small" placeholder="Select vendor..." sx={{ '& input': { fontSize: 12 } }} />
-                  )}
-                  sx={{ flex: 1 }}
-                  size="small"
-                />
-                <MuiIconButton size="small" onClick={() => removeMapping(mIdx)} sx={{ color: 'error.main' }}>
-                  <Delete sx={{ fontSize: 16 }} />
-                </MuiIconButton>
-              </Stack>
-
-              {/* Value */}
-              <Stack direction="row" alignItems="center" gap={1.5}>
-                <TextField
-                  size="small"
-                  type="number"
-                  value={mapping.value}
-                  onChange={(e) => updateMapping(mIdx, 'value', Number(e.target.value))}
-                  InputProps={{
-                    startAdornment: (
-                      <InputAdornment position="start">
-                        <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>₹</Typography>
-                      </InputAdornment>
-                    ),
-                  }}
-                  sx={{
-                    '& .MuiOutlinedInput-root': {
-                      backgroundColor: 'action.hover',
-                      borderRadius: '6px',
-                    },
-                    width: '180px',
-                  }}
-                />
-                <Typography variant="caption" color="text.secondary" sx={{ ml: 1, whiteSpace: 'nowrap' }}>
-                  {mapping.percentage}% of service value
-                </Typography>
-              </Stack>
-
-              {/* Vendor milestones toggle */}
-              <MuiButton
-                size="small"
-                variant="text"
-                onClick={() => setExpandedVendor(isExpanded ? null : mapping.id)}
-                sx={{ mt: 1, fontSize: 12, p: 0 }}
-              >
-                {isExpanded ? '▲ Hide' : '▼ Vendor Milestones'}
-                {mapping.milestones.length > 0 && (
-                  <MuiChip
-                    label={vendorMilestoneTotal === mapping.value ? '✓' : `₹${formatCurrency(mapping.value - vendorMilestoneTotal)} unalloc.`}
-                    size="small"
-                    sx={{
-                      ml: 1,
-                      height: 16,
-                      fontSize: 10,
-                      bgcolor: vendorMilestoneTotal === mapping.value
-                        ? alpha(theme.palette.success.main, 0.12)
-                        : alpha(theme.palette.warning.main, 0.12),
-                      '& .MuiChip-label': { px: '6px' },
-                    }}
-                  />
-                )}
-              </MuiButton>
-
-              {/* Vendor milestones (expandable) */}
-              {isExpanded && (
-                <Box sx={{ mt: 1.5 }}>
-                  <Box
-                    sx={{
-                      bgcolor: 'background.default',
-                      borderRadius: '8px',
-                      padding: '10px',
-                      border: '1px solid',
-                      borderColor: 'divider',
-                    }}
-                  >
-                    {/* Header row */}
-                    <Box
-                      sx={{
-                        display: 'grid',
-                        gridTemplateColumns: '1fr 80px 130px 36px',
-                        gap: 1,
-                        px: 1,
-                        py: 0.5,
-                        mb: 0.5,
-                      }}
-                    >
-                      {['NAME', '%', '₹ VALUE', 'ACTIONS'].map((h) => (
-                        <Typography
-                          key={h}
-                          variant="caption"
-                          sx={{ fontSize: 10, fontWeight: 600, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: '0.5px' }}
-                        >
-                          {h}
-                        </Typography>
-                      ))}
-                    </Box>
-
-                    {/* Milestone rows */}
-                    {mapping.milestones.map((vm, vIdx) => (
-                      <Box
-                        key={vm.id}
-                        sx={{
-                          display: 'grid',
-                          gridTemplateColumns: '1fr 80px 130px 36px',
-                          gap: 1,
-                          alignItems: 'center',
-                          mb: 0.75,
-                        }}
-                      >
-                        <TextField
-                          size="small"
-                          value={vm.name}
-                          onChange={(e) => updateVendorMilestone(mIdx, vIdx, 'name', e.target.value)}
-                          placeholder="Milestone name"
-                          sx={{ '& .MuiInputBase-input': { fontSize: 11 } }}
-                        />
-                        <TextField
-                          size="small"
-                          type="number"
-                          value={vm.percentage}
-                          onChange={(e) => updateVendorMilestone(mIdx, vIdx, 'percentage', Number(e.target.value))}
-                          sx={{ '& .MuiInputBase-input': { fontSize: 11 } }}
-                        />
-                        <TextField
-                          size="small"
-                          type="number"
-                          value={vm.value}
-                          onChange={(e) => updateVendorMilestone(mIdx, vIdx, 'value', Number(e.target.value))}
-                          sx={{ '& .MuiInputBase-input': { fontSize: 11 } }}
-                        />
-                        <MuiIconButton size="small" onClick={() => removeVendorMilestone(mIdx, vIdx)} sx={{ color: 'error.main' }}>
-                          <Delete sx={{ fontSize: 14 }} />
-                        </MuiIconButton>
-                      </Box>
-                    ))}
-                  </Box>
-                  <MuiButton
-                    size="small"
-                    variant="text"
-                    startIcon={<Add sx={{ fontSize: 16 }} />}
-                    onClick={() => addVendorMilestone(mIdx)}
-                    sx={{
-                      fontSize: 12,
-                      color: 'primary.main',
-                      padding: '4px 8px',
-                      mt: 1,
-                      '&:hover': { backgroundColor: alpha(theme.palette.primary.main, 0.08) },
-                    }}
-                  >
-                    Add Milestone
-                  </MuiButton>
-                </Box>
-              )}
-            </Box>
-          )
-        })}
-
-        {mode === 'edit' && (
-          <MuiButton
-            size="small"
-            variant="outlined"
-            startIcon={<Add sx={{ fontSize: 16 }} />}
-            onClick={addVendorMapping}
-            sx={{
-              fontSize: 12,
-              color: 'primary.main',
-              borderColor: 'primary.main',
-              padding: '6px 14px',
-              mt: 2,
-              '&:hover': { backgroundColor: alpha(theme.palette.primary.main, 0.08) },
-            }}
-          >
-            Add Vendor
-          </MuiButton>
-        )}
-      </Box>
-
-      {/* Footer */}
-      <Stack
-        direction="row"
-        justifyContent="flex-end"
-        gap={1}
-        sx={{ px: 3, py: 2, borderTop: `1px solid ${tokens.color.neutral[100]}`, flexShrink: 0 }}
-      >
-        {mode === 'view' ? (
-          <MuiButton variant="outlined" size="small" onClick={onClose} sx={{ height: 32 }}>
-            Close
-          </MuiButton>
-        ) : (
-          <>
-            <MuiButton variant="outlined" size="small" onClick={() => setMode('view')} sx={{ height: 32 }}>
-              Cancel
-            </MuiButton>
-            <MuiButton
-              variant="contained"
-              size="small"
-              onClick={() => { onSave(mappings); onClose() }}
-              sx={{ height: 32 }}
-            >
-              Save Vendor Mapping
-            </MuiButton>
-          </>
-        )}
-      </Stack>
-    </Drawer>
-  )
-}
-
 // ─── New Version Dialog ───────────────────────────────────────────────────────
 
 interface NewVersionDialogProps {
@@ -1239,20 +570,21 @@ function NewVersionDialog({ open, onClose, versions, onCreate, saving }: NewVers
 interface AddCategoryDialogProps {
   open: boolean
   onClose: () => void
+  masterCategories: Category[]
   existingCategoryIds: string[]
   onAdd: (categoryId: string, categoryName: string) => void
 }
 
-function AddCategoryDialog({ open, onClose, existingCategoryIds, onAdd }: AddCategoryDialogProps) {
+function AddCategoryDialog({ open, onClose, masterCategories, existingCategoryIds, onAdd }: AddCategoryDialogProps) {
   const [selected, setSelected] = useState('')
-  const available = DEFAULT_CATEGORIES.filter((c) => !existingCategoryIds.includes(c.id))
+  const available = masterCategories.filter((c) => !existingCategoryIds.includes(c.id))
 
   useEffect(() => {
     if (open) setSelected('')
   }, [open])
 
   function handleAdd() {
-    const cat = DEFAULT_CATEGORIES.find((c) => c.id === selected)
+    const cat = masterCategories.find((c) => c.id === selected)
     if (cat) { onAdd(cat.id, cat.name); onClose() }
   }
 
@@ -1291,26 +623,31 @@ interface ServiceRowProps {
   projectId: string
   versionId: string
   categoryId: string
+  masterCategoryId: string
+  pitchServiceMaster: PitchServiceMasterRow[]
   onEditMilestones: (service: PitchService) => void
   onEditVendors: (service: PitchService) => void
   onDelete: () => void
 }
 
-function ServiceRow({ service, projectId, versionId, categoryId, onEditMilestones, onEditVendors, onDelete }: ServiceRowProps) {
+function ServiceRow({ service, projectId, versionId, categoryId, masterCategoryId, pitchServiceMaster, onEditMilestones, onEditVendors, onDelete }: ServiceRowProps) {
   const dispatch = useAppDispatch()
   const theme = useTheme()
   const [value, setValue] = useState(service.value)
   const [selectedServiceId, setSelectedServiceId] = useState<string>('')
 
-  // Try to find the matching master service by name
-  const resolvedMaster = SERVICE_MASTER.find((s) => s.name === service.name)
+  const servicesForCategory = pitchServiceMaster.filter((s) => s.categoryId === masterCategoryId)
+  // Try to find the matching master service by name (within this category)
+  const resolvedMaster = servicesForCategory.find((s) => s.name === service.name)
   const sacCode = service.sacCode ?? resolvedMaster?.sacCode ?? '—'
   const gstRate = service.gstRate ?? resolvedMaster?.gstRate ?? 18
 
-  const milestoneTotal = service.clientMilestones.reduce((sum, m) => sum + m.value, 0)
+  const clientMilestones = service.clientMilestones ?? []
+  const vendorMappings = service.vendorMappings ?? []
+  const milestoneTotal = clientMilestones.reduce((sum, m) => sum + m.value, 0)
   const milestoneBalanced = milestoneTotal === service.value
   const milestoneDiff = service.value - milestoneTotal
-  const vendorTotal = service.vendorMappings.reduce((sum, m) => sum + m.value, 0)
+  const vendorTotal = vendorMappings.reduce((sum, m) => sum + m.value, 0)
 
   const gstAmt = value * (gstRate / 100)
   const totalWithGst = value + gstAmt
@@ -1319,7 +656,7 @@ function ServiceRow({ service, projectId, versionId, categoryId, onEditMilestone
 
   function handleServiceSelect(svcId: string) {
     setSelectedServiceId(svcId)
-    const master = SERVICE_MASTER.find((s) => s.id === svcId)
+    const master = servicesForCategory.find((s) => s.id === svcId)
     if (master) {
       void dispatch(updateService({
         projectId, versionId, categoryId, serviceId: service.id,
@@ -1346,12 +683,12 @@ function ServiceRow({ service, projectId, versionId, categoryId, onEditMilestone
             sx={{ fontSize: 12 }}
             renderValue={(val) => {
               if (val === '__custom__') return service.name || 'Select service...'
-              const found = SERVICE_MASTER.find((s) => s.id === val)
+              const found = servicesForCategory.find((s) => s.id === val)
               return found?.name ?? service.name
             }}
           >
             <MenuItem value="" disabled sx={{ fontSize: 12 }}>Select service...</MenuItem>
-            {SERVICE_MASTER.map((s) => (
+            {servicesForCategory.map((s) => (
               <MenuItem key={s.id} value={s.id} sx={{ fontSize: 12 }}>{s.name}</MenuItem>
             ))}
           </MuiSelect>
@@ -1403,13 +740,13 @@ function ServiceRow({ service, projectId, versionId, categoryId, onEditMilestone
       {/* Milestones */}
       <TableCell sx={{ ...cellSx, width: 130 }}>
         <Box display="flex" flexDirection="column" alignItems="flex-start" gap={0.5}>
-          {service.clientMilestones.length > 0 ? (
+          {clientMilestones.length > 0 ? (
             <Box display="flex" alignItems="center" gap={0.5}>
               {milestoneBalanced
                 ? <CheckCircle sx={{ fontSize: 12, color: theme.palette.success.main }} />
                 : <Warning sx={{ fontSize: 12, color: theme.palette.warning.main }} />}
               <Typography variant="caption" sx={{ fontSize: 10, color: milestoneBalanced ? 'success.main' : 'warning.main' }}>
-                {milestoneBalanced ? `${service.clientMilestones.length} set` : `₹${formatCurrency(milestoneDiff)} left`}
+                {milestoneBalanced ? `${clientMilestones.length} set` : `₹${formatCurrency(milestoneDiff)} left`}
               </Typography>
             </Box>
           ) : (
@@ -1424,9 +761,9 @@ function ServiceRow({ service, projectId, versionId, categoryId, onEditMilestone
       {/* Vendors */}
       <TableCell sx={{ ...cellSx, width: 130 }}>
         <Box display="flex" flexDirection="column" alignItems="flex-start" gap={0.5}>
-          {service.vendorMappings.length > 0 ? (
+          {vendorMappings.length > 0 ? (
             <Typography variant="caption" sx={{ fontSize: 10, fontWeight: 500 }}>
-              ₹{formatCurrency(vendorTotal)} · {service.vendorMappings.length}v
+              ₹{formatCurrency(vendorTotal)} · {vendorMappings.length}v
             </Typography>
           ) : (
             <Typography variant="caption" sx={{ fontSize: 10, color: 'text.disabled' }}>None</Typography>
@@ -1455,17 +792,18 @@ interface CategoryAccordionProps {
   index: number
   projectId: string
   versionId: string
+  pitchServiceMaster: PitchServiceMasterRow[]
   onEditMilestones: (service: PitchService) => void
   onEditVendors: (service: PitchService) => void
 }
 
-function CategoryAccordion({ category, index, projectId, versionId, onEditMilestones, onEditVendors }: CategoryAccordionProps) {
+function CategoryAccordion({ category, index, projectId, versionId, pitchServiceMaster, onEditMilestones, onEditVendors }: CategoryAccordionProps) {
   const dispatch = useAppDispatch()
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
 
   const categoryGstEstimate = category.totalValue * 0.18
 
-  function handleAddService(e: React.MouseEvent) {
-    e.stopPropagation()
+  function handleAddService() {
     void dispatch(addService({
       projectId, versionId, categoryId: category.id,
       service: { name: '', value: 0, clientMilestones: [], vendorMappings: [] },
@@ -1476,6 +814,11 @@ function CategoryAccordion({ category, index, projectId, versionId, onEditMilest
     void dispatch(deleteService({ projectId, versionId, categoryId: category.id, serviceId }))
   }
 
+  function confirmDeleteCategory() {
+    void dispatch(deleteCategory({ projectId, versionId, categoryId: category.id }))
+    setDeleteDialogOpen(false)
+  }
+
   const headCellSx = {
     py: '7px', px: '10px', fontSize: 10, fontWeight: 700,
     color: tokens.color.neutral[500], letterSpacing: 0.5, textTransform: 'uppercase' as const,
@@ -1484,6 +827,7 @@ function CategoryAccordion({ category, index, projectId, versionId, onEditMilest
   }
 
   return (
+    <>
     <Accordion
       defaultExpanded={index === 0}
       sx={{
@@ -1505,7 +849,7 @@ function CategoryAccordion({ category, index, projectId, versionId, onEditMilest
               {category.services.length} service{category.services.length !== 1 ? 's' : ''}
             </Typography>
           </Box>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
             <Typography variant="body2" fontWeight={600} color="primary.main" sx={{ fontSize: 13 }}>
               ₹{formatLakh(category.totalValue)}
             </Typography>
@@ -1513,8 +857,16 @@ function CategoryAccordion({ category, index, projectId, versionId, onEditMilest
               sx={{ bgcolor: 'action.hover', px: 1, py: 0.25, borderRadius: 1, fontSize: 10 }}>
               +GST est. ₹{formatLakh(categoryGstEstimate)}
             </Typography>
-            <MuiIconButton size="small" onClick={handleAddService}>
-              <Add sx={{ fontSize: 14 }} />
+            <MuiIconButton
+              size="small"
+              aria-label={`Delete category ${category.categoryName}`}
+              onClick={(e) => {
+                e.stopPropagation()
+                setDeleteDialogOpen(true)
+              }}
+              sx={{ color: 'text.secondary' }}
+            >
+              <Trash2 size={14} strokeWidth={1.75} />
             </MuiIconButton>
           </Box>
         </Box>
@@ -1538,7 +890,7 @@ function CategoryAccordion({ category, index, projectId, versionId, onEditMilest
               {category.services.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={7} sx={{ py: 3, textAlign: 'center', color: 'text.disabled', fontSize: 12 }}>
-                    Click + to add a service
+                    Use the &quot;+ Add Service&quot; button below to add a service to this category.
                   </TableCell>
                 </TableRow>
               ) : (
@@ -1549,6 +901,8 @@ function CategoryAccordion({ category, index, projectId, versionId, onEditMilest
                     projectId={projectId}
                     versionId={versionId}
                     categoryId={category.id}
+                    masterCategoryId={category.categoryId}
+                    pitchServiceMaster={pitchServiceMaster}
                     onEditMilestones={onEditMilestones}
                     onEditVendors={onEditVendors}
                     onDelete={() => handleDeleteService(service.id)}
@@ -1558,6 +912,28 @@ function CategoryAccordion({ category, index, projectId, versionId, onEditMilest
             </TableBody>
           </Table>
         </Box>
+        <MuiButton
+          variant="outlined"
+          size="small"
+          startIcon={<Add />}
+          onClick={handleAddService}
+          sx={{
+            mt: 1,
+            mb: 1,
+            ml: 1,
+            borderStyle: 'dashed',
+            color: 'primary.main',
+            borderColor: 'primary.main',
+            fontSize: 12,
+            '&:hover': {
+              borderStyle: 'dashed',
+              backgroundColor: 'primary.main',
+              color: 'white',
+            },
+          }}
+        >
+          + Add Service
+        </MuiButton>
         <Stack direction="row" justifyContent="flex-end"
           sx={{ px: 2, py: 1, bgcolor: tokens.color.neutral[50], borderTop: `1px solid ${tokens.color.neutral[100]}` }}>
           <Typography variant="body2" sx={{ fontWeight: 600, fontSize: 12 }}>
@@ -1566,6 +942,22 @@ function CategoryAccordion({ category, index, projectId, versionId, onEditMilest
         </Stack>
       </AccordionDetails>
     </Accordion>
+
+    <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)} maxWidth="xs" fullWidth>
+      <DialogTitle sx={{ fontSize: 15, fontWeight: 600, pb: 1 }}>Delete category</DialogTitle>
+      <DialogContent>
+        <Typography variant="body2" sx={{ fontSize: 13, pt: 0.5 }}>
+          Delete {category.categoryName}? All services inside will also be removed.
+        </Typography>
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 2 }}>
+        <MuiButton size="small" onClick={() => setDeleteDialogOpen(false)}>Cancel</MuiButton>
+        <MuiButton size="small" variant="contained" color="error" onClick={confirmDeleteCategory}>
+          Delete
+        </MuiButton>
+      </DialogActions>
+    </Dialog>
+    </>
   )
 }
 
@@ -1577,10 +969,11 @@ interface PitchTabProps {
 
 export default function PitchTab({ project }: PitchTabProps) {
   const dispatch = useAppDispatch()
-  const theme = useTheme()
   const { showToast } = useToast()
 
   const { versions, activeVersionId, activeVersion, loading, saving } = useAppSelector((s) => s.pitch)
+  const masterCategories = useAppSelector((s) => s.categories.items)
+  const categoriesLoading = useAppSelector((s) => s.categories.loading)
 
   const [newVersionDialogOpen, setNewVersionDialogOpen] = useState(false)
   const [addCategoryDialogOpen, setAddCategoryDialogOpen] = useState(false)
@@ -1589,10 +982,52 @@ export default function PitchTab({ project }: PitchTabProps) {
   const [uploadQuotationOpen, setUploadQuotationOpen] = useState(false)
   const [quotationFile, setQuotationFile] = useState<File | null>(null)
   const [quotationNotes, setQuotationNotes] = useState('')
+  const [expenseDrawerOpen, setExpenseDrawerOpen] = useState(false)
+  const [expenseEditing, setExpenseEditing] = useState<PlannedExpense | null>(null)
+  const [expenseDeleteTarget, setExpenseDeleteTarget] = useState<PlannedExpense | null>(null)
+
+  const vendorItems = useAppSelector((s) => s.vendors.items)
 
   useEffect(() => {
     void dispatch(fetchVersions(project.id))
   }, [dispatch, project.id])
+
+  useEffect(() => {
+    void dispatch(fetchCategories())
+  }, [dispatch])
+
+  useEffect(() => {
+    if (!vendorItems?.length) {
+      void dispatch(fetchVendors({}))
+    }
+  }, [dispatch, vendorItems?.length])
+
+  const existingCategoryIds = useMemo(
+    () => activeVersion?.categories.map((c) => c.categoryId) ?? [],
+    [activeVersion],
+  )
+
+  const pitchServiceMasterRows = useMemo(
+    () => buildPitchServiceMaster(masterCategories),
+    [masterCategories],
+  )
+
+  const availableMasterToAdd = useMemo(
+    () => masterCategories.filter((c) => !existingCategoryIds.includes(c.id)),
+    [masterCategories, existingCategoryIds],
+  )
+
+  const vendorNameById = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const v of vendorItems ?? []) {
+      m.set(v.id, v.name)
+    }
+    return m
+  }, [vendorItems])
+
+  const versionForFinances = activeVersion ?? ZERO_PITCH_VERSION
+  const finVersionId = versionForFinances.id === '__none__' ? null : versionForFinances.id
+  const pitchFinMetrics = useAppSelector((s) => selectPitchFinancials(s, finVersionId))
 
   function handleVersionChange(id: string) {
     dispatch(setActiveVersionId(id))
@@ -1604,11 +1039,11 @@ export default function PitchTab({ project }: PitchTabProps) {
   }
 
   function handleAddCategory(categoryId: string, categoryName: string) {
-    if (!activeVersionId) return
+    if (!activeVersion) return
     void dispatch(
       addCategory({
         projectId: project.id,
-        versionId: activeVersionId,
+        versionId: activeVersion.id,
         category: {
           id: `pc-${Date.now()}`,
           categoryId,
@@ -1651,35 +1086,6 @@ export default function PitchTab({ project }: PitchTabProps) {
     )
   }
 
-  // No versions yet
-  if (!loading && versions.length === 0) {
-    return (
-      <Box sx={{ py: 6, textAlign: 'center' }}>
-        <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1 }}>No pitch versions yet</Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Create a version to start building the financial model.
-        </Typography>
-        <MuiButton
-          variant="contained"
-          size="small"
-          startIcon={<Add />}
-          onClick={() => setNewVersionDialogOpen(true)}
-        >
-          + Start Planning
-        </MuiButton>
-        <NewVersionDialog
-          open={newVersionDialogOpen}
-          onClose={() => setNewVersionDialogOpen(false)}
-          versions={versions}
-          onCreate={handleCreateVersion}
-          saving={saving}
-        />
-      </Box>
-    )
-  }
-
-  const existingCategoryIds = activeVersion?.categories.map((c) => c.categoryId) ?? []
-
   // Mock: no quotation uploaded yet (would come from version data in real impl)
   const hasQuotation = false
   const quotationMock = { fileName: 'Quotation_v1.pdf', uploadedDate: '15 Jan 2024' }
@@ -1706,6 +1112,25 @@ export default function PitchTab({ project }: PitchTabProps) {
       >
         {/* ── LEFT COLUMN ─────────────────────────────────────── */}
         <Box>
+          {!activeVersion && (
+            <Box
+              sx={{
+                py: 4,
+                px: 2,
+                mb: 2,
+                textAlign: 'center',
+                borderRadius: 2,
+                border: '1px dashed',
+                borderColor: 'divider',
+                bgcolor: tokens.color.neutral[50],
+              }}
+            >
+              <Typography variant="body2" color="text.secondary" sx={{ fontSize: 13 }}>
+                No version selected. Create a version to start building.
+              </Typography>
+            </Box>
+          )}
+
           {/* Uploaded Quotation Pill */}
           {hasQuotation && (
             <Box sx={{
@@ -1721,35 +1146,158 @@ export default function PitchTab({ project }: PitchTabProps) {
           )}
 
           {/* Category Accordions */}
-          {activeVersion?.categories.map((cat, idx) => (
-            <CategoryAccordion
-              key={cat.id}
-              category={cat}
-              index={idx}
-              projectId={project.id}
-              versionId={activeVersion.id}
-              onEditMilestones={setMilestoneDrawerService}
-              onEditVendors={setVendorDrawerService}
-            />
-          ))}
+          {activeVersion &&
+            activeVersion.categories.map((cat, idx) => (
+              <CategoryAccordion
+                key={cat.id}
+                category={cat}
+                index={idx}
+                projectId={project.id}
+                versionId={activeVersion.id}
+                pitchServiceMaster={pitchServiceMasterRows}
+                onEditMilestones={setMilestoneDrawerService}
+                onEditVendors={setVendorDrawerService}
+              />
+            ))}
 
           {/* Add Category */}
           <Box sx={{ mt: 1 }}>
-            <MuiButton
-              variant="outlined"
-              size="small"
-              startIcon={<Add fontSize="small" />}
-              onClick={() => setAddCategoryDialogOpen(true)}
-              disabled={existingCategoryIds.length >= DEFAULT_CATEGORIES.length}
-              sx={{ fontSize: 12 }}
-            >
-              + Add Category
-            </MuiButton>
+            <Stack direction="row" alignItems="center" gap={1} flexWrap="wrap">
+              <MuiButton
+                variant="outlined"
+                size="small"
+                startIcon={<Add fontSize="small" />}
+                onClick={() => setAddCategoryDialogOpen(true)}
+                disabled={!activeVersion || categoriesLoading || availableMasterToAdd.length === 0}
+                sx={{ fontSize: 12 }}
+              >
+                + Add Category
+              </MuiButton>
+              {activeVersion && !categoriesLoading && masterCategories.length > 0 && availableMasterToAdd.length === 0 && (
+                <Typography variant="caption" color="text.secondary" sx={{ fontSize: 12 }}>
+                  All categories have been added
+                </Typography>
+              )}
+            </Stack>
           </Box>
+
+          {/* Expense Planning */}
+          {activeVersion && (
+            <Box
+              sx={{
+                mt: 3,
+                p: 2,
+                border: '1px solid',
+                borderColor: 'divider',
+                borderRadius: 2,
+                bgcolor: 'background.paper',
+              }}
+            >
+              <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }} flexWrap="wrap" gap={1}>
+                <Typography variant="subtitle1" fontWeight={600} sx={{ fontSize: 15 }}>
+                  Expense Planning
+                </Typography>
+                <MuiButton
+                  variant="contained"
+                  color="primary"
+                  size="small"
+                  startIcon={<Add fontSize="small" />}
+                  onClick={() => {
+                    setExpenseEditing(null)
+                    setExpenseDrawerOpen(true)
+                  }}
+                  sx={{ fontSize: 12, fontWeight: 600 }}
+                >
+                  + Add Expense
+                </MuiButton>
+              </Stack>
+              <Box sx={{ overflowX: 'auto' }}>
+                <Table size="small" sx={{ minWidth: 520 }}>
+                  <TableHead>
+                    <TableRow sx={{ bgcolor: tokens.color.neutral[50] }}>
+                      <TableCell sx={{ fontSize: 10, fontWeight: 700, color: tokens.color.neutral[500] }}>Type</TableCell>
+                      <TableCell sx={{ fontSize: 10, fontWeight: 700, color: tokens.color.neutral[500] }}>Name</TableCell>
+                      <TableCell sx={{ fontSize: 10, fontWeight: 700, color: tokens.color.neutral[500] }}>Amount</TableCell>
+                      <TableCell sx={{ fontSize: 10, fontWeight: 700, color: tokens.color.neutral[500] }}>Vendor(s)</TableCell>
+                      <TableCell sx={{ fontSize: 10, fontWeight: 700, color: tokens.color.neutral[500], width: 88 }} align="right">
+                        Actions
+                      </TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {(activeVersion.plannedExpenses ?? []).length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={5} sx={{ py: 2, color: 'text.disabled', fontSize: 12 }}>
+                          No planned expenses yet.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      (activeVersion.plannedExpenses ?? []).map((row) => (
+                        <TableRow key={row.id}>
+                          <TableCell sx={{ fontSize: 12 }}>
+                            {row.type === 'additional'
+                              ? 'Additional'
+                              : row.type === 'vendor'
+                                ? 'Vendor'
+                                : 'Common'}
+                          </TableCell>
+                          <TableCell sx={{ fontSize: 12 }}>{row.name}</TableCell>
+                          <TableCell sx={{ fontSize: 12 }}>₹{formatInr(row.amount)}</TableCell>
+                          <TableCell sx={{ fontSize: 12 }}>
+                            {row.type === 'additional' && '—'}
+                            {row.type === 'vendor' &&
+                              (vendorNameById.get(row.vendorId ?? '') ?? row.vendorId ?? '—')}
+                            {row.type === 'common' &&
+                              row.vendorSplits?.length &&
+                              row.vendorSplits
+                                .map(
+                                  (s) =>
+                                    `${vendorNameById.get(s.vendorId) ?? s.vendorId} (${s.percentage}%)`,
+                                )
+                                .join(', ')}
+                            {row.type === 'common' && !row.vendorSplits?.length && '—'}
+                          </TableCell>
+                          <TableCell align="right">
+                            <MuiIconButton
+                              size="small"
+                              aria-label="Edit expense"
+                              onClick={() => {
+                                setExpenseEditing(row)
+                                setExpenseDrawerOpen(true)
+                              }}
+                            >
+                              <EditIcon sx={{ fontSize: 16 }} />
+                            </MuiIconButton>
+                            <MuiIconButton
+                              size="small"
+                              aria-label="Delete expense"
+                              onClick={() => setExpenseDeleteTarget(row)}
+                              sx={{ color: 'error.main' }}
+                            >
+                              <Delete sx={{ fontSize: 16 }} />
+                            </MuiIconButton>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </Box>
+              <Stack
+                direction="row"
+                justifyContent="flex-end"
+                sx={{ mt: 2, pt: 1.5, borderTop: `1px solid ${tokens.color.neutral[100]}` }}
+              >
+                <Typography variant="body2" sx={{ fontWeight: 600, fontSize: 13 }}>
+                  Total Planned Expenses: ₹{formatInr(sumPlannedExpensesOnVersion(activeVersion))}
+                </Typography>
+              </Stack>
+            </Box>
+          )}
         </Box>
 
         {/* ── RIGHT COLUMN ─────────────────────────────────────── */}
-        {activeVersion && <FinancialSidebar version={activeVersion} />}
+        <PitchFinancialSidebar version={versionForFinances} metrics={pitchFinMetrics} />
       </Box>
 
       {/* Dialogs & Drawers */}
@@ -1764,6 +1312,7 @@ export default function PitchTab({ project }: PitchTabProps) {
       <AddCategoryDialog
         open={addCategoryDialogOpen}
         onClose={() => setAddCategoryDialogOpen(false)}
+        masterCategories={masterCategories}
         existingCategoryIds={existingCategoryIds}
         onAdd={handleAddCategory}
       />
@@ -1776,11 +1325,54 @@ export default function PitchTab({ project }: PitchTabProps) {
       />
 
       <VendorMappingDrawer
+        key={vendorDrawerService?.id ?? 'closed'}
         open={Boolean(vendorDrawerService)}
         onClose={() => setVendorDrawerService(null)}
         service={vendorDrawerService}
         onSave={handleSaveVendorMapping}
       />
+
+      <AddExpenseDrawer
+        open={expenseDrawerOpen}
+        onClose={() => {
+          setExpenseDrawerOpen(false)
+          setExpenseEditing(null)
+        }}
+        version={activeVersion}
+        projectId={project.id}
+        editingExpense={expenseEditing}
+      />
+
+      <Dialog open={Boolean(expenseDeleteTarget)} onClose={() => setExpenseDeleteTarget(null)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontSize: 15, fontWeight: 600, pb: 1 }}>Delete expense</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ fontSize: 13, pt: 0.5 }}>
+            Delete this expense?
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <MuiButton size="small" onClick={() => setExpenseDeleteTarget(null)}>Cancel</MuiButton>
+          <MuiButton
+            size="small"
+            variant="contained"
+            color="error"
+            onClick={() => {
+              if (!activeVersion || !expenseDeleteTarget) return
+              const next = (activeVersion.plannedExpenses ?? []).filter((e) => e.id !== expenseDeleteTarget.id)
+              void dispatch(
+                updatePlannedExpenses({
+                  projectId: project.id,
+                  versionId: activeVersion.id,
+                  expenses: next,
+                }),
+              )
+              setExpenseDeleteTarget(null)
+            }}
+          >
+            Delete
+          </MuiButton>
+        </DialogActions>
+      </Dialog>
 
       {/* Upload Quotation Drawer */}
       <Drawer

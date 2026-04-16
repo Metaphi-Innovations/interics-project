@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   Box,
   Stack,
@@ -10,7 +11,6 @@ import {
   TableRow,
   TableCell,
   TextField,
-  Collapse,
   Divider,
   LinearProgress,
   Select as MuiSelect,
@@ -27,29 +27,22 @@ import {
   DialogActions,
 } from '@mui/material'
 import {
-  Lock,
   LockOutlined,
   Upload,
   Add,
   CheckCircle,
   RadioButtonUnchecked,
-  Cancel,
-  SwapHoriz,
-  ExpandMore,
-  ExpandLess,
-  Download,
-  ContentCopy,
   Edit as EditIcon,
   EditOutlined,
   Delete as DeleteIcon,
   AttachFile,
   EventNote,
   Group,
-  InsertDriveFile,
   InfoOutlined,
   RocketLaunch,
 } from '@mui/icons-material'
 import { useTheme, alpha } from '@mui/material/styles'
+import type { Theme } from '@mui/material/styles'
 import { useAppDispatch, useAppSelector } from '../../../store/hooks'
 import {
   fetchClientPO,
@@ -57,21 +50,61 @@ import {
   updateClientPO,
   deleteClientPO,
   fetchBaseline,
+  fetchBaselineHistory,
   createBaseline,
-  updateBaseline,
   fetchVendorPOs,
   createVendorPO,
 } from '../../../slices/baseline/thunk'
 import { resetBaseline } from '../../../slices/baseline/reducer'
 import { fetchVersions } from '../../../slices/pitch/thunk'
+import { fetchVendors } from '../../../slices/vendors/thunk'
 import type { Project } from '../../../slices/projects/reducer'
-import type { ClientPO, Baseline, VendorPO, BaselineCategory } from '../../../slices/baseline/reducer'
-import type { PitchVersion, PitchService, ClientMilestone } from '../../../slices/pitch/reducer'
+import { changeProjectStatus, fetchProjectById } from '../../../slices/projects/thunk'
+import type { ClientPO, Baseline, VendorPO } from '../../../slices/baseline/reducer'
+import type { PitchVersion, PitchService, ClientMilestone, VendorMapping, PlannedExpense } from '../../../slices/pitch/reducer'
+import {
+  clearTransitionForProject,
+  hydrateDraft,
+  setSelectedSourceVersionId,
+  updateDraftCategories,
+  updateDraftPlannedExpenses,
+  updateDraftServiceValue,
+  updateDraftClientMilestones,
+} from '../../../slices/transition/reducer'
+import { fetchTransition, saveTransition } from '../../../slices/transition/thunk'
+import {
+  hydrateDraftFromPitchVersion,
+  transitionDraftToPitchVersion,
+  baselineSnapshotToTransitionDraft,
+  recalcTransitionDraft,
+} from '../../../utils/transitionDraft'
+import {
+  getTransitionFinalizeChecklist,
+  canFinalizeTransition,
+  serviceQuoteStatus,
+  validateTransitionForFinalize,
+  type ServiceQuoteStatus,
+  type TransitionFinalizeChecklistItem,
+} from '../../../utils/transitionFinalize'
+import { rewirePlannedExpensesAfterVendorMappingSave } from '../../../utils/transitionExpenseRewire'
+import { selectTransitionDraft } from '../../../store/selectors/transitionSelectors'
+import { computePitchFinancialMetrics, sumPlannedExpensesOnVersion } from '../../../store/selectors/pitchSelectors'
+import { VendorMappingDrawer } from '@/components/vendor/VendorMappingDrawer'
+import { AddExpenseDrawer } from '@/components/expenses/AddExpenseDrawer'
+import { PitchFinancialSidebar } from '@/components/projects/PitchFinancialSidebar'
 import { WorkspaceSection } from '../../../components/templates'
 import { DrawerForm, FormField, FormSection } from '../../../components/templates/DrawerForm'
 import { useToast } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
-import { formatCurrency, formatDate, getInitials, getAvatarColor } from '../../../utils/formatters'
+import { formatCurrency, formatDate, formatInr } from '../../../utils/formatters'
+import {
+  BaselineReadinessBlock,
+  LockedFinancialHierarchy,
+  ClientVendorMappingSection,
+  MilestoneOverviewSection,
+  DocumentsTraceabilitySection,
+  StructuredVendorPOList,
+} from './transition/lockedBaselineUi'
 
 // ─── Upload PO Drawer ─────────────────────────────────────────────────────────
 
@@ -577,6 +610,7 @@ function IssueVendorPODrawer({
             poNumber: form.poNumber,
             poDate: form.poDate,
             poValue: Number(form.poValue),
+            status: 'Draft',
           },
         })
       ).unwrap()
@@ -893,9 +927,9 @@ function VendorAlignmentDrawer({ open, onClose, service }: VendorAlignmentDrawer
       submitLabel="Save"
     >
       <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12 }}>
-        {service.vendorMappings.length === 0
+        {(service.vendorMappings ?? []).length === 0
           ? 'No vendors mapped to this service.'
-          : service.vendorMappings.map((vm) => (
+          : (service.vendorMappings ?? []).map((vm) => (
               <Box key={vm.id} sx={{ mb: 1 }}>
                 <Typography variant="body2" sx={{ fontWeight: 600, fontSize: 13 }}>
                   {vm.vendorName}
@@ -928,6 +962,31 @@ interface AlignmentTableProps {
   onAdjustedChange: (serviceId: string, value: number) => void
   localMilestones: Record<string, ClientMilestone[]>
   onMilestonesChange: (serviceId: string, milestones: ClientMilestone[]) => void
+  onVendorMappingsSave?: (serviceId: string, mappings: VendorMapping[]) => void
+  /** When true, use VendorMappingDrawer with PO Transition vendor-change rules. */
+  transitionVendorDrawer?: boolean
+  originalServiceValues?: Record<string, number>
+  onVendorQuotationChange?: (
+    serviceId: string,
+    mappingId: string,
+    quotation: VendorMapping['quotation'] | undefined,
+  ) => void
+}
+
+function quoteStatusLabel(q: ServiceQuoteStatus): string {
+  if (q === 'Uploaded') return 'Uploaded'
+  if (q === 'Partial') return 'Partial'
+  return 'Missing'
+}
+
+function quoteStatusStyles(q: ServiceQuoteStatus, theme: Theme) {
+  if (q === 'Uploaded') {
+    return { color: tokens.color.success[700], bg: alpha(theme.palette.success.main, 0.12) }
+  }
+  if (q === 'Partial') {
+    return { color: tokens.color.warning[800], bg: alpha(theme.palette.warning.main, 0.12) }
+  }
+  return { color: tokens.color.error[700], bg: alpha(theme.palette.error.main, 0.12) }
 }
 
 function AlignmentTable({
@@ -937,17 +996,39 @@ function AlignmentTable({
   onAdjustedChange,
   localMilestones,
   onMilestonesChange,
+  onVendorMappingsSave,
+  transitionVendorDrawer = false,
+  originalServiceValues,
+  onVendorQuotationChange,
 }: AlignmentTableProps) {
   const theme = useTheme()
-  const [milestoneDrawerService, setMilestoneDrawerService] = useState<PitchService | null>(null)
-  const [vendorDrawerService, setVendorDrawerService] = useState<PitchService | null>(null)
+  const [milestoneDrawerServiceId, setMilestoneDrawerServiceId] = useState<string | null>(null)
+  const [vendorDrawerServiceId, setVendorDrawerServiceId] = useState<string | null>(null)
+
+  const milestoneDrawerService = useMemo((): PitchService | null => {
+    if (!milestoneDrawerServiceId) return null
+    for (const c of version.categories) {
+      const s = c.services.find((x) => x.id === milestoneDrawerServiceId)
+      if (s) return s
+    }
+    return null
+  }, [version, milestoneDrawerServiceId])
+
+  const vendorDrawerService = useMemo((): PitchService | null => {
+    if (!vendorDrawerServiceId) return null
+    for (const c of version.categories) {
+      const s = c.services.find((x) => x.id === vendorDrawerServiceId)
+      if (s) return s
+    }
+    return null
+  }, [version, vendorDrawerServiceId])
 
   const flatServices: FlatService[] = version.categories.flatMap((cat) =>
     cat.services.map((svc) => ({
       id: svc.id,
       name: svc.name,
       categoryName: cat.categoryName,
-      originalValue: svc.value,
+      originalValue: originalServiceValues?.[svc.id] ?? svc.value,
       adjustedValue: adjustedValues[svc.id] ?? svc.value,
       pitchService: svc,
     }))
@@ -1020,10 +1101,10 @@ function AlignmentTable({
         </Box>
 
         <Box sx={{ overflowX: 'auto' }}>
-          <Table size="small" sx={{ minWidth: 700 }}>
+          <Table size="small" sx={{ minWidth: 820 }}>
             <TableHead>
               <TableRow sx={{ bgcolor: tokens.color.neutral[50] }}>
-                {['SERVICE', 'ORIGINAL (₹)', 'ADJUSTED (₹)', 'DIFFERENCE', 'MILESTONES', 'VENDORS'].map((col) => (
+                {['SERVICE', 'ORIGINAL (₹)', 'ADJUSTED (₹)', 'DIFFERENCE', 'MILESTONES', 'VENDORS', 'QUOTE STATUS'].map((col) => (
                   <TableCell
                     key={col}
                     sx={{ fontSize: 10, fontWeight: 700, color: 'text.secondary', letterSpacing: 0.5, py: 1 }}
@@ -1042,8 +1123,12 @@ function AlignmentTable({
                 return [
                   ...cat.services.map((svc) => {
                     const adjusted = adjustedValues[svc.id] ?? svc.value
-                    const diff = adjusted - svc.value
+                    const orig = originalServiceValues?.[svc.id] ?? svc.value
+                    const diff = adjusted - orig
                     const mils = localMilestones[svc.id] ?? svc.clientMilestones
+                    const noVendor = (svc.vendorMappings ?? []).length === 0
+                    const qStat = serviceQuoteStatus(svc)
+                    const qSx = quoteStatusStyles(qStat, theme)
                     return (
                       <TableRow key={svc.id} sx={{ '&:hover': { bgcolor: tokens.color.neutral[50] } }}>
                         <TableCell sx={{ py: 1 }}>
@@ -1053,10 +1138,15 @@ function AlignmentTable({
                           <Typography variant="caption" color="text.secondary" sx={{ fontSize: 10 }}>
                             {cat.categoryName}
                           </Typography>
+                          {noVendor && (
+                            <Typography variant="caption" sx={{ fontSize: 10, color: 'warning.main', display: 'block', mt: 0.5 }}>
+                              No vendor mapped
+                            </Typography>
+                          )}
                         </TableCell>
                         <TableCell sx={{ py: 1 }}>
                           <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary' }}>
-                            ₹{formatCurrency(svc.value)}
+                            ₹{formatCurrency(orig)}
                           </Typography>
                         </TableCell>
                         <TableCell sx={{ py: 1 }}>
@@ -1086,7 +1176,7 @@ function AlignmentTable({
                             size="small"
                             variant="outlined"
                             startIcon={<EventNote sx={{ fontSize: 12 }} />}
-                            onClick={() => setMilestoneDrawerService(svc)}
+                            onClick={() => setMilestoneDrawerServiceId(svc.id)}
                             sx={{ fontSize: 10, height: 26, whiteSpace: 'nowrap' }}
                           >
                             {mils.length} milestone{mils.length !== 1 ? 's' : ''}
@@ -1097,11 +1187,28 @@ function AlignmentTable({
                             size="small"
                             variant="outlined"
                             startIcon={<Group sx={{ fontSize: 12 }} />}
-                            onClick={() => setVendorDrawerService(svc)}
+                            onClick={() => setVendorDrawerServiceId(svc.id)}
                             sx={{ fontSize: 10, height: 26, whiteSpace: 'nowrap' }}
                           >
-                            {svc.vendorMappings.length} vendor{svc.vendorMappings.length !== 1 ? 's' : ''}
+                            {(svc.vendorMappings ?? []).length} vendor{(svc.vendorMappings ?? []).length !== 1 ? 's' : ''}
                           </MuiButton>
+                        </TableCell>
+                        <TableCell sx={{ py: 1 }}>
+                          <Typography
+                            variant="caption"
+                            sx={{
+                              fontSize: 11,
+                              fontWeight: 600,
+                              color: qSx.color,
+                              bgcolor: qSx.bg,
+                              px: 1,
+                              py: 0.5,
+                              borderRadius: 1,
+                              display: 'inline-block',
+                            }}
+                          >
+                            {quoteStatusLabel(qStat)}
+                          </Typography>
                         </TableCell>
                       </TableRow>
                     )
@@ -1117,7 +1224,7 @@ function AlignmentTable({
                         ₹{formatCurrency(catTotal)}
                       </Typography>
                     </TableCell>
-                    <TableCell colSpan={3} />
+                    <TableCell colSpan={4} />
                   </TableRow>,
                 ]
               })}
@@ -1128,7 +1235,7 @@ function AlignmentTable({
 
       <AlignmentMilestoneDrawer
         open={!!milestoneDrawerService}
-        onClose={() => setMilestoneDrawerService(null)}
+        onClose={() => setMilestoneDrawerServiceId(null)}
         service={milestoneDrawerService}
         onSave={(milestones) => {
           if (milestoneDrawerService) {
@@ -1137,403 +1244,28 @@ function AlignmentTable({
         }}
       />
 
-      <VendorAlignmentDrawer
-        open={!!vendorDrawerService}
-        onClose={() => setVendorDrawerService(null)}
-        service={vendorDrawerService}
-      />
-    </>
-  )
-}
-
-// ─── Upload Vendor Quote Drawer ───────────────────────────────────────────────
-
-interface VendorFinalizationEntry {
-  vendorId: string
-  vendorName: string
-  totalValue: number
-  quoteUrl: string | null
-  quoteReference: string | null
-  quoteValue: number | null
-}
-
-interface UploadVendorQuoteDrawerProps {
-  open: boolean
-  onClose: () => void
-  vendor: VendorFinalizationEntry | null
-  onSave: (vendorId: string, data: { quoteUrl: string; quoteReference: string; quoteValue: number }) => void
-}
-
-function UploadVendorQuoteDrawer({ open, onClose, vendor, onSave }: UploadVendorQuoteDrawerProps) {
-  const theme = useTheme()
-  const toast = useToast()
-  const [form, setForm] = useState({
-    quoteReference: '',
-    quoteDate: '',
-    quoteValue: '',
-    validUntil: '',
-  })
-  const [quoteFile, setQuoteFile] = useState<File | null>(null)
-
-  useEffect(() => {
-    if (!open) {
-      setForm({ quoteReference: '', quoteDate: '', quoteValue: '', validUntil: '' })
-      setQuoteFile(null)
-    }
-  }, [open])
-
-  function handleSubmit() {
-    if (!vendor || !form.quoteReference || !form.quoteValue) {
-      toast.error('Please fill in required fields')
-      return
-    }
-    onSave(vendor.vendorId, {
-      quoteUrl: quoteFile ? URL.createObjectURL(quoteFile) : '#',
-      quoteReference: form.quoteReference,
-      quoteValue: Number(form.quoteValue),
-    })
-    toast.success('Vendor quote uploaded')
-    onClose()
-  }
-
-  return (
-    <DrawerForm
-      open={open}
-      onClose={onClose}
-      title="Upload Vendor Quote"
-      subtitle={vendor?.vendorName}
-      onSubmit={handleSubmit}
-      submitLabel="Upload Quote"
-    >
-      <FormSection title="Quote Details" columns={2}>
-        <FormField label="Quote Reference" required>
-          <TextField
-            fullWidth
-            size="small"
-            value={form.quoteReference}
-            onChange={(e) => setForm((p) => ({ ...p, quoteReference: e.target.value }))}
-            placeholder="VQ-2024-001"
-          />
-        </FormField>
-        <FormField label="Quote Date">
-          <TextField
-            fullWidth
-            size="small"
-            type="date"
-            value={form.quoteDate}
-            onChange={(e) => setForm((p) => ({ ...p, quoteDate: e.target.value }))}
-          />
-        </FormField>
-        <FormField label="Quote Value (₹)" required>
-          <TextField
-            fullWidth
-            size="small"
-            type="number"
-            value={form.quoteValue}
-            onChange={(e) => setForm((p) => ({ ...p, quoteValue: e.target.value }))}
-            placeholder="0"
-          />
-        </FormField>
-        <FormField label="Valid Until">
-          <TextField
-            fullWidth
-            size="small"
-            type="date"
-            value={form.validUntil}
-            onChange={(e) => setForm((p) => ({ ...p, validUntil: e.target.value }))}
-          />
-        </FormField>
-      </FormSection>
-
-      <FormSection title="Document" columns={1}>
-        <Box>
-          <Box
-            component="label"
-            sx={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              p: 3,
-              border: '2px dashed',
-              borderColor: 'divider',
-              borderRadius: '8px',
-              cursor: 'pointer',
-              bgcolor: 'background.default',
-              '&:hover': { borderColor: 'primary.main', bgcolor: alpha(theme.palette.primary.main, 0.08) },
-            }}
-          >
-            <Upload sx={{ fontSize: 32, color: 'text.disabled', mb: 1 }} />
-            <Typography variant="body2" color="text.secondary">
-              Click to browse or drag & drop
-            </Typography>
-            <Typography variant="caption" color="text.disabled">
-              PDF, Word or Excel — max 20MB
-            </Typography>
-            <input
-              type="file"
-              hidden
-              accept=".pdf,.doc,.docx,.xlsx"
-              onChange={(e) => setQuoteFile(e.target.files?.[0] ?? null)}
-            />
-          </Box>
-          {quoteFile && (
-            <MuiChip
-              icon={<InsertDriveFile />}
-              label={quoteFile.name}
-              onDelete={() => setQuoteFile(null)}
-              size="small"
-              sx={{ mt: 1 }}
-            />
-          )}
-        </Box>
-      </FormSection>
-    </DrawerForm>
-  )
-}
-
-// ─── Vendor Milestone Drawer ──────────────────────────────────────────────────
-
-interface VendorMilestoneDrawerProps {
-  open: boolean
-  onClose: () => void
-  vendor: VendorFinalizationEntry | null
-}
-
-function VendorMilestoneDrawer({ open, onClose, vendor }: VendorMilestoneDrawerProps) {
-  const [milestones, setMilestones] = useState<Array<{ id: string; name: string; percentage: number; value: number }>>([])
-
-  useEffect(() => {
-    if (open) setMilestones([])
-  }, [open])
-
-  const totalValue = vendor?.totalValue ?? 0
-  const total = milestones.reduce((sum, m) => sum + m.value, 0)
-
-  function update(idx: number, field: string, val: string | number) {
-    setMilestones((prev) => {
-      const updated = [...prev]
-      updated[idx] = { ...updated[idx], [field]: val }
-      if (field === 'percentage') {
-        updated[idx].value = Math.round((Number(val) / 100) * totalValue)
-      } else if (field === 'value') {
-        updated[idx].percentage = totalValue > 0 ? Math.round((Number(val) / totalValue) * 100) : 0
-      }
-      return updated
-    })
-  }
-
-  return (
-    <DrawerForm
-      open={open}
-      onClose={onClose}
-      title="Vendor Milestones"
-      subtitle={vendor ? `${vendor.vendorName} — ₹${formatCurrency(vendor.totalValue)}` : undefined}
-      onSubmit={onClose}
-      submitLabel="Save Milestones"
-    >
-      <Alert
-        severity={Math.abs(total - totalValue) < 1 ? 'success' : 'warning'}
-        sx={{ mb: 2, fontSize: 11 }}
-      >
-        Total: ₹{formatCurrency(total)} / ₹{formatCurrency(totalValue)}
-      </Alert>
-      <Stack gap={1.5}>
-        {milestones.map((m, idx) => (
-          <Box
-            key={m.id}
-            sx={{
-              p: 1.5,
-              border: `1px solid ${tokens.color.neutral[100]}`,
-              borderRadius: 1.5,
-              display: 'grid',
-              gridTemplateColumns: '1fr 80px 100px 28px',
-              gap: 1,
-              alignItems: 'center',
-            }}
-          >
-            <TextField size="small" value={m.name} onChange={(e) => update(idx, 'name', e.target.value)} placeholder="Milestone" inputProps={{ style: { fontSize: 12 } }} />
-            <TextField size="small" type="number" value={m.percentage} onChange={(e) => update(idx, 'percentage', Number(e.target.value))} inputProps={{ style: { fontSize: 12 } }} />
-            <TextField size="small" type="number" value={m.value} onChange={(e) => update(idx, 'value', Number(e.target.value))} inputProps={{ style: { fontSize: 12 } }} />
-            <MuiIconButton size="small" onClick={() => setMilestones((p) => p.filter((_, i) => i !== idx))} sx={{ color: 'error.main', p: '2px' }}>
-              <DeleteIcon sx={{ fontSize: 14 }} />
-            </MuiIconButton>
-          </Box>
-        ))}
-        <MuiButton
-          size="small"
-          variant="outlined"
-          startIcon={<Add sx={{ fontSize: 14 }} />}
-          onClick={() => setMilestones((p) => [...p, { id: `vm-${Date.now()}`, name: '', percentage: 0, value: 0 }])}
-          sx={{ fontSize: 11, alignSelf: 'flex-start' }}
-        >
-          Add Milestone
-        </MuiButton>
-      </Stack>
-    </DrawerForm>
-  )
-}
-
-// ─── Vendor Finalization ──────────────────────────────────────────────────────
-
-interface VendorFinalizationProps {
-  version: PitchVersion
-  vendorQuotes: Record<string, { quoteUrl: string; quoteReference: string; quoteValue: number }>
-  onQuoteUploaded: (vendorId: string, data: { quoteUrl: string; quoteReference: string; quoteValue: number }) => void
-  onRemoveQuote: (vendorId: string) => void
-}
-
-function VendorFinalization({ version, vendorQuotes, onQuoteUploaded, onRemoveQuote }: VendorFinalizationProps) {
-  const theme = useTheme()
-  const [uploadQuoteVendor, setUploadQuoteVendor] = useState<VendorFinalizationEntry | null>(null)
-  const [milestoneVendor, setMilestoneVendor] = useState<VendorFinalizationEntry | null>(null)
-
-  const vendorMap = new Map<string, VendorFinalizationEntry>()
-  for (const cat of version.categories) {
-    for (const svc of cat.services) {
-      for (const vm of svc.vendorMappings) {
-        const existing = vendorMap.get(vm.vendorId)
-        vendorMap.set(vm.vendorId, {
-          vendorId: vm.vendorId,
-          vendorName: vm.vendorName,
-          totalValue: (existing?.totalValue ?? 0) + vm.value,
-          quoteUrl: vendorQuotes[vm.vendorId]?.quoteUrl ?? null,
-          quoteReference: vendorQuotes[vm.vendorId]?.quoteReference ?? null,
-          quoteValue: vendorQuotes[vm.vendorId]?.quoteValue ?? null,
-        })
-      }
-    }
-  }
-  const vendors = Array.from(vendorMap.values())
-
-  return (
-    <>
-      <WorkspaceSection
-        title="Vendor Finalization"
-        subtitle="Upload vendor quotes and set vendor milestones"
-      >
-        {vendors.length === 0 ? (
-          <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12 }}>
-            No vendor mappings in this version yet.
-          </Typography>
-        ) : (
-          <Stack gap={1.5}>
-            {vendors.map((vendor) => {
-              const hasQuote = !!vendorQuotes[vendor.vendorId]
-              const statusLabel = hasQuote ? 'Quote Uploaded' : 'Quote Pending'
-              const statusColor = hasQuote
-                ? { bg: alpha(tokens.color.success[500], 0.1), color: tokens.color.success[700] }
-                : { bg: alpha(tokens.color.warning[500], 0.1), color: tokens.color.warning[700] }
-
-              return (
-                <Box
-                  key={vendor.vendorId}
-                  sx={{
-                    border: '1px solid',
-                    borderColor: 'divider',
-                    borderRadius: '10px',
-                    p: 2,
-                    mb: 0,
-                  }}
-                >
-                  <Stack direction="row" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={1}>
-                    <Stack direction="row" alignItems="center" gap={1.5}>
-                      <Box
-                        sx={{
-                          width: 36,
-                          height: 36,
-                          borderRadius: '50%',
-                          bgcolor: alpha(getAvatarColor(vendor.vendorName).bg, 0.15),
-                          color: getAvatarColor(vendor.vendorName).bg,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          fontSize: 11,
-                          fontWeight: 700,
-                          flexShrink: 0,
-                        }}
-                      >
-                        {getInitials(vendor.vendorName)}
-                      </Box>
-                      <Box>
-                        <Typography variant="body2" sx={{ fontWeight: 600, fontSize: 13 }}>
-                          {vendor.vendorName}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
-                          Allocated: ₹{formatCurrency(vendor.totalValue)}
-                        </Typography>
-                      </Box>
-                      <Box
-                        sx={{
-                          px: 1,
-                          py: '2px',
-                          borderRadius: '4px',
-                          bgcolor: statusColor.bg,
-                          color: statusColor.color,
-                          fontSize: 10,
-                          fontWeight: 600,
-                        }}
-                      >
-                        {statusLabel}
-                      </Box>
-                    </Stack>
-
-                    <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap">
-                      {hasQuote ? (
-                        <MuiChip
-                          icon={<AttachFile sx={{ fontSize: 12 }} />}
-                          label={vendorQuotes[vendor.vendorId].quoteReference}
-                          size="small"
-                          onClick={() => window.open(vendorQuotes[vendor.vendorId].quoteUrl, '_blank')}
-                          onDelete={() => onRemoveQuote(vendor.vendorId)}
-                          sx={{
-                            fontSize: 11,
-                            bgcolor: alpha(theme.palette.primary.main, 0.1),
-                            color: 'primary.main',
-                            border: `1px solid ${alpha(theme.palette.primary.main, 0.3)}`,
-                            cursor: 'pointer',
-                          }}
-                        />
-                      ) : (
-                        <MuiButton
-                          size="small"
-                          variant="outlined"
-                          startIcon={<Upload sx={{ fontSize: 12 }} />}
-                          onClick={() => setUploadQuoteVendor(vendor)}
-                          sx={{ fontSize: 11, height: 28 }}
-                        >
-                          Upload Quote
-                        </MuiButton>
-                      )}
-                      <MuiButton
-                        size="small"
-                        variant="outlined"
-                        startIcon={<EventNote sx={{ fontSize: 12 }} />}
-                        onClick={() => setMilestoneVendor(vendor)}
-                        sx={{ fontSize: 11, height: 28 }}
-                      >
-                        Edit Milestones
-                      </MuiButton>
-                    </Stack>
-                  </Stack>
-                </Box>
-              )
-            })}
-          </Stack>
-        )}
-      </WorkspaceSection>
-
-      <UploadVendorQuoteDrawer
-        open={!!uploadQuoteVendor}
-        onClose={() => setUploadQuoteVendor(null)}
-        vendor={uploadQuoteVendor}
-        onSave={onQuoteUploaded}
-      />
-
-      <VendorMilestoneDrawer
-        open={!!milestoneVendor}
-        onClose={() => setMilestoneVendor(null)}
-        vendor={milestoneVendor}
-      />
+      {transitionVendorDrawer ? (
+        <VendorMappingDrawer
+          key={vendorDrawerService?.id ?? 'closed'}
+          open={!!vendorDrawerService}
+          onClose={() => setVendorDrawerServiceId(null)}
+          service={vendorDrawerService}
+          onSave={(mappings) => {
+            if (vendorDrawerService) {
+              onVendorMappingsSave?.(vendorDrawerService.id, mappings)
+            }
+          }}
+          initialMode="edit"
+          resetMilestonesOnVendorChange
+          onVendorQuotationChange={onVendorQuotationChange}
+        />
+      ) : (
+        <VendorAlignmentDrawer
+          open={!!vendorDrawerService}
+          onClose={() => setVendorDrawerServiceId(null)}
+          service={vendorDrawerService}
+        />
+      )}
     </>
   )
 }
@@ -1544,18 +1276,35 @@ interface PreBaselineRightPanelProps {
   clientPOs: ClientPO[]
   selectedVersionId: string | null
   versions: PitchVersion[]
-  adjustedValues: Record<string, number>
-  saving: boolean
-  onCreateBaseline: () => void
+  transitionDraftVersion: PitchVersion | null
+  transitionFinMetrics: ReturnType<typeof computePitchFinancialMetrics>
+  checklistItems: TransitionFinalizeChecklistItem[]
+  canFinalize: boolean
+  onSaveDraft: () => void
+  draftSaving: boolean
+  onOpenFinalizeModal: () => void
+  finalizeSaving: boolean
+  /** Re-finalize flow after unlocking baseline (same validations as go-live). */
+  rightPanelMode?: 'preLive' | 'refinalize'
+  onOpenReFinalizeModal?: () => void
+  reFinalizeSaving?: boolean
 }
 
 function PreBaselineRightPanel({
   clientPOs,
   selectedVersionId,
   versions,
-  adjustedValues,
-  saving,
-  onCreateBaseline,
+  transitionDraftVersion,
+  transitionFinMetrics,
+  checklistItems,
+  canFinalize,
+  onSaveDraft,
+  draftSaving,
+  onOpenFinalizeModal,
+  finalizeSaving,
+  rightPanelMode = 'preLive',
+  onOpenReFinalizeModal,
+  reFinalizeSaving = false,
 }: PreBaselineRightPanelProps) {
   const rightCardSx = {
     bgcolor: 'background.paper',
@@ -1577,37 +1326,32 @@ function PreBaselineRightPanel({
 
   const totalPOValue = clientPOs.reduce((sum, po) => sum + po.poValue, 0)
   const selectedVersion = versions.find((v) => v.id === selectedVersionId) ?? null
-
-  const totalAdjusted = selectedVersion
-    ? selectedVersion.categories.flatMap((c) => c.services).reduce((sum, s) => sum + (adjustedValues[s.id] ?? s.value), 0)
-    : 0
-  const valuesMatch = Math.abs(totalAdjusted - totalPOValue) < 1 && totalPOValue > 0
-  const allAdjusted = selectedVersion
-    ? selectedVersion.categories.flatMap((c) => c.services).every((s) => (adjustedValues[s.id] ?? s.value) > 0)
-    : false
-
-  const checklistItems = [
-    { label: 'Client PO uploaded', done: clientPOs.length > 0, hint: 'Add a client PO' },
-    { label: 'Version selected', done: !!selectedVersionId, hint: 'Select a pitch version' },
-    { label: 'Service values adjusted', done: allAdjusted, hint: 'Adjust values in PO Alignment' },
-    { label: 'Values balanced', done: valuesMatch, hint: 'Total must match PO value' },
-  ]
-
-  const allChecked = checklistItems.every((item) => item.done)
-
   const selectedVersionLabel = selectedVersion?.label ?? '—'
 
   return (
     <>
+      {transitionDraftVersion && (
+        <Box sx={{ mb: 2 }}>
+          <PitchFinancialSidebar
+            version={transitionDraftVersion}
+            metrics={transitionFinMetrics}
+          />
+        </Box>
+      )}
+
       {/* Checklist */}
       <Box sx={rightCardSx}>
-        <Typography variant="caption" sx={labelSx}>Baseline Checklist</Typography>
+        <Typography variant="caption" sx={labelSx}>
+          {rightPanelMode === 'refinalize' ? 'Validation checklist' : 'Baseline Checklist'}
+        </Typography>
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2, fontSize: 11 }}>
-          Complete all steps to go live
+          {rightPanelMode === 'refinalize'
+            ? 'Complete all steps before re-finalizing the baseline'
+            : 'Complete all steps to go live'}
         </Typography>
         <Stack gap={1.5}>
           {checklistItems.map((item) => (
-            <Stack key={item.label} direction="row" alignItems="center" gap={1}>
+            <Stack key={item.id} direction="row" alignItems="center" gap={1}>
               {item.done ? (
                 <CheckCircle sx={{ fontSize: 16, color: 'primary.main', flexShrink: 0 }} />
               ) : (
@@ -1649,27 +1393,48 @@ function PreBaselineRightPanel({
         </Stack>
       </Box>
 
-      {/* CTA */}
+      {/* Draft + Finalize */}
       <Box sx={rightCardSx}>
-        <MuiButton
-          variant="contained"
-          fullWidth
-          startIcon={allChecked ? <RocketLaunch sx={{ fontSize: 16 }} /> : <LockOutlined sx={{ fontSize: 16 }} />}
-          disabled={!allChecked || saving}
-          onClick={onCreateBaseline}
-          sx={{ fontSize: 13, height: 40 }}
-        >
-          {saving ? 'Creating…' : 'Create Baseline & Go Live'}
-        </MuiButton>
-        {allChecked ? (
-          <Typography variant="caption" color="success.main" sx={{ display: 'block', textAlign: 'center', mt: 1, fontSize: 11 }}>
-            ✓ Ready to create baseline
-          </Typography>
-        ) : (
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', textAlign: 'center', mt: 1, fontSize: 11 }}>
-            Complete all checklist items to proceed
-          </Typography>
-        )}
+        <Typography variant="caption" sx={labelSx}>Actions</Typography>
+        <Stack gap={1.5}>
+          <MuiButton
+            variant="outlined"
+            fullWidth
+            disabled={draftSaving}
+            onClick={onSaveDraft}
+            sx={{ fontSize: 12, height: 36 }}
+          >
+            {draftSaving ? 'Saving…' : 'Save as Draft'}
+          </MuiButton>
+          {rightPanelMode === 'refinalize' ? (
+            <MuiButton
+              variant="contained"
+              fullWidth
+              startIcon={canFinalize ? <RocketLaunch sx={{ fontSize: 16 }} /> : <LockOutlined sx={{ fontSize: 16 }} />}
+              disabled={!canFinalize || reFinalizeSaving}
+              onClick={onOpenReFinalizeModal}
+              sx={{ fontSize: 12, height: 36 }}
+            >
+              {reFinalizeSaving ? 'Saving…' : 'Re-Finalize Baseline'}
+            </MuiButton>
+          ) : (
+            <MuiButton
+              variant="contained"
+              fullWidth
+              startIcon={canFinalize ? <RocketLaunch sx={{ fontSize: 16 }} /> : <LockOutlined sx={{ fontSize: 16 }} />}
+              disabled={!canFinalize || finalizeSaving}
+              onClick={onOpenFinalizeModal}
+              sx={{ fontSize: 12, height: 36 }}
+            >
+              {finalizeSaving ? 'Finalizing…' : 'Finalize & Go Live'}
+            </MuiButton>
+          )}
+          {!canFinalize && (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', textAlign: 'center', fontSize: 11 }}>
+              Complete all required steps to finalize
+            </Typography>
+          )}
+        </Stack>
       </Box>
 
       {/* Help tip */}
@@ -1687,276 +1452,191 @@ function PreBaselineRightPanel({
       >
         <InfoOutlined sx={{ fontSize: 16, color: 'info.main', flexShrink: 0, mt: '1px' }} />
         <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11, lineHeight: 1.5 }}>
-          Align your service values to exactly match the client PO total. Once the baseline is created, the financial structure is locked.
+          {rightPanelMode === 'refinalize'
+            ? 'Re-finalizing creates a new baseline version and locks the structure again. All changes are tracked for audit.'
+            : 'Align your service values to exactly match the client PO total. Once the baseline is created, the financial structure is locked.'}
         </Typography>
       </Box>
     </>
   )
 }
 
-// ─── Locked Service Table ─────────────────────────────────────────────────────
+// ─── Transition expense planning (local commit) ─────────────────────────────
 
-interface LockedServiceTableProps {
-  categories: BaselineCategory[]
-  isEditing: boolean
-  editedValues: Record<string, number>
-  onEditedValueChange: (serviceId: string, value: number) => void
-  onStartEdit: () => void
-  onCancelEdit: () => void
-  onSaveEdit: () => void
-  saving: boolean
+interface TransitionExpensePlanningBlockProps {
+  projectId: string
+  version: PitchVersion
+  onCommit: (next: PlannedExpense[]) => void
 }
 
-function LockedServiceTable({ categories, isEditing, editedValues, onEditedValueChange, onStartEdit, onCancelEdit, onSaveEdit, saving }: LockedServiceTableProps) {
-  const theme = useTheme()
-  return (
-    <WorkspaceSection
-      title="Locked Financial Structure"
-      subtitle="Read-only — structure cannot be modified after baseline creation"
-    >
-      {isEditing && (
-        <Alert severity="warning" sx={{ mb: 2, fontSize: 12 }}>
-          You are editing a locked baseline. Changes will be audit logged.
-        </Alert>
-      )}
-      <Box sx={{ overflowX: 'auto' }}>
-        <Table size="small" sx={{ minWidth: 500 }}>
-          <TableHead>
-            <TableRow sx={{ bgcolor: tokens.color.neutral[50] }}>
-              {['CATEGORY / SERVICE', 'ORIGINAL VALUE', 'ADJUSTED VALUE', 'DIFFERENCE'].map((col) => (
-                <TableCell
-                  key={col}
-                  sx={{ fontSize: 10, fontWeight: 700, color: 'text.secondary', letterSpacing: 0.5, py: 1 }}
-                >
-                  {col}
-                </TableCell>
-              ))}
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {categories.flatMap((cat) =>
-              cat.services.map((svc) => {
-                const displayValue = isEditing
-                  ? (editedValues[svc.id] ?? svc.adjustedValue)
-                  : svc.adjustedValue
-                const diff = displayValue - svc.originalValue
-                return (
-                  <TableRow
-                    key={svc.id}
-                    sx={{ bgcolor: isEditing ? alpha(theme.palette.warning.main, 0.08) : 'background.default' }}
-                  >
-                    <TableCell sx={{ py: 1 }}>
-                      <Stack direction="row" alignItems="center" gap={0.5}>
-                        {!isEditing && <Lock sx={{ fontSize: 11, color: tokens.color.neutral[400] }} />}
-                        <Box>
-                          <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 500 }}>
-                            {svc.name}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary" sx={{ fontSize: 10 }}>
-                            {cat.categoryName}
-                          </Typography>
-                        </Box>
-                      </Stack>
-                    </TableCell>
-                    <TableCell sx={{ py: 1 }}>
-                      <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary' }}>
-                        ₹{formatCurrency(svc.originalValue)}
-                      </Typography>
-                    </TableCell>
-                    <TableCell sx={{ py: 1 }}>
-                      {isEditing ? (
-                        <TextField
-                          type="number"
-                          value={editedValues[svc.id] ?? svc.adjustedValue}
-                          onChange={(e) => onEditedValueChange(svc.id, Number(e.target.value))}
-                          size="small"
-                          inputProps={{ style: { fontSize: 12, padding: '4px 8px' } }}
-                          sx={{ width: 140 }}
-                        />
-                      ) : (
-                        <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600 }}>
-                          ₹{formatCurrency(svc.adjustedValue)}
-                        </Typography>
-                      )}
-                    </TableCell>
-                    <TableCell sx={{ py: 1 }}>
-                      <Typography
-                        variant="body2"
-                        sx={{
-                          fontSize: 12,
-                          color: diff === 0 ? 'text.secondary' : diff > 0 ? 'success.main' : 'error.main',
-                        }}
-                      >
-                        {diff === 0 ? '—' : `${diff > 0 ? '+' : ''}₹${formatCurrency(Math.abs(diff))}`}
-                      </Typography>
-                    </TableCell>
-                  </TableRow>
-                )
-              })
-            )}
-          </TableBody>
-        </Table>
-      </Box>
-    </WorkspaceSection>
-  )
-}
+function TransitionExpensePlanningBlock({ projectId, version, onCommit }: TransitionExpensePlanningBlockProps) {
+  const dispatch = useAppDispatch()
+  const vendorItems = useAppSelector((s) => s.vendors.items)
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [editing, setEditing] = useState<PlannedExpense | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<PlannedExpense | null>(null)
 
-// ─── Vendor PO Card ───────────────────────────────────────────────────────────
+  const vendorNameById = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const v of vendorItems ?? []) {
+      m.set(v.id, v.name)
+    }
+    return m
+  }, [vendorItems])
 
-interface VendorPOCardProps {
-  vendorPO: VendorPO
-}
-
-function VendorPOCard({ vendorPO }: VendorPOCardProps) {
-  const [expanded, setExpanded] = useState(false)
-
-  function getMilestoneColor(status: string): { bg: string; color: string } {
-    if (status === 'Paid') return { bg: alpha(tokens.color.success[500], 0.1), color: tokens.color.success[700] }
-    if (status === 'Overdue') return { bg: alpha(tokens.color.error[500], 0.1), color: tokens.color.error[700] }
-    return { bg: alpha(tokens.color.neutral[500], 0.1), color: tokens.color.neutral[600] }
-  }
+  useEffect(() => {
+    if (!vendorItems?.length) {
+      void dispatch(fetchVendors({}))
+    }
+  }, [dispatch, vendorItems?.length])
 
   return (
     <Box
       sx={{
-        border: `1px solid ${tokens.color.neutral[100]}`,
+        mt: 3,
+        p: 2,
+        border: '1px solid',
+        borderColor: 'divider',
         borderRadius: 2,
-        overflow: 'hidden',
-        mb: 1.5,
+        bgcolor: 'background.paper',
       }}
     >
-      <Stack
-        direction="row"
-        alignItems="center"
-        gap={2}
-        sx={{
-          p: '12px 16px',
-          cursor: 'pointer',
-          '&:hover': { bgcolor: tokens.color.neutral[50] },
-        }}
-        onClick={() => setExpanded(!expanded)}
-      >
-        <Box
-          sx={{
-            width: 32,
-            height: 32,
-            borderRadius: '50%',
-            bgcolor: alpha(getAvatarColor(vendorPO.vendorName).bg, 0.15),
-            color: getAvatarColor(vendorPO.vendorName).bg,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: 10,
-            fontWeight: 700,
-            flexShrink: 0,
-          }}
-        >
-          {getInitials(vendorPO.vendorName)}
-        </Box>
-
-        <Box sx={{ flex: 1, minWidth: 0 }}>
-          <Typography variant="body2" sx={{ fontWeight: 600, fontSize: 13 }}>
-            {vendorPO.vendorName}
-          </Typography>
-          <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11, fontFamily: 'monospace' }}>
-            {vendorPO.poNumber}
-          </Typography>
-        </Box>
-
-        <Typography variant="body2" sx={{ fontWeight: 600, fontSize: 13, flexShrink: 0 }}>
-          ₹{formatCurrency(vendorPO.poValue)}
+      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }} flexWrap="wrap" gap={1}>
+        <Typography variant="subtitle1" fontWeight={600} sx={{ fontSize: 15 }}>
+          Expense Planning
         </Typography>
-
-        <MuiIconButton size="small" sx={{ p: '2px', flexShrink: 0 }}>
-          {expanded ? <ExpandLess sx={{ fontSize: 16 }} /> : <ExpandMore sx={{ fontSize: 16 }} />}
-        </MuiIconButton>
+        <MuiButton
+          variant="contained"
+          color="primary"
+          size="small"
+          startIcon={<Add sx={{ fontSize: 14 }} />}
+          onClick={() => {
+            setEditing(null)
+            setDrawerOpen(true)
+          }}
+          sx={{ fontSize: 12, fontWeight: 600 }}
+        >
+          + Add Expense
+        </MuiButton>
       </Stack>
-
-      <Collapse in={expanded}>
-        <Divider />
-        <Box sx={{ p: 2 }}>
-          <Typography variant="overline" sx={{ fontSize: 10, color: 'text.secondary', display: 'block', mb: 1.5 }}>
-            Payment Schedule
-          </Typography>
-          <Table size="small">
-            <TableHead>
+      <Box sx={{ overflowX: 'auto' }}>
+        <Table size="small" sx={{ minWidth: 520 }}>
+          <TableHead>
+            <TableRow sx={{ bgcolor: tokens.color.neutral[50] }}>
+              <TableCell sx={{ fontSize: 10, fontWeight: 700, color: tokens.color.neutral[500] }}>Type</TableCell>
+              <TableCell sx={{ fontSize: 10, fontWeight: 700, color: tokens.color.neutral[500] }}>Name</TableCell>
+              <TableCell sx={{ fontSize: 10, fontWeight: 700, color: tokens.color.neutral[500] }}>Amount</TableCell>
+              <TableCell sx={{ fontSize: 10, fontWeight: 700, color: tokens.color.neutral[500] }}>Vendor(s)</TableCell>
+              <TableCell sx={{ fontSize: 10, fontWeight: 700, color: tokens.color.neutral[500], width: 88 }} align="right">
+                Actions
+              </TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {(version.plannedExpenses ?? []).length === 0 ? (
               <TableRow>
-                {['MILESTONE', 'DUE DATE', 'AMOUNT', 'STATUS', 'ACTIONS'].map((col) => (
-                  <TableCell
-                    key={col}
-                    sx={{ fontSize: 10, fontWeight: 700, color: 'text.secondary', letterSpacing: 0.5, py: 1 }}
-                  >
-                    {col}
-                  </TableCell>
-                ))}
+                <TableCell colSpan={5} sx={{ py: 2, color: 'text.disabled', fontSize: 12 }}>
+                  No planned expenses yet.
+                </TableCell>
               </TableRow>
-            </TableHead>
-            <TableBody>
-              {vendorPO.milestones.map((milestone) => {
-                const msColors = getMilestoneColor(milestone.status)
-                const isPaid = milestone.status === 'Paid'
-                return (
-                  <TableRow key={milestone.id}>
-                    <TableCell sx={{ py: 1 }}>
-                      <Stack direction="row" alignItems="center" gap={0.5}>
-                        {isPaid && <Lock sx={{ fontSize: 11, color: tokens.color.neutral[400] }} />}
-                        <Typography variant="body2" sx={{ fontSize: 12 }}>{milestone.name}</Typography>
-                      </Stack>
-                    </TableCell>
-                    <TableCell sx={{ py: 1 }}>
-                      <Typography variant="body2" sx={{ fontSize: 12 }}>
-                        {milestone.dueDate ? formatDate(milestone.dueDate) : '—'}
-                      </Typography>
-                    </TableCell>
-                    <TableCell sx={{ py: 1 }}>
-                      <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600 }}>
-                        ₹{formatCurrency(milestone.value)}
-                      </Typography>
-                    </TableCell>
-                    <TableCell sx={{ py: 1 }}>
-                      <Box
-                        sx={{
-                          display: 'inline-flex',
-                          px: 1,
-                          py: '1px',
-                          borderRadius: '4px',
-                          bgcolor: msColors.bg,
-                          color: msColors.color,
-                          fontSize: 10,
-                          fontWeight: 600,
-                        }}
-                      >
-                        {milestone.status}
-                      </Box>
-                    </TableCell>
-                    <TableCell sx={{ py: 1 }}>
-                      {isPaid ? (
-                        <Lock sx={{ fontSize: 13, color: tokens.color.neutral[400] }} />
-                      ) : (
-                        <Stack direction="row" gap={0.5}>
-                          <MuiButton size="small" variant="contained" color="success" sx={{ fontSize: 10, height: 24, minWidth: 0, px: 1 }}>
-                            Pay
-                          </MuiButton>
-                          <MuiButton size="small" variant="outlined" sx={{ fontSize: 10, height: 24, minWidth: 0, px: 1 }}>
-                            Edit
-                          </MuiButton>
-                        </Stack>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                )
-              })}
-              {vendorPO.milestones.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={5} sx={{ textAlign: 'center', py: 2 }}>
-                    <Typography variant="caption" color="text.secondary">No milestones defined</Typography>
+            ) : (
+              (version.plannedExpenses ?? []).map((row) => (
+                <TableRow key={row.id}>
+                  <TableCell sx={{ fontSize: 12 }}>
+                    {row.type === 'additional'
+                      ? 'Additional'
+                      : row.type === 'vendor'
+                        ? 'Vendor'
+                        : 'Common'}
+                  </TableCell>
+                  <TableCell sx={{ fontSize: 12 }}>{row.name}</TableCell>
+                  <TableCell sx={{ fontSize: 12 }}>₹{formatInr(row.amount)}</TableCell>
+                  <TableCell sx={{ fontSize: 12 }}>
+                    {row.type === 'additional' && '—'}
+                    {row.type === 'vendor' &&
+                      (vendorNameById.get(row.vendorId ?? '') ?? row.vendorId ?? '—')}
+                    {row.type === 'common' &&
+                      row.vendorSplits?.length &&
+                      row.vendorSplits
+                        .map(
+                          (s) =>
+                            `${vendorNameById.get(s.vendorId) ?? s.vendorId} (${s.percentage}%)`,
+                        )
+                        .join(', ')}
+                    {row.type === 'common' && !row.vendorSplits?.length && '—'}
+                  </TableCell>
+                  <TableCell align="right">
+                    <MuiIconButton
+                      size="small"
+                      aria-label="Edit expense"
+                      onClick={() => {
+                        setEditing(row)
+                        setDrawerOpen(true)
+                      }}
+                    >
+                      <EditIcon sx={{ fontSize: 16 }} />
+                    </MuiIconButton>
+                    <MuiIconButton
+                      size="small"
+                      aria-label="Delete expense"
+                      onClick={() => setDeleteTarget(row)}
+                      sx={{ color: 'error.main' }}
+                    >
+                      <DeleteIcon sx={{ fontSize: 16 }} />
+                    </MuiIconButton>
                   </TableCell>
                 </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </Box>
-      </Collapse>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </Box>
+      <Stack
+        direction="row"
+        justifyContent="flex-end"
+        sx={{ mt: 2, pt: 1.5, borderTop: `1px solid ${tokens.color.neutral[100]}` }}
+      >
+        <Typography variant="body2" sx={{ fontWeight: 600, fontSize: 13 }}>
+          Total Planned Expenses: ₹{formatInr(sumPlannedExpensesOnVersion(version))}
+        </Typography>
+      </Stack>
+
+      <AddExpenseDrawer
+        open={drawerOpen}
+        onClose={() => {
+          setDrawerOpen(false)
+          setEditing(null)
+        }}
+        version={version}
+        projectId={projectId}
+        editingExpense={editing}
+        onCommit={(next) => onCommit(next)}
+      />
+
+      <Dialog open={Boolean(deleteTarget)} onClose={() => setDeleteTarget(null)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontSize: 15, fontWeight: 600, pb: 1 }}>Delete expense</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ fontSize: 13, pt: 0.5 }}>
+            Delete this expense?
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <MuiButton size="small" onClick={() => setDeleteTarget(null)}>Cancel</MuiButton>
+          <MuiButton
+            size="small"
+            variant="contained"
+            color="error"
+            onClick={() => {
+              if (!deleteTarget) return
+              const next = (version.plannedExpenses ?? []).filter((e) => e.id !== deleteTarget.id)
+              onCommit(next)
+              setDeleteTarget(null)
+            }}
+          >
+            Delete
+          </MuiButton>
+        </DialogActions>
+      </Dialog>
     </Box>
   )
 }
@@ -1975,11 +1655,31 @@ interface StateBProps {
   onAdjustedChange: (serviceId: string, value: number) => void
   localMilestones: Record<string, ClientMilestone[]>
   onMilestonesChange: (serviceId: string, milestones: ClientMilestone[]) => void
-  vendorQuotes: Record<string, { quoteUrl: string; quoteReference: string; quoteValue: number }>
-  onQuoteUploaded: (vendorId: string, data: { quoteUrl: string; quoteReference: string; quoteValue: number }) => void
-  onRemoveQuote: (vendorId: string) => void
-  onCreateBaseline: () => void
-  saving: boolean
+  onVendorMappingsSave: (serviceId: string, mappings: VendorMapping[]) => void
+  /** Pitch-shaped transition draft for alignment + financials (null if no version selected). */
+  draftAsVersion: PitchVersion | null
+  originalServiceValues: Record<string, number>
+  onVendorQuotationChange: (
+    serviceId: string,
+    mappingId: string,
+    quotation: VendorMapping['quotation'] | undefined,
+  ) => void
+  transitionFinMetrics: ReturnType<typeof computePitchFinancialMetrics>
+  checklistItems: TransitionFinalizeChecklistItem[]
+  canFinalize: boolean
+  onSaveDraft: () => void
+  draftSaving: boolean
+  onOpenFinalizeModal: () => void
+  finalizeSaving: boolean
+  projectId: string
+  onPlannedExpensesCommit: (next: PlannedExpense[]) => void
+  /** Shown when editing an unlocked baseline (draft). */
+  baselineEditBanner?: string | null
+  /** Hide pitch version picker when re-editing from locked baseline. */
+  hideVersionSelection?: boolean
+  rightPanelMode?: 'preLive' | 'refinalize'
+  onOpenReFinalizeModal?: () => void
+  reFinalizeSaving?: boolean
 }
 
 function StateB({
@@ -1994,14 +1694,28 @@ function StateB({
   onAdjustedChange,
   localMilestones,
   onMilestonesChange,
-  vendorQuotes,
-  onQuoteUploaded,
-  onRemoveQuote,
-  onCreateBaseline,
-  saving,
+  onVendorMappingsSave,
+  draftAsVersion,
+  originalServiceValues,
+  onVendorQuotationChange,
+  transitionFinMetrics,
+  checklistItems,
+  canFinalize,
+  onSaveDraft,
+  draftSaving,
+  onOpenFinalizeModal,
+  finalizeSaving,
+  projectId,
+  onPlannedExpensesCommit,
+  baselineEditBanner,
+  hideVersionSelection = false,
+  rightPanelMode = 'preLive',
+  onOpenReFinalizeModal,
+  reFinalizeSaving = false,
 }: StateBProps) {
   const selectedVersion = versions.find((v) => v.id === selectedVersionId) ?? null
   const totalPOValue = clientPOs.reduce((sum, po) => sum + po.poValue, 0)
+  const alignmentVersion = draftAsVersion ?? selectedVersion
 
   return (
     <Box
@@ -2014,6 +1728,11 @@ function StateB({
     >
       {/* LEFT COLUMN */}
       <Box>
+        {baselineEditBanner && (
+          <Alert severity="warning" sx={{ mb: 2, fontSize: 12 }}>
+            {baselineEditBanner}
+          </Alert>
+        )}
         <POListSection
           clientPOs={clientPOs}
           onAddPO={onAddPO}
@@ -2021,30 +1740,43 @@ function StateB({
           onDeletePO={onDeletePO}
         />
 
-        <VersionSelection
-          versions={versions}
-          selectedVersionId={selectedVersionId}
-          onSelect={onSelectVersion}
-        />
+        {!hideVersionSelection && (
+          <VersionSelection
+            versions={versions}
+            selectedVersionId={selectedVersionId}
+            onSelect={onSelectVersion}
+          />
+        )}
 
-        {selectedVersion && (
+        {!hideVersionSelection && !selectedVersionId && (
+          <Alert severity="info" sx={{ mb: 2, fontSize: 12 }}>
+            No version selected. Select a version to start PO alignment.
+          </Alert>
+        )}
+
+        {alignmentVersion && (
           <>
             <AlignmentTable
-              version={selectedVersion}
+              version={alignmentVersion}
               totalPOValue={totalPOValue}
               adjustedValues={adjustedValues}
               onAdjustedChange={onAdjustedChange}
               localMilestones={localMilestones}
               onMilestonesChange={onMilestonesChange}
-            />
-
-            <VendorFinalization
-              version={selectedVersion}
-              vendorQuotes={vendorQuotes}
-              onQuoteUploaded={onQuoteUploaded}
-              onRemoveQuote={onRemoveQuote}
+              onVendorMappingsSave={onVendorMappingsSave}
+              transitionVendorDrawer={Boolean(draftAsVersion)}
+              originalServiceValues={originalServiceValues}
+              onVendorQuotationChange={draftAsVersion ? onVendorQuotationChange : undefined}
             />
           </>
+        )}
+
+        {alignmentVersion && (
+          <TransitionExpensePlanningBlock
+            projectId={projectId}
+            version={alignmentVersion}
+            onCommit={onPlannedExpensesCommit}
+          />
         )}
       </Box>
 
@@ -2054,16 +1786,24 @@ function StateB({
           clientPOs={clientPOs}
           selectedVersionId={selectedVersionId}
           versions={versions}
-          adjustedValues={adjustedValues}
-          saving={saving}
-          onCreateBaseline={onCreateBaseline}
+          transitionDraftVersion={draftAsVersion}
+          transitionFinMetrics={transitionFinMetrics}
+          checklistItems={checklistItems}
+          canFinalize={canFinalize}
+          onSaveDraft={onSaveDraft}
+          draftSaving={draftSaving}
+          onOpenFinalizeModal={onOpenFinalizeModal}
+          finalizeSaving={finalizeSaving}
+          rightPanelMode={rightPanelMode}
+          onOpenReFinalizeModal={onOpenReFinalizeModal}
+          reFinalizeSaving={reFinalizeSaving}
         />
       </Box>
     </Box>
   )
 }
 
-// ─── State C — Baseline locked ────────────────────────────────────────────────
+// ─── State C — Baseline locked (Financial Baseline) ───────────────────────────
 
 interface StateCProps {
   baseline: Baseline
@@ -2073,14 +1813,19 @@ interface StateCProps {
   saving: boolean
   onIssueVendorPO: () => void
   projectId: string
+  onRequestEditBaseline: () => void
+  onTrackVendorPayments: (vpo: VendorPO) => void
 }
 
-function StateC({ baseline, clientPOs, vendorPOs, saving, onIssueVendorPO, projectId }: StateCProps) {
-  const dispatch = useAppDispatch()
-  const toast = useToast()
-  const [isEditingBaseline, setIsEditingBaseline] = useState(false)
-  const [editedValues, setEditedValues] = useState<Record<string, number>>({})
-
+function StateC({
+  baseline,
+  clientPOs,
+  vendorPOs,
+  saving,
+  onIssueVendorPO,
+  onRequestEditBaseline,
+  onTrackVendorPayments,
+}: StateCProps) {
   const margin =
     baseline.totalRevenue > 0
       ? ((baseline.profitability / baseline.totalRevenue) * 100).toFixed(1)
@@ -2089,6 +1834,8 @@ function StateC({ baseline, clientPOs, vendorPOs, saving, onIssueVendorPO, proje
   const totalVendorPOValue = vendorPOs.reduce((sum, vpo) => sum + vpo.poValue, 0)
   const clientPoNumbersLabel =
     clientPOs.length === 0 ? '—' : clientPOs.map((c) => c.poNumber).join(' · ')
+  const issuedCount = vendorPOs.filter((p) => p.status === 'Issued' || p.status === 'Accepted').length
+  const pendingCount = vendorPOs.length - issuedCount
 
   const rightCardSx = {
     bgcolor: 'background.paper',
@@ -2108,54 +1855,6 @@ function StateC({ baseline, clientPOs, vendorPOs, saving, onIssueVendorPO, proje
     mb: 1.5,
   }
 
-  function startEditing() {
-    const init: Record<string, number> = {}
-    for (const cat of baseline.categories) {
-      for (const svc of cat.services) {
-        init[svc.id] = svc.adjustedValue
-      }
-    }
-    setEditedValues(init)
-    setIsEditingBaseline(true)
-  }
-
-  function cancelEditing() {
-    setIsEditingBaseline(false)
-    setEditedValues({})
-  }
-
-  async function handleSaveBaseline() {
-    const updatedCategories: BaselineCategory[] = baseline.categories.map((cat) => ({
-      ...cat,
-      services: cat.services.map((svc) => ({
-        ...svc,
-        adjustedValue: editedValues[svc.id] ?? svc.adjustedValue,
-        value: editedValues[svc.id] ?? svc.value,
-      })),
-      totalValue: cat.services.reduce((sum, s) => sum + (editedValues[s.id] ?? s.adjustedValue), 0),
-    }))
-    const newTotalRevenue = updatedCategories.reduce((sum, c) => sum + c.totalValue, 0)
-
-    try {
-      await dispatch(
-        updateBaseline({
-          projectId,
-          baselineId: baseline.id,
-          data: {
-            categories: updatedCategories,
-            totalRevenue: newTotalRevenue,
-            profitability: newTotalRevenue - baseline.totalCost,
-          },
-        })
-      ).unwrap()
-      setIsEditingBaseline(false)
-      setEditedValues({})
-      toast.success('Baseline updated')
-    } catch {
-      toast.error('Failed to update baseline')
-    }
-  }
-
   return (
     <Box
       sx={{
@@ -2165,9 +1864,11 @@ function StateC({ baseline, clientPOs, vendorPOs, saving, onIssueVendorPO, proje
         alignItems: 'start',
       }}
     >
-      {/* LEFT COLUMN */}
       <Box>
-        {/* Locked banner */}
+        <Typography variant="h6" sx={{ fontSize: 16, fontWeight: 700, mb: 2 }}>
+          Financial Baseline (Locked)
+        </Typography>
+
         <Box
           sx={{
             display: 'flex',
@@ -2178,51 +1879,52 @@ function StateC({ baseline, clientPOs, vendorPOs, saving, onIssueVendorPO, proje
             bgcolor: 'success.50',
             border: '1px solid',
             borderColor: 'success.200',
-            mb: 3,
+            mb: 2,
           }}
         >
           <LockOutlined sx={{ color: 'success.main', fontSize: 18, flexShrink: 0 }} />
           <Typography variant="body2" color="success.dark" sx={{ fontSize: 13 }}>
-            Baseline locked on {formatDate(baseline.lockedAt)}. Project moved to Live status.{' '}
-            Financial structure is now read-only.
+            Baseline locked on {formatDate(baseline.lockedAt)}. Project is now live. Financial structure is read-only.
           </Typography>
         </Box>
 
-        {/* Locked service structure with edit mode */}
-        <LockedServiceTable
-          categories={baseline.categories}
-          isEditing={isEditingBaseline}
-          editedValues={editedValues}
-          onEditedValueChange={(id, val) => setEditedValues((p) => ({ ...p, [id]: val }))}
-          onStartEdit={startEditing}
-          onCancelEdit={cancelEditing}
-          onSaveEdit={() => void handleSaveBaseline()}
-          saving={saving}
-        />
+        <BaselineReadinessBlock baseline={baseline} vendorPOs={vendorPOs} clientPOs={clientPOs} />
 
-        {/* Vendor POs — no inline action button, moved to right panel */}
-        <WorkspaceSection title="Vendor Purchase Orders">
-          {vendorPOs.length === 0 ? (
-            <Box>
-              <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12 }}>
-                No vendor POs issued yet.
-              </Typography>
-              <Typography variant="caption" color="text.disabled" sx={{ fontSize: 11, display: 'block', mt: 0.5 }}>
-                Issue vendor POs from the actions panel.
-              </Typography>
-            </Box>
-          ) : (
-            vendorPOs.map((vpo) => <VendorPOCard key={vpo.id} vendorPO={vpo} />)
-          )}
-        </WorkspaceSection>
+        <Box sx={{ mb: 2 }}>
+          <LockedFinancialHierarchy categories={baseline.categories} />
+        </Box>
+        <Box sx={{ mb: 2 }}>
+          <ClientVendorMappingSection categories={baseline.categories} />
+        </Box>
+        <Box sx={{ mb: 2 }}>
+          <MilestoneOverviewSection categories={baseline.categories} />
+        </Box>
+        <Box sx={{ mb: 2 }}>
+          <DocumentsTraceabilitySection clientPOs={clientPOs} categories={baseline.categories} vendorPOs={vendorPOs} />
+        </Box>
+        <StructuredVendorPOList
+          vendorPOs={vendorPOs}
+          categories={baseline.categories}
+          onTrackPayments={onTrackVendorPayments}
+        />
       </Box>
 
-      {/* RIGHT COLUMN */}
       <Box sx={{ position: { xs: 'static', md: 'sticky' }, top: 80 }}>
-        {/* Baseline Status */}
         <Box sx={rightCardSx}>
-          <Typography variant="caption" sx={labelSx}>Baseline Status</Typography>
+          <Typography variant="caption" sx={labelSx}>Baseline version</Typography>
           <Stack gap={1.5}>
+            <Stack direction="row" justifyContent="space-between" alignItems="center">
+              <Typography variant="caption" color="text.secondary" sx={{ fontSize: 12 }}>Version</Typography>
+              <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 700 }}>V{baseline.version}</Typography>
+            </Stack>
+            <Stack direction="row" justifyContent="space-between">
+              <Typography variant="caption" color="text.secondary" sx={{ fontSize: 12 }}>Locked on</Typography>
+              <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600 }}>{formatDate(baseline.lockedAt)}</Typography>
+            </Stack>
+            <Stack direction="row" justifyContent="space-between">
+              <Typography variant="caption" color="text.secondary" sx={{ fontSize: 12 }}>Based on Pitch</Typography>
+              <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600 }}>{baseline.basedOnPitchVersion}</Typography>
+            </Stack>
             <Stack direction="row" justifyContent="space-between" alignItems="center">
               <Typography variant="caption" color="text.secondary" sx={{ fontSize: 12 }}>Status</Typography>
               <MuiChip
@@ -2231,14 +1933,6 @@ function StateC({ baseline, clientPOs, vendorPOs, saving, onIssueVendorPO, proje
                 size="small"
                 sx={{ bgcolor: 'success.100', color: 'success.800', fontWeight: 600, fontSize: 11, height: 24 }}
               />
-            </Stack>
-            <Stack direction="row" justifyContent="space-between">
-              <Typography variant="caption" color="text.secondary" sx={{ fontSize: 12 }}>Locked on</Typography>
-              <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600 }}>{formatDate(baseline.lockedAt)}</Typography>
-            </Stack>
-            <Stack direction="row" justifyContent="space-between">
-              <Typography variant="caption" color="text.secondary" sx={{ fontSize: 12 }}>Based on</Typography>
-              <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600 }}>Version {baseline.versionLabel}</Typography>
             </Stack>
             <Stack direction="row" justifyContent="space-between" alignItems="flex-start" gap={1}>
               <Typography variant="caption" color="text.secondary" sx={{ fontSize: 12, flexShrink: 0 }}>
@@ -2251,9 +1945,8 @@ function StateC({ baseline, clientPOs, vendorPOs, saving, onIssueVendorPO, proje
           </Stack>
         </Box>
 
-        {/* Financial Summary */}
         <Box sx={rightCardSx}>
-          <Typography variant="caption" sx={labelSx}>Financial Summary</Typography>
+          <Typography variant="caption" sx={labelSx}>Financial summary</Typography>
           <Stack gap={1.5} sx={{ mb: 2 }}>
             {[
               { label: 'Revenue', value: baseline.totalRevenue, borderColor: 'primary.main' },
@@ -2287,30 +1980,29 @@ function StateC({ baseline, clientPOs, vendorPOs, saving, onIssueVendorPO, proje
           />
         </Box>
 
-        {/* Vendor POs Summary */}
         <Box sx={rightCardSx}>
-          <Typography variant="caption" sx={labelSx}>Vendor POs</Typography>
-          <Stack gap={1.5} sx={{ mb: 2 }}>
+          <Typography variant="caption" sx={labelSx}>Vendor PO summary</Typography>
+          <Stack gap={1.5}>
             <Stack direction="row" justifyContent="space-between">
-              <Typography variant="caption" color="text.secondary" sx={{ fontSize: 12 }}>Total Vendor POs</Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ fontSize: 12 }}>Total POs</Typography>
               <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600 }}>{vendorPOs.length}</Typography>
             </Stack>
             <Stack direction="row" justifyContent="space-between">
-              <Typography variant="caption" color="text.secondary" sx={{ fontSize: 12 }}>Total Value</Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ fontSize: 12 }}>Issued / accepted</Typography>
+              <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600 }}>{issuedCount}</Typography>
+            </Stack>
+            <Stack direction="row" justifyContent="space-between">
+              <Typography variant="caption" color="text.secondary" sx={{ fontSize: 12 }}>Draft / pending</Typography>
+              <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600 }}>{pendingCount}</Typography>
+            </Stack>
+            <Stack direction="row" justifyContent="space-between">
+              <Typography variant="caption" color="text.secondary" sx={{ fontSize: 12 }}>Total value</Typography>
               <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 700, color: 'primary.main' }}>
                 ₹{formatCurrency(totalVendorPOValue)}
               </Typography>
             </Stack>
-            <Stack direction="row" justifyContent="space-between" alignItems="center">
-              <Typography variant="caption" color="text.secondary" sx={{ fontSize: 12 }}>Vendor POs</Typography>
-              <MuiChip
-                label={vendorPOs.length}
-                size="small"
-                sx={{ bgcolor: 'success.100', color: 'success.800', fontWeight: 700, fontSize: 11, height: 22 }}
-              />
-            </Stack>
           </Stack>
-          <Divider sx={{ mb: 2 }} />
+          <Divider sx={{ my: 2 }} />
           <MuiButton
             fullWidth
             variant="outlined"
@@ -2323,67 +2015,56 @@ function StateC({ baseline, clientPOs, vendorPOs, saving, onIssueVendorPO, proje
           </MuiButton>
         </Box>
 
-        {/* Actions */}
         <Box sx={rightCardSx}>
           <Typography variant="caption" sx={labelSx}>Actions</Typography>
-          {isEditingBaseline ? (
-            <Stack gap={1}>
-              <MuiButton
-                fullWidth
-                variant="contained"
-                size="small"
-                onClick={() => void handleSaveBaseline()}
-                disabled={saving}
-                sx={{ fontSize: 12, height: 36 }}
-              >
-                Save Changes
-              </MuiButton>
-              <MuiButton
-                fullWidth
-                variant="outlined"
-                color="error"
-                size="small"
-                onClick={cancelEditing}
-                sx={{ fontSize: 12, height: 36 }}
-              >
-                Cancel
-              </MuiButton>
-            </Stack>
-          ) : (
-            <>
-              <MuiButton
-                fullWidth
-                variant="outlined"
-                startIcon={<EditOutlined sx={{ fontSize: 16 }} />}
-                onClick={startEditing}
-                sx={{ fontSize: 12, height: 36 }}
-              >
-                Edit Baseline
-              </MuiButton>
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', textAlign: 'center', mt: 1, fontSize: 11 }}>
-                Editing baseline creates an audit log entry.
-              </Typography>
-            </>
-          )}
+          <MuiButton
+            fullWidth
+            variant="contained"
+            startIcon={<EditOutlined sx={{ fontSize: 16 }} />}
+            onClick={onRequestEditBaseline}
+            sx={{ fontSize: 12, height: 36 }}
+          >
+            Edit Baseline
+          </MuiButton>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', textAlign: 'center', mt: 1, fontSize: 11 }}>
+            Unlocks financial structure for a new draft version. Changes are audit logged.
+          </Typography>
         </Box>
       </Box>
     </Box>
   )
 }
 
-// ─── Main BaselineTab ─────────────────────────────────────────────────────────
+// ─── Main TransitionTab ───────────────────────────────────────────────────────
 
-interface BaselineTabProps {
+interface TransitionTabProps {
   project: Project
 }
 
-export default function BaselineTab({ project }: BaselineTabProps) {
+export default function TransitionTab({ project }: TransitionTabProps) {
   const dispatch = useAppDispatch()
-  const toast = useToast()
+  const navigate = useNavigate()
+  const showToast = useToast((s) => s.showToast)
   void useTheme()
 
   const { clientPOs, baseline, vendorPOs, saving, loading } = useAppSelector((s) => s.baseline)
   const { versions } = useAppSelector((s) => s.pitch)
+  const selectedVersionId = useAppSelector((s) => s.transition.selectedSourceVersionIdByProjectId[project.id] ?? null)
+  const draft = useAppSelector((s) => selectTransitionDraft(s, project.id))
+  const transitionSaving = useAppSelector((s) => s.transition.saving)
+
+  const draftAsVersion = useMemo(() => (draft ? transitionDraftToPitchVersion(draft) : null), [draft])
+  const adjustedValues = useMemo(() => {
+    if (!draft) return {}
+    const a: Record<string, number> = {}
+    for (const c of draft.categories) {
+      for (const s of c.services) a[s.id] = s.value
+    }
+    return a
+  }, [draft])
+
+  const transitionFinMetrics = useMemo(() => computePitchFinancialMetrics(draftAsVersion), [draftAsVersion])
+  const originalServiceValues = draft?.originalServiceValues ?? {}
 
   const [uploadPOOpen, setUploadPOOpen] = useState(false)
   const [editPOOpen, setEditPOOpen] = useState(false)
@@ -2391,10 +2072,18 @@ export default function BaselineTab({ project }: BaselineTabProps) {
   const [deletePODialogOpen, setDeletePODialogOpen] = useState(false)
   const [deletingPO, setDeletingPO] = useState<ClientPO | null>(null)
   const [issueVendorPOOpen, setIssueVendorPOOpen] = useState(false)
-  const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null)
-  const [adjustedValues, setAdjustedValues] = useState<Record<string, number>>({})
-  const [localMilestones, setLocalMilestones] = useState<Record<string, ClientMilestone[]>>({})
-  const [vendorQuotes, setVendorQuotes] = useState<Record<string, { quoteUrl: string; quoteReference: string; quoteValue: number }>>({})
+  const [finalizeDialogOpen, setFinalizeDialogOpen] = useState(false)
+  const [finalizing, setFinalizing] = useState(false)
+  const [isEditingUnlockedBaseline, setIsEditingUnlockedBaseline] = useState(false)
+  const [unlockBaselineDialogOpen, setUnlockBaselineDialogOpen] = useState(false)
+  const [reFinalizeDialogOpen, setReFinalizeDialogOpen] = useState(false)
+
+  const finalizeInput = useMemo(
+    () => ({ clientPOs, selectedVersionId, draft: draft ?? null }),
+    [clientPOs, selectedVersionId, draft],
+  )
+  const checklistItems = useMemo(() => getTransitionFinalizeChecklist(finalizeInput), [finalizeInput])
+  const canFinalize = useMemo(() => canFinalizeTransition(finalizeInput), [finalizeInput])
 
   // Fetch on mount
   useEffect(() => {
@@ -2402,40 +2091,125 @@ export default function BaselineTab({ project }: BaselineTabProps) {
     void dispatch(fetchBaseline(project.id))
     void dispatch(fetchVendorPOs(project.id))
     void dispatch(fetchVersions(project.id))
+    void dispatch(fetchTransition(project.id))
+    void dispatch(fetchBaselineHistory(project.id))
 
     return () => {
       dispatch(resetBaseline())
+      dispatch(clearTransitionForProject(project.id))
     }
   }, [dispatch, project.id])
 
-  // Auto-select active version
-  useEffect(() => {
-    if (!selectedVersionId && versions.length > 0) {
-      const active = versions.find((v) => v.isActive) ?? versions[0]
-      if (active) setSelectedVersionId(active.id)
-    }
-  }, [versions, selectedVersionId])
+  const hasBaseline = !!baseline
 
-  // Initialize adjusted values when version changes
   useEffect(() => {
-    const version = versions.find((v) => v.id === selectedVersionId)
-    if (version) {
-      const init: Record<string, number> = {}
-      for (const cat of version.categories) {
-        for (const svc of cat.services) {
-          init[svc.id] = svc.value
-        }
-      }
-      setAdjustedValues(init)
-    }
-  }, [selectedVersionId, versions])
+    if (!hasBaseline) setIsEditingUnlockedBaseline(false)
+  }, [hasBaseline])
+
+  function handleSelectPitchVersion(id: string) {
+    dispatch(setSelectedSourceVersionId({ projectId: project.id, versionId: id }))
+    const v = versions.find((x) => x.id === id)
+    if (!v) return
+    dispatch(
+      hydrateDraft({
+        projectId: project.id,
+        draft: hydrateDraftFromPitchVersion(project.id, v),
+      }),
+    )
+  }
 
   function handleAdjustedChange(serviceId: string, value: number) {
-    setAdjustedValues((prev) => ({ ...prev, [serviceId]: value }))
+    dispatch(updateDraftServiceValue({ projectId: project.id, serviceId, value }))
   }
 
   function handleMilestonesChange(serviceId: string, milestones: ClientMilestone[]) {
-    setLocalMilestones((prev) => ({ ...prev, [serviceId]: milestones }))
+    dispatch(updateDraftClientMilestones({ projectId: project.id, serviceId, milestones }))
+  }
+
+  function handleVendorMappingsSave(serviceId: string, mappings: VendorMapping[]) {
+    if (!draft) return
+    const prevSvc = draft.categories.flatMap((c) => c.services).find((s) => s.id === serviceId)
+    const prevIds = new Set((prevSvc?.vendorMappings ?? []).map((m) => m.vendorId).filter(Boolean))
+    const nextIds = new Set(mappings.map((m) => m.vendorId).filter(Boolean))
+    const removedVendorIds = [...prevIds].filter((id) => !nextIds.has(id))
+    const hadLinkedRemoval = draft.plannedExpenses.some(
+      (e) => e.type === 'vendor' && e.vendorId && removedVendorIds.includes(e.vendorId),
+    )
+
+    const nextExp = rewirePlannedExpensesAfterVendorMappingSave(
+      draft.categories,
+      serviceId,
+      mappings,
+      draft.plannedExpenses,
+    )
+    const nextCats = draft.categories.map((cat) => ({
+      ...cat,
+      services: cat.services.map((svc) =>
+        svc.id === serviceId ? { ...svc, vendorMappings: mappings } : svc,
+      ),
+    }))
+    dispatch(updateDraftCategories({ projectId: project.id, categories: nextCats }))
+    dispatch(updateDraftPlannedExpenses({ projectId: project.id, plannedExpenses: nextExp }))
+    if (hadLinkedRemoval) {
+      showToast({
+        title: 'Vendor removed. Linked expenses are now unassigned.',
+        variant: 'warning',
+      })
+    }
+  }
+
+  function handlePlannedExpensesCommit(next: PlannedExpense[]) {
+    dispatch(updateDraftPlannedExpenses({ projectId: project.id, plannedExpenses: next }))
+  }
+
+  function handleVendorQuotationChange(
+    serviceId: string,
+    mappingId: string,
+    quotation: VendorMapping['quotation'] | undefined,
+  ) {
+    if (!draft) return
+    const nextCats = draft.categories.map((cat) => ({
+      ...cat,
+      services: cat.services.map((svc) =>
+        svc.id !== serviceId
+          ? svc
+          : {
+              ...svc,
+              vendorMappings: svc.vendorMappings.map((vm) =>
+                vm.id === mappingId ? { ...vm, quotation } : vm,
+              ),
+            },
+      ),
+    }))
+    dispatch(updateDraftCategories({ projectId: project.id, categories: nextCats }))
+  }
+
+  async function handleSaveDraft() {
+    if (!draft) {
+      showToast({ title: 'Select a pitch version to save a draft', variant: 'warning' })
+      return
+    }
+    try {
+      await dispatch(
+        saveTransition({
+          projectId: project.id,
+          body: {
+            versionId: draft.sourceVersionId,
+            categories: draft.categories,
+            plannedExpenses: draft.plannedExpenses,
+            originalServiceValues: draft.originalServiceValues,
+            versionNumber: draft.versionNumber,
+            label: draft.label,
+            totalRevenue: draft.totalRevenue,
+            totalCost: draft.totalCost,
+            profitability: draft.profitability,
+          },
+        }),
+      ).unwrap()
+      showToast({ title: 'Draft saved', variant: 'success' })
+    } catch {
+      showToast({ title: 'Failed to save draft', variant: 'error' })
+    }
   }
 
   function openEditPO(po: ClientPO) {
@@ -2448,64 +2222,79 @@ export default function BaselineTab({ project }: BaselineTabProps) {
     setDeletePODialogOpen(true)
   }
 
-  async function handleCreateBaseline() {
-    if (clientPOs.length === 0 || !selectedVersionId) return
-    const version = versions.find((v) => v.id === selectedVersionId)
-    if (!version) return
+  async function executeFinalizeBaseline(isReFinalize: boolean) {
+    if (clientPOs.length === 0 || !draft || !selectedVersionId) return
+    const { ok, messages } = validateTransitionForFinalize({
+      clientPOs,
+      selectedVersionId,
+      draft,
+    })
+    if (!ok) {
+      showToast({ title: messages[0] ?? 'Complete all required steps to finalize', variant: 'error' })
+      return
+    }
 
     const referenceClientPoId = clientPOs[0]?.id ?? ''
-    const totalPOValue = clientPOs.reduce((sum, po) => sum + po.poValue, 0)
+    const recalc = recalcTransitionDraft({
+      ...draft,
+      plannedExpenses: draft.plannedExpenses ?? [],
+    })
 
-    const categories: BaselineCategory[] = version.categories.map((cat) => ({
-      id: `bc-${cat.id}`,
-      categoryName: cat.categoryName,
-      totalValue: cat.services.reduce((sum, s) => sum + (adjustedValues[s.id] ?? s.value), 0),
-      services: cat.services.map((svc) => ({
-        id: `bs-${svc.id}`,
-        name: svc.name,
-        subcategoryName: svc.subcategoryName ?? '',
-        value: adjustedValues[svc.id] ?? svc.value,
-        originalValue: svc.value,
-        adjustedValue: adjustedValues[svc.id] ?? svc.value,
-        clientMilestones: (localMilestones[svc.id] ?? svc.clientMilestones).map((m) => ({
-          id: m.id,
-          name: m.name,
-          percentage: m.percentage,
-          value: m.value,
-        })),
-        vendorMappings: svc.vendorMappings.map((vm) => ({
-          id: vm.id,
-          vendorId: vm.vendorId,
-          vendorName: vm.vendorName,
-          value: vm.value,
-          percentage: vm.percentage,
-        })),
-      })),
-    }))
-
-    const totalRevenue = totalPOValue
-    const totalCost = version.categories
-      .flatMap((c) => c.services)
-      .reduce((sum, s) => sum + s.vendorMappings.reduce((vs, vm) => vs + vm.value, 0), 0)
-
+    setFinalizing(true)
     try {
+      await dispatch(
+        saveTransition({
+          projectId: project.id,
+          body: {
+            versionId: draft.sourceVersionId,
+            categories: structuredClone(draft.categories),
+            plannedExpenses: structuredClone(draft.plannedExpenses ?? []),
+            originalServiceValues: { ...draft.originalServiceValues },
+            versionNumber: draft.versionNumber,
+            label: draft.label,
+            totalRevenue: recalc.totalRevenue,
+            totalCost: recalc.totalCost,
+            profitability: recalc.profitability,
+          },
+        }),
+      ).unwrap()
+
       await dispatch(
         createBaseline({
           projectId: project.id,
           data: {
-            versionId: version.id,
-            versionLabel: version.label,
+            versionId: draft.sourceVersionId,
+            versionLabel: draft.label,
+            basedOnPitchVersion: draft.label,
+            pitchVersionNumber: draft.versionNumber,
             clientPOId: referenceClientPoId,
-            categories,
-            totalRevenue,
-            totalCost,
-            profitability: totalRevenue - totalCost,
+            categories: structuredClone(recalc.categories),
+            plannedExpenses: structuredClone(recalc.plannedExpenses ?? []),
+            originalServiceValues: { ...draft.originalServiceValues },
+            totalRevenue: recalc.totalRevenue,
+            totalCost: recalc.totalCost,
+            profitability: recalc.profitability,
           },
-        })
+        }),
       ).unwrap()
-      toast.success('Baseline created — project is now Live')
+
+      if (project.status !== 'Live') {
+        await dispatch(changeProjectStatus({ id: project.id, status: 'Live' })).unwrap()
+      }
+      await dispatch(fetchProjectById(project.id)).unwrap()
+      await dispatch(fetchBaseline(project.id)).unwrap()
+      await dispatch(fetchBaselineHistory(project.id)).unwrap()
+      setFinalizeDialogOpen(false)
+      setReFinalizeDialogOpen(false)
+      setIsEditingUnlockedBaseline(false)
+      showToast({
+        title: isReFinalize ? 'Baseline re-finalized and locked' : 'Baseline created — project is now Live',
+        variant: 'success',
+      })
     } catch {
-      toast.error('Failed to create baseline')
+      showToast({ title: 'Failed to finalize', variant: 'error' })
+    } finally {
+      setFinalizing(false)
     }
   }
 
@@ -2540,34 +2329,54 @@ export default function BaselineTab({ project }: BaselineTabProps) {
     )
   }
 
-  const hasBaseline = !!baseline
-
   return (
     <Box>
-      {/* Pre-live: full layout (PO section shows inline empty when no POs) */}
-      {!hasBaseline && (
+      {/* Pre-live or unlocked baseline edit: same transition workspace */}
+      {(!hasBaseline || isEditingUnlockedBaseline) && (
         <StateB
           clientPOs={clientPOs}
           versions={versions}
           selectedVersionId={selectedVersionId}
-          onSelectVersion={setSelectedVersionId}
+          onSelectVersion={handleSelectPitchVersion}
           onAddPO={() => setUploadPOOpen(true)}
           onEditPO={openEditPO}
           onDeletePO={openDeletePO}
           adjustedValues={adjustedValues}
           onAdjustedChange={handleAdjustedChange}
-          localMilestones={localMilestones}
+          localMilestones={{}}
           onMilestonesChange={handleMilestonesChange}
-          vendorQuotes={vendorQuotes}
-          onQuoteUploaded={(vendorId, data) => setVendorQuotes((p) => ({ ...p, [vendorId]: data }))}
-          onRemoveQuote={(vendorId) => setVendorQuotes((p) => { const n = { ...p }; delete n[vendorId]; return n })}
-          onCreateBaseline={() => void handleCreateBaseline()}
-          saving={saving}
+          onVendorMappingsSave={handleVendorMappingsSave}
+          draftAsVersion={draftAsVersion}
+          originalServiceValues={originalServiceValues}
+          onVendorQuotationChange={handleVendorQuotationChange}
+          transitionFinMetrics={transitionFinMetrics}
+          checklistItems={checklistItems}
+          canFinalize={canFinalize}
+          onSaveDraft={() => void handleSaveDraft()}
+          draftSaving={transitionSaving}
+          onOpenFinalizeModal={() => {
+            if (!canFinalize) return
+            setFinalizeDialogOpen(true)
+          }}
+          finalizeSaving={finalizing || saving}
+          projectId={project.id}
+          onPlannedExpensesCommit={handlePlannedExpensesCommit}
+          baselineEditBanner={
+            isEditingUnlockedBaseline && baseline
+              ? `Editing Mode Active (Draft) — Version V${baseline.version + 1}`
+              : undefined
+          }
+          hideVersionSelection={isEditingUnlockedBaseline}
+          rightPanelMode={isEditingUnlockedBaseline ? 'refinalize' : 'preLive'}
+          onOpenReFinalizeModal={() => {
+            if (!canFinalize) return
+            setReFinalizeDialogOpen(true)
+          }}
+          reFinalizeSaving={finalizing || saving}
         />
       )}
 
-      {/* Baseline locked (live) */}
-      {hasBaseline && (
+      {hasBaseline && !isEditingUnlockedBaseline && baseline && (
         <StateC
           baseline={baseline}
           clientPOs={clientPOs}
@@ -2576,6 +2385,10 @@ export default function BaselineTab({ project }: BaselineTabProps) {
           saving={saving}
           onIssueVendorPO={() => setIssueVendorPOOpen(true)}
           projectId={project.id}
+          onRequestEditBaseline={() => setUnlockBaselineDialogOpen(true)}
+          onTrackVendorPayments={() => {
+            void navigate('/finance/payables')
+          }}
         />
       )}
 
@@ -2610,6 +2423,97 @@ export default function BaselineTab({ project }: BaselineTabProps) {
         saving={saving}
         vendors={vendorOptions}
       />
+
+      <Dialog open={finalizeDialogOpen} onClose={() => !finalizing && setFinalizeDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontSize: 16, fontWeight: 600 }}>Finalize & Go Live?</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ fontSize: 13, mb: 2 }}>
+            You are about to lock all financial details and start project execution.
+          </Typography>
+          <Typography variant="body2" sx={{ fontSize: 13, mb: 1 }}>
+            After this:
+          </Typography>
+          <Box component="ul" sx={{ m: 0, pl: 2.5, color: 'text.secondary', fontSize: 13 }}>
+            <li>Service values cannot be changed without unlocking</li>
+            <li>Vendor milestones are fixed</li>
+            <li>Payments and expenses will start tracking against this baseline</li>
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <MuiButton size="small" onClick={() => setFinalizeDialogOpen(false)} disabled={finalizing}>
+            Cancel
+          </MuiButton>
+          <MuiButton
+            size="small"
+            variant="contained"
+            disabled={finalizing}
+            onClick={() => void executeFinalizeBaseline(false)}
+          >
+            {finalizing ? 'Finalizing…' : 'Finalize & Go Live'}
+          </MuiButton>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={unlockBaselineDialogOpen} onClose={() => setUnlockBaselineDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontSize: 16, fontWeight: 600 }}>Edit Baseline?</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ fontSize: 13, mb: 2 }}>
+            This will unlock the financial structure.
+          </Typography>
+          <Box component="ul" sx={{ m: 0, pl: 2.5, color: 'text.secondary', fontSize: 13 }}>
+            <li>Changes will impact payments and profitability</li>
+            <li>All changes will be tracked in audit logs</li>
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <MuiButton size="small" onClick={() => setUnlockBaselineDialogOpen(false)}>
+            Cancel
+          </MuiButton>
+          <MuiButton
+            size="small"
+            variant="contained"
+            onClick={() => {
+              if (!baseline) return
+              dispatch(
+                hydrateDraft({
+                  projectId: project.id,
+                  draft: baselineSnapshotToTransitionDraft(project.id, baseline),
+                }),
+              )
+              dispatch(setSelectedSourceVersionId({ projectId: project.id, versionId: baseline.versionId }))
+              setIsEditingUnlockedBaseline(true)
+              setUnlockBaselineDialogOpen(false)
+            }}
+          >
+            {'Unlock & Edit'}
+          </MuiButton>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={reFinalizeDialogOpen} onClose={() => !finalizing && setReFinalizeDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontSize: 16, fontWeight: 600 }}>Re-Finalize Baseline?</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ fontSize: 13, mb: 2 }}>
+            This will run the same validations as the original finalize and create a new locked baseline version.
+          </Typography>
+          <Typography variant="body2" sx={{ fontSize: 13 }}>
+            Previous versions remain in history for traceability.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <MuiButton size="small" onClick={() => setReFinalizeDialogOpen(false)} disabled={finalizing}>
+            Cancel
+          </MuiButton>
+          <MuiButton
+            size="small"
+            variant="contained"
+            disabled={finalizing}
+            onClick={() => void executeFinalizeBaseline(true)}
+          >
+            {finalizing ? 'Saving…' : 'Confirm re-finalize'}
+          </MuiButton>
+        </DialogActions>
+      </Dialog>
     </Box>
   )
 }

@@ -40,6 +40,16 @@ const LEVEL_LABELS: Record<0 | 1 | 2 | 3, string> = {
   3: 'Viewer',
 }
 
+const LEVEL_CHIP_SX: Record<0 | 1 | 2 | 3, { bgcolor: string; color: string }> = {
+  0: { bgcolor: '#CCFBF1', color: '#0D9488' },
+  1: { bgcolor: '#DBEAFE', color: '#1D4ED8' },
+  2: { bgcolor: '#DCFCE7', color: '#15803D' },
+  3: { bgcolor: '#F3F4F6', color: '#6B7280' },
+}
+
+const TYPE_SYSTEM_SX = { bgcolor: '#F3F4F6', color: '#6B7280' }
+const TYPE_CUSTOM_SX = { bgcolor: '#CCFBF1', color: '#0D9488' }
+
 function DeleteRoleDialog({
   open,
   role,
@@ -157,7 +167,13 @@ export default function RolesPage() {
             </Box>
           </Stack>
           {canCreate && (
-            <Button variant="contained" color="primary" size="sm" onClick={() => navigate('/user-management/roles/create')}>
+            <Button
+              variant="contained"
+              color="primary"
+              size="sm"
+              onClick={() => navigate('/user-management/roles/create')}
+              sx={{ bgcolor: tokens.color.success[600], '&:hover': { bgcolor: tokens.color.success[700] } }}
+            >
               + Create Role
             </Button>
           )}
@@ -167,7 +183,8 @@ export default function RolesPage() {
           sx={{
             bgcolor: 'background.paper',
             borderRadius: 2,
-            border: `1px solid ${tokens.color.neutral[200]}`,
+            border: '1px solid',
+            borderColor: 'divider',
             overflow: 'hidden',
           }}
         >
@@ -228,8 +245,7 @@ export default function RolesPage() {
                           label={`${role.level} — ${LEVEL_LABELS[role.level]}`}
                           size="small"
                           sx={{
-                            bgcolor: tokens.color.neutral[100],
-                            color: tokens.color.neutral[700],
+                            ...LEVEL_CHIP_SX[role.level],
                             fontSize: 11,
                             height: 22,
                             fontWeight: 600,
@@ -259,8 +275,7 @@ export default function RolesPage() {
                             label="System"
                             size="small"
                             sx={{
-                              bgcolor: tokens.color.neutral[100],
-                              color: tokens.color.neutral[600],
+                              ...TYPE_SYSTEM_SX,
                               fontSize: 11,
                               height: 20,
                               fontWeight: 600,
@@ -272,8 +287,7 @@ export default function RolesPage() {
                             label="Custom"
                             size="small"
                             sx={{
-                              bgcolor: tokens.color.success[100],
-                              color: tokens.color.success[800],
+                              ...TYPE_CUSTOM_SX,
                               fontSize: 11,
                               height: 20,
                               fontWeight: 600,

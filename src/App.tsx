@@ -43,11 +43,15 @@ import VendorDetailPage from '@/pages/Vendors/VendorDetailPage'
 import ReceivablesPage from '@/pages/Finance/ReceivablesPage'
 import PayablesPage from '@/pages/Finance/PayablesPage'
 import ExpensesPage from '@/pages/Finance/ExpensesPage'
-import CompliancePage from '@/pages/Finance/CompliancePage'
+import ComplianceLayout from '@/pages/Compliance/ComplianceLayout'
+import FilingSummaryPage from '@/pages/Compliance/FilingSummaryPage'
+import GSTPage from '@/pages/Compliance/GSTPage'
+import TDSPage from '@/pages/Compliance/TDSPage'
 import ReportsPage from '@/pages/Reports/ReportsPage'
 import DocumentsPage from '@/pages/Documents/DocumentsPage'
 import AuditLogsPage from '@/pages/AuditLogs/AuditLogsPage'
 import UsersPage from '@/pages/UserManagement/UsersPage'
+import UserViewPage from '@/pages/UserManagement/UserViewPage'
 import UserFormPage from '@/pages/UserManagement/UserFormPage'
 import RolesPage from '@/pages/UserManagement/RolesPage'
 import { UserManagementPermissionRoute } from '@/pages/UserManagement/UserManagementPermissionRoute'
@@ -113,10 +117,15 @@ const navConfig: NavConfig[] = [
         href: '/finance/expenses',
       },
       {
-        type: 'item',
+        type: 'group',
         label: 'Compliance & Tax',
         icon: <ShieldCheck size={16} strokeWidth={1.75} />,
-        href: '/finance/compliance',
+        expandWhenPathPrefix: '/finance/compliance',
+        children: [
+          { type: 'item', label: 'Filing Summary', href: '/finance/compliance/filing' },
+          { type: 'item', label: 'GST', href: '/finance/compliance/gst' },
+          { type: 'item', label: 'TDS', href: '/finance/compliance/tds' },
+        ],
       },
     ],
   },
@@ -247,7 +256,12 @@ function AppInner() {
                   <Route path="/finance/receivables" element={<ReceivablesPage />} />
                   <Route path="/finance/payables" element={<PayablesPage />} />
                   <Route path="/finance/expenses" element={<ExpensesPage />} />
-                  <Route path="/finance/compliance" element={<CompliancePage />} />
+                  <Route path="/finance/compliance" element={<ComplianceLayout />}>
+                    <Route index element={<Navigate to="filing" replace />} />
+                    <Route path="filing" element={<FilingSummaryPage />} />
+                    <Route path="gst" element={<GSTPage />} />
+                    <Route path="tds" element={<TDSPage />} />
+                  </Route>
                   <Route path="/reports" element={<ReportsPage />} />
                   <Route path="/documents" element={<DocumentsPage />} />
                   <Route path="/audit-logs" element={<AuditLogsPage />} />
@@ -265,6 +279,14 @@ function AppInner() {
                     element={
                       <UserManagementPermissionRoute>
                         <UserFormPage />
+                      </UserManagementPermissionRoute>
+                    }
+                  />
+                  <Route
+                    path="/user-management/users/:id"
+                    element={
+                      <UserManagementPermissionRoute>
+                        <UserViewPage />
                       </UserManagementPermissionRoute>
                     }
                   />

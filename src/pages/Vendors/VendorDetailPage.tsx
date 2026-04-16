@@ -18,7 +18,6 @@ import {
   Grid,
 } from '@mui/material'
 import {
-  LocalShipping,
   VerifiedUser,
   LocationOn,
   Edit,
@@ -252,9 +251,6 @@ export default function VendorDetailPage() {
               <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
                 <LabelValue label="Vendor Name">
                   <Typography variant="body2" fontWeight={500}>{vendor!.name}</Typography>
-                </LabelValue>
-                <LabelValue label="Vendor Type">
-                  <MuiChip label={vendor!.type} size="small" variant="outlined" sx={{ height: 20, fontSize: 11 }} />
                 </LabelValue>
                 <LabelValue label="Status">
                   <StatusBadge status={vendor!.status.toLowerCase() as StatusType} />
@@ -711,7 +707,7 @@ export default function VendorDetailPage() {
         title={vendor.name}
         titleMeta={<StatusBadge status={vendor.status.toLowerCase() as StatusType} />}
         metaItems={[
-          { icon: <LocalShipping sx={{ fontSize: 12 }} />, label: vendor.type },
+          { icon: <Person sx={{ fontSize: 12 }} />, label: vendor.contactPerson },
           { icon: <VerifiedUser sx={{ fontSize: 12 }} />, label: `GST: ${vendor.gstStatus}` },
           { icon: <LocationOn sx={{ fontSize: 12 }} />, label: `${vendor.city}, ${vendor.state}` },
         ]}

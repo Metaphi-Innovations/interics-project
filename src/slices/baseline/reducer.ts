@@ -1,11 +1,13 @@
 import { createSlice } from '@reduxjs/toolkit'
 import type { PayloadAction } from '@reduxjs/toolkit'
+import type { PitchCategory, PlannedExpense } from '@/slices/pitch/reducer'
 import {
   fetchClientPO,
   uploadClientPO,
   updateClientPO,
   deleteClientPO,
   fetchBaseline,
+  fetchBaselineHistory,
   createBaseline,
   updateBaseline,
   fetchVendorPOs,
@@ -23,57 +25,13 @@ export interface ClientPO {
   endDate: string
   poValue: number
   documentUrl: string | null
+  /** Display name for documents section */
+  fileName?: string
+  uploadedAt?: string
 }
 
-export interface ClientMilestone {
-  id: string
-  name: string
-  percentage: number
-  value: number
-}
-
-export interface VendorMapping {
-  id: string
-  vendorId: string
-  vendorName: string
-  value: number
-  percentage: number
-}
-
-export interface BaselineService {
-  id: string
-  name: string
-  subcategoryName: string
-  value: number
-  originalValue: number
-  adjustedValue: number
-  clientMilestones: ClientMilestone[]
-  vendorMappings: VendorMapping[]
-}
-
-export interface BaselineCategory {
-  id: string
-  categoryName: string
-  services: BaselineService[]
-  totalValue: number
-}
-
-export interface Baseline {
-  id: string
-  projectId: string
-  versionId: string
-  versionLabel: string
-  createdAt: string
-  lockedAt: string
-  status: 'Draft' | 'Locked'
-  clientPOId: string
-  categories: BaselineCategory[]
-  totalRevenue: number
-  totalCost: number
-  profitability: number
-}
-
-export interface VendorMilestone {
+/** Payment milestone on a vendor PO (execution tracking). */
+export interface VendorPOMilestone {
   id: string
   name: string
   percentage: number
@@ -81,6 +39,8 @@ export interface VendorMilestone {
   dueDate: string | null
   status: 'Paid' | 'Pending' | 'Overdue'
 }
+
+export type VendorPOExecutionStatus = 'Draft' | 'Issued' | 'Accepted'
 
 export interface VendorPO {
   id: string
@@ -90,7 +50,40 @@ export interface VendorPO {
   poNumber: string
   poDate: string
   poValue: number
-  milestones: VendorMilestone[]
+  milestones: VendorPOMilestone[]
+  paymentTerms?: string
+  status: VendorPOExecutionStatus
+  linkedBaselineServiceIds?: string[]
+  documentUrl?: string | null
+  fileName?: string | null
+}
+
+/** Locked baseline: financial snapshot matches Pitch categories + planned expenses. */
+export interface Baseline {
+  id: string
+  projectId: string
+  /** Monotonic baseline revision (V1, V2, …). */
+  version: number
+  /** Pitch version id this snapshot was finalized from. */
+  versionId: string
+  /** Pitch version label (e.g. "Version 1"). */
+  versionLabel: string
+  /** Human-readable pitch reference (often same as versionLabel). */
+  basedOnPitchVersion: string
+  /** Pitch version number for transition draft metadata. */
+  pitchVersionNumber: number
+  isActive: boolean
+  createdAt: string
+  lockedAt: string
+  status: 'Draft' | 'Locked'
+  clientPOId: string
+  categories: PitchCategory[]
+  plannedExpenses: PlannedExpense[]
+  /** PO-alignment originals keyed by service id. */
+  originalServiceValues: Record<string, number>
+  totalRevenue: number
+  totalCost: number
+  profitability: number
 }
 
 // ─── State ────────────────────────────────────────────────────────────────────
@@ -98,6 +91,7 @@ export interface VendorPO {
 interface BaselineState {
   clientPOs: ClientPO[]
   baseline: Baseline | null
+  baselineHistory: Baseline[]
   vendorPOs: VendorPO[]
   selectedVersionId: string | null
   loading: boolean
@@ -108,6 +102,7 @@ interface BaselineState {
 const initialState: BaselineState = {
   clientPOs: [],
   baseline: null,
+  baselineHistory: [],
   vendorPOs: [],
   selectedVersionId: null,
   loading: false,
@@ -193,6 +188,11 @@ const baselineSlice = createSlice({
         if (action.payload) {
           state.selectedVersionId = action.payload.versionId
         }
+      })
+
+      // fetchBaselineHistory
+      .addCase(fetchBaselineHistory.fulfilled, (state, action) => {
+        state.baselineHistory = action.payload
       })
 
       // createBaseline

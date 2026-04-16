@@ -130,6 +130,11 @@ export interface ListingTemplateProps {
 
   // Content
   children: ReactNode
+
+  /** Hide search/filters toolbar inside the content card */
+  hideToolbar?: boolean
+  /** Extra node in page header row (e.g. period selector), right side */
+  headerRight?: ReactNode
 }
 
 // ─── Internal StatCard ────────────────────────────────────────────────────────
@@ -393,6 +398,8 @@ export function ListingTemplate({
   onPageChange,
   children,
   onViewModeChange,
+  hideToolbar = false,
+  headerRight,
 }: ListingTemplateProps) {
   const theme = useTheme()
   const isDesktop = useMediaQuery(theme.breakpoints.up('lg'))
@@ -455,6 +462,7 @@ export function ListingTemplate({
         </Stack>
 
         <Stack direction="row" alignItems="center" gap={1} sx={{ flexShrink: 0 }}>
+          {headerRight}
           {secondaryActions?.map((action, i) => (
             <Button
               key={i}
@@ -567,134 +575,136 @@ export function ListingTemplate({
         )}
 
         {/* Toolbar */}
-        <Stack
-          direction="row"
-          alignItems="center"
-          justifyContent="space-between"
-          sx={{ p: '10px 14px', borderBottom: `1px solid ${tokens.color.neutral[100]}` }}
-        >
-          {/* Search */}
+        {!hideToolbar && (
           <Stack
             direction="row"
             alignItems="center"
-            gap={1}
-            sx={{
-              width: { xs: undefined, lg: '260px' },
-              flex: { xs: 1, lg: 'none' },
-              height: '32px',
-              bgcolor: searchFocused ? 'action.selected' : 'action.hover',
-              border: `1px solid ${searchFocused ? theme.palette.primary.main : 'transparent'}`,
-              borderRadius: '6px',
-              px: '10px',
-              transition: 'background-color 0.15s, border-color 0.15s',
-            }}
+            justifyContent="space-between"
+            sx={{ p: '10px 14px', borderBottom: `1px solid ${tokens.color.neutral[100]}` }}
           >
-            <SearchIcon sx={{ fontSize: '14px', color: tokens.color.neutral[400] }} />
-            <InputBase
-              value={searchValue}
-              onChange={handleSearchChange}
-              placeholder={searchPlaceholder}
-              onFocus={() => setSearchFocused(true)}
-              onBlur={() => setSearchFocused(false)}
-              sx={{ fontSize: '12px', flex: 1, '& input': { p: 0 } }}
-            />
-          </Stack>
-
-          {/* Right actions */}
-          <Stack direction="row" alignItems="center" gap="6px">
-            {/* Filters button */}
-            <Badge
-              badgeContent={activeFilterCount > 0 ? activeFilterCount : undefined}
-              color="primary"
+            {/* Search */}
+            <Stack
+              direction="row"
+              alignItems="center"
+              gap={1}
+              sx={{
+                width: { xs: undefined, lg: '260px' },
+                flex: { xs: 1, lg: 'none' },
+                height: '32px',
+                bgcolor: searchFocused ? 'action.selected' : 'action.hover',
+                border: `1px solid ${searchFocused ? theme.palette.primary.main : 'transparent'}`,
+                borderRadius: '6px',
+                px: '10px',
+                transition: 'background-color 0.15s, border-color 0.15s',
+              }}
             >
-              {isDesktop ? (
+              <SearchIcon sx={{ fontSize: '14px', color: tokens.color.neutral[400] }} />
+              <InputBase
+                value={searchValue}
+                onChange={handleSearchChange}
+                placeholder={searchPlaceholder}
+                onFocus={() => setSearchFocused(true)}
+                onBlur={() => setSearchFocused(false)}
+                sx={{ fontSize: '12px', flex: 1, '& input': { p: 0 } }}
+              />
+            </Stack>
+
+            {/* Right actions */}
+            <Stack direction="row" alignItems="center" gap="6px">
+              {/* Filters button */}
+              <Badge
+                badgeContent={activeFilterCount > 0 ? activeFilterCount : undefined}
+                color="primary"
+              >
+                {isDesktop ? (
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    startIcon={<FilterListIcon fontSize="small" />}
+                    onClick={handleFilterButtonClick}
+                    sx={{ height: '32px', fontSize: '12px' }}
+                  >
+                    Filters
+                  </Button>
+                ) : (
+                  <IconButton
+                    size="small"
+                    onClick={handleFilterButtonClick}
+                    sx={{
+                      height: '32px',
+                      width: '32px',
+                      border: `1px solid ${tokens.color.neutral[200]}`,
+                      borderRadius: '6px',
+                    }}
+                  >
+                    <FilterListIcon fontSize="small" />
+                  </IconButton>
+                )}
+              </Badge>
+
+              {/* Columns button */}
+              {columns && onColumnVisibilityChange && (
                 <Button
                   variant="outlined"
                   size="small"
-                  startIcon={<FilterListIcon fontSize="small" />}
-                  onClick={handleFilterButtonClick}
+                  startIcon={<ViewColumnIcon fontSize="small" />}
+                  onClick={(e) => setColumnsAnchor(e.currentTarget)}
                   sx={{ height: '32px', fontSize: '12px' }}
                 >
-                  Filters
+                  Columns
                 </Button>
-              ) : (
-                <IconButton
-                  size="small"
-                  onClick={handleFilterButtonClick}
-                  sx={{
-                    height: '32px',
-                    width: '32px',
-                    border: `1px solid ${tokens.color.neutral[200]}`,
-                    borderRadius: '6px',
-                  }}
-                >
-                  <FilterListIcon fontSize="small" />
-                </IconButton>
               )}
-            </Badge>
 
-            {/* Columns button */}
-            {columns && onColumnVisibilityChange && (
-              <Button
-                variant="outlined"
-                size="small"
-                startIcon={<ViewColumnIcon fontSize="small" />}
-                onClick={(e) => setColumnsAnchor(e.currentTarget)}
-                sx={{ height: '32px', fontSize: '12px' }}
-              >
-                Columns
-              </Button>
-            )}
-
-            {/* Export button */}
-            {showExport && (
-              <Button
-                variant="outlined"
-                size="small"
-                startIcon={<DownloadIcon sx={{ fontSize: 14 }} />}
-                onClick={onExport}
-                sx={{ height: '32px', fontSize: '12px' }}
-              >
-                Export
-              </Button>
-            )}
-
-            {/* View toggle */}
-            {showViewToggle && (
-              <>
-                <Divider
-                  orientation="vertical"
-                  flexItem
-                  sx={{ height: '20px', mx: '4px', alignSelf: 'center' }}
-                />
-                <IconButton
+              {/* Export button */}
+              {showExport && (
+                <Button
+                  variant="outlined"
                   size="small"
-                  onClick={() => handleViewModeChange('grid')}
-                  sx={{
-                    p: '5px',
-                    borderRadius: '4px',
-                    color: viewMode === 'grid' ? 'primary.main' : tokens.color.neutral[400],
-                    bgcolor: viewMode === 'grid' ? alpha(theme.palette.primary.main, 0.08) : 'transparent',
-                  }}
+                  startIcon={<DownloadIcon sx={{ fontSize: 14 }} />}
+                  onClick={onExport}
+                  sx={{ height: '32px', fontSize: '12px' }}
                 >
-                  <GridViewIcon fontSize="small" />
-                </IconButton>
-                <IconButton
-                  size="small"
-                  onClick={() => handleViewModeChange('list')}
-                  sx={{
-                    p: '5px',
-                    borderRadius: '4px',
-                    color: viewMode === 'list' ? 'primary.main' : tokens.color.neutral[400],
-                    bgcolor: viewMode === 'list' ? alpha(theme.palette.primary.main, 0.08) : 'transparent',
-                  }}
-                >
-                  <ViewListIcon fontSize="small" />
-                </IconButton>
-              </>
-            )}
+                  Export
+                </Button>
+              )}
+
+              {/* View toggle */}
+              {showViewToggle && (
+                <>
+                  <Divider
+                    orientation="vertical"
+                    flexItem
+                    sx={{ height: '20px', mx: '4px', alignSelf: 'center' }}
+                  />
+                  <IconButton
+                    size="small"
+                    onClick={() => handleViewModeChange('grid')}
+                    sx={{
+                      p: '5px',
+                      borderRadius: '4px',
+                      color: viewMode === 'grid' ? 'primary.main' : tokens.color.neutral[400],
+                      bgcolor: viewMode === 'grid' ? alpha(theme.palette.primary.main, 0.08) : 'transparent',
+                    }}
+                  >
+                    <GridViewIcon fontSize="small" />
+                  </IconButton>
+                  <IconButton
+                    size="small"
+                    onClick={() => handleViewModeChange('list')}
+                    sx={{
+                      p: '5px',
+                      borderRadius: '4px',
+                      color: viewMode === 'list' ? 'primary.main' : tokens.color.neutral[400],
+                      bgcolor: viewMode === 'list' ? alpha(theme.palette.primary.main, 0.08) : 'transparent',
+                    }}
+                  >
+                    <ViewListIcon fontSize="small" />
+                  </IconButton>
+                </>
+              )}
+            </Stack>
           </Stack>
-        </Stack>
+        )}
 
         {/* Content */}
         {children}

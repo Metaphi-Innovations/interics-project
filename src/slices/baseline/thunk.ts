@@ -75,6 +75,17 @@ export const fetchBaseline = createAsyncThunk<
   return res.json() as Promise<Baseline | null>
 })
 
+export const fetchBaselineHistory = createAsyncThunk<
+  Baseline[],
+  string,
+  { rejectValue: string }
+>('baseline/fetchBaselineHistory', async (projectId, { rejectWithValue }) => {
+  const res = await fetch(`${BASE}/${projectId}/baseline/history`)
+  if (res.status === 404) return []
+  if (!res.ok) return rejectWithValue('Failed to fetch baseline history')
+  return res.json() as Promise<Baseline[]>
+})
+
 // ─── Create baseline ──────────────────────────────────────────────────────────
 
 export const createBaseline = createAsyncThunk<
