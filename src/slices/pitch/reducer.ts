@@ -70,6 +70,11 @@ export interface PlannedExpense {
   amount: number
   vendorId?: string
   vendorSplits?: PlannedExpenseSplit[]
+  /** Present when type is vendor — from pitch version service / mapping */
+  serviceId?: string
+  serviceName?: string
+  milestoneId?: string
+  milestoneName?: string
 }
 
 export interface PitchService {

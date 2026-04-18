@@ -61,7 +61,7 @@ export function InvoiceDetailDrawer({
 
   if (!invoice && !detailLoading) {
     return (
-      <DrawerForm open={open} onClose={onClose} title="Invoice" width={700} hideFooter>
+      <DrawerForm open={open} onClose={onClose} title="Invoice" width={560} hideFooter>
         <Typography variant="body2" color="text.secondary">
           Select an invoice
         </Typography>
@@ -88,7 +88,7 @@ export function InvoiceDetailDrawer({
       onClose={onClose}
       title="Invoice"
       subtitle={inv?.clientName}
-      width={700}
+      width={560}
       hideFooter={!inv}
       footer={inv ? footerBar : undefined}
     >

@@ -1,34 +1,42 @@
-import { useEffect } from 'react'
+import { useMemo } from 'react'
 import {
   Box,
   Stack,
   Typography,
+  Grid,
   Table,
   TableHead,
   TableBody,
   TableRow,
   TableCell,
-  Alert,
-  LinearProgress,
-  IconButton as MuiIconButton,
 } from '@mui/material'
-import {
-  Visibility,
-  Download,
-  CheckCircle,
-} from '@mui/icons-material'
-import { useTheme, alpha } from '@mui/material/styles'
-import { useAppDispatch, useAppSelector } from '../../../../store/hooks'
-import { fetchComplianceData } from '../../../../slices/live/thunk'
+import { WorkspaceSection } from '../../../../components/templates'
 import { StatusBadge } from '@/design-system/components'
 import type { StatusType } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
-import { formatCurrency } from '../../../../utils/formatters'
+import { useAppSelector } from '../../../../store/hooks'
+import type { ClientInvoice, VendorPayment } from '../../../../slices/live/reducer'
+import { formatInr, formatDate } from '../../../../utils/formatters'
+import {
+  balancePending,
+  effectiveGstPercent,
+  isDueDateOverdue,
+  MONEY_EPS,
+} from '@/pages/Projects/tabs/live/clientInvoiceUtils'
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+function invoiceRowBadge(inv: ClientInvoice): { type: StatusType; label: string } {
+  if (inv.status === 'paid' || balancePending(inv) <= MONEY_EPS) return { type: 'paid', label: 'Paid' }
+  if (inv.status === 'draft') return { type: 'invoice_draft', label: 'Draft' }
+  const overdue = isDueDateOverdue(inv.dueDate) && balancePending(inv) > MONEY_EPS
+  if (overdue) return { type: 'overdue', label: 'Overdue' }
+  if (inv.status === 'partially_paid') return { type: 'partially_paid', label: 'Partially Paid' }
+  return { type: 'sent', label: 'Invoiced' }
+}
 
-function formatLakh(value: number): string {
-  return (value / 100000).toFixed(2) + ' L'
+function vendorTdsRatePercent(p: VendorPayment): string {
+  if (p.invoiceTotal <= 0) return '—'
+  const pct = (100 * p.tdsDeducted) / p.invoiceTotal
+  return `${Math.round(pct * 10) / 10}%`
 }
 
 const TABLE_HEADER_SX = {
@@ -38,277 +46,355 @@ const TABLE_HEADER_SX = {
   letterSpacing: 0.5,
   textTransform: 'uppercase' as const,
   borderBottom: `1px solid ${tokens.color.neutral[100]}`,
-  py: '10px',
+  py: 1.5,
   px: 2,
 }
 
 const TABLE_CELL_SX = {
   fontSize: 12,
   borderBottom: `1px solid ${tokens.color.neutral[50]}`,
-  py: '12px',
+  py: 1.5,
   px: 2,
 }
 
-function statusBadgeType(status: 'filed' | 'pending' | 'overdue'): StatusType {
-  switch (status) {
-    case 'filed':   return 'completed'
-    case 'pending': return 'pending'
-    case 'overdue': return 'cancelled'
-  }
-}
-
-function statusLabel(status: 'filed' | 'pending' | 'overdue'): string {
-  switch (status) {
-    case 'filed':   return 'Filed'
-    case 'pending': return 'Pending'
-    case 'overdue': return 'Overdue'
-  }
-}
-
-// ─── ComplianceTab ────────────────────────────────────────────────────────────
-
 interface ComplianceTabProps {
   projectId: string
+  clientName: string
 }
 
-export default function ComplianceTab({ projectId }: ComplianceTabProps) {
-  const theme = useTheme()
-  const dispatch = useAppDispatch()
-  const complianceData = useAppSelector((s) => s.live.complianceData)
+export default function ComplianceTab({ projectId, clientName }: ComplianceTabProps) {
+  const { invoices, payments } = useAppSelector((s) => s.live)
 
-  useEffect(() => {
-    dispatch(fetchComplianceData(projectId))
-  }, [dispatch, projectId])
+  const projectInvoices = useMemo(
+    () => invoices.filter((i) => i.projectId === projectId),
+    [invoices, projectId],
+  )
 
-  if (!complianceData) {
+  const projectPayments = useMemo(
+    () => payments.filter((p) => p.projectId === projectId),
+    [payments, projectId],
+  )
+
+  const gstCollected = useMemo(
+    () => projectInvoices.reduce((s, i) => s + i.gstAmount, 0),
+    [projectInvoices],
+  )
+  const gstPayable = gstCollected
+  const clientTds = useMemo(
+    () => projectInvoices.reduce((s, i) => s + i.tdsAmount, 0),
+    [projectInvoices],
+  )
+  const vendorTds = useMemo(
+    () => projectPayments.reduce((s, p) => s + p.tdsDeducted, 0),
+    [projectPayments],
+  )
+  const netTaxPosition = gstCollected - (clientTds + vendorTds)
+
+  const totalGstInTable = gstCollected
+  const totalClientTdsInTable = clientTds
+  const totalVendorTdsInTable = vendorTds
+
+  if (projectInvoices.length === 0) {
     return (
-      <Box sx={{ py: 4 }}>
-        <LinearProgress />
+      <Box sx={{ py: 6, px: 2, textAlign: 'center' }}>
+        <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 480, mx: 'auto' }}>
+          No compliance data yet. Generate invoices to see GST and TDS.
+        </Typography>
       </Box>
     )
   }
 
-  const { gstSummary, tdsSummary, monthlyTracker, pendingActions } = complianceData
+  type SummaryCard = {
+    key: string
+    overline: string
+    caption?: string
+    value: number
+    valueColor?: string
+  }
+
+  const summaryCards: SummaryCard[] = [
+    { key: 'gst-collected', overline: 'GST COLLECTED', value: gstCollected },
+    { key: 'gst-payable', overline: 'GST PAYABLE', value: gstPayable },
+    {
+      key: 'client-tds',
+      overline: 'CLIENT TDS',
+      caption: 'TDS Deducted by Client',
+      value: clientTds,
+    },
+    {
+      key: 'vendor-tds',
+      overline: 'VENDOR TDS',
+      caption: 'TDS Deducted on Vendors',
+      value: vendorTds,
+    },
+    {
+      key: 'net-tax',
+      overline: 'NET TAX POSITION',
+      value: netTaxPosition,
+      valueColor: netTaxPosition >= 0 ? 'text.primary' : 'error.main',
+    },
+  ]
 
   return (
-    <Stack gap={3}>
-      {/* Top Summary Cards */}
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2 }}>
-        {/* GST Summary */}
-        <Box
-          sx={{
-            flex: 1,
-            p: 2,
-            borderRadius: 2,
-            border: '1px solid',
-            borderColor: 'divider',
-            bgcolor: alpha(theme.palette.info.main, 0.04),
-          }}
-        >
-          <Typography
-            variant="overline"
-            sx={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.6, color: 'text.secondary', display: 'block', mb: 1.5 }}
-          >
-            GST Summary
-          </Typography>
-
-          <Stack gap={1}>
-            <Stack direction="row" justifyContent="space-between" alignItems="center">
-              <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary' }}>
-                GST Collected (Output Tax)
-              </Typography>
-              <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 600 }}>
-                ₹{formatLakh(gstSummary.collected)}
-              </Typography>
-            </Stack>
-            <Stack direction="row" justifyContent="space-between" alignItems="center">
-              <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary' }}>
-                GST Paid (Input Tax)
-              </Typography>
-              <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 600 }}>
-                ₹{formatLakh(gstSummary.paid)}
-              </Typography>
-            </Stack>
-            <Box sx={{ borderTop: '1px solid', borderColor: 'divider', pt: 1, mt: 0.5 }}>
-              <Stack direction="row" justifyContent="space-between" alignItems="center">
-                <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600 }}>
-                  Net GST Payable
-                </Typography>
-                <Typography
-                  variant="body2"
-                  sx={{ fontSize: 14, fontWeight: 700, color: 'primary.main' }}
-                >
-                  ₹{formatLakh(gstSummary.netPayable)}
-                </Typography>
-              </Stack>
-            </Box>
-          </Stack>
-        </Box>
-
-        {/* TDS Summary */}
-        <Box
-          sx={{
-            flex: 1,
-            p: 2,
-            borderRadius: 2,
-            border: '1px solid',
-            borderColor: 'divider',
-            bgcolor: alpha(theme.palette.warning.main, 0.04),
-          }}
-        >
-          <Typography
-            variant="overline"
-            sx={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.6, color: 'text.secondary', display: 'block', mb: 1.5 }}
-          >
-            TDS Summary
-          </Typography>
-
-          <Stack gap={1}>
-            <Stack direction="row" justifyContent="space-between" alignItems="center">
-              <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary' }}>
-                TDS Deducted (Client)
-              </Typography>
-              <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 600 }}>
-                ₹{formatCurrency(tdsSummary.deducted)}
-              </Typography>
-            </Stack>
-            <Stack direction="row" justifyContent="space-between" alignItems="center">
-              <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary' }}>
-                TDS Deposited
-              </Typography>
-              <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 600 }}>
-                ₹{formatCurrency(tdsSummary.deposited)}
-              </Typography>
-            </Stack>
-            <Box sx={{ borderTop: '1px solid', borderColor: 'divider', pt: 1, mt: 0.5 }}>
-              <Stack direction="row" justifyContent="space-between" alignItems="center">
-                <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600 }}>
-                  Pending Deposit
-                </Typography>
-                <Typography
-                  variant="body2"
-                  sx={{
-                    fontSize: 14,
-                    fontWeight: 700,
-                    color: tdsSummary.pending > 0 ? 'error.main' : 'success.main',
-                  }}
-                >
-                  ₹{formatCurrency(tdsSummary.pending)}
-                </Typography>
-              </Stack>
-            </Box>
-          </Stack>
-        </Box>
-      </Box>
-
-      {/* Monthly Compliance Tracker */}
+    <Stack gap={2}>
       <Box
         sx={{
-          bgcolor: 'background.paper',
-          border: '1px solid',
-          borderColor: 'divider',
-          borderRadius: 2,
-          overflow: 'hidden',
+          display: 'grid',
+          gridTemplateColumns: { xs: 'repeat(2, 1fr)', md: 'repeat(5, 1fr)' },
+          gap: 2,
         }}
       >
-        <Box sx={{ px: 2, py: 1.5, borderBottom: '1px solid', borderColor: 'divider' }}>
-          <Typography variant="subtitle2" fontWeight={600} sx={{ fontSize: 13 }}>
-            Monthly Compliance Tracker
-          </Typography>
-        </Box>
+        {summaryCards.map((m) => (
+          <Box
+            key={m.key}
+            sx={{
+              p: 2,
+              border: `1px solid ${tokens.color.neutral[100]}`,
+              borderRadius: 2,
+              bgcolor: 'background.paper',
+            }}
+          >
+            <Typography
+              variant="overline"
+              sx={{ fontSize: 10, color: 'text.secondary', display: 'block', letterSpacing: 0.6 }}
+            >
+              {m.overline}
+            </Typography>
+            {m.caption != null && (
+              <Typography variant="caption" sx={{ fontSize: 10, color: 'text.secondary', display: 'block' }}>
+                {m.caption}
+              </Typography>
+            )}
+            <Typography
+              variant="h6"
+              sx={{
+                fontWeight: 700,
+                fontSize: 15,
+                mt: 0.5,
+                color: m.valueColor ?? 'text.primary',
+              }}
+            >
+              ₹{formatInr(m.value)}
+            </Typography>
+          </Box>
+        ))}
+      </Box>
+
+      <WorkspaceSection title="GST on Client Invoices" noPadding>
         <Table size="small">
           <TableHead>
             <TableRow>
-              <TableCell sx={TABLE_HEADER_SX}>Month</TableCell>
-              <TableCell sx={TABLE_HEADER_SX}>GST Collected</TableCell>
-              <TableCell sx={TABLE_HEADER_SX}>GST Paid</TableCell>
-              <TableCell sx={TABLE_HEADER_SX}>Net GST</TableCell>
-              <TableCell sx={TABLE_HEADER_SX}>TDS Deducted</TableCell>
-              <TableCell sx={TABLE_HEADER_SX}>TDS Deposited</TableCell>
+              <TableCell sx={TABLE_HEADER_SX}>Invoice Number</TableCell>
+              <TableCell sx={TABLE_HEADER_SX}>Milestone / Service</TableCell>
+              <TableCell sx={TABLE_HEADER_SX}>Invoice Date</TableCell>
+              <TableCell sx={TABLE_HEADER_SX}>Base Amount (₹)</TableCell>
+              <TableCell sx={TABLE_HEADER_SX}>GST Rate</TableCell>
+              <TableCell sx={TABLE_HEADER_SX}>GST Amount (₹)</TableCell>
               <TableCell sx={TABLE_HEADER_SX}>Status</TableCell>
-              <TableCell sx={TABLE_HEADER_SX}>Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {monthlyTracker.map((row) => (
-              <TableRow key={row.month} hover>
-                <TableCell sx={TABLE_CELL_SX}>
-                  <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 500 }}>
-                    {row.month}
-                  </Typography>
-                </TableCell>
-                <TableCell sx={TABLE_CELL_SX}>
-                  <Typography variant="body2" sx={{ fontSize: 12 }}>
-                    ₹{formatCurrency(row.gstCollected)}
-                  </Typography>
-                </TableCell>
-                <TableCell sx={TABLE_CELL_SX}>
-                  <Typography variant="body2" sx={{ fontSize: 12 }}>
-                    ₹{formatCurrency(row.gstPaid)}
-                  </Typography>
-                </TableCell>
-                <TableCell sx={TABLE_CELL_SX}>
-                  <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600, color: 'primary.main' }}>
-                    ₹{formatCurrency(row.netGst)}
-                  </Typography>
-                </TableCell>
-                <TableCell sx={TABLE_CELL_SX}>
-                  <Typography variant="body2" sx={{ fontSize: 12 }}>
-                    ₹{formatCurrency(row.tdsDeducted)}
-                  </Typography>
-                </TableCell>
-                <TableCell sx={TABLE_CELL_SX}>
-                  <Typography variant="body2" sx={{ fontSize: 12 }}>
-                    ₹{formatCurrency(row.tdsDeposited)}
-                  </Typography>
-                </TableCell>
-                <TableCell sx={TABLE_CELL_SX}>
-                  <StatusBadge status={statusBadgeType(row.status)} label={statusLabel(row.status)} />
-                </TableCell>
-                <TableCell sx={TABLE_CELL_SX}>
-                  <Stack direction="row" gap={0.5}>
-                    <MuiIconButton size="small">
-                      <Visibility sx={{ fontSize: 15 }} />
-                    </MuiIconButton>
-                    <MuiIconButton size="small">
-                      <Download sx={{ fontSize: 15 }} />
-                    </MuiIconButton>
-                  </Stack>
-                </TableCell>
-              </TableRow>
-            ))}
+            {projectInvoices.map((inv) => {
+              const st = invoiceRowBadge(inv)
+              return (
+                <TableRow key={inv.id} hover>
+                  <TableCell sx={TABLE_CELL_SX}>
+                    <Typography variant="body2" sx={{ fontSize: 12 }}>
+                      {inv.invoiceNumber}
+                    </Typography>
+                  </TableCell>
+                  <TableCell sx={TABLE_CELL_SX}>
+                    <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600 }}>
+                      {inv.milestoneName}
+                    </Typography>
+                    <Typography variant="caption" sx={{ fontSize: 10, color: 'text.secondary' }}>
+                      {inv.serviceName}
+                    </Typography>
+                  </TableCell>
+                  <TableCell sx={TABLE_CELL_SX}>
+                    <Typography variant="body2" sx={{ fontSize: 12 }}>
+                      {formatDate(inv.invoiceDate)}
+                    </Typography>
+                  </TableCell>
+                  <TableCell sx={TABLE_CELL_SX}>
+                    <Typography variant="body2" sx={{ fontSize: 12 }}>
+                      ₹{formatInr(inv.baseAmount)}
+                    </Typography>
+                  </TableCell>
+                  <TableCell sx={TABLE_CELL_SX}>
+                    <Typography variant="body2" sx={{ fontSize: 12 }}>
+                      {effectiveGstPercent(inv)}
+                    </Typography>
+                  </TableCell>
+                  <TableCell sx={TABLE_CELL_SX}>
+                    <Typography variant="body2" sx={{ fontSize: 12 }}>
+                      ₹{formatInr(inv.gstAmount)}
+                    </Typography>
+                  </TableCell>
+                  <TableCell sx={TABLE_CELL_SX}>
+                    <StatusBadge status={st.type} label={st.label} />
+                  </TableCell>
+                </TableRow>
+              )
+            })}
+            <TableRow>
+              <TableCell colSpan={5} sx={{ ...TABLE_CELL_SX, fontWeight: 700, borderBottom: 'none' }}>
+                Total GST
+              </TableCell>
+              <TableCell sx={{ ...TABLE_CELL_SX, fontWeight: 700, borderBottom: 'none' }}>
+                ₹{formatInr(totalGstInTable)}
+              </TableCell>
+              <TableCell sx={{ ...TABLE_CELL_SX, borderBottom: 'none' }} />
+            </TableRow>
           </TableBody>
         </Table>
-      </Box>
+      </WorkspaceSection>
 
-      {/* Pending Compliance Actions */}
-      {pendingActions.length > 0 ? (
-        <Alert
-          severity="warning"
-          sx={{ borderRadius: 2, '& .MuiAlert-message': { width: '100%' } }}
-        >
-          <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1, fontSize: 13 }}>
-            Pending Compliance Actions
-          </Typography>
-          <Stack gap={0.5}>
-            {pendingActions.map((action, idx) => (
-              <Typography key={idx} variant="body2" sx={{ fontSize: 12 }}>
-                • {action}
-              </Typography>
-            ))}
-          </Stack>
-        </Alert>
-      ) : (
-        <Alert
-          severity="success"
-          icon={<CheckCircle fontSize="inherit" />}
-          sx={{ borderRadius: 2 }}
-        >
-          <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 500 }}>
-            All compliance up to date
-          </Typography>
-        </Alert>
-      )}
+      <Grid container spacing={2}>
+        <Grid size={{ xs: 12, md: 6 }}>
+          <WorkspaceSection title="TDS Deducted by Client" noPadding>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell sx={TABLE_HEADER_SX}>Invoice Number</TableCell>
+                  <TableCell sx={TABLE_HEADER_SX}>Client Name</TableCell>
+                  <TableCell sx={TABLE_HEADER_SX}>Invoice Date</TableCell>
+                  <TableCell sx={TABLE_HEADER_SX}>Gross Amount</TableCell>
+                  <TableCell sx={TABLE_HEADER_SX}>TDS Rate</TableCell>
+                  <TableCell sx={TABLE_HEADER_SX}>TDS Amount</TableCell>
+                  <TableCell sx={TABLE_HEADER_SX}>Status</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {projectInvoices.map((inv) => {
+                  const st = invoiceRowBadge(inv)
+                  return (
+                    <TableRow key={`tds-${inv.id}`} hover>
+                      <TableCell sx={TABLE_CELL_SX}>
+                        <Typography variant="body2" sx={{ fontSize: 12 }}>
+                          {inv.invoiceNumber}
+                        </Typography>
+                      </TableCell>
+                      <TableCell sx={TABLE_CELL_SX}>
+                        <Typography variant="body2" sx={{ fontSize: 12 }}>
+                          {clientName}
+                        </Typography>
+                      </TableCell>
+                      <TableCell sx={TABLE_CELL_SX}>
+                        <Typography variant="body2" sx={{ fontSize: 12 }}>
+                          {formatDate(inv.invoiceDate)}
+                        </Typography>
+                      </TableCell>
+                      <TableCell sx={TABLE_CELL_SX}>
+                        <Typography variant="body2" sx={{ fontSize: 12 }}>
+                          ₹{formatInr(inv.grossAmount)}
+                        </Typography>
+                      </TableCell>
+                      <TableCell sx={TABLE_CELL_SX}>
+                        <Typography variant="body2" sx={{ fontSize: 12 }} color="text.secondary">
+                          At payment
+                        </Typography>
+                      </TableCell>
+                      <TableCell sx={TABLE_CELL_SX}>
+                        <Typography variant="body2" sx={{ fontSize: 12 }}>
+                          ₹{formatInr(inv.tdsAmount)}
+                        </Typography>
+                      </TableCell>
+                      <TableCell sx={TABLE_CELL_SX}>
+                        <StatusBadge status={st.type} label={st.label} />
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+                <TableRow>
+                  <TableCell colSpan={5} sx={{ ...TABLE_CELL_SX, fontWeight: 700, borderBottom: 'none' }}>
+                    Total
+                  </TableCell>
+                  <TableCell sx={{ ...TABLE_CELL_SX, fontWeight: 700, borderBottom: 'none' }}>
+                    ₹{formatInr(totalClientTdsInTable)}
+                  </TableCell>
+                  <TableCell sx={{ borderBottom: 'none' }} />
+                </TableRow>
+              </TableBody>
+            </Table>
+          </WorkspaceSection>
+        </Grid>
+
+        <Grid size={{ xs: 12, md: 6 }}>
+          <WorkspaceSection title="TDS Deducted on Vendors" noPadding>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell sx={TABLE_HEADER_SX}>Payment Reference</TableCell>
+                  <TableCell sx={TABLE_HEADER_SX}>Vendor Name</TableCell>
+                  <TableCell sx={TABLE_HEADER_SX}>Payment Date</TableCell>
+                  <TableCell sx={TABLE_HEADER_SX}>Invoice Total</TableCell>
+                  <TableCell sx={TABLE_HEADER_SX}>TDS Rate</TableCell>
+                  <TableCell sx={TABLE_HEADER_SX}>TDS Amount</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {projectPayments.length === 0 ? (
+                  <TableRow>
+                    <TableCell
+                      colSpan={6}
+                      sx={{ ...TABLE_CELL_SX, textAlign: 'center', color: 'text.secondary' }}
+                    >
+                      No vendor payments
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  projectPayments.map((p) => (
+                    <TableRow key={p.id} hover>
+                      <TableCell sx={TABLE_CELL_SX}>
+                        <Typography variant="body2" sx={{ fontSize: 12 }}>
+                          {p.referenceNumber ?? '—'}
+                        </Typography>
+                      </TableCell>
+                      <TableCell sx={TABLE_CELL_SX}>
+                        <Typography variant="body2" sx={{ fontSize: 12 }}>
+                          {p.vendorName}
+                        </Typography>
+                      </TableCell>
+                      <TableCell sx={TABLE_CELL_SX}>
+                        <Typography variant="body2" sx={{ fontSize: 12 }}>
+                          {formatDate(p.paymentDate)}
+                        </Typography>
+                      </TableCell>
+                      <TableCell sx={TABLE_CELL_SX}>
+                        <Typography variant="body2" sx={{ fontSize: 12 }}>
+                          ₹{formatInr(p.invoiceTotal)}
+                        </Typography>
+                      </TableCell>
+                      <TableCell sx={TABLE_CELL_SX}>
+                        <Typography variant="body2" sx={{ fontSize: 12 }}>
+                          {vendorTdsRatePercent(p)}
+                        </Typography>
+                      </TableCell>
+                      <TableCell sx={TABLE_CELL_SX}>
+                        <Typography variant="body2" sx={{ fontSize: 12 }}>
+                          ₹{formatInr(p.tdsDeducted)}
+                        </Typography>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+                {projectPayments.length > 0 && (
+                  <TableRow>
+                    <TableCell colSpan={4} sx={{ ...TABLE_CELL_SX, fontWeight: 700, borderBottom: 'none' }}>
+                      Total
+                    </TableCell>
+                    <TableCell sx={{ ...TABLE_CELL_SX, borderBottom: 'none' }} />
+                    <TableCell sx={{ ...TABLE_CELL_SX, fontWeight: 700, borderBottom: 'none' }}>
+                      ₹{formatInr(totalVendorTdsInTable)}
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </WorkspaceSection>
+        </Grid>
+      </Grid>
     </Stack>
   )
 }

@@ -512,7 +512,7 @@ export const receivablesHandlers = [
     const url = new URL(request.url)
     const q = parseListUrl(url)
     const page = Math.max(1, Number(q.page) || 1)
-    const pageSize = Math.min(100, Math.max(1, Number(q.pageSize) || 100))
+    const pageSize = Math.min(500, Math.max(1, Number(q.pageSize) || 100))
     const filtered = filterInvoices(invoices, q)
     const total = filtered.length
     const start = (page - 1) * pageSize
@@ -527,17 +527,40 @@ export const receivablesHandlers = [
   }),
 
   http.post('/api/invoices', async ({ request }) => {
-    const body = (await request.json()) as Partial<Invoice> & { sendNow?: boolean }
+    const body = (await request.json()) as Partial<Invoice> & { sendNow?: boolean; invoiceNo?: string }
     const lineItems = (body.lineItems ?? []) as LineItem[]
     if (lineItems.length === 0) {
       return HttpResponse.json({ message: 'At least one line item required' }, { status: 400 })
+    }
+    for (const li of lineItems) {
+      if (li.milestoneId) {
+        const key = li.baselineServiceId ?? li.serviceId
+        const dup = invoices.some(
+          (inv) =>
+            inv.projectId === body.projectId &&
+            inv.lineItems.some(
+              (x) =>
+                x.milestoneId === li.milestoneId &&
+                (x.baselineServiceId ?? x.serviceId) === key,
+            ),
+        )
+        if (dup) {
+          return HttpResponse.json(
+            { message: 'An invoice already exists for this milestone' },
+            { status: 409 },
+          )
+        }
+      }
     }
     lineItems.forEach((li) => {
       li.gstAmount = lineGst(li.amount, li.gstRate)
     })
     const n = nextNum++
     const id = `inv-${String(n).padStart(3, '0')}`
-    const invoiceNo = `INV-2024-${String(n).padStart(3, '0')}`
+    const invoiceNo =
+      typeof body.invoiceNo === 'string' && body.invoiceNo.trim() !== ''
+        ? body.invoiceNo.trim()
+        : `INV-2024-${String(n).padStart(3, '0')}`
     const now = new Date().toISOString()
     const inv: Invoice = {
       id,

@@ -3,168 +3,56 @@ import {
   fetchInvoices,
   createInvoice,
   updateInvoice,
-  recordReceipt,
+  recordInvoicePayment,
   fetchVendorInvoices,
-  createVendorInvoice,
-  updateVendorMilestonePayment,
-  payVendorInvoice,
+  uploadVendorInvoice,
+  fetchPayments,
+  createPayment,
   fetchExpenses,
   createExpense,
-  approveExpense,
-  rejectExpense,
-  fetchChangeRequests,
-  createChangeRequest,
-  approveChangeRequest,
-  rejectChangeRequest,
-  fetchComplianceData,
+  deleteExpense,
+  fetchReimbursements,
+  createReimbursement,
 } from './thunk'
+import type { ClientInvoice, Expense, Reimbursement, VendorInvoice, VendorPayment } from './types'
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-export interface Invoice {
-  id: string
-  projectId: string
-  invoiceNumber: string
-  invoiceDate: string
-  dueDate: string
-  milestoneId: string
-  milestoneName: string
-  serviceId: string
-  serviceName: string
-  amount: number
-  gstRate: number
-  gstAmount: number
-  grossAmount: number
-  /** Expected collection equals gross (TDS applied only at receipt). */
-  netReceivable: number
-  status: 'Generated' | 'Sent' | 'Paid' | 'Overdue' | 'Cancelled'
-  paidAmount: number
-  paidDate: string | null
-  receiptReference: string | null
-  paymentMode?: string | null
-  /** TDS withheld by client — set when receipt is recorded. */
-  receiptTdsRate?: number | null
-  receiptTdsAmount?: number
-}
-
-export type VendorMilestonePaymentStatus =
-  | 'PendingInvoice'
-  | 'InvoiceUploaded'
-  | 'PaymentGenerated'
-  | 'Paid'
-
-/** Live tab: vendor milestone line → invoice upload → payment (MSW-backed). */
-export interface VendorMilestonePayment {
-  id: string
-  projectId: string
-  vendorPOId: string
-  vendorId: string
-  vendorName: string
-  serviceId: string
-  serviceName: string
-  milestoneId: string
-  milestoneName: string
-  /** Milestone / PO line value before invoice differs */
-  amount: number
-  status: VendorMilestonePaymentStatus
-  invoiceNumber?: string | null
-  invoiceDate?: string | null
-  invoiceAmount?: number | null
-  dueDate?: string | null
-  attachmentUrl?: string | null
-  tdsPercent?: number | null
-  tdsAmount?: number | null
-  netPayable?: number | null
-  paymentDate?: string | null
-  paymentMode?: string | null
-  referenceNumber?: string | null
-  paidAmount: number
-  paidDate: string | null
-}
-
-export interface Expense {
-  id: string
-  projectId: string
-  date: string
-  description: string
-  category: 'Travel' | 'Accommodation' | 'Materials' | 'Misc' | 'Other'
-  amount: number
-  vendorId: string | null
-  vendorName: string | null
-  billable: boolean
-  status: 'Pending' | 'Approved' | 'Rejected'
-  receiptUrl: string | null
-  notes: string | null
-  submittedBy: string
-  approvedBy: string | null
-}
-
-export interface ChangeRequest {
-  id: string
-  projectId: string
-  crNumber: string
-  title: string
-  description: string
-  requestedBy: string
-  requestedDate: string
-  type: 'Scope Addition' | 'Scope Reduction' | 'Timeline Extension' | 'Cost Revision'
-  status: 'Draft' | 'Pending Approval' | 'Approved' | 'Rejected' | 'Implemented'
-  financialImpact: number
-  approvedBy: string | null
-  approvedDate: string | null
-  notes: string | null
-}
-
-// ─── Compliance Types ─────────────────────────────────────────────────────────
-
-export interface ComplianceData {
-  gstSummary: {
-    collected: number
-    paid: number
-    netPayable: number
-  }
-  tdsSummary: {
-    deducted: number
-    deposited: number
-    pending: number
-  }
-  monthlyTracker: Array<{
-    month: string
-    gstCollected: number
-    gstPaid: number
-    netGst: number
-    tdsDeducted: number
-    tdsDeposited: number
-    status: 'filed' | 'pending' | 'overdue'
-  }>
-  pendingActions: string[]
-}
-
-// ─── State ────────────────────────────────────────────────────────────────────
+export type {
+  ClientInvoice,
+  VendorInvoice,
+  VendorPayment,
+  Expense,
+  ExpenseType,
+  Reimbursement,
+  ComplianceData,
+} from './types'
 
 interface LiveState {
-  invoices: Invoice[]
-  vendorInvoices: VendorMilestonePayment[]
+  invoices: ClientInvoice[]
+  vendorInvoices: VendorInvoice[]
+  payments: VendorPayment[]
   expenses: Expense[]
-  changeRequests: ChangeRequest[]
-  complianceData: ComplianceData | null
+  reimbursements: Reimbursement[]
   loading: boolean
   saving: boolean
-  error: string | null
 }
 
 const initialState: LiveState = {
   invoices: [],
   vendorInvoices: [],
+  payments: [],
   expenses: [],
-  changeRequests: [],
-  complianceData: null,
+  reimbursements: [],
   loading: false,
   saving: false,
-  error: null,
 }
 
-// ─── Slice ────────────────────────────────────────────────────────────────────
+function mergeByProjectId<T extends { projectId: string }>(
+  rows: T[],
+  projectId: string,
+  incoming: T[],
+): T[] {
+  return [...rows.filter((x) => x.projectId !== projectId), ...incoming]
+}
 
 const liveSlice = createSlice({
   name: 'live',
@@ -176,21 +64,17 @@ const liveSlice = createSlice({
   },
   extraReducers: (builder) => {
     builder
-      // fetchInvoices
       .addCase(fetchInvoices.pending, (state) => {
         state.loading = true
-        state.error = null
       })
       .addCase(fetchInvoices.fulfilled, (state, action) => {
         state.loading = false
         state.invoices = action.payload
       })
-      .addCase(fetchInvoices.rejected, (state, action) => {
+      .addCase(fetchInvoices.rejected, (state) => {
         state.loading = false
-        state.error = action.payload as string
       })
 
-      // createInvoice
       .addCase(createInvoice.pending, (state) => {
         state.saving = true
       })
@@ -198,75 +82,89 @@ const liveSlice = createSlice({
         state.saving = false
         state.invoices.push(action.payload)
       })
-      .addCase(createInvoice.rejected, (state, action) => {
+      .addCase(createInvoice.rejected, (state) => {
         state.saving = false
-        state.error = action.payload as string
       })
 
-      // updateInvoice
       .addCase(updateInvoice.fulfilled, (state, action) => {
         const idx = state.invoices.findIndex((i) => i.id === action.payload.id)
         if (idx !== -1) state.invoices[idx] = action.payload
       })
 
-      // recordReceipt
-      .addCase(recordReceipt.pending, (state) => {
+      .addCase(recordInvoicePayment.pending, (state) => {
         state.saving = true
       })
-      .addCase(recordReceipt.fulfilled, (state, action) => {
+      .addCase(recordInvoicePayment.fulfilled, (state, action) => {
         state.saving = false
         const idx = state.invoices.findIndex((i) => i.id === action.payload.id)
         if (idx !== -1) state.invoices[idx] = action.payload
       })
-      .addCase(recordReceipt.rejected, (state, action) => {
+      .addCase(recordInvoicePayment.rejected, (state) => {
         state.saving = false
-        state.error = action.payload as string
       })
 
-      // fetchVendorInvoices
       .addCase(fetchVendorInvoices.fulfilled, (state, action) => {
-        state.vendorInvoices = action.payload
+        const projectId = action.meta.arg
+        state.vendorInvoices = mergeByProjectId(state.vendorInvoices, projectId, action.payload)
       })
 
-      // createVendorInvoice
-      .addCase(createVendorInvoice.fulfilled, (state, action) => {
+      .addCase(uploadVendorInvoice.pending, (state) => {
+        state.saving = true
+      })
+      .addCase(uploadVendorInvoice.fulfilled, (state, action) => {
+        state.saving = false
         state.vendorInvoices.push(action.payload)
       })
+      .addCase(uploadVendorInvoice.rejected, (state) => {
+        state.saving = false
+      })
 
-      // updateVendorMilestonePayment
-      .addCase(updateVendorMilestonePayment.pending, (state) => {
+      .addCase(fetchPayments.fulfilled, (state, action) => {
+        const projectId = action.meta.arg
+        state.payments = mergeByProjectId(state.payments, projectId, action.payload)
+      })
+
+      .addCase(createPayment.pending, (state) => {
         state.saving = true
       })
-      .addCase(updateVendorMilestonePayment.fulfilled, (state, action) => {
+      .addCase(createPayment.fulfilled, (state, action) => {
         state.saving = false
-        const idx = state.vendorInvoices.findIndex((v) => v.id === action.payload.id)
-        if (idx !== -1) state.vendorInvoices[idx] = action.payload
+        state.payments.push(action.payload)
+        const pay = action.payload
+        for (const invId of pay.linkedInvoiceIds) {
+          const idx = state.vendorInvoices.findIndex((v) => v.id === invId)
+          if (idx !== -1) state.vendorInvoices[idx] = { ...state.vendorInvoices[idx], status: 'paid' }
+        }
+        for (const expId of pay.linkedExpenseIds) {
+          const idx = state.expenses.findIndex((e) => e.id === expId)
+          if (idx !== -1) {
+            state.expenses[idx] = {
+              ...state.expenses[idx],
+              status: 'included_in_payment',
+              linkedPaymentId: pay.id,
+            }
+          }
+        }
+        for (const rId of pay.linkedReimbursementIds) {
+          const idx = state.reimbursements.findIndex((r) => r.id === rId)
+          if (idx !== -1) {
+            state.reimbursements[idx] = {
+              ...state.reimbursements[idx],
+              status: 'included_in_payment',
+              linkedPaymentId: pay.id,
+            }
+          }
+        }
       })
-      .addCase(updateVendorMilestonePayment.rejected, (state, action) => {
+      .addCase(createPayment.rejected, (state) => {
         state.saving = false
-        state.error = action.payload as string
       })
 
-      // payVendorInvoice
-      .addCase(payVendorInvoice.pending, (state) => {
-        state.saving = true
-      })
-      .addCase(payVendorInvoice.fulfilled, (state, action) => {
-        state.saving = false
-        const idx = state.vendorInvoices.findIndex((v) => v.id === action.payload.id)
-        if (idx !== -1) state.vendorInvoices[idx] = action.payload
-      })
-      .addCase(payVendorInvoice.rejected, (state, action) => {
-        state.saving = false
-        state.error = action.payload as string
-      })
-
-      // fetchExpenses
       .addCase(fetchExpenses.fulfilled, (state, action) => {
-        state.expenses = action.payload
+        const projectId = action.meta.arg
+        state.expenses = mergeByProjectId(state.expenses, projectId, action.payload)
       })
 
-      // createExpense
       .addCase(createExpense.pending, (state) => {
         state.saving = true
       })
@@ -274,56 +172,36 @@ const liveSlice = createSlice({
         state.saving = false
         state.expenses.push(action.payload)
       })
-      .addCase(createExpense.rejected, (state, action) => {
+      .addCase(createExpense.rejected, (state) => {
         state.saving = false
-        state.error = action.payload as string
       })
 
-      // approveExpense
-      .addCase(approveExpense.fulfilled, (state, action) => {
-        const idx = state.expenses.findIndex((e) => e.id === action.payload.id)
-        if (idx !== -1) state.expenses[idx] = action.payload
-      })
-
-      // rejectExpense
-      .addCase(rejectExpense.fulfilled, (state, action) => {
-        const idx = state.expenses.findIndex((e) => e.id === action.payload.id)
-        if (idx !== -1) state.expenses[idx] = action.payload
-      })
-
-      // fetchChangeRequests
-      .addCase(fetchChangeRequests.fulfilled, (state, action) => {
-        state.changeRequests = action.payload
-      })
-
-      // createChangeRequest
-      .addCase(createChangeRequest.pending, (state) => {
+      .addCase(deleteExpense.pending, (state) => {
         state.saving = true
       })
-      .addCase(createChangeRequest.fulfilled, (state, action) => {
+      .addCase(deleteExpense.fulfilled, (state, action) => {
         state.saving = false
-        state.changeRequests.push(action.payload)
+        const { expenseId } = action.payload
+        state.expenses = state.expenses.filter((e) => e.id !== expenseId)
       })
-      .addCase(createChangeRequest.rejected, (state, action) => {
+      .addCase(deleteExpense.rejected, (state) => {
         state.saving = false
-        state.error = action.payload as string
       })
 
-      // approveChangeRequest
-      .addCase(approveChangeRequest.fulfilled, (state, action) => {
-        const idx = state.changeRequests.findIndex((c) => c.id === action.payload.id)
-        if (idx !== -1) state.changeRequests[idx] = action.payload
+      .addCase(fetchReimbursements.fulfilled, (state, action) => {
+        const projectId = action.meta.arg
+        state.reimbursements = mergeByProjectId(state.reimbursements, projectId, action.payload)
       })
 
-      // rejectChangeRequest
-      .addCase(rejectChangeRequest.fulfilled, (state, action) => {
-        const idx = state.changeRequests.findIndex((c) => c.id === action.payload.id)
-        if (idx !== -1) state.changeRequests[idx] = action.payload
+      .addCase(createReimbursement.pending, (state) => {
+        state.saving = true
       })
-
-      // fetchComplianceData
-      .addCase(fetchComplianceData.fulfilled, (state, action) => {
-        state.complianceData = action.payload
+      .addCase(createReimbursement.fulfilled, (state, action) => {
+        state.saving = false
+        state.reimbursements.push(action.payload)
+      })
+      .addCase(createReimbursement.rejected, (state) => {
+        state.saving = false
       })
   },
 })

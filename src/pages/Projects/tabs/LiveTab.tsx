@@ -1,92 +1,57 @@
 import { useState, useEffect } from 'react'
-import {
-  Box,
-  Stack,
-  Tabs,
-  Tab,
-  Badge,
-} from '@mui/material'
-import {
-  Receipt,
-  Payment,
-  AttachMoney,
-  Shield,
-} from '@mui/icons-material'
+import { useLocation } from 'react-router-dom'
+import { Box, Tabs, Tab } from '@mui/material'
 import { tokens } from '@/design-system/tokens'
-import { useAppDispatch, useAppSelector } from '../../../store/hooks'
+import { useAppDispatch } from '../../../store/hooks'
 import {
   fetchInvoices,
   fetchVendorInvoices,
+  fetchPayments,
   fetchExpenses,
-  fetchChangeRequests,
+  fetchReimbursements,
 } from '../../../slices/live/thunk'
 import type { Project } from '../../../slices/projects/reducer'
 import BillingTab from './live/BillingTab'
 import PaymentsTab from './live/PaymentsTab'
 import ExpensesTab from './live/ExpensesTab'
 import ComplianceTab from './live/ComplianceTab'
-
-// ─── Props ────────────────────────────────────────────────────────────────────
+import ReimbursementTab from './live/ReimbursementTab'
 
 interface LiveTabProps {
   project: Project
 }
 
-// ─── LiveTab ──────────────────────────────────────────────────────────────────
-
 export default function LiveTab({ project }: LiveTabProps) {
   const dispatch = useAppDispatch()
-  const { invoices, vendorInvoices, expenses, changeRequests } = useAppSelector((s) => s.live)
+  const location = useLocation()
   const [activeSubTab, setActiveSubTab] = useState('billing')
+
+  useEffect(() => {
+    const nav = location.state as { liveSubTab?: string } | null
+    const v = nav?.liveSubTab
+    if (v === 'billing' || v === 'payments' || v === 'expenses' || v === 'reimbursement' || v === 'compliance') {
+      setActiveSubTab(v)
+    }
+  }, [project.id, location.key])
 
   useEffect(() => {
     dispatch(fetchInvoices(project.id))
     dispatch(fetchVendorInvoices(project.id))
+    dispatch(fetchPayments(project.id))
     dispatch(fetchExpenses(project.id))
-    dispatch(fetchChangeRequests(project.id))
+    dispatch(fetchReimbursements(project.id))
   }, [dispatch, project.id])
 
-  const billingBadge = invoices.filter((i) => i.status === 'Sent' || i.status === 'Overdue').length
-  const paymentsBadge = vendorInvoices.filter(
-    (v) => v.projectId === project.id && (v.status === 'PendingInvoice' || v.status === 'InvoiceUploaded'),
-  ).length
-  const expensesBadge = expenses.filter((e) => e.status === 'Pending').length
-  const complianceBadge = changeRequests.filter((c) => c.status === 'Pending Approval').length
-
   const subTabs = [
-    {
-      label: 'Billing',
-      value: 'billing',
-      icon: <Receipt sx={{ fontSize: 14 }} />,
-      badge: billingBadge,
-      badgeColor: invoices.some((i) => i.status === 'Overdue') ? 'error' : 'warning',
-    },
-    {
-      label: 'Payments',
-      value: 'payments',
-      icon: <Payment sx={{ fontSize: 14 }} />,
-      badge: paymentsBadge,
-      badgeColor: 'warning',
-    },
-    {
-      label: 'Expenses',
-      value: 'expenses',
-      icon: <AttachMoney sx={{ fontSize: 14 }} />,
-      badge: expensesBadge,
-      badgeColor: 'warning',
-    },
-    {
-      label: 'Compliance',
-      value: 'compliance',
-      icon: <Shield sx={{ fontSize: 14 }} />,
-      badge: complianceBadge,
-      badgeColor: 'warning',
-    },
+    { label: 'Billing', value: 'billing' },
+    { label: 'Payments', value: 'payments' },
+    { label: 'Expenses', value: 'expenses' },
+    { label: 'Reimbursement', value: 'reimbursement' },
+    { label: 'Compliance', value: 'compliance' },
   ] as const
 
   return (
     <Box>
-      {/* Sub-tabs bar */}
       <Box
         sx={{
           borderBottom: `1px solid ${tokens.color.neutral[100]}`,
@@ -112,41 +77,32 @@ export default function LiveTab({ project }: LiveTabProps) {
           }}
         >
           {subTabs.map((tab) => (
-            <Tab
-              key={tab.value}
-              value={tab.value}
-              label={
-                <Stack direction="row" alignItems="center" gap={0.75}>
-                  {tab.icon}
-                  {tab.label}
-                  {tab.badge > 0 && (
-                    <Badge
-                      badgeContent={tab.badge}
-                      color={tab.badgeColor as 'error' | 'warning'}
-                      sx={{
-                        '& .MuiBadge-badge': {
-                          fontSize: 10,
-                          height: 16,
-                          minWidth: 16,
-                          px: '4px',
-                        },
-                      }}
-                    />
-                  )}
-                </Stack>
-              }
-            />
+            <Tab key={tab.value} value={tab.value} label={tab.label} />
           ))}
         </Tabs>
       </Box>
 
-      {/* Sub-tab content */}
-      {activeSubTab === 'billing' && <BillingTab projectId={project.id} />}
+      {activeSubTab === 'billing' && (
+        <BillingTab
+          projectId={project.id}
+          projectName={project.name}
+          clientId={project.customerId}
+          clientName={project.customerName}
+        />
+      )}
       {activeSubTab === 'payments' && (
-        <PaymentsTab projectId={project.id} totalVendorPOValue={project.totalVendorPOValue} />
+        <PaymentsTab projectId={project.id} />
       )}
       {activeSubTab === 'expenses' && <ExpensesTab projectId={project.id} />}
-      {activeSubTab === 'compliance' && <ComplianceTab projectId={project.id} />}
+      {activeSubTab === 'reimbursement' && (
+        <ReimbursementTab
+          projectId={project.id}
+          onNavigateToPayments={() => setActiveSubTab('payments')}
+        />
+      )}
+      {activeSubTab === 'compliance' && (
+        <ComplianceTab projectId={project.id} clientName={project.customerName} />
+      )}
     </Box>
   )
 }

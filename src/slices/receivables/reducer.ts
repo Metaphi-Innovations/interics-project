@@ -120,7 +120,7 @@ const initialState: ReceivablesState = {
     amountMax: '',
   },
   sortConfig: { field: 'invoiceDate', direction: 'desc' },
-  pagination: { page: 1, pageSize: 10, total: 0 },
+  pagination: { page: 1, pageSize: 20, total: 0 },
 }
 
 const receivablesSlice = createSlice({

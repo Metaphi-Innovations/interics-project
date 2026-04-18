@@ -84,6 +84,8 @@ export interface ListingTemplateProps {
 
   // Stat cards
   statCards?: StatCardItem[]
+  /** Renders below the page header in place of stat cards (e.g. custom summary strip). */
+  customSummary?: ReactNode
 
   // Tabs
   tabs?: TabItem[]
@@ -94,6 +96,10 @@ export interface ListingTemplateProps {
   searchPlaceholder?: string
   searchValue?: string
   onSearchChange?: (value: string) => void
+  /** When true, omits the search field (use with `toolbarAfterSearch` for inline selects only). */
+  hideSearch?: boolean
+  /** Rendered after the search box in the toolbar row (e.g. Project / Status MUI Selects). */
+  toolbarAfterSearch?: ReactNode
 
   // Toolbar — filters
   filterConfig?: FilterField[]
@@ -374,12 +380,15 @@ export function ListingTemplate({
   primaryAction,
   secondaryActions,
   statCards,
+  customSummary,
   tabs,
   activeTab,
   onTabChange,
   searchPlaceholder = 'Search...',
   searchValue: searchValueProp,
   onSearchChange,
+  hideSearch = false,
+  toolbarAfterSearch,
   filterConfig,
   activeFilters = {},
   onFilterChange,
@@ -489,7 +498,10 @@ export function ListingTemplate({
       </Stack>
 
       {/* ── Stat Cards ──────────────────────────────────────────────────── */}
-      {statCards && statCards.length > 0 && (
+      {customSummary != null && customSummary !== false && (
+        <Box sx={{ mb: 2 }}>{customSummary}</Box>
+      )}
+      {!customSummary && statCards && statCards.length > 0 && (
         <Grid
           container
           sx={{
@@ -580,33 +592,47 @@ export function ListingTemplate({
             direction="row"
             alignItems="center"
             justifyContent="space-between"
+            gap={1}
+            flexWrap="wrap"
             sx={{ p: '10px 14px', borderBottom: `1px solid ${tokens.color.neutral[100]}` }}
           >
-            {/* Search */}
+            {/* Search + optional inline toolbar (e.g. Project / Status selects) */}
             <Stack
               direction="row"
               alignItems="center"
               gap={1}
-              sx={{
-                width: { xs: undefined, lg: '260px' },
-                flex: { xs: 1, lg: 'none' },
-                height: '32px',
-                bgcolor: searchFocused ? 'action.selected' : 'action.hover',
-                border: `1px solid ${searchFocused ? theme.palette.primary.main : 'transparent'}`,
-                borderRadius: '6px',
-                px: '10px',
-                transition: 'background-color 0.15s, border-color 0.15s',
-              }}
+              flexWrap="wrap"
+              sx={{ flex: { xs: 1, md: 1 }, minWidth: 0 }}
             >
-              <SearchIcon sx={{ fontSize: '14px', color: tokens.color.neutral[400] }} />
-              <InputBase
-                value={searchValue}
-                onChange={handleSearchChange}
-                placeholder={searchPlaceholder}
-                onFocus={() => setSearchFocused(true)}
-                onBlur={() => setSearchFocused(false)}
-                sx={{ fontSize: '12px', flex: 1, '& input': { p: 0 } }}
-              />
+              {!hideSearch && (
+                <Stack
+                  direction="row"
+                  alignItems="center"
+                  gap={1}
+                  sx={{
+                    width: { xs: undefined, lg: '260px' },
+                    flex: { xs: 1, lg: 'none' },
+                    minWidth: { lg: '200px' },
+                    height: '32px',
+                    bgcolor: searchFocused ? 'action.selected' : 'action.hover',
+                    border: `1px solid ${searchFocused ? theme.palette.primary.main : 'transparent'}`,
+                    borderRadius: '6px',
+                    px: '10px',
+                    transition: 'background-color 0.15s, border-color 0.15s',
+                  }}
+                >
+                  <SearchIcon sx={{ fontSize: '14px', color: tokens.color.neutral[400] }} />
+                  <InputBase
+                    value={searchValue}
+                    onChange={handleSearchChange}
+                    placeholder={searchPlaceholder}
+                    onFocus={() => setSearchFocused(true)}
+                    onBlur={() => setSearchFocused(false)}
+                    sx={{ fontSize: '12px', flex: 1, '& input': { p: 0 } }}
+                  />
+                </Stack>
+              )}
+              {toolbarAfterSearch}
             </Stack>
 
             {/* Right actions */}

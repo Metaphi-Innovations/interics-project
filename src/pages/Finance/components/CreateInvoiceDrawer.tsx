@@ -457,7 +457,7 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved }: C
     <Stack direction="row" justifyContent="flex-end" gap={1} sx={{ px: 5, py: 3.5 }}>
       <Button variant="outlined" size="sm" onClick={onClose} disabled={saving} label="Cancel" />
       <Button variant="outlined" size="sm" onClick={handleSaveDraft} loading={saving} label="Save as Draft" />
-      <Button variant="contained" size="sm" onClick={handleSaveSend} loading={saving} label="Save & Send" />
+      <Button variant="contained" size="sm" onClick={handleSaveSend} loading={saving} label="Save & Send →" />
     </Stack>
   )
 
@@ -489,7 +489,7 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved }: C
       onClose={onClose}
       title={mode === 'edit' ? 'Edit Invoice' : 'Create Invoice'}
       subtitle={headerSubtitle}
-      width={620}
+      width={600}
       footer={footer}
     >
       <Stack spacing={3}>

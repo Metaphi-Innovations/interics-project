@@ -51,6 +51,7 @@ import {
   fetchBaseline,
   fetchBaselineHistory,
   createBaseline,
+  updateBaseline,
   fetchVendorPOs,
   createVendorPO,
 } from '../../../slices/baseline/thunk'
@@ -96,11 +97,7 @@ import { DrawerForm, FormField, FormSection } from '../../../components/template
 import { useToast } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { formatCurrency, formatDate, formatInr } from '../../../utils/formatters'
-import {
-  BaselineReadinessBlock,
-  LockedFinancialHierarchy,
-  DocumentsTraceabilitySection,
-} from './transition/lockedBaselineUi'
+import { LockedFinancialHierarchy } from './transition/lockedBaselineUi'
 
 // ─── Upload PO Drawer ─────────────────────────────────────────────────────────
 
@@ -1463,9 +1460,19 @@ interface TransitionExpensePlanningBlockProps {
   projectId: string
   version: PitchVersion
   onCommit: (next: PlannedExpense[]) => void
+  /** Defaults to "Expense Planning". */
+  sectionTitle?: string
+  /** MUI spacing units for top margin on outer box; default 3. Use 0 when placed directly under a Divider. */
+  sectionTopMargin?: number
 }
 
-function TransitionExpensePlanningBlock({ projectId, version, onCommit }: TransitionExpensePlanningBlockProps) {
+function TransitionExpensePlanningBlock({
+  projectId,
+  version,
+  onCommit,
+  sectionTitle = 'Expense Planning',
+  sectionTopMargin = 3,
+}: TransitionExpensePlanningBlockProps) {
   const dispatch = useAppDispatch()
   const vendorItems = useAppSelector((s) => s.vendors.items)
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -1489,7 +1496,7 @@ function TransitionExpensePlanningBlock({ projectId, version, onCommit }: Transi
   return (
     <Box
       sx={{
-        mt: 3,
+        mt: sectionTopMargin,
         p: 2,
         border: '1px solid',
         borderColor: 'divider',
@@ -1499,7 +1506,7 @@ function TransitionExpensePlanningBlock({ projectId, version, onCommit }: Transi
     >
       <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }} flexWrap="wrap" gap={1}>
         <Typography variant="subtitle1" fontWeight={600} sx={{ fontSize: 15 }}>
-          Expense Planning
+          {sectionTitle}
         </Typography>
         <MuiButton
           variant="contained"
@@ -1820,6 +1827,54 @@ function StateC({
   onIssueVendorPO,
   onRequestEditBaseline,
 }: StateCProps) {
+  const dispatch = useAppDispatch()
+  const showToast = useToast((s) => s.showToast)
+
+  const baselineAsPitchVersion = useMemo(
+    (): PitchVersion => ({
+      id: baseline.versionId,
+      projectId: baseline.projectId,
+      versionNumber: baseline.pitchVersionNumber,
+      label: baseline.versionLabel,
+      isActive: true,
+      createdAt: baseline.lockedAt,
+      categories: baseline.categories,
+      plannedExpenses: baseline.plannedExpenses ?? [],
+      totalRevenue: baseline.totalRevenue,
+      totalCost: baseline.totalCost,
+      profitability: baseline.profitability,
+    }),
+    [
+      baseline.versionId,
+      baseline.projectId,
+      baseline.pitchVersionNumber,
+      baseline.versionLabel,
+      baseline.lockedAt,
+      baseline.categories,
+      baseline.plannedExpenses,
+      baseline.totalRevenue,
+      baseline.totalCost,
+      baseline.profitability,
+    ],
+  )
+
+  function handleLockedBaselinePlannedExpensesCommit(next: PlannedExpense[]) {
+    void (async () => {
+      try {
+        await dispatch(
+          updateBaseline({
+            projectId: baseline.projectId,
+            baselineId: baseline.id,
+            data: { plannedExpenses: next },
+          }),
+        ).unwrap()
+        showToast({ title: 'Expenses saved', variant: 'success' })
+      } catch {
+        showToast({ title: 'Failed to save expenses', variant: 'error' })
+      }
+    })()
+  }
+
   const margin =
     baseline.totalRevenue > 0
       ? ((baseline.profitability / baseline.totalRevenue) * 100).toFixed(1)
@@ -1859,40 +1914,17 @@ function StateC({
       }}
     >
       <Box>
-        <Typography variant="h6" sx={{ fontSize: 16, fontWeight: 700, mb: 2 }}>
-          Financial Baseline (Locked)
-        </Typography>
-
-        <Box
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 1.5,
-            p: 2,
-            borderRadius: 2,
-            bgcolor: 'success.50',
-            border: '1px solid',
-            borderColor: 'success.200',
-            mb: 2,
-          }}
-        >
-          <LockOutlined sx={{ color: 'success.main', fontSize: 18, flexShrink: 0 }} />
-          <Typography variant="body2" color="success.dark" sx={{ fontSize: 13 }}>
-            Baseline locked on {formatDate(baseline.lockedAt)}. Project is now live. Financial structure is read-only.
-          </Typography>
-        </Box>
-
-        <BaselineReadinessBlock baseline={baseline} vendorPOs={vendorPOs} clientPOs={clientPOs} />
-
         <Box sx={{ mb: 2 }}>
           <LockedFinancialHierarchy categories={baseline.categories} />
         </Box>
-        {/* Client vs Vendor Mapping: temporarily hidden — re-add ClientVendorMappingSection when required */}
-        {/* Milestone Overview: temporarily hidden — re-add MilestoneOverviewSection when required */}
-        <Box sx={{ mb: 2 }}>
-          <DocumentsTraceabilitySection clientPOs={clientPOs} categories={baseline.categories} vendorPOs={vendorPOs} />
-        </Box>
-        {/* Vendor Purchase Orders: temporarily hidden — re-add StructuredVendorPOList when required */}
+        <Divider sx={{ my: 3 }} />
+        <TransitionExpensePlanningBlock
+          projectId={baseline.projectId}
+          version={baselineAsPitchVersion}
+          onCommit={handleLockedBaselinePlannedExpensesCommit}
+          sectionTitle="Expenses Planned"
+          sectionTopMargin={0}
+        />
       </Box>
 
       <Box sx={{ position: { xs: 'static', md: 'sticky' }, top: 80 }}>

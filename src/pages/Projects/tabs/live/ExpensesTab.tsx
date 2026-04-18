@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Box,
   Stack,
@@ -8,38 +8,33 @@ import {
   TableBody,
   TableRow,
   TableCell,
-  Button as MuiButton,
-  Select as MuiSelect,
-  MenuItem,
-  Chip as MuiChip,
+  TableSortLabel,
 } from '@mui/material'
-import { Add } from '@mui/icons-material'
+import { Plus } from 'lucide-react'
 import { WorkspaceSection } from '../../../../components/templates'
-import { DrawerForm, FormField, FormSection } from '../../../../components/templates/DrawerForm'
-import { StatusBadge, Input, FileUpload } from '@/design-system/components'
-import type { StatusType } from '@/design-system/components'
+import { DrawerForm } from '../../../../components/templates/DrawerForm'
+import { Button, StatusBadge, useToast } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { useAppDispatch, useAppSelector } from '../../../../store/hooks'
-import { createExpense, approveExpense, rejectExpense } from '../../../../slices/live/thunk'
-import type { Expense } from '../../../../slices/live/reducer'
+import { createExpense, fetchExpenses } from '../../../../slices/live/thunk'
+import { fetchBaseline, fetchVendorPOs } from '../../../../slices/baseline/thunk'
+import type { Expense, ExpenseType } from '../../../../slices/live/reducer'
 import { formatCurrency, formatDate } from '../../../../utils/formatters'
-import { useToast } from '@/design-system/components'
+import {
+  ExpenseForm,
+  type ExpenseFormData,
+  type ExpenseFormHandle,
+} from '@/components/forms/ExpenseForm'
+import {
+  ExpenseSummaryStrip,
+  ExpenseTypeBadge,
+  ViewExpenseModal,
+  expenseServiceCell,
+  expenseStatusDisplay,
+  expenseVendorCell,
+} from '@/components/expenses/expenseShared'
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function expenseStatusType(status: Expense['status']): { type: StatusType; label: string } {
-  switch (status) {
-    case 'Approved': return { type: 'active',    label: 'Approved' }
-    case 'Pending':  return { type: 'pending',   label: 'Pending' }
-    case 'Rejected': return { type: 'cancelled', label: 'Rejected' }
-  }
-}
-
-function categoryColor(cat: Expense['category']): 'info' | 'warning' | 'default' {
-  if (cat === 'Travel' || cat === 'Accommodation') return 'info'
-  if (cat === 'Materials') return 'warning'
-  return 'default'
-}
+type ExpenseFilter = 'all' | ExpenseType
 
 const TABLE_HEADER_SX = {
   fontSize: 10,
@@ -59,334 +54,248 @@ const TABLE_CELL_SX = {
   px: 2,
 }
 
-// ─── Summary Strip ────────────────────────────────────────────────────────────
+// ─── Add drawer ─────────────────────────────────────────────────────────────────
 
-function SummaryStrip({ expenses }: { expenses: Expense[] }) {
-  const total = expenses.reduce((s, e) => s + e.amount, 0)
-  const approved = expenses.filter((e) => e.status === 'Approved').reduce((s, e) => s + e.amount, 0)
-  const pendingCount = expenses.filter((e) => e.status === 'Pending').length
-  const billable = expenses.filter((e) => e.billable).reduce((s, e) => s + e.amount, 0)
-
-  const metrics = [
-    { label: 'TOTAL EXPENSES', value: `₹${formatCurrency(total)}` },
-    { label: 'APPROVED', value: `₹${formatCurrency(approved)}`, highlight: true },
-    {
-      label: 'PENDING',
-      value: String(pendingCount),
-      color: pendingCount > 0 ? 'warning.main' : 'success.main',
-    },
-    { label: 'BILLABLE', value: `₹${formatCurrency(billable)}` },
-  ]
-
-  return (
-    <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 2, mb: 2 }}>
-      {metrics.map((m) => (
-        <Box
-          key={m.label}
-          sx={{
-            p: '14px 16px',
-            border: `1px solid ${tokens.color.neutral[100]}`,
-            borderRadius: 2,
-            bgcolor: m.highlight ? tokens.color.primary[50] : 'background.paper',
-          }}
-        >
-          <Typography variant="overline" sx={{ fontSize: 10, color: 'text.secondary', display: 'block', letterSpacing: 0.6 }}>
-            {m.label}
-          </Typography>
-          <Typography
-            variant="h6"
-            sx={{ fontWeight: 700, fontSize: 15, mt: '2px', color: m.color ?? (m.highlight ? 'primary.main' : 'text.primary') }}
-          >
-            {m.value}
-          </Typography>
-        </Box>
-      ))}
-    </Box>
-  )
-}
-
-// ─── Add Expense Drawer ───────────────────────────────────────────────────────
-
-interface AddExpenseDrawerProps {
+function AddExpenseDrawer({
+  open,
+  projectId,
+  baseline,
+  vendorPOs,
+  onClose,
+}: {
   open: boolean
   projectId: string
+  baseline: import('../../../../slices/baseline/reducer').Baseline | null
+  vendorPOs: import('../../../../slices/baseline/reducer').VendorPO[]
   onClose: () => void
-}
-
-const CATEGORIES: Expense['category'][] = ['Travel', 'Accommodation', 'Materials', 'Misc', 'Other']
-
-function AddExpenseDrawer({ open, projectId, onClose }: AddExpenseDrawerProps) {
+}) {
   const dispatch = useAppDispatch()
   const { saving } = useAppSelector((s) => s.live)
   const toast = useToast()
+  const formRef = useRef<ExpenseFormHandle>(null)
+  const [formValid, setFormValid] = useState(false)
 
-  const [date, setDate] = useState('')
-  const [category, setCategory] = useState<Expense['category']>('Travel')
-  const [description, setDescription] = useState('')
-  const [amount, setAmount] = useState('')
-  const [billable, setBillable] = useState(false)
-  const [notes, setNotes] = useState('')
-
-  async function handleSubmit() {
-    if (!date || !description || !amount) {
-      toast.error('Please fill in all required fields')
-      return
-    }
-    try {
-      await dispatch(createExpense({
-        projectId,
-        data: {
-          date,
-          category,
-          description,
-          amount: Number(amount),
-          vendorId: null,
-          vendorName: null,
-          billable,
-          status: 'Pending',
-          receiptUrl: null,
-          notes: notes || null,
-          submittedBy: 'Admin User',
-          approvedBy: null,
-        },
-      })).unwrap()
-      toast.success('Expense added')
-      onClose()
-      setDate(''); setDescription(''); setAmount(''); setNotes('')
-    } catch {
-      toast.error('Failed to add expense')
-    }
-  }
+  const handleSubmit = useCallback(
+    async (data: ExpenseFormData) => {
+      if (data.mode !== 'live_expense') return
+      const { projectId: pid, data: body } = data
+      try {
+        await dispatch(
+          createExpense({
+            projectId: pid,
+            data: body,
+          }),
+        ).unwrap()
+        toast.success('Expense added')
+        await dispatch(fetchExpenses(pid)).unwrap()
+        onClose()
+      } catch {
+        toast.error('Failed to add expense')
+      }
+    },
+    [dispatch, toast, onClose],
+  )
 
   return (
     <DrawerForm
       open={open}
       onClose={onClose}
       title="Add Expense"
-      subtitle="Record a project expense"
-      onSubmit={handleSubmit}
+      width={520}
+      onSubmit={() => formRef.current?.submit()}
       submitLabel="Add Expense"
       submitLoading={saving}
+      submitDisabled={!formValid || saving}
     >
-      <FormSection title="Expense Details" columns={2}>
-        <FormField label="Date" required>
-          <Input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            size="sm"
-          />
-        </FormField>
-        <FormField label="Category" required>
-          <MuiSelect
-            value={category}
-            onChange={(e) => setCategory(e.target.value as Expense['category'])}
-            size="small"
-            fullWidth
-            sx={{ fontSize: 12 }}
-          >
-            {CATEGORIES.map((c) => (
-              <MenuItem key={c} value={c} sx={{ fontSize: 12 }}>{c}</MenuItem>
-            ))}
-          </MuiSelect>
-        </FormField>
-        <Box sx={{ gridColumn: '1 / -1' }}>
-          <FormField label="Description" required>
-            <Input
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              size="sm"
-            />
-          </FormField>
-        </Box>
-        <FormField label="Amount" required>
-          <Input
-            type="number"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            size="sm"
-            startAdornment={<Typography sx={{ fontSize: 12 }}>₹</Typography>}
-          />
-        </FormField>
-        <FormField label="Billable to Client">
-          <Stack direction="row" alignItems="center" gap={1} sx={{ pt: '4px' }}>
-            <input
-              type="checkbox"
-              checked={billable}
-              onChange={(e) => setBillable(e.target.checked)}
-              style={{ width: 14, height: 14, cursor: 'pointer' }}
-            />
-            <Typography variant="body2" sx={{ fontSize: 12 }}>Billable to client</Typography>
-          </Stack>
-        </FormField>
-        <Box sx={{ gridColumn: '1 / -1' }}>
-          <FormField label="Notes">
-            <Input
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              size="sm"
-              multiline
-              rows={2}
-            />
-          </FormField>
-        </Box>
-      </FormSection>
-
-      <FormSection title="Receipt" columns={1}>
-        <FileUpload
-          accept="image/*,.pdf"
-          label="Attach Receipt"
-          onUpload={() => {/* optional upload */}}
-        />
-      </FormSection>
+      <ExpenseForm
+        ref={formRef}
+        context="live"
+        projectId={projectId}
+        baseline={baseline?.projectId === projectId ? baseline : null}
+        vendorPOs={vendorPOs}
+        open={open}
+        onSubmit={handleSubmit}
+        onCancel={onClose}
+        onValidityChange={setFormValid}
+      />
     </DrawerForm>
   )
 }
 
-// ─── ExpensesTab ──────────────────────────────────────────────────────────────
+// ─── Main tab ─────────────────────────────────────────────────────────────────
 
 interface ExpensesTabProps {
   projectId: string
 }
 
 export default function ExpensesTab({ projectId }: ExpensesTabProps) {
-  const { expenses } = useAppSelector((s) => s.live)
   const dispatch = useAppDispatch()
-  const toast = useToast()
+  const { expenses } = useAppSelector((s) => s.live)
+  const { baseline, vendorPOs } = useAppSelector((s) => s.baseline)
+
+  const [filter, setFilter] = useState<ExpenseFilter>('all')
+  const [sortBy, setSortBy] = useState<'date' | 'amount'>('date')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [addOpen, setAddOpen] = useState(false)
+  const [viewExpense, setViewExpense] = useState<Expense | null>(null)
 
-  async function handleApprove(id: string) {
-    try {
-      await dispatch(approveExpense({ projectId, id })).unwrap()
-      toast.success('Expense approved')
-    } catch {
-      toast.error('Failed to approve expense')
+  useEffect(() => {
+    void dispatch(fetchBaseline(projectId))
+    void dispatch(fetchVendorPOs(projectId))
+  }, [dispatch, projectId])
+
+  const projectExpenses = useMemo(
+    () => expenses.filter((e) => e.projectId === projectId),
+    [expenses, projectId],
+  )
+
+  const filtered = useMemo(() => {
+    let rows = projectExpenses
+    if (filter !== 'all') rows = rows.filter((e) => e.type === filter)
+    return [...rows].sort((a, b) => {
+      const mul = sortDir === 'asc' ? 1 : -1
+      if (sortBy === 'amount') return (a.amount - b.amount) * mul
+      const da = new Date(a.date).getTime()
+      const db = new Date(b.date).getTime()
+      return (da - db) * mul
+    })
+  }, [projectExpenses, filter, sortBy, sortDir])
+
+  function handleSort(column: 'date' | 'amount') {
+    if (sortBy === column) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    else {
+      setSortBy(column)
+      setSortDir(column === 'date' ? 'desc' : 'desc')
     }
   }
 
-  async function handleReject(id: string) {
-    try {
-      await dispatch(rejectExpense({ projectId, id })).unwrap()
-      toast.success('Expense rejected')
-    } catch {
-      toast.error('Failed to reject expense')
-    }
-  }
+  const pills: { id: ExpenseFilter; label: string }[] = [
+    { id: 'all', label: 'All' },
+    { id: 'additional', label: 'Additional' },
+    { id: 'vendor_linked', label: 'Vendor Linked' },
+    { id: 'common', label: 'Common' },
+  ]
 
   return (
     <>
-      <SummaryStrip expenses={expenses} />
+      <ExpenseSummaryStrip expenses={projectExpenses} />
 
       <WorkspaceSection
         title="Project Expenses"
         noPadding
         action={
-          <MuiButton
-            size="small"
-            variant="contained"
-            startIcon={<Add sx={{ fontSize: 14 }} />}
-            onClick={() => setAddOpen(true)}
-            sx={{ fontSize: 12, height: 30 }}
-          >
-            Add Expense
-          </MuiButton>
+          <Stack direction="row" alignItems="center" gap={2} flexWrap="wrap">
+            <Stack direction="row" gap={0.75} flexWrap="wrap" sx={{ mr: 1 }}>
+              {pills.map((p) => {
+                const selected = filter === p.id
+                return (
+                  <Box
+                    key={p.id}
+                    component="button"
+                    type="button"
+                    onClick={() => setFilter(p.id)}
+                    sx={{
+                      border: '1px solid',
+                      borderColor: selected ? tokens.color.primary[500] : tokens.color.neutral[200],
+                      bgcolor: selected ? tokens.color.primary[50] : 'background.paper',
+                      color: 'text.primary',
+                      px: 2,
+                      py: 0.75,
+                      borderRadius: 999,
+                      fontSize: 11,
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      fontFamily: 'inherit',
+                    }}
+                  >
+                    {p.label}
+                  </Box>
+                )
+              })}
+            </Stack>
+            <Button
+              size="sm"
+              variant="contained"
+              color="primary"
+              label="Add Expense"
+              startIcon={<Plus size={14} strokeWidth={2} />}
+              onClick={() => setAddOpen(true)}
+            />
+          </Stack>
         }
       >
         <Table size="small">
           <TableHead>
             <TableRow>
-              <TableCell sx={TABLE_HEADER_SX}>Date & Description</TableCell>
-              <TableCell sx={TABLE_HEADER_SX}>Category</TableCell>
+              <TableCell sx={TABLE_HEADER_SX}>Type</TableCell>
+              <TableCell sx={TABLE_HEADER_SX}>Description</TableCell>
               <TableCell sx={TABLE_HEADER_SX}>Vendor</TableCell>
-              <TableCell sx={TABLE_HEADER_SX}>Amount</TableCell>
-              <TableCell sx={TABLE_HEADER_SX}>Submitted By</TableCell>
+              <TableCell sx={TABLE_HEADER_SX}>Service</TableCell>
+              <TableCell sx={TABLE_HEADER_SX} align="right">
+                <TableSortLabel
+                  active={sortBy === 'amount'}
+                  direction={sortBy === 'amount' ? sortDir : 'asc'}
+                  onClick={() => handleSort('amount')}
+                  sx={{ fontSize: 10 }}
+                >
+                  Amount
+                </TableSortLabel>
+              </TableCell>
+              <TableCell sx={TABLE_HEADER_SX}>
+                <TableSortLabel
+                  active={sortBy === 'date'}
+                  direction={sortBy === 'date' ? sortDir : 'desc'}
+                  onClick={() => handleSort('date')}
+                  sx={{ fontSize: 10 }}
+                >
+                  Date
+                </TableSortLabel>
+              </TableCell>
               <TableCell sx={TABLE_HEADER_SX}>Status</TableCell>
               <TableCell sx={TABLE_HEADER_SX}>Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {expenses.length === 0 && (
+            {filtered.length === 0 && (
               <TableRow>
-                <TableCell colSpan={7} sx={{ ...TABLE_CELL_SX, textAlign: 'center' }}>
-                  <Typography variant="body2" color="text.secondary" sx={{ py: 4 }}>No expenses yet</Typography>
+                <TableCell colSpan={8} sx={{ ...TABLE_CELL_SX, textAlign: 'center', py: 4 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    {projectExpenses.length === 0
+                      ? 'No expenses yet'
+                      : 'No expenses match this filter'}
+                  </Typography>
                 </TableCell>
               </TableRow>
             )}
-            {expenses.map((exp) => {
-              const st = expenseStatusType(exp.status)
-              const catColor = categoryColor(exp.category)
+            {filtered.map((exp) => {
+              const st = expenseStatusDisplay(exp.status)
               return (
                 <TableRow key={exp.id} hover>
                   <TableCell sx={TABLE_CELL_SX}>
-                    <Typography variant="body2" sx={{ fontSize: 12 }}>{formatDate(exp.date)}</Typography>
-                    <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 500 }}>{exp.description}</Typography>
+                    <ExpenseTypeBadge type={exp.type} />
                   </TableCell>
-
                   <TableCell sx={TABLE_CELL_SX}>
-                    <MuiChip
-                      label={exp.category}
-                      size="small"
-                      color={catColor}
+                    <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 500 }}>
+                      {exp.description}
+                    </Typography>
+                  </TableCell>
+                  <TableCell sx={TABLE_CELL_SX}>{expenseVendorCell(exp)}</TableCell>
+                  <TableCell sx={TABLE_CELL_SX}>{expenseServiceCell(exp)}</TableCell>
+                  <TableCell sx={TABLE_CELL_SX} align="right">
+                    ₹{formatCurrency(exp.amount)}
+                  </TableCell>
+                  <TableCell sx={TABLE_CELL_SX}>{formatDate(exp.date)}</TableCell>
+                  <TableCell sx={TABLE_CELL_SX}>
+                    <StatusBadge status={st.status} label={st.label} size="small" />
+                  </TableCell>
+                  <TableCell sx={TABLE_CELL_SX}>
+                    <Button
+                      size="sm"
                       variant="outlined"
-                      sx={{ height: 20, fontSize: 11, borderRadius: '4px', '& .MuiChip-label': { px: '6px' } }}
+                      color="primary"
+                      label="View"
+                      onClick={() => setViewExpense(exp)}
                     />
-                  </TableCell>
-
-                  <TableCell sx={TABLE_CELL_SX}>
-                    <Typography variant="body2" sx={{ fontSize: 12 }}>{exp.vendorName ?? '—'}</Typography>
-                  </TableCell>
-
-                  <TableCell sx={TABLE_CELL_SX}>
-                    <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600 }}>₹{formatCurrency(exp.amount)}</Typography>
-                    {exp.billable && (
-                      <MuiChip
-                        label="Billable"
-                        size="small"
-                        sx={{
-                          height: 16,
-                          fontSize: 10,
-                          mt: '2px',
-                          bgcolor: tokens.color.primary[50],
-                          color: tokens.color.primary[700],
-                          borderRadius: '3px',
-                          '& .MuiChip-label': { px: '4px' },
-                        }}
-                      />
-                    )}
-                  </TableCell>
-
-                  <TableCell sx={TABLE_CELL_SX}>
-                    <Typography variant="body2" sx={{ fontSize: 12 }}>{exp.submittedBy}</Typography>
-                    <Typography variant="caption" sx={{ fontSize: 10, color: 'text.secondary' }}>{formatDate(exp.date)}</Typography>
-                  </TableCell>
-
-                  <TableCell sx={TABLE_CELL_SX}>
-                    <StatusBadge status={st.type} label={st.label} />
-                  </TableCell>
-
-                  <TableCell sx={TABLE_CELL_SX}>
-                    {exp.status === 'Pending' && (
-                      <Stack direction="row" gap={0.5}>
-                        <MuiButton
-                          size="small"
-                          variant="contained"
-                          color="success"
-                          onClick={() => handleApprove(exp.id)}
-                          sx={{ fontSize: 11, height: 26, px: 1 }}
-                        >
-                          Approve
-                        </MuiButton>
-                        <MuiButton
-                          size="small"
-                          variant="outlined"
-                          color="error"
-                          onClick={() => handleReject(exp.id)}
-                          sx={{ fontSize: 11, height: 26, px: 1 }}
-                        >
-                          Reject
-                        </MuiButton>
-                      </Stack>
-                    )}
                   </TableCell>
                 </TableRow>
               )
@@ -398,7 +307,15 @@ export default function ExpensesTab({ projectId }: ExpensesTabProps) {
       <AddExpenseDrawer
         open={addOpen}
         projectId={projectId}
+        baseline={baseline?.projectId === projectId ? baseline : null}
+        vendorPOs={vendorPOs}
         onClose={() => setAddOpen(false)}
+      />
+
+      <ViewExpenseModal
+        open={!!viewExpense}
+        expense={viewExpense}
+        onClose={() => setViewExpense(null)}
       />
     </>
   )

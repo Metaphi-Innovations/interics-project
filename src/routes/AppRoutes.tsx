@@ -14,13 +14,14 @@ import CustomersPage from '@/pages/Customers/CustomersPage'
 import CustomerDetailPage from '@/pages/Customers/CustomerDetailPage'
 import VendorsPage from '@/pages/Vendors/VendorsPage'
 import VendorDetailPage from '@/pages/Vendors/VendorDetailPage'
-import ReceivablesPage from '@/pages/Finance/ReceivablesPage'
-import PayablesPage from '@/pages/Finance/PayablesPage'
+import BillingsPage from '@/pages/Finance/BillingsPage'
+import PaymentsPage from '@/pages/Finance/PaymentsPage'
 import ExpensesPage from '@/pages/Finance/ExpensesPage'
 import ComplianceLayout from '@/pages/Compliance/ComplianceLayout'
-import FilingSummaryPage from '@/pages/Compliance/FilingSummaryPage'
-import GSTPage from '@/pages/Compliance/GSTPage'
-import TDSPage from '@/pages/Compliance/TDSPage'
+import ComplianceFilingSummaryPage from '@/pages/Finance/Compliance/FilingSummaryPage'
+import FilingChecklistPage from '@/pages/Compliance/FilingChecklistPage'
+import GSTPage from '@/pages/Finance/Compliance/GSTPage'
+import TDSPage from '@/pages/Finance/Compliance/TDSPage'
 import ReportsPage from '@/pages/Reports/ReportsPage'
 import DocumentsPage from '@/pages/Documents/DocumentsPage'
 import AuditLogsPage from '@/pages/AuditLogs/AuditLogsPage'
@@ -66,12 +67,14 @@ export default function AppRoutes({ navConfig, user, onSignOut, onProfileClick, 
                 <Route path="/customers/:id" element={<CustomerDetailPage />} />
                 <Route path="/vendors" element={<VendorsPage />} />
                 <Route path="/vendors/:id" element={<VendorDetailPage />} />
-                <Route path="/finance/receivables" element={<ReceivablesPage />} />
-                <Route path="/finance/payables" element={<PayablesPage />} />
+                <Route path="/finance/receivables" element={<BillingsPage />} />
+                <Route path="/finance/payables" element={<PaymentsPage />} />
                 <Route path="/finance/expenses" element={<ExpensesPage />} />
                 <Route path="/finance/compliance" element={<ComplianceLayout />}>
-                  <Route index element={<Navigate to="filing" replace />} />
-                  <Route path="filing" element={<FilingSummaryPage />} />
+                  <Route index element={<Navigate to="filing-summary" replace />} />
+                  <Route path="filing" element={<Navigate to="filing-summary" replace />} />
+                  <Route path="filing-summary" element={<ComplianceFilingSummaryPage />} />
+                  <Route path="filing-checklist" element={<FilingChecklistPage />} />
                   <Route path="gst" element={<GSTPage />} />
                   <Route path="tds" element={<TDSPage />} />
                 </Route>

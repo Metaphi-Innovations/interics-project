@@ -156,7 +156,7 @@ interface TabConfig {
 }
 
 function getTabConfig(status: string): TabConfig[] {
-  const isPitch = status === 'Pitch'
+  const isLiveProject = status === 'Live'
   return [
     {
       label: 'Overview',
@@ -183,8 +183,8 @@ function getTabConfig(status: string): TabConfig[] {
       label: 'Live',
       value: 'live',
       icon: <PlayCircleIcon sx={{ fontSize: 14 }} />,
-      locked: isPitch,
-      lockReason: 'Available after baseline is created',
+      locked: !isLiveProject,
+      lockReason: 'Available when project status is Live',
     },
     {
       label: 'Financials',

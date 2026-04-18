@@ -45,15 +45,16 @@ import {
 import { Button, Avatar, StatusBadge, useToast } from '@/design-system/components'
 import type { StatusType } from '@/design-system/components'
 import CreateProjectModal from '@/pages/Projects/CreateProjectModal'
+import { GlobalExpenseDrawer } from '@/components/expenses/GlobalExpenseDrawer'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { fetchInvoices } from '@/slices/receivables/thunk'
 import { fetchProjects } from '@/slices/projects/thunk'
 import type { Invoice as ClientInvoice } from '@/slices/receivables/reducer'
 import type { Project } from '@/slices/projects/reducer'
 import type {
-  VendorMilestonePayment,
+  VendorInvoice,
   Expense,
-  ChangeRequest,
+  Reimbursement,
 } from '@/slices/live/reducer'
 import {
   formatCurrency,
@@ -79,7 +80,7 @@ interface MonthBucket {
 }
 
 interface ActivityRow {
-  kind: 'invoice' | 'vendor_invoice' | 'expense' | 'change_request'
+  kind: 'invoice' | 'vendor_invoice' | 'expense' | 'reimbursement'
   id: string
   ts: number
   title: string
@@ -89,7 +90,7 @@ interface ActivityRow {
 }
 
 interface PendingRow {
-  kind: 'expense' | 'change_request' | 'vendor_invoice'
+  kind: 'expense' | 'reimbursement' | 'vendor_invoice'
   id: string
   title: string
   subtitle: string
@@ -134,28 +135,24 @@ function receivableStatusToType(s: ClientInvoice['status']): StatusType {
   }
 }
 
-function liveVendorMilestoneLabel(s: VendorMilestonePayment['status']): string {
+function vendorInvoiceLabel(s: VendorInvoice['status']): string {
   switch (s) {
-    case 'PendingInvoice':
-      return 'Pending Invoice'
-    case 'InvoiceUploaded':
-      return 'Invoice Uploaded'
-    case 'PaymentGenerated':
-      return 'Payment Generated'
-    case 'Paid':
+    case 'pending':
+      return 'Pending'
+    case 'approved':
+      return 'Approved'
+    case 'paid':
       return 'Paid'
   }
 }
 
-function liveVendorMilestoneBadgeType(s: VendorMilestonePayment['status']): StatusType {
+function vendorInvoiceBadgeType(s: VendorInvoice['status']): StatusType {
   switch (s) {
-    case 'PendingInvoice':
-      return 'draft'
-    case 'InvoiceUploaded':
+    case 'pending':
       return 'pending'
-    case 'PaymentGenerated':
+    case 'approved':
       return 'in_progress'
-    case 'Paid':
+    case 'paid':
       return 'active'
   }
 }
@@ -373,10 +370,12 @@ export default function DashboardPage() {
   const [pmFilter, setPmFilter] = useState<string>('All Managers')
   const [chartPeriod, setChartPeriod] = useState<ChartPeriod>('Last 6 Months')
   const [createProjectOpen, setCreateProjectOpen] = useState(false)
+  const [addExpenseOpen, setAddExpenseOpen] = useState(false)
+  const [liveDataTick, setLiveDataTick] = useState(0)
 
-  const [vendorInvoices, setVendorInvoices] = useState<VendorMilestonePayment[]>([])
+  const [vendorInvoices, setVendorInvoices] = useState<VendorInvoice[]>([])
   const [expenses, setExpenses] = useState<Expense[]>([])
-  const [changeRequests, setChangeRequests] = useState<ChangeRequest[]>([])
+  const [reimbursements, setReimbursements] = useState<Reimbursement[]>([])
 
   useEffect(() => {
     void dispatch(fetchInvoices({}))
@@ -387,7 +386,7 @@ export default function DashboardPage() {
     if (projects.length === 0) {
       setVendorInvoices([])
       setExpenses([])
-      setChangeRequests([])
+      setReimbursements([])
       return
     }
     let cancelled = false
@@ -395,35 +394,35 @@ export default function DashboardPage() {
       const results = await Promise.all(
         projects.map(async (p) => {
           const base = `/api/projects/${p.id}`
-          const [vr, er, cr] = await Promise.all([
+          const [vr, er, rr] = await Promise.all([
             fetch(`${base}/vendor-invoices`).then((r) => (r.ok ? r.json() : [])),
             fetch(`${base}/expenses`).then((r) => (r.ok ? r.json() : [])),
-            fetch(`${base}/change-requests`).then((r) => (r.ok ? r.json() : [])),
+            fetch(`${base}/reimbursements`).then((r) => (r.ok ? r.json() : [])),
           ])
           return {
-            v: vr as VendorMilestonePayment[],
+            v: vr as VendorInvoice[],
             e: er as Expense[],
-            c: cr as ChangeRequest[],
+            r: rr as Reimbursement[],
           }
         }),
       )
       if (cancelled) return
-      const vi: VendorMilestonePayment[] = []
+      const vi: VendorInvoice[] = []
       const ex: Expense[] = []
-      const crs: ChangeRequest[] = []
+      const rmb: Reimbursement[] = []
       for (const r of results) {
         if (Array.isArray(r.v)) vi.push(...r.v)
         if (Array.isArray(r.e)) ex.push(...r.e)
-        if (Array.isArray(r.c)) crs.push(...r.c)
+        if (Array.isArray(r.r)) rmb.push(...r.r)
       }
       setVendorInvoices(vi)
       setExpenses(ex)
-      setChangeRequests(crs)
+      setReimbursements(rmb)
     })()
     return () => {
       cancelled = true
     }
-  }, [projects])
+  }, [projects, liveDataTick])
 
   const uniqueClients = useMemo(() => {
     const names = new Set(projects.map((p) => p.customerName).filter(Boolean))
@@ -468,11 +467,11 @@ export default function DashboardPage() {
     return expenses.filter((e) => projectIdsForScope.has(e.projectId))
   }, [expenses, projectIdsForScope])
 
-  const scopedChangeRequests = useMemo(() => {
-    if (projectIdsForScope === null) return changeRequests
+  const scopedReimbursements = useMemo(() => {
+    if (projectIdsForScope === null) return reimbursements
     if (projectIdsForScope.size === 0) return []
-    return changeRequests.filter((c) => projectIdsForScope.has(c.projectId))
-  }, [changeRequests, projectIdsForScope])
+    return reimbursements.filter((c) => projectIdsForScope.has(c.projectId))
+  }, [reimbursements, projectIdsForScope])
 
   const monthCount = useMemo(() => {
     if (chartPeriod === 'Last 3 Months') return 3
@@ -489,7 +488,7 @@ export default function DashboardPage() {
         .reduce((s, inv) => s + (inv.baseAmount ?? 0), 0)
       const vendorCost = scopedVendorInvoices
         .filter((v) => inCalendarMonth(v.invoiceDate, b.year, b.month))
-        .reduce((s, v) => s + (v.amount ?? 0), 0)
+        .reduce((s, v) => s + (v.baseAmount ?? 0), 0)
       const expCost = scopedExpenses
         .filter((e) => inCalendarMonth(e.date, b.year, b.month))
         .reduce((s, e) => s + (e.amount ?? 0), 0)
@@ -517,7 +516,7 @@ export default function DashboardPage() {
       }
       const vendorOut = scopedVendorInvoices
         .filter((v) => v.invoiceDate && inCalendarMonth(v.invoiceDate, b.year, b.month))
-        .reduce((s, v) => s + (v.invoiceAmount ?? v.amount ?? 0), 0)
+        .reduce((s, v) => s + (v.baseAmount ?? 0), 0)
       const expOut = scopedExpenses
         .filter((e) => inCalendarMonth(e.date, b.year, b.month))
         .reduce((s, e) => s + (e.amount ?? 0), 0)
@@ -560,7 +559,7 @@ export default function DashboardPage() {
   )
 
   const totalCost = useMemo(() => {
-    const v = scopedVendorInvoices.reduce((s, x) => s + (x.invoiceAmount ?? x.amount ?? 0), 0)
+    const v = scopedVendorInvoices.reduce((s, x) => s + (x.baseAmount ?? 0), 0)
     const e = scopedExpenses.reduce((s, x) => s + (x.amount ?? 0), 0)
     return v + e
   }, [scopedVendorInvoices, scopedExpenses])
@@ -630,12 +629,7 @@ export default function DashboardPage() {
   const outstandingPayables = useMemo(
     () =>
       scopedVendorInvoices
-        .filter(
-          (v) =>
-            v.status === 'PendingInvoice' ||
-            v.status === 'InvoiceUploaded' ||
-            v.status === 'PaymentGenerated',
-        )
+        .filter((v) => v.status === 'pending' || v.status === 'approved')
         .slice(0, 5),
     [scopedVendorInvoices],
   )
@@ -662,9 +656,7 @@ export default function DashboardPage() {
   )
   const overdueVendorCount = useMemo(
     () =>
-      scopedVendorInvoices.filter(
-        (v) => v.status === 'PendingInvoice' || v.status === 'InvoiceUploaded',
-      ).length,
+      scopedVendorInvoices.filter((v) => v.status === 'pending' || v.status === 'approved').length,
     [scopedVendorInvoices],
   )
 
@@ -682,7 +674,7 @@ export default function DashboardPage() {
       })
     }
     for (const v of scopedVendorInvoices) {
-      if (v.status === 'PendingInvoice' || !v.invoiceDate) continue
+      if (!v.invoiceDate) continue
       rows.push({
         kind: 'vendor_invoice',
         id: v.id,
@@ -699,59 +691,59 @@ export default function DashboardPage() {
         id: e.id,
         ts: new Date(e.date).getTime(),
         title: 'Expense recorded',
-        subtitle: `${e.description.slice(0, 40)} · ${e.submittedBy}`,
+        subtitle: e.description.slice(0, 48),
         relativeLabel: formatRelativeTime(e.date),
-        avatarName: e.submittedBy || 'UN',
+        avatarName: e.vendorName ?? 'Expense',
       })
     }
-    for (const c of scopedChangeRequests) {
+    for (const r of scopedReimbursements) {
       rows.push({
-        kind: 'change_request',
-        id: c.id,
-        ts: new Date(c.requestedDate).getTime(),
-        title: 'Change request raised',
-        subtitle: `${c.crNumber} · ${c.title}`,
-        relativeLabel: formatRelativeTime(c.requestedDate),
-        avatarName: c.requestedBy || 'UN',
+        kind: 'reimbursement',
+        id: r.id,
+        ts: new Date(r.date).getTime(),
+        title: 'Reimbursement logged',
+        subtitle: `${r.description.slice(0, 36)} · ${r.vendorName}`,
+        relativeLabel: formatRelativeTime(r.date),
+        avatarName: r.vendorName || 'UN',
       })
     }
     return rows.sort((a, b) => b.ts - a.ts).slice(0, 10)
-  }, [scopedInvoices, scopedVendorInvoices, scopedExpenses, scopedChangeRequests])
+  }, [scopedInvoices, scopedVendorInvoices, scopedExpenses, scopedReimbursements])
 
   const pendingItems = useMemo((): PendingRow[] => {
     const rows: PendingRow[] = []
     for (const e of scopedExpenses) {
-      if (e.status !== 'Pending') continue
+      if (e.status !== 'pending') continue
       rows.push({
         kind: 'expense',
         id: e.id,
         title: truncate(e.description, 35),
-        subtitle: e.submittedBy,
+        subtitle: e.vendorName ?? 'Expense',
         amount: e.amount ?? 0,
       })
     }
-    for (const c of scopedChangeRequests) {
-      if (c.status !== 'Pending Approval') continue
+    for (const r of scopedReimbursements) {
+      if (r.status !== 'pending') continue
       rows.push({
-        kind: 'change_request',
-        id: c.id,
-        title: truncate(c.title, 35),
-        subtitle: c.crNumber,
-        amount: c.financialImpact ?? 0,
+        kind: 'reimbursement',
+        id: r.id,
+        title: truncate(r.description, 35),
+        subtitle: r.vendorName,
+        amount: r.amount ?? 0,
       })
     }
     for (const v of scopedVendorInvoices) {
-      if (v.status !== 'PendingInvoice' && v.status !== 'InvoiceUploaded') continue
+      if (v.status !== 'pending' && v.status !== 'approved') continue
       rows.push({
         kind: 'vendor_invoice',
         id: v.id,
         title: truncate(v.invoiceNumber ?? v.milestoneName, 35),
         subtitle: v.vendorName,
-        amount: v.invoiceAmount ?? v.amount ?? 0,
+        amount: v.baseAmount ?? 0,
       })
     }
     return rows
-  }, [scopedExpenses, scopedChangeRequests, scopedVendorInvoices])
+  }, [scopedExpenses, scopedReimbursements, scopedVendorInvoices])
 
   const totalReceivableExpected = useMemo(
     () =>
@@ -781,15 +773,15 @@ export default function DashboardPage() {
 
   const totalPayableExpected = useMemo(
     () =>
-      scopedVendorInvoices.reduce((s, v) => s + (v.invoiceAmount ?? v.amount ?? 0), 0),
+      scopedVendorInvoices.reduce((s, v) => s + (v.baseAmount ?? 0), 0),
     [scopedVendorInvoices],
   )
 
   const totalVendorPaid = useMemo(
     () =>
       scopedVendorInvoices
-        .filter((v) => v.status === 'Paid')
-        .reduce((s, v) => s + (v.paidAmount ?? 0), 0),
+        .filter((v) => v.status === 'paid')
+        .reduce((s, v) => s + (v.netPayable ?? 0), 0),
     [scopedVendorInvoices],
   )
 
@@ -836,6 +828,12 @@ export default function DashboardPage() {
       <CreateProjectModal
         open={createProjectOpen}
         onClose={() => setCreateProjectOpen(false)}
+      />
+
+      <GlobalExpenseDrawer
+        open={addExpenseOpen}
+        onClose={() => setAddExpenseOpen(false)}
+        onSuccess={() => setLiveDataTick((t) => t + 1)}
       />
 
       {/* ROW 0 — Page Header */}
@@ -1012,7 +1010,7 @@ export default function DashboardPage() {
               label: 'Add Expense',
               icon: <Wallet size={22} color="#B45309" />,
               bg: '#FEF3C7',
-              onClick: () => navigate('/finance/expenses'),
+              onClick: () => setAddExpenseOpen(true),
             },
             {
               label: 'New Customer',
@@ -2034,13 +2032,13 @@ export default function DashboardPage() {
                 <Typography variant="body2" fontWeight={500}>
                   {v.vendorName}
                 </Typography>
-                <Typography variant="body2">{ru(v.invoiceAmount ?? v.amount ?? 0)}</Typography>
+                <Typography variant="body2">{ru(v.baseAmount ?? 0)}</Typography>
                 <Typography variant="caption" color="text.secondary">
                   {formatDate(v.invoiceDate ?? v.dueDate ?? null)}
                 </Typography>
                 <StatusBadge
-                  status={liveVendorMilestoneBadgeType(v.status)}
-                  label={liveVendorMilestoneLabel(v.status)}
+                  status={vendorInvoiceBadgeType(v.status)}
+                  label={vendorInvoiceLabel(v.status)}
                   size="small"
                 />
               </Box>
@@ -2122,7 +2120,7 @@ export default function DashboardPage() {
                 variant="caption"
                 color="primary.main"
                 sx={{ cursor: 'pointer' }}
-                onClick={() => navigate('/finance/compliance/filing')}
+                onClick={() => navigate('/finance/compliance/filing-summary')}
               >
                 Go to GST →
               </Typography>
@@ -2164,7 +2162,7 @@ export default function DashboardPage() {
                 variant="caption"
                 color="primary.main"
                 sx={{ cursor: 'pointer' }}
-                onClick={() => navigate('/finance/compliance/filing')}
+                onClick={() => navigate('/finance/compliance/filing-summary')}
               >
                 Go to TDS →
               </Typography>
@@ -2401,13 +2399,13 @@ export default function DashboardPage() {
                     bgcolor:
                       item.kind === 'expense'
                         ? '#FEF3C7'
-                        : item.kind === 'change_request'
+                        : item.kind === 'reimbursement'
                           ? '#DCFCE7'
                           : '#F3E8FF',
                   }}
                 >
                   {item.kind === 'expense' && <Wallet size={14} color="#B45309" />}
-                  {item.kind === 'change_request' && <RefreshCw size={14} color="#15803D" />}
+                  {item.kind === 'reimbursement' && <RefreshCw size={14} color="#15803D" />}
                   {item.kind === 'vendor_invoice' && <FileText size={14} color="#7C3AED" />}
                 </Box>
                 <Box sx={{ flex: 1, minWidth: 0 }}>

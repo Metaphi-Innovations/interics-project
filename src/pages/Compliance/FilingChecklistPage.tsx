@@ -30,6 +30,7 @@ import PeriodSelector from '@/components/PeriodSelector'
 import MarkFiledModal from '@/pages/Compliance/components/MarkFiledModal'
 import { tokens } from '@/design-system/tokens'
 import { formatDisplayDate, formatFilingDelay, filingDisplayPeriodToSelectorValue } from '@/utils/complianceDates'
+
 function filingStatusToBadge(status: FilingItem['status']): StatusType {
   if (status === 'filed') return 'filed'
   if (status === 'overdue') return 'overdue'
@@ -47,7 +48,7 @@ function filingStatusLabel(status: FilingItem['status']): string {
   return map[status]
 }
 
-export default function FilingSummaryPage() {
+export default function FilingChecklistPage() {
   const dispatch = useAppDispatch()
   const navigate = useNavigate()
   const { showToast } = useToast()
@@ -106,7 +107,7 @@ export default function FilingSummaryPage() {
     <>
       <ListingTemplate
         icon={<Receipt size={20} />}
-        title="Filing Summary"
+        title="Filing checklist"
         hideToolbar
         headerRight={<PeriodSelector />}
       >

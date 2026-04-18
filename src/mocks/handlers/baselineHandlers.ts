@@ -118,10 +118,11 @@ function recalcBaselineFinancials(
   categories: PitchCategory[],
   plannedExpenses: PlannedExpense[],
   originalServiceValues: Record<string, number>,
+  projectId: string,
 ): Pick<Baseline, 'totalRevenue' | 'totalCost' | 'profitability' | 'categories' | 'plannedExpenses'> {
   const r = recalcTransitionDraft({
     sourceVersionId: 'pv-001',
-    projectId: 'p-001',
+    projectId,
     versionNumber: 1,
     label: 'Version 1',
     categories,
@@ -140,9 +141,117 @@ function recalcBaselineFinancials(
   }
 }
 
+/** Minimal baseline for p-002 — vendor milestone ids align with liveFinanceMockState vendor invoices. */
+function buildP002BaselineCategories(): PitchCategory[] {
+  return [
+    {
+      id: 'pc-p2-a',
+      categoryId: 'cat-p2-a',
+      categoryName: 'Design',
+      totalValue: 500_000,
+      services: [
+        {
+          id: 'ps-001',
+          name: 'Interior Design',
+          subcategoryId: 'sub-p2-1',
+          subcategoryName: 'Interior Design',
+          customName: null,
+          value: 500_000,
+          sacCode: '998391',
+          gstRate: 18,
+          clientMilestones: [
+            { id: 'cm-p2-id', name: 'Delivery', percentage: 100, value: 500_000 },
+          ],
+          vendorMappings: [
+            {
+              id: 'vm-p2-fm',
+              vendorId: 'v-002',
+              vendorName: 'FloorMaster',
+              value: 500_000,
+              percentage: 100,
+              milestones: [
+                { id: 'vml-p2-i1', name: 'Interior Design', percentage: 100, value: 500_000 },
+              ],
+              isMeasurable: false,
+            },
+          ],
+          milestonesTotal: 500_000,
+        },
+      ],
+    },
+    {
+      id: 'pc-p2-b',
+      categoryId: 'cat-p2-b',
+      categoryName: 'Civil',
+      totalValue: 800_000,
+      services: [
+        {
+          id: 'ps-002',
+          name: 'Civil Works',
+          subcategoryId: 'sub-p2-2',
+          subcategoryName: 'Civil Works',
+          customName: null,
+          value: 800_000,
+          sacCode: '995411',
+          gstRate: 18,
+          clientMilestones: [
+            { id: 'cm-p2-cw', name: 'Civil', percentage: 100, value: 800_000 },
+          ],
+          vendorMappings: [
+            {
+              id: 'vm-p2-bw',
+              vendorId: 'v-001',
+              vendorName: 'BuildWell',
+              value: 800_000,
+              percentage: 100,
+              milestones: [
+                { id: 'vml-p2-c1', name: 'Civil Works', percentage: 100, value: 800_000 },
+              ],
+              isMeasurable: false,
+            },
+          ],
+          milestonesTotal: 800_000,
+        },
+      ],
+    },
+  ]
+}
+
+const p002PlannedExpenses: PlannedExpense[] = []
+
+const p002OriginalServiceValues: Record<string, number> = {
+  'ps-001': 500_000,
+  'ps-002': 800_000,
+}
+
+function buildBl002(): Baseline {
+  const cats = buildP002BaselineCategories()
+  const fin = recalcBaselineFinancials(cats, p002PlannedExpenses, p002OriginalServiceValues, 'p-002')
+  return {
+    id: 'bl-002',
+    projectId: 'p-002',
+    version: 1,
+    versionId: 'pv-p2-001',
+    versionLabel: 'Version 1',
+    basedOnPitchVersion: 'Version 1',
+    pitchVersionNumber: 1,
+    isActive: true,
+    createdAt: '2026-01-10',
+    lockedAt: '2026-01-10',
+    status: 'Locked',
+    clientPOId: 'po-p2-001',
+    categories: fin.categories,
+    plannedExpenses: fin.plannedExpenses,
+    originalServiceValues: p002OriginalServiceValues,
+    totalRevenue: fin.totalRevenue,
+    totalCost: fin.totalCost,
+    profitability: fin.profitability,
+  }
+}
+
 function buildBl001(): Baseline {
   const cats = buildP001BaselineCategories()
-  const fin = recalcBaselineFinancials(cats, p001PlannedExpenses, p001OriginalServiceValues)
+  const fin = recalcBaselineFinancials(cats, p001PlannedExpenses, p001OriginalServiceValues, 'p-001')
   return {
     id: 'bl-001',
     projectId: 'p-001',
@@ -190,10 +299,21 @@ let clientPOs: ClientPO[] = [
     fileName: 'PO-CLI-2024-002-draft.pdf',
     uploadedAt: '2024-03-10',
   },
+  {
+    id: 'po-p2-001',
+    projectId: 'p-002',
+    poNumber: 'PO-P2-2026-001',
+    startDate: '2026-01-05',
+    endDate: '2026-12-31',
+    poValue: 1_200_000,
+    documentUrl: null,
+    fileName: null,
+    uploadedAt: '2026-01-05',
+  },
 ]
 
 /** All baseline versions per project (only one isActive: true). */
-let baselines: Baseline[] = [buildBl001()]
+let baselines: Baseline[] = [buildBl001(), buildBl002()]
 
 let vendorPOs: VendorPO[] = [
   {
@@ -353,7 +473,24 @@ export const baselineHandlers = [
     const idx = baselines.findIndex((b) => b.id === baselineId)
     if (idx === -1) return HttpResponse.json({ message: 'Baseline not found' }, { status: 404 })
     const body = await request.json() as Partial<Baseline>
-    baselines[idx] = { ...baselines[idx], ...body }
+    let merged: Baseline = { ...baselines[idx], ...body }
+    if (body.plannedExpenses !== undefined) {
+      const planned = structuredClone(body.plannedExpenses) as PlannedExpense[]
+      const fin = recalcBaselineFinancials(
+        merged.categories,
+        planned,
+        merged.originalServiceValues ?? {},
+      )
+      merged = {
+        ...merged,
+        categories: fin.categories,
+        plannedExpenses: fin.plannedExpenses,
+        totalRevenue: fin.totalRevenue,
+        totalCost: fin.totalCost,
+        profitability: fin.profitability,
+      }
+    }
+    baselines[idx] = merged
     return HttpResponse.json(baselines[idx])
   }),
 

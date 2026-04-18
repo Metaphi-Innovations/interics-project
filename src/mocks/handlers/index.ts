@@ -9,8 +9,8 @@ import { rolesHandlers } from './rolesHandlers'
 import { settingsHandlers } from './settingsHandlers'
 import { categoriesHandlers } from './categoriesHandlers'
 import { liveHandlers } from './liveHandlers'
+import { financeHandlers } from './financeHandlers'
 import { receivablesHandlers } from './receivablesHandlers'
-import { payablesHandlers } from './payablesHandlers'
 import { complianceHandlers } from './complianceHandlers'
 
 export const handlers = [
@@ -25,7 +25,7 @@ export const handlers = [
   ...settingsHandlers,
   ...categoriesHandlers,
   ...liveHandlers,
+  ...financeHandlers,
   ...receivablesHandlers,
-  ...payablesHandlers,
   ...complianceHandlers,
 ]

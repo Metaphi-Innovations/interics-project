@@ -1,4 +1,12 @@
 import { http, HttpResponse } from 'msw'
+import type { ClientInvoice } from '@/slices/live/types'
+import {
+  invoices,
+  payments,
+  PROJECT_CLIENTS,
+  PROJECT_NAMES,
+} from '@/mocks/liveFinanceMockState'
+import { DEFAULT_TDS_RATE } from '@/config/billingRates'
 
 function clone<T>(x: T): T {
   return JSON.parse(JSON.stringify(x)) as T
@@ -420,34 +428,42 @@ export const complianceHandlers = [
 
   http.get('/api/compliance/gst', ({ request }) => {
     const url = new URL(request.url)
-    const raw = url.searchParams.get('period') || '2026-04'
-    const bundleKey = resolveBundlePeriod(raw)
-    if (!bundleKey) {
-      return HttpResponse.json({ summary: null, returns: [] })
+    const periodParam = url.searchParams.get('period')
+    if (periodParam !== null && periodParam !== '') {
+      const raw = periodParam || '2026-04'
+      const bundleKey = resolveBundlePeriod(raw)
+      if (!bundleKey) {
+        return HttpResponse.json({ summary: null, returns: [] })
+      }
+      const b = getBundle(bundleKey)
+      if (!b) return HttpResponse.json({ summary: null, returns: [] })
+      recomputeGstPaid(b)
+      return HttpResponse.json({ summary: clone(b.gstSummary), returns: clone(b.gstReturns) })
     }
-    const b = getBundle(bundleKey)
-    if (!b) return HttpResponse.json({ summary: null, returns: [] })
-    recomputeGstPaid(b)
-    return HttpResponse.json({ summary: clone(b.gstSummary), returns: clone(b.gstReturns) })
+    return globalGstLedger(request)
   }),
 
   http.get('/api/compliance/tds', ({ request }) => {
     const url = new URL(request.url)
-    const raw = url.searchParams.get('period') || '2026-04'
-    const bundleKey = resolveBundlePeriod(raw)
-    if (!bundleKey) {
-      return HttpResponse.json({ summary: null, deductions: [], challans: [] })
+    const periodParam = url.searchParams.get('period')
+    if (periodParam !== null && periodParam !== '') {
+      const raw = periodParam || '2026-04'
+      const bundleKey = resolveBundlePeriod(raw)
+      if (!bundleKey) {
+        return HttpResponse.json({ summary: null, deductions: [], challans: [] })
+      }
+      const b = getBundle(bundleKey)
+      if (!b) {
+        return HttpResponse.json({ summary: null, deductions: [], challans: [] })
+      }
+      recomputeTdsSummary(b)
+      return HttpResponse.json({
+        summary: clone(b.tdsSummary),
+        deductions: clone(b.deductions),
+        challans: clone(b.challans),
+      })
     }
-    const b = getBundle(bundleKey)
-    if (!b) {
-      return HttpResponse.json({ summary: null, deductions: [], challans: [] })
-    }
-    recomputeTdsSummary(b)
-    return HttpResponse.json({
-      summary: clone(b.tdsSummary),
-      deductions: clone(b.deductions),
-      challans: clone(b.challans),
-    })
+    return globalTdsLedger(request)
   }),
 
   http.post('/api/compliance/returns/:id/file', async ({ params, request }) => {
@@ -573,4 +589,267 @@ export const complianceHandlers = [
 
 export function resetComplianceMockState(): void {
   resetDemoState()
+}
+
+function parseYmd(s: string): Date {
+  return new Date(s.length <= 10 ? `${s}T00:00:00` : s)
+}
+
+function projectNameFor(id: string): string {
+  return PROJECT_NAMES[id] ?? id
+}
+
+function clientForProject(projectId: string): { clientId: string; clientName: string } {
+  const row = PROJECT_CLIENTS[projectId]
+  if (row) return row
+  return { clientId: '', clientName: '' }
+}
+
+function passesInvoiceFilters(inv: ClientInvoice, url: URL): boolean {
+  const projectId = url.searchParams.get('projectId')
+  if (projectId && inv.projectId !== projectId) return false
+  const month = url.searchParams.get('month')
+  const year = url.searchParams.get('year')
+  const quarter = url.searchParams.get('quarter')
+  const d = parseYmd(inv.invoiceDate)
+  const y = d.getFullYear()
+  const m = d.getMonth() + 1
+  if (year !== null && year !== '') {
+    if (y !== Number(year)) return false
+  }
+  if (month !== null && month !== '') {
+    if (m !== Number(month)) return false
+  }
+  if (quarter !== null && quarter !== '' && year !== null && year !== '') {
+    const q = Number(quarter)
+    const yNum = Number(year)
+    const qStart = (q - 1) * 3 + 1
+    if (d.getFullYear() !== yNum || m < qStart || m > qStart + 2) return false
+  }
+  return true
+}
+
+function passesPaymentFilters(p: (typeof payments)[number], url: URL): boolean {
+  const projectId = url.searchParams.get('projectId')
+  if (projectId && p.projectId !== projectId) return false
+  const month = url.searchParams.get('month')
+  const year = url.searchParams.get('year')
+  const quarter = url.searchParams.get('quarter')
+  const d = parseYmd(p.paymentDate)
+  const y = d.getFullYear()
+  const m = d.getMonth() + 1
+  if (year !== null && year !== '') {
+    if (y !== Number(year)) return false
+  }
+  if (month !== null && month !== '') {
+    if (m !== Number(month)) return false
+  }
+  if (quarter !== null && quarter !== '' && year !== null && year !== '') {
+    const q = Number(quarter)
+    const yNum = Number(year)
+    const qStart = (q - 1) * 3 + 1
+    if (d.getFullYear() !== yNum || m < qStart || m > qStart + 2) return false
+  }
+  return true
+}
+
+function globalGstLedger(request: Request) {
+  const url = new URL(request.url)
+  const filtered = invoices.filter((i) => passesInvoiceFilters(i, url))
+
+  const now = new Date()
+  const cm = now.getMonth() + 1
+  const cy = now.getFullYear()
+  const thisMonthGst = filtered
+    .filter((i) => {
+      const d = parseYmd(i.invoiceDate)
+      return d.getFullYear() === cy && d.getMonth() + 1 === cm
+    })
+    .reduce((s, i) => s + i.gstAmount, 0)
+
+  const byProjectMap = new Map<
+    string,
+    { projectId: string; projectName: string; clientName: string; gstAmount: number }
+  >()
+  const byMonthMap = new Map<
+    string,
+    {
+      month: number
+      year: number
+      gstAmount: number
+      invoiceCount: number
+      baseAmount: number
+    }
+  >()
+
+  const totalGstSum = filtered.reduce((s, i) => s + i.gstAmount, 0)
+
+  for (const inv of filtered) {
+    const pid = inv.projectId
+    const pn = inv.projectName ?? projectNameFor(pid)
+    const cc = inv.clientId
+      ? { clientName: inv.clientName ?? '' }
+      : clientForProject(inv.projectId)
+    const prevP = byProjectMap.get(pid) ?? {
+      projectId: pid,
+      projectName: pn,
+      clientName: cc.clientName,
+      gstAmount: 0,
+    }
+    prevP.gstAmount += inv.gstAmount
+    if (!prevP.clientName && cc.clientName) prevP.clientName = cc.clientName
+    byProjectMap.set(pid, prevP)
+
+    const d = parseYmd(inv.invoiceDate)
+    const mk = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+    const prevM = byMonthMap.get(mk) ?? {
+      month: d.getMonth() + 1,
+      year: d.getFullYear(),
+      gstAmount: 0,
+      invoiceCount: 0,
+      baseAmount: 0,
+    }
+    prevM.gstAmount += inv.gstAmount
+    prevM.baseAmount += inv.baseAmount
+    prevM.invoiceCount += 1
+    byMonthMap.set(mk, prevM)
+  }
+
+  const byProject = [...byProjectMap.values()].map((p) => ({
+    projectId: p.projectId,
+    projectName: p.projectName,
+    clientName: p.clientName,
+    gstAmount: p.gstAmount,
+    percentage: totalGstSum > 0 ? Math.round((p.gstAmount / totalGstSum) * 10000) / 100 : 0,
+  }))
+
+  const entries = filtered.map((inv) => {
+    const li0 = inv.lineItems[0]
+    const gstRate = li0?.gstRate ?? (inv.baseAmount > 0 ? (100 * inv.gstAmount) / inv.baseAmount : 0)
+    const cc = inv.clientId
+      ? { clientId: inv.clientId, clientName: inv.clientName ?? '' }
+      : clientForProject(inv.projectId)
+    return {
+      invoiceId: inv.id,
+      invoiceNumber: inv.invoiceNumber,
+      projectId: inv.projectId,
+      projectName: inv.projectName ?? projectNameFor(inv.projectId),
+      clientId: cc.clientId,
+      clientName: inv.clientName ?? cc.clientName,
+      baseAmount: inv.baseAmount,
+      gstRate,
+      gstAmount: inv.gstAmount,
+      invoiceDate: inv.invoiceDate,
+      status: inv.status,
+    }
+  })
+
+  return HttpResponse.json({
+    summary: {
+      totalGst: totalGstSum,
+      thisMonth: thisMonthGst,
+      invoiceCount: filtered.filter((i) => i.gstAmount > 0).length,
+      byProject,
+      byMonth: [...byMonthMap.values()].sort((a, b) =>
+        a.year !== b.year ? a.year - b.year : a.month - b.month,
+      ),
+    },
+    entries,
+  })
+}
+
+function globalTdsLedger(request: Request) {
+  const url = new URL(request.url)
+  const typeFilter = url.searchParams.get('type') ?? 'all'
+
+  const invFiltered = invoices.filter((i) => passesInvoiceFilters(i, url))
+  const payFiltered = payments.filter((p) => passesPaymentFilters(p, url))
+
+  const clientEntries =
+    typeFilter === 'vendor'
+      ? []
+      : invFiltered.map((inv) => {
+          const tdsRate =
+            inv.grossAmount > 0 ? Math.round((100 * inv.tdsAmount) / inv.grossAmount) : DEFAULT_TDS_RATE
+          const cc = inv.clientId
+            ? { clientId: inv.clientId, clientName: inv.clientName ?? '' }
+            : clientForProject(inv.projectId)
+          return {
+            invoiceId: inv.id,
+            invoiceNumber: inv.invoiceNumber,
+            projectId: inv.projectId,
+            projectName: inv.projectName ?? projectNameFor(inv.projectId),
+            clientId: cc.clientId,
+            clientName: inv.clientName ?? cc.clientName,
+            grossAmount: inv.grossAmount,
+            tdsRate,
+            tdsAmount: inv.tdsAmount,
+            invoiceDate: inv.invoiceDate,
+            status: inv.status,
+          }
+        })
+
+  const vendorEntries =
+    typeFilter === 'client'
+      ? []
+      : payFiltered.map((p) => {
+          const tdsRate =
+            p.invoiceTotal > 0 ? Math.round((100 * p.tdsDeducted) / p.invoiceTotal) : DEFAULT_TDS_RATE
+          return {
+            paymentId: p.id,
+            projectId: p.projectId,
+            projectName: p.projectName ?? projectNameFor(p.projectId),
+            vendorId: p.vendorId,
+            vendorName: p.vendorName,
+            invoiceTotal: p.invoiceTotal,
+            tdsRate,
+            tdsAmount: p.tdsDeducted,
+            paymentDate: p.paymentDate,
+            referenceNumber: p.referenceNumber,
+          }
+        })
+
+  const clientTdsTotal = clientEntries.reduce((s, e) => s + e.tdsAmount, 0)
+  const vendorTdsTotal = vendorEntries.reduce((s, e) => s + e.tdsAmount, 0)
+
+  const byMonthMap = new Map<string, { month: number; year: number; clientTds: number; vendorTds: number }>()
+  for (const inv of invFiltered) {
+    if (typeFilter === 'vendor') continue
+    const d = parseYmd(inv.invoiceDate)
+    const mk = `${d.getFullYear()}-${d.getMonth() + 1}`
+    const prev = byMonthMap.get(mk) ?? {
+      month: d.getMonth() + 1,
+      year: d.getFullYear(),
+      clientTds: 0,
+      vendorTds: 0,
+    }
+    prev.clientTds += inv.tdsAmount
+    byMonthMap.set(mk, prev)
+  }
+  for (const p of payFiltered) {
+    if (typeFilter === 'client') continue
+    const d = parseYmd(p.paymentDate)
+    const mk = `${d.getFullYear()}-${d.getMonth() + 1}`
+    const prev = byMonthMap.get(mk) ?? {
+      month: d.getMonth() + 1,
+      year: d.getFullYear(),
+      clientTds: 0,
+      vendorTds: 0,
+    }
+    prev.vendorTds += p.tdsDeducted
+    byMonthMap.set(mk, prev)
+  }
+
+  return HttpResponse.json({
+    summary: {
+      clientTdsTotal,
+      vendorTdsTotal,
+      total: clientTdsTotal + vendorTdsTotal,
+      byMonth: [...byMonthMap.values()].sort((a, b) =>
+        a.year !== b.year ? a.year - b.year : a.month - b.month,
+      ),
+    },
+    clientEntries,
+    vendorEntries,
+  })
 }

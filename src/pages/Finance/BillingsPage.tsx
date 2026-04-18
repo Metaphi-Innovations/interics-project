@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState, useRef } from 'react'
 import {
-  Box,
   Stack,
   Typography,
   Table,
@@ -11,6 +10,7 @@ import {
   TableRow,
   Skeleton,
   IconButton as MuiIconButton,
+  Button as MuiButton,
   Menu,
   MenuItem,
   Divider,
@@ -19,7 +19,8 @@ import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore'
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp'
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'
 import { useTheme, alpha } from '@mui/material/styles'
-import { TrendingUp, Plus, MoreHorizontal, Eye, Pencil, Send, Download } from 'lucide-react'
+import MoreVertIcon from '@mui/icons-material/MoreVert'
+import { TrendingUp, Plus } from 'lucide-react'
 import dayjs from 'dayjs'
 import { ListingTemplate } from '@/components/templates'
 import type { FilterField, ColumnItem } from '@/components/templates/ListingTemplate'
@@ -36,7 +37,7 @@ import {
 import { fetchInvoices, sendInvoice } from '@/slices/receivables/thunk'
 import { fetchCustomers } from '@/slices/customers/thunk'
 import { fetchProjects } from '@/slices/projects/thunk'
-import type { Invoice, InvoiceStatus } from '@/slices/receivables/reducer'
+import type { Invoice } from '@/slices/receivables/reducer'
 import { formatCurrency } from '@/utils/formatters'
 import { tokens } from '@/design-system/tokens'
 import { CreateInvoiceDrawer } from './components/CreateInvoiceDrawer'
@@ -46,27 +47,6 @@ import { RecordPaymentModal } from './components/RecordPaymentModal'
 function isDueOverdue(inv: Invoice): boolean {
   if (inv.status === 'paid' || inv.balance <= 0) return false
   return dayjs(inv.dueDate).isBefore(dayjs(), 'day')
-}
-
-function agingDays(inv: Invoice): number {
-  if (inv.status !== 'unpaid' && inv.status !== 'overdue') return -1
-  const d = dayjs().diff(dayjs(inv.dueDate), 'day')
-  return d > 0 ? d : 0
-}
-
-function agingBucket(days: number): 'b0' | 'b1' | 'b2' | 'b3' | null {
-  if (days < 0) return null
-  if (days <= 30) return 'b0'
-  if (days <= 60) return 'b1'
-  if (days <= 90) return 'b2'
-  return 'b3'
-}
-
-const BUCKET_BORDER: Record<string, string> = {
-  b0: tokens.color.success[500],
-  b1: tokens.color.warning[500],
-  b2: '#EA580C',
-  b3: tokens.color.error[500],
 }
 
 /** Togglable columns (invoice no. + actions are always shown). */
@@ -84,23 +64,9 @@ type ReceivablesVisibleColumns = {
   status: boolean
 }
 
-const AGING_COLUMN_KEYS: (keyof ReceivablesVisibleColumns)[] = [
-  'clientName',
-  'projectName',
-  'invoiceDate',
-  'dueDate',
-  'totalAmount',
-  'balance',
-  'status',
-]
-
 function mainInvoiceTableColumnCount(v: ReceivablesVisibleColumns): number {
   const toggles = Object.values(v).filter(Boolean).length
   return 1 + toggles + 1
-}
-
-function agingTableColumnCount(v: ReceivablesVisibleColumns): number {
-  return 1 + AGING_COLUMN_KEYS.filter((k) => v[k]).length + 1
 }
 
 function SortHeader({
@@ -152,60 +118,95 @@ function SortHeader({
   )
 }
 
+const menuItemSx = { fontSize: 12, minHeight: 32, py: 0.5 }
+
 function RowActions({
   inv,
   onView,
-  onEdit,
   onPay,
   onSend,
   onPdf,
 }: {
   inv: Invoice
   onView: () => void
-  onEdit: () => void
   onPay: () => void
   onSend: () => void
   onPdf: () => void
 }) {
   const [anchor, setAnchor] = useState<null | HTMLElement>(null)
-  const canEdit = inv.status === 'draft'
-  const canPay = inv.status !== 'paid' && inv.status !== 'draft'
-  const canSend = inv.status === 'draft'
+  const canRecordPayment = inv.status !== 'draft' && inv.status !== 'paid' && inv.balance > 0
+  const canMarkSent = inv.status === 'draft'
 
   return (
-    <>
-      <MuiIconButton size="small" onClick={(e) => { e.stopPropagation(); setAnchor(e.currentTarget) }} sx={{ color: tokens.color.neutral[400] }}>
-        <MoreHorizontal size={16} />
+    <Stack direction="row" alignItems="center" justifyContent="flex-end" gap={0.5}>
+      <MuiButton
+        size="small"
+        variant="text"
+        color="primary"
+        onClick={(e) => {
+          e.stopPropagation()
+          onView()
+        }}
+      >
+        View
+      </MuiButton>
+      <MuiIconButton
+        size="small"
+        onClick={(e) => {
+          e.stopPropagation()
+          setAnchor(e.currentTarget)
+        }}
+        aria-label="More actions"
+      >
+        <MoreVertIcon sx={{ fontSize: 16 }} />
       </MuiIconButton>
-      <Menu anchorEl={anchor} open={Boolean(anchor)} onClose={() => setAnchor(null)}>
-        <MenuItem onClick={() => { onView(); setAnchor(null) }} sx={{ fontSize: 13, gap: 1 }}>
-          <Eye size={14} /> View
-        </MenuItem>
-        {canEdit && (
-          <MenuItem onClick={() => { onEdit(); setAnchor(null) }} sx={{ fontSize: 13, gap: 1 }}>
-            <Pencil size={14} /> Edit
-          </MenuItem>
-        )}
-        {canPay && (
-          <MenuItem onClick={() => { onPay(); setAnchor(null) }} sx={{ fontSize: 13, gap: 1 }}>
+      <Menu
+        anchorEl={anchor}
+        open={Boolean(anchor)}
+        onClose={() => setAnchor(null)}
+        onClick={(e) => e.stopPropagation()}
+        slotProps={{ paper: { elevation: 2 } }}
+      >
+        {canRecordPayment && (
+          <MenuItem
+            sx={menuItemSx}
+            onClick={() => {
+              onPay()
+              setAnchor(null)
+            }}
+          >
             Record Payment
           </MenuItem>
         )}
-        {canSend && (
-          <MenuItem onClick={() => { onSend(); setAnchor(null) }} sx={{ fontSize: 13, gap: 1 }}>
-            <Send size={14} /> Send
-          </MenuItem>
-        )}
-        <Divider />
-        <MenuItem onClick={() => { onPdf(); setAnchor(null) }} sx={{ fontSize: 13, gap: 1 }}>
-          <Download size={14} /> Download PDF
+        <MenuItem
+          sx={menuItemSx}
+          onClick={() => {
+            onPdf()
+            setAnchor(null)
+          }}
+        >
+          Download PDF
         </MenuItem>
+        {canMarkSent && (
+          <>
+            <Divider />
+            <MenuItem
+              sx={menuItemSx}
+              onClick={() => {
+                onSend()
+                setAnchor(null)
+              }}
+            >
+              Mark as Sent
+            </MenuItem>
+          </>
+        )}
       </Menu>
-    </>
+    </Stack>
   )
 }
 
-export default function ReceivablesPage() {
+export default function BillingsPage() {
   const dispatch = useAppDispatch()
   const { showToast } = useToast()
   const theme = useTheme()
@@ -226,11 +227,11 @@ export default function ReceivablesPage() {
     projectName: true,
     invoiceDate: true,
     dueDate: true,
-    baseAmount: true,
-    gstAmount: true,
+    baseAmount: false,
+    gstAmount: false,
     totalAmount: true,
     tdsDeducted: true,
-    totalReceived: true,
+    totalReceived: false,
     balance: true,
     status: true,
   })
@@ -247,7 +248,7 @@ export default function ReceivablesPage() {
       { field: 'totalAmount', label: 'Total', visible: visibleColumns.totalAmount },
       { field: 'tdsDeducted', label: 'TDS', visible: visibleColumns.tdsDeducted },
       { field: 'totalReceived', label: 'Received', visible: visibleColumns.totalReceived },
-      { field: 'balance', label: 'Balance', visible: visibleColumns.balance },
+      { field: 'balance', label: 'Net receivable', visible: visibleColumns.balance },
       { field: 'status', label: 'Status', visible: visibleColumns.status },
     ],
     [visibleColumns],
@@ -259,7 +260,6 @@ export default function ReceivablesPage() {
   }
 
   const mainColCount = useMemo(() => mainInvoiceTableColumnCount(visibleColumns), [visibleColumns])
-  const agingColCount = useMemo(() => agingTableColumnCount(visibleColumns), [visibleColumns])
 
   function reload() {
     dispatch(fetchInvoices({ page: 1, pageSize: 200 }))
@@ -291,7 +291,10 @@ export default function ReceivablesPage() {
     [customers],
   )
   const projectOpts = useMemo(
-    () => [{ label: 'All projects', value: '' }, ...projects.map((p) => ({ label: p.name, value: p.id }))],
+    () => [
+      { label: 'All projects', value: '' },
+      ...projects.filter((p) => p.status === 'Live').map((p) => ({ label: p.name, value: p.id })),
+    ],
     [projects],
   )
 
@@ -330,7 +333,10 @@ export default function ReceivablesPage() {
   }, [items, filters])
 
   const tabFiltered = useMemo(() => {
-    if (filters.statusTab === 'all' || filters.statusTab === 'aging') return baseFiltered
+    if (filters.statusTab === 'all') return baseFiltered
+    if (filters.statusTab === 'sent') {
+      return baseFiltered.filter((i) => i.status === 'sent' || i.status === 'unpaid')
+    }
     return baseFiltered.filter((i) => i.status === filters.statusTab)
   }, [baseFiltered, filters.statusTab])
 
@@ -364,118 +370,47 @@ export default function ReceivablesPage() {
     return list
   }, [tabFiltered, sortConfig])
 
-  const agingRows = useMemo(() => {
-    const list = baseFiltered.filter((i) => i.status === 'unpaid' || i.status === 'overdue')
-    const withBucket = list
-      .map((inv) => ({ inv, days: agingDays(inv), bucket: agingBucket(agingDays(inv)) }))
-      .filter((x) => x.bucket)
-    const order = { b3: 0, b2: 1, b1: 2, b0: 3 }
-    withBucket.sort((a, b) => (order[a.bucket!] - order[b.bucket!]) || b.days - a.days)
-    return withBucket
-  }, [baseFiltered])
-
-  const sortedAgingRows = useMemo(() => {
-    const rows = [...agingRows]
-    const f = sortConfig.field
-    const dir = sortConfig.direction === 'asc' ? 1 : -1
-    if (!f) return rows
-    rows.sort((x, y) => {
-      const a = x.inv
-      const b = y.inv
-      let av: string | number = ''
-      let bv: string | number = ''
-      if (f === 'invoiceNo') {
-        av = a.invoiceNo.toLowerCase()
-        bv = b.invoiceNo.toLowerCase()
-      } else if (f === 'invoiceDate') {
-        av = a.invoiceDate
-        bv = b.invoiceDate
-      } else if (f === 'dueDate') {
-        av = a.dueDate
-        bv = b.dueDate
-      } else if (f === 'totalAmount') {
-        av = a.totalAmount
-        bv = b.totalAmount
-      } else if (f === 'clientName') {
-        av = a.clientName.toLowerCase()
-        bv = b.clientName.toLowerCase()
-      }
-      if (typeof av === 'number' && typeof bv === 'number') return av === bv ? 0 : av > bv ? dir : -dir
-      return String(av).localeCompare(String(bv)) * dir
-    })
-    return rows
-  }, [agingRows, sortConfig])
-
   const pageSize = pagination.pageSize
   const pageIdx = pagination.page - 1
   const pagedRows = useMemo(
     () => sortedRows.slice(pageIdx * pageSize, pageIdx * pageSize + pageSize),
     [sortedRows, pageIdx, pageSize],
   )
-  const pagedAging = useMemo(
-    () => sortedAgingRows.slice(pageIdx * pageSize, pageIdx * pageSize + pageSize),
-    [sortedAgingRows, pageIdx, pageSize],
-  )
-
-  const agingStats = useMemo(() => {
-    const init = { count: 0, total: 0 as number }
-    const buckets = {
-      b0: { ...init },
-      b1: { ...init },
-      b2: { ...init },
-      b3: { ...init },
-    }
-    baseFiltered
-      .filter((i) => i.status === 'unpaid' || i.status === 'overdue')
-      .forEach((inv) => {
-        const d = agingDays(inv)
-        const b = agingBucket(d)
-        if (!b) return
-        buckets[b].count += 1
-        buckets[b].total += inv.balance
-      })
-    return buckets
-  }, [baseFiltered])
 
   const tabCounts = useMemo(() => {
-    const c = (st: InvoiceStatus | 'all') =>
-      st === 'all' ? baseFiltered.length : baseFiltered.filter((i) => i.status === st).length
+    const sentCount = baseFiltered.filter((i) => i.status === 'sent' || i.status === 'unpaid').length
     return {
       all: baseFiltered.length,
-      draft: c('draft'),
-      sent: c('sent'),
-      unpaid: c('unpaid'),
-      partially_paid: c('partially_paid'),
-      overdue: c('overdue'),
-      paid: c('paid'),
-      aging: agingRows.length,
+      draft: baseFiltered.filter((i) => i.status === 'draft').length,
+      sent: sentCount,
+      partially_paid: baseFiltered.filter((i) => i.status === 'partially_paid').length,
+      overdue: baseFiltered.filter((i) => i.status === 'overdue').length,
+      paid: baseFiltered.filter((i) => i.status === 'paid').length,
     }
-  }, [baseFiltered, agingRows.length])
+  }, [baseFiltered])
 
   const kpis = useMemo(() => {
     const totalInvoiced = items.reduce((s, i) => s + i.totalAmount, 0)
     const received = items.reduce((s, i) => s + i.totalReceived, 0)
-    const outstanding = items.filter((i) => i.status !== 'paid').reduce((s, i) => s + i.balance, 0)
-    const overdueAmt = items.filter((i) => i.status === 'overdue').reduce((s, i) => s + i.balance, 0)
-    return { totalInvoiced, received, outstanding, overdueAmt }
+    const outstanding = totalInvoiced - received
+    const tdsDeducted = items.reduce((s, i) => s + i.tdsDeducted, 0)
+    return { totalInvoiced, received, outstanding, tdsDeducted }
   }, [items])
 
   const statCards = [
     { label: 'Total invoiced', value: `₹${kpis.totalInvoiced.toLocaleString('en-IN')}`, color: 'default' as const },
     { label: 'Received', value: `₹${kpis.received.toLocaleString('en-IN')}`, color: 'success' as const },
     { label: 'Outstanding', value: `₹${kpis.outstanding.toLocaleString('en-IN')}`, color: 'warning' as const },
-    { label: 'Overdue', value: `₹${kpis.overdueAmt.toLocaleString('en-IN')}`, color: 'error' as const },
+    { label: 'TDS deducted', value: `₹${kpis.tdsDeducted.toLocaleString('en-IN')}`, color: 'default' as const },
   ]
 
   const tabs = [
     { label: 'All', value: 'all', count: tabCounts.all },
     { label: 'Draft', value: 'draft', count: tabCounts.draft },
     { label: 'Sent', value: 'sent', count: tabCounts.sent },
-    { label: 'Unpaid', value: 'unpaid', count: tabCounts.unpaid },
     { label: 'Partially Paid', value: 'partially_paid', count: tabCounts.partially_paid },
     { label: 'Overdue', value: 'overdue', count: tabCounts.overdue },
     { label: 'Paid', value: 'paid', count: tabCounts.paid },
-    { label: 'Aging', value: 'aging', count: tabCounts.aging },
   ]
 
   function handleSearchChange(v: string) {
@@ -540,7 +475,7 @@ export default function ReceivablesPage() {
     <>
       <ListingTemplate
         icon={<TrendingUp size={20} />}
-        title="Billing & Receivables"
+        title="Billings"
         subtitle="Cross-project client invoices and payments"
         primaryAction={{ label: '+ Create Invoice', onClick: () => setDrawerCreate(true), startIcon: <Plus size={16} /> }}
         statCards={statCards}
@@ -557,134 +492,13 @@ export default function ReceivablesPage() {
         showExport
         onExport={() => showToast({ title: 'Export started (placeholder)', variant: 'success' })}
         pageSize={pagination.pageSize}
-        totalCount={filters.statusTab === 'aging' ? sortedAgingRows.length : sortedRows.length}
+        totalCount={sortedRows.length}
         page={pagination.page - 1}
         onPageChange={(p) => dispatch(setPage(p + 1))}
         onPageSizeChange={(s) => dispatch(setPageSize(s))}
         columns={columnsConfig}
         onColumnVisibilityChange={handleColumnVisibilityChange}
       >
-        {filters.statusTab === 'aging' ? (
-          <Stack spacing={2} sx={{ p: 2 }}>
-            <Stack direction="row" flexWrap="wrap" gap={2}>
-              {[
-                { k: 'b0' as const, label: '0–30 days' },
-                { k: 'b1' as const, label: '30–60 days' },
-                { k: 'b2' as const, label: '60–90 days' },
-                { k: 'b3' as const, label: '90+ days' },
-              ].map(({ k, label }) => (
-                <Box
-                  key={k}
-                  sx={{
-                    flex: '1 1 160px',
-                    p: 2,
-                    borderRadius: 2,
-                    border: `1px solid ${tokens.color.neutral[200]}`,
-                    borderLeft: `4px solid ${BUCKET_BORDER[k]}`,
-                  }}
-                >
-                  <Typography variant="caption" color="text.secondary">
-                    {label}
-                  </Typography>
-                  <Typography variant="h6" fontWeight={700}>
-                    {agingStats[k].count} invoices
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    ₹{agingStats[k].total.toLocaleString('en-IN')} outstanding
-                  </Typography>
-                </Box>
-              ))}
-            </Stack>
-            <TableContainer sx={{ overflowX: 'auto' }}>
-              <Table size="small">
-                <TableHead>
-                  <TableRow sx={{ bgcolor: alpha(theme.palette.text.primary, 0.02) }}>
-                    <SortHeader label="Invoice no." field="invoiceNo" sortField={sortConfig.field} sortDirection={sortConfig.direction} onSort={handleSort} />
-                    {visibleColumns.clientName && (
-                      <SortHeader label="Client" field="clientName" sortField={sortConfig.field} sortDirection={sortConfig.direction} onSort={handleSort} />
-                    )}
-                    {visibleColumns.projectName && (
-                      <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary' }}>Project</TableCell>
-                    )}
-                    {visibleColumns.invoiceDate && (
-                      <SortHeader label="Invoice date" field="invoiceDate" sortField={sortConfig.field} sortDirection={sortConfig.direction} onSort={handleSort} />
-                    )}
-                    {visibleColumns.dueDate && (
-                      <SortHeader label="Due date" field="dueDate" sortField={sortConfig.field} sortDirection={sortConfig.direction} onSort={handleSort} />
-                    )}
-                    {visibleColumns.totalAmount && (
-                      <TableCell sx={{ fontSize: 11, fontWeight: 600 }}>Total</TableCell>
-                    )}
-                    {visibleColumns.balance && (
-                      <TableCell sx={{ fontSize: 11, fontWeight: 600 }}>Balance</TableCell>
-                    )}
-                    {visibleColumns.status && (
-                      <TableCell sx={{ fontSize: 11, fontWeight: 600 }}>Status</TableCell>
-                    )}
-                    <TableCell sx={{ width: 48, position: 'sticky', right: 0, bgcolor: 'background.paper', zIndex: 1 }} />
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {loading
-                    ? [...Array(5)].map((_, i) => (
-                        <TableRow key={i}>
-                          {[...Array(agingColCount)].map((__, j) => (
-                            <TableCell key={j}>
-                              <Skeleton height={24} />
-                            </TableCell>
-                          ))}
-                        </TableRow>
-                      ))
-                    : pagedAging.map(({ inv, bucket }) => (
-                        <TableRow
-                          key={inv.id}
-                          hover
-                          sx={{
-                            cursor: 'pointer',
-                            '&:hover': { bgcolor: hoverBg },
-                            borderLeft: `4px solid ${BUCKET_BORDER[bucket!]}`,
-                          }}
-                          onClick={() => setDetailId(inv.id)}
-                        >
-                          <TableCell sx={{ fontFamily: 'monospace', fontSize: 12 }}>{inv.invoiceNo}</TableCell>
-                          {visibleColumns.clientName && <TableCell sx={{ fontSize: 12 }}>{inv.clientName}</TableCell>}
-                          {visibleColumns.projectName && <TableCell sx={{ fontSize: 12 }}>{inv.projectName}</TableCell>}
-                          {visibleColumns.invoiceDate && (
-                            <TableCell sx={{ fontSize: 12 }}>{dayjs(inv.invoiceDate).format('DD MMM YYYY')}</TableCell>
-                          )}
-                          {visibleColumns.dueDate && (
-                            <TableCell sx={{ fontSize: 12, color: 'error.main' }}>{dayjs(inv.dueDate).format('DD MMM YYYY')}</TableCell>
-                          )}
-                          {visibleColumns.totalAmount && (
-                            <TableCell sx={{ fontSize: 12, fontWeight: 700 }}>₹{formatCurrency(inv.totalAmount)}</TableCell>
-                          )}
-                          {visibleColumns.balance && (
-                            <TableCell sx={{ fontSize: 12, color: inv.balance > 0 ? 'error.main' : 'success.main' }}>
-                              ₹{formatCurrency(inv.balance)}
-                            </TableCell>
-                          )}
-                          {visibleColumns.status && (
-                            <TableCell>
-                              <StatusBadge status={invoiceStatusToBadgeType(inv.status) as StatusType} />
-                            </TableCell>
-                          )}
-                          <TableCell align="right" sx={{ position: 'sticky', right: 0, bgcolor: 'background.paper', zIndex: 1 }} onClick={(e) => e.stopPropagation()}>
-                            <RowActions
-                              inv={inv}
-                              onView={() => setDetailId(inv.id)}
-                              onEdit={() => setDrawerEdit(inv)}
-                              onPay={() => setPaymentInv(inv)}
-                              onSend={() => setSendTarget(inv)}
-                              onPdf={() => showToast({ title: 'PDF download (placeholder)', variant: 'success' })}
-                            />
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          </Stack>
-        ) : (
           <TableContainer sx={{ overflowX: 'auto' }}>
             <Table size="small">
               <TableHead>
@@ -709,7 +523,7 @@ export default function ReceivablesPage() {
                     <TableCell sx={{ fontSize: 11, fontWeight: 600 }}>GST</TableCell>
                   )}
                   {visibleColumns.totalAmount && (
-                    <TableCell sx={{ fontSize: 11, fontWeight: 600 }}>Total</TableCell>
+                    <TableCell sx={{ fontSize: 11, fontWeight: 600 }}>Amount</TableCell>
                   )}
                   {visibleColumns.tdsDeducted && (
                     <TableCell sx={{ fontSize: 11, fontWeight: 600 }}>TDS</TableCell>
@@ -718,7 +532,7 @@ export default function ReceivablesPage() {
                     <TableCell sx={{ fontSize: 11, fontWeight: 600 }}>Received</TableCell>
                   )}
                   {visibleColumns.balance && (
-                    <TableCell sx={{ fontSize: 11, fontWeight: 600 }}>Balance</TableCell>
+                    <TableCell sx={{ fontSize: 11, fontWeight: 600 }}>Net receivable</TableCell>
                   )}
                   {visibleColumns.status && (
                     <TableCell sx={{ fontSize: 11, fontWeight: 600 }}>Status</TableCell>
@@ -743,7 +557,11 @@ export default function ReceivablesPage() {
                         <TableRow
                           key={inv.id}
                           hover
-                          sx={{ cursor: 'pointer', '&:hover': { bgcolor: hoverBg } }}
+                          sx={{
+                            cursor: 'pointer',
+                            '& td': { height: 44 },
+                            '&:hover': { bgcolor: hoverBg },
+                          }}
                           onClick={() => setDetailId(inv.id)}
                         >
                           <TableCell sx={{ fontFamily: 'monospace', fontSize: 12 }}>
@@ -813,7 +631,6 @@ export default function ReceivablesPage() {
                             <RowActions
                               inv={inv}
                               onView={() => setDetailId(inv.id)}
-                              onEdit={() => setDrawerEdit(inv)}
                               onPay={() => setPaymentInv(inv)}
                               onSend={() => setSendTarget(inv)}
                               onPdf={() => showToast({ title: 'PDF download (placeholder)', variant: 'success' })}
@@ -825,7 +642,6 @@ export default function ReceivablesPage() {
               </TableBody>
             </Table>
           </TableContainer>
-        )}
       </ListingTemplate>
 
       <Modal
