@@ -6,7 +6,6 @@ import {
   Typography,
   MenuItem,
   Select as MuiSelect,
-  Chip,
   Divider,
 } from '@mui/material'
 import { useTheme, alpha } from '@mui/material/styles'
@@ -20,7 +19,6 @@ import {
   BarChart2,
   FileText,
   UserPlus,
-  RefreshCw,
   CheckCircle,
   AlertTriangle,
   AlertCircle,
@@ -43,7 +41,7 @@ import {
   Cell,
   ReferenceLine,
 } from 'recharts'
-import { Button, Avatar, StatusBadge, useToast } from '@/design-system/components'
+import { Button, Avatar, StatusBadge } from '@/design-system/components'
 import type { StatusType } from '@/design-system/components'
 import CreateProjectModal from '@/pages/Projects/CreateProjectModal'
 import { GlobalExpenseDrawer } from '@/components/expenses/GlobalExpenseDrawer'
@@ -52,15 +50,10 @@ import { fetchInvoices } from '@/slices/receivables/thunk'
 import { fetchProjects } from '@/slices/projects/thunk'
 import type { Invoice as ClientInvoice } from '@/slices/receivables/reducer'
 import type { Project } from '@/slices/projects/reducer'
-import type {
-  VendorInvoice,
-  Expense,
-  Reimbursement,
-} from '@/slices/live/reducer'
+import type { VendorInvoice, Expense } from '@/slices/live/reducer'
 import {
   formatCurrency,
   formatDate,
-  formatRelativeTime,
   getAvatarColor,
   toSlug,
 } from '@/utils/formatters'
@@ -78,24 +71,6 @@ interface MonthBucket {
   label: string
   year: number
   month: number
-}
-
-interface ActivityRow {
-  kind: 'invoice' | 'vendor_invoice' | 'expense' | 'reimbursement'
-  id: string
-  ts: number
-  title: string
-  subtitle: string
-  relativeLabel: string
-  avatarName: string
-}
-
-interface PendingRow {
-  kind: 'expense' | 'reimbursement' | 'vendor_invoice'
-  id: string
-  title: string
-  subtitle: string
-  amount: number
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -242,11 +217,6 @@ function sortProjectsByIdDesc(list: Project[]): Project[] {
   })
 }
 
-function truncate(s: string, max: number): string {
-  if (s.length <= max) return s
-  return s.slice(0, max - 3) + '...'
-}
-
 // ─── KPI Card ─────────────────────────────────────────────────────────────────
 
 function KpiCard({
@@ -359,7 +329,6 @@ export default function DashboardPage() {
   const theme = useTheme() as Theme
   const navigate = useNavigate()
   const dispatch = useAppDispatch()
-  const { showToast } = useToast()
   const chartHeight = useMediaQuery(theme.breakpoints.down('md')) ? 180 : 220
 
   const clientInvoices = useAppSelector((s) => s.receivables.items)
@@ -376,7 +345,6 @@ export default function DashboardPage() {
 
   const [vendorInvoices, setVendorInvoices] = useState<VendorInvoice[]>([])
   const [expenses, setExpenses] = useState<Expense[]>([])
-  const [reimbursements, setReimbursements] = useState<Reimbursement[]>([])
 
   useEffect(() => {
     void dispatch(fetchInvoices({}))
@@ -387,7 +355,6 @@ export default function DashboardPage() {
     if (projects.length === 0) {
       setVendorInvoices([])
       setExpenses([])
-      setReimbursements([])
       return
     }
     let cancelled = false
@@ -395,30 +362,25 @@ export default function DashboardPage() {
       const results = await Promise.all(
         projects.map(async (p) => {
           const base = `/api/projects/${p.id}`
-          const [vr, er, rr] = await Promise.all([
+          const [vr, er] = await Promise.all([
             fetch(`${base}/vendor-invoices`).then((r) => (r.ok ? r.json() : [])),
             fetch(`${base}/expenses`).then((r) => (r.ok ? r.json() : [])),
-            fetch(`${base}/reimbursements`).then((r) => (r.ok ? r.json() : [])),
           ])
           return {
             v: vr as VendorInvoice[],
             e: er as Expense[],
-            r: rr as Reimbursement[],
           }
         }),
       )
       if (cancelled) return
       const vi: VendorInvoice[] = []
       const ex: Expense[] = []
-      const rmb: Reimbursement[] = []
       for (const r of results) {
         if (Array.isArray(r.v)) vi.push(...r.v)
         if (Array.isArray(r.e)) ex.push(...r.e)
-        if (Array.isArray(r.r)) rmb.push(...r.r)
       }
       setVendorInvoices(vi)
       setExpenses(ex)
-      setReimbursements(rmb)
     })()
     return () => {
       cancelled = true
@@ -467,12 +429,6 @@ export default function DashboardPage() {
     if (projectIdsForScope.size === 0) return []
     return expenses.filter((e) => projectIdsForScope.has(e.projectId))
   }, [expenses, projectIdsForScope])
-
-  const scopedReimbursements = useMemo(() => {
-    if (projectIdsForScope === null) return reimbursements
-    if (projectIdsForScope.size === 0) return []
-    return reimbursements.filter((c) => projectIdsForScope.has(c.projectId))
-  }, [reimbursements, projectIdsForScope])
 
   const monthCount = useMemo(() => {
     if (chartPeriod === 'Last 3 Months') return 3
@@ -660,91 +616,6 @@ export default function DashboardPage() {
       scopedVendorInvoices.filter((v) => v.status === 'pending' || v.status === 'approved').length,
     [scopedVendorInvoices],
   )
-
-  const activityRows = useMemo((): ActivityRow[] => {
-    const rows: ActivityRow[] = []
-    for (const inv of scopedInvoices) {
-      rows.push({
-        kind: 'invoice',
-        id: inv.id,
-        ts: new Date(inv.createdAt).getTime(),
-        title: 'New invoice created',
-        subtitle: `${inv.invoiceNo} · ${inv.projectName}`,
-        relativeLabel: formatRelativeTime(inv.createdAt),
-        avatarName: inv.clientName || 'UN',
-      })
-    }
-    for (const v of scopedVendorInvoices) {
-      if (!v.invoiceDate) continue
-      rows.push({
-        kind: 'vendor_invoice',
-        id: v.id,
-        ts: new Date(v.invoiceDate).getTime(),
-        title: 'Vendor invoice received',
-        subtitle: `${v.invoiceNumber ?? v.milestoneName} · ${v.vendorName}`,
-        relativeLabel: formatRelativeTime(v.invoiceDate),
-        avatarName: v.vendorName || 'UN',
-      })
-    }
-    for (const e of scopedExpenses) {
-      rows.push({
-        kind: 'expense',
-        id: e.id,
-        ts: new Date(e.date).getTime(),
-        title: 'Expense recorded',
-        subtitle: e.description.slice(0, 48),
-        relativeLabel: formatRelativeTime(e.date),
-        avatarName: e.vendorName ?? 'Expense',
-      })
-    }
-    for (const r of scopedReimbursements) {
-      rows.push({
-        kind: 'reimbursement',
-        id: r.id,
-        ts: new Date(r.date).getTime(),
-        title: 'Reimbursement logged',
-        subtitle: `${r.description.slice(0, 36)} · ${r.vendorName}`,
-        relativeLabel: formatRelativeTime(r.date),
-        avatarName: r.vendorName || 'UN',
-      })
-    }
-    return rows.sort((a, b) => b.ts - a.ts).slice(0, 10)
-  }, [scopedInvoices, scopedVendorInvoices, scopedExpenses, scopedReimbursements])
-
-  const pendingItems = useMemo((): PendingRow[] => {
-    const rows: PendingRow[] = []
-    for (const e of scopedExpenses) {
-      if (e.status !== 'pending') continue
-      rows.push({
-        kind: 'expense',
-        id: e.id,
-        title: truncate(e.description, 35),
-        subtitle: e.vendorName ?? 'Expense',
-        amount: e.amount ?? 0,
-      })
-    }
-    for (const r of scopedReimbursements) {
-      if (r.status !== 'pending') continue
-      rows.push({
-        kind: 'reimbursement',
-        id: r.id,
-        title: truncate(r.description, 35),
-        subtitle: r.vendorName,
-        amount: r.amount ?? 0,
-      })
-    }
-    for (const v of scopedVendorInvoices) {
-      if (v.status !== 'pending' && v.status !== 'approved') continue
-      rows.push({
-        kind: 'vendor_invoice',
-        id: v.id,
-        title: truncate(v.invoiceNumber ?? v.milestoneName, 35),
-        subtitle: v.vendorName,
-        amount: v.baseAmount ?? 0,
-      })
-    }
-    return rows
-  }, [scopedExpenses, scopedReimbursements, scopedVendorInvoices])
 
   const totalReceivableExpected = useMemo(
     () =>
@@ -2231,244 +2102,6 @@ export default function DashboardPage() {
           </Box>
         </Box>
       </Paper>
-
-      {/* ROW 11 — Activity + Approvals */}
-      <Box
-        sx={{
-          display: 'grid',
-          gridTemplateColumns: { xs: '1fr', lg: '3fr 2fr' },
-          gap: 2.5,
-        }}
-      >
-        <Paper
-          elevation={0}
-          sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, p: 2.5 }}
-        >
-          <Box
-            sx={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              mb: 2,
-            }}
-          >
-            <Typography variant="h6" fontWeight={600}>
-              Recent Activities
-            </Typography>
-            <Typography
-              variant="body2"
-              color="primary.main"
-              fontWeight={500}
-              sx={{ cursor: 'pointer' }}
-              onClick={() => navigate('/audit-logs')}
-            >
-              View All
-            </Typography>
-          </Box>
-          {activityRows.length === 0 ? (
-            <Typography
-              variant="caption"
-              color="text.secondary"
-              sx={{ display: 'block', textAlign: 'center', py: 4 }}
-            >
-              No recent activity
-            </Typography>
-          ) : (
-            activityRows.map((row, idx) => {
-              const av = getAvatarColor(row.avatarName)
-              return (
-                <Box
-                  key={`${row.kind}-${row.id}`}
-                  sx={{
-                    display: 'flex',
-                    gap: 1.5,
-                    py: 1.25,
-                    borderBottom: idx < activityRows.length - 1 ? '1px solid' : 'none',
-                    borderColor: 'divider',
-                  }}
-                >
-                  <Avatar
-                    name={row.avatarName}
-                    size="md"
-                    color={av.bg}
-                    sx={{
-                      width: 32,
-                      height: 32,
-                      fontSize: 11,
-                      fontWeight: 600,
-                      flexShrink: 0,
-                    }}
-                  />
-                  <Box sx={{ flex: 1, minWidth: 0 }}>
-                    <Typography variant="body2" fontWeight={500}>
-                      {row.title}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      {row.subtitle}
-                    </Typography>
-                    <Typography variant="caption" color="text.disabled" sx={{ display: 'block' }}>
-                      {row.relativeLabel}
-                    </Typography>
-                  </Box>
-                </Box>
-              )
-            })
-          )}
-        </Paper>
-
-        <Paper
-          elevation={0}
-          sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, p: 2.5 }}
-        >
-          <Box
-            sx={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              mb: 2,
-            }}
-          >
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Typography variant="h6" fontWeight={600}>
-                Pending Approvals
-              </Typography>
-              {pendingItems.length > 0 && (
-                <Chip
-                  label={`${pendingItems.length} items`}
-                  size="small"
-                  sx={{
-                    bgcolor: '#FEF3C7',
-                    color: '#B45309',
-                    fontWeight: 600,
-                    fontSize: 11,
-                    height: 20,
-                    borderRadius: 1,
-                  }}
-                />
-              )}
-            </Box>
-            <Typography
-              variant="body2"
-              color="primary.main"
-              fontWeight={500}
-              sx={{ cursor: 'pointer' }}
-              onClick={() => navigate('/finance/expenses')}
-            >
-              Process All
-            </Typography>
-          </Box>
-          {pendingItems.length === 0 ? (
-            <Box
-              sx={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                py: 4,
-                gap: 1,
-              }}
-            >
-              <CheckCircle size={32} color="#15803D" />
-              <Typography variant="body2" fontWeight={500}>
-                All caught up!
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                No pending approvals
-              </Typography>
-            </Box>
-          ) : (
-            pendingItems.map((item, idx) => (
-              <Box
-                key={`${item.kind}-${item.id}`}
-                sx={{
-                  display: 'flex',
-                  gap: 1.5,
-                  py: 1.5,
-                  borderBottom: idx < pendingItems.length - 1 ? '1px solid' : 'none',
-                  borderColor: 'divider',
-                  alignItems: 'flex-start',
-                }}
-              >
-                <Box
-                  sx={{
-                    width: 32,
-                    height: 32,
-                    borderRadius: '50%',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexShrink: 0,
-                    bgcolor:
-                      item.kind === 'expense'
-                        ? '#FEF3C7'
-                        : item.kind === 'reimbursement'
-                          ? '#DCFCE7'
-                          : '#F3E8FF',
-                  }}
-                >
-                  {item.kind === 'expense' && <Wallet size={14} color="#B45309" />}
-                  {item.kind === 'reimbursement' && <RefreshCw size={14} color="#15803D" />}
-                  {item.kind === 'vendor_invoice' && <FileText size={14} color="#7C3AED" />}
-                </Box>
-                <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <Typography variant="body2" fontWeight={500}>
-                    {item.title}
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    {item.subtitle}
-                  </Typography>
-                </Box>
-                <Box
-                  sx={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'flex-end',
-                    gap: 0.5,
-                    flexShrink: 0,
-                  }}
-                >
-                  <Typography variant="body2" fontWeight={600}>
-                    {ru(item.amount)}
-                  </Typography>
-                  <Box sx={{ display: 'flex', gap: 0.5 }}>
-                    <Button
-                      variant="text"
-                      size="sm"
-                      onClick={() => showToast({ title: 'Approved!', variant: 'success' })}
-                      sx={{
-                        fontSize: 10,
-                        fontWeight: 700,
-                        color: '#15803D',
-                        minWidth: 'auto',
-                        px: 0.5,
-                        py: 0.25,
-                        lineHeight: 1.5,
-                      }}
-                    >
-                      APPROVE
-                    </Button>
-                    <Button
-                      variant="text"
-                      size="sm"
-                      onClick={() => showToast({ title: 'Denied!', variant: 'error' })}
-                      sx={{
-                        fontSize: 10,
-                        fontWeight: 700,
-                        color: '#B91C1C',
-                        minWidth: 'auto',
-                        px: 0.5,
-                        py: 0.25,
-                        lineHeight: 1.5,
-                      }}
-                    >
-                      DENY
-                    </Button>
-                  </Box>
-                </Box>
-              </Box>
-            ))
-          )}
-        </Paper>
-      </Box>
     </Box>
   )
 }
