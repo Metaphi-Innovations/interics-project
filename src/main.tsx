@@ -7,12 +7,17 @@ import App from './App.tsx'
 
 /** MSW runs in dev and production so deploys (e.g. Vercel) use mock APIs without env flags or a backend. */
 async function enableMocking() {
-  const { worker } = await import('./mocks/browser')
-  return worker.start({
-    onUnhandledRequest: 'bypass',
-    quiet: !import.meta.env.DEV,
-    serviceWorker: { url: '/mockServiceWorker.js' },
-  })
+  try {
+    const { worker } = await import('./mocks/browser')
+    await worker.start({
+      onUnhandledRequest: 'bypass',
+      quiet: !import.meta.env.DEV,
+      serviceWorker: { url: '/mockServiceWorker.js' },
+      waitUntilReady: true,
+    })
+  } catch (e) {
+    console.warn('[MSW] Service worker failed to start; API calls may 404 until refresh.', e)
+  }
 }
 
 enableMocking().then(() => {
