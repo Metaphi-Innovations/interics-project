@@ -1,4 +1,4 @@
-import { BrowserRouter, Navigate, Routes, Route, useNavigate, useLocation } from 'react-router-dom'
+import { BrowserRouter, Navigate, Routes, Route, useNavigate } from 'react-router-dom'
 import {
   AppShell,
   ToastProvider,
@@ -22,11 +22,7 @@ import {
 } from 'lucide-react'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { logout } from '@/slices/auth/reducer'
-import type { JSX } from 'react'
-
-// Auth pages (no layout)
-import LoginPage from '@/pages/Auth/LoginPage'
-import ForgotPasswordPage from '@/pages/Auth/ForgotPasswordPage'
+// Auth UI disabled for now — routes redirect to the app.
 
 // Demo pages (no layout)
 import FullPageFormDemo from '@/pages/Demo/FullPageFormDemo'
@@ -184,16 +180,6 @@ const navConfig: NavConfig[] = [
   },
 ]
 
-function ProtectedRoute({ children }: { children: JSX.Element }) {
-  const { user, token } = useAppSelector(s => s.auth)
-  const location = useLocation()
-
-  if (!user || !token) {
-    return <Navigate to="/login" state={{ from: location }} replace />
-  }
-  return children
-}
-
 function AppInner() {
   const dispatch = useAppDispatch()
   const navigate = useNavigate()
@@ -207,35 +193,27 @@ function AppInner() {
 
   function handleLogout() {
     dispatch(logout())
-    navigate('/login', { replace: true })
+    window.location.href = '/dashboard'
   }
 
   return (
     <Routes>
-      {/* Public routes — no layout */}
-      <Route path="/login" element={<LoginPage />} />
-      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+      {/* Auth routes disabled — send users into the app */}
+      <Route path="/login" element={<Navigate to="/dashboard" replace />} />
+      <Route path="/forgot-password" element={<Navigate to="/dashboard" replace />} />
 
       {/* Demo routes — no layout */}
       <Route path="/demo/create-project" element={<FullPageFormDemo />} />
 
       {/* Project wizard — no AppShell layout */}
-      <Route
-        path="/projects/create"
-        element={
-          <ProtectedRoute>
-            <CreateProjectPage />
-          </ProtectedRoute>
-        }
-      />
+      <Route path="/projects/create" element={<CreateProjectPage />} />
 
-      {/* App routes — with AppShell layout, all protected */}
+      {/* App routes — AppShell layout */}
       <Route
         path="/*"
         element={
-          <ProtectedRoute>
-            <ToastProvider>
-              <AppShell
+          <ToastProvider>
+            <AppShell
                 navConfig={navConfig}
                 user={topbarUser}
                 appName="IDC Project Accounts"
@@ -310,12 +288,11 @@ function AppInner() {
                     }
                   />
                   <Route path="/settings" element={<SettingsPage />} />
-                  <Route index element={<Navigate to="/projects" replace />} />
-                  <Route path="*" element={<Navigate to="/projects" replace />} />
+                  <Route index element={<Navigate to="/dashboard" replace />} />
+                  <Route path="*" element={<Navigate to="/dashboard" replace />} />
                 </Routes>
-              </AppShell>
-            </ToastProvider>
-          </ProtectedRoute>
+            </AppShell>
+          </ToastProvider>
         }
       />
     </Routes>

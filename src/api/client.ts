@@ -24,7 +24,7 @@ client.interceptors.response.use(
       // Only hard-redirect for expired sessions, not failed login attempts
       if (token) {
         localStorage.removeItem('auth_token')
-        window.location.href = '/login'
+        window.location.href = '/dashboard'
       }
     }
     return Promise.reject(error)

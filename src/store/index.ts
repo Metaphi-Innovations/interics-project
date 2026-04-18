@@ -1,6 +1,7 @@
 import { configureStore } from '@reduxjs/toolkit'
 import authReducer from '../slices/auth/reducer'
 import type { AuthUser } from '../slices/auth/reducer'
+import { makeFullUserPermissions } from '@/types/permissions'
 import customersReducer from '../slices/customers/reducer'
 import vendorsReducer from '../slices/vendors/reducer'
 import projectsReducer from '../slices/projects/reducer'
@@ -16,6 +17,17 @@ import complianceReducer from '../slices/compliance/reducer'
 import financeReducer from '../slices/finance/reducer'
 import transitionReducer from '../slices/transition/reducer'
 
+/** Dev session when auth UI is disabled — matches mock `/api/auth/login` admin user. */
+const DEV_TOKEN = 'mock-jwt-token-admin'
+const DEV_USER: AuthUser = {
+  id: 'u-001',
+  name: 'Rajan Mehta',
+  email: 'admin@interics.com',
+  role: 'r-001',
+  avatar: null,
+  permissions: makeFullUserPermissions(),
+}
+
 const savedToken = localStorage.getItem('auth_token')
 const savedUserRaw = localStorage.getItem('ids_user')
 let savedUser: AuthUser | null = null
@@ -25,10 +37,21 @@ try {
   savedUser = null
 }
 
-const preloadedState =
-  savedToken && savedUser
-    ? { auth: { user: savedUser, token: savedToken, loading: false, error: null } }
-    : undefined
+const usePersistedSession = Boolean(savedToken && savedUser)
+
+if (!usePersistedSession) {
+  localStorage.setItem('auth_token', DEV_TOKEN)
+  localStorage.setItem('ids_user', JSON.stringify(DEV_USER))
+}
+
+const preloadedState = {
+  auth: {
+    user: usePersistedSession ? savedUser! : DEV_USER,
+    token: usePersistedSession ? savedToken! : DEV_TOKEN,
+    loading: false,
+    error: null,
+  },
+}
 
 export const store = configureStore({
   reducer: {
