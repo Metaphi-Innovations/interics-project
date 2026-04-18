@@ -55,7 +55,8 @@ export default function ComingSoonPage({ icon, moduleName }: ComingSoonProps) {
         </Typography>
         <Box sx={{ mt: '24px' }}>
           <Button
-            variant="secondary"
+            variant="outlined"
+            color="secondary"
             size="sm"
             startIcon={<ArrowLeft size={14} strokeWidth={1.75} />}
             onClick={() => navigate(-1)}

@@ -1,5 +1,5 @@
 import { tokens } from '@/design-system/tokens'
-import type { Expense, ExpenseType, Reimbursement, VendorInvoice, VendorPayment } from '@/slices/live/reducer'
+import type { Expense, Reimbursement, VendorInvoice, VendorPayment } from '@/slices/live/reducer'
 import type { Baseline } from '@/slices/baseline/reducer'
 import type { PitchService, VendorMilestone } from '@/slices/pitch/reducer'
 

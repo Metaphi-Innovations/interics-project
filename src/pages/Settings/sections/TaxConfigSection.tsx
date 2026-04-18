@@ -24,7 +24,8 @@ const defaultTDSForm: TDSForm = { section: '', description: '', defaultRate: 0, 
 
 export default function TaxConfigSection() {
   const dispatch = useAppDispatch()
-  const { toast } = useToast()
+  const success = useToast((s) => s.success)
+  const error = useToast((s) => s.error)
   const { gstRates, tdsSections, saving } = useAppSelector(s => s.settings)
   const [tab, setTab] = useState(0)
 
@@ -61,9 +62,9 @@ export default function TaxConfigSection() {
     action.unwrap()
       .then(() => {
         setGstDrawerOpen(false)
-        toast({ message: editingGST ? 'GST rate updated' : 'GST rate added', severity: 'success' })
+        success(editingGST ? 'GST rate updated' : 'GST rate added')
       })
-      .catch(() => toast({ message: 'Failed to save GST rate', severity: 'error' }))
+      .catch(() => error('Failed to save GST rate'))
   }
   const handleToggleGST = (row: GSTRate) => {
     dispatch(toggleGSTRateStatus(row.id))
@@ -87,9 +88,9 @@ export default function TaxConfigSection() {
     action.unwrap()
       .then(() => {
         setTdsDrawerOpen(false)
-        toast({ message: editingTDS ? 'TDS section updated' : 'TDS section added', severity: 'success' })
+        success(editingTDS ? 'TDS section updated' : 'TDS section added')
       })
-      .catch(() => toast({ message: 'Failed to save TDS section', severity: 'error' }))
+      .catch(() => error('Failed to save TDS section'))
   }
   const handleToggleTDS = (row: TDSSection) => {
     dispatch(toggleTDSSectionStatus(row.id))
@@ -112,7 +113,7 @@ export default function TaxConfigSection() {
         <Box>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
             <Typography variant="body2" fontWeight={600}>Goods & Services Tax (GST) Slabs</Typography>
-            <Button variant="primary" size="sm" onClick={openAddGST}>+ Add Rate</Button>
+            <Button variant="contained" color="primary" size="sm" onClick={openAddGST}>+ Add Rate</Button>
           </Box>
           <Table size="small">
             <TableHead>
@@ -155,7 +156,7 @@ export default function TaxConfigSection() {
         <Box>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
             <Typography variant="body2" fontWeight={600}>TDS Sections</Typography>
-            <Button variant="primary" size="sm" onClick={openAddTDS}>+ Add Section</Button>
+            <Button variant="contained" color="primary" size="sm" onClick={openAddTDS}>+ Add Section</Button>
           </Box>
           <Table size="small">
             <TableHead>
@@ -238,8 +239,8 @@ export default function TaxConfigSection() {
             </TextField>
           </Box>
           <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, mt: 4 }}>
-            <Button size="sm" variant="secondary" onClick={() => setGstDrawerOpen(false)}>Cancel</Button>
-            <Button size="sm" variant="primary" onClick={handleSaveGST} disabled={saving}>
+            <Button size="sm" variant="outlined" color="secondary" onClick={() => setGstDrawerOpen(false)}>Cancel</Button>
+            <Button size="sm" variant="contained" color="primary" onClick={handleSaveGST} disabled={saving}>
               {saving ? 'Saving...' : 'Save'}
             </Button>
           </Box>
@@ -300,8 +301,8 @@ export default function TaxConfigSection() {
             </TextField>
           </Box>
           <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, mt: 4 }}>
-            <Button size="sm" variant="secondary" onClick={() => setTdsDrawerOpen(false)}>Cancel</Button>
-            <Button size="sm" variant="primary" onClick={handleSaveTDS} disabled={saving}>
+            <Button size="sm" variant="outlined" color="secondary" onClick={() => setTdsDrawerOpen(false)}>Cancel</Button>
+            <Button size="sm" variant="contained" color="primary" onClick={handleSaveTDS} disabled={saving}>
               {saving ? 'Saving...' : 'Save'}
             </Button>
           </Box>

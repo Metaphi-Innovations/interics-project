@@ -656,8 +656,6 @@ interface ProjectsGridProps {
 }
 
 function ProjectsGrid({ items, loading, onView, onEdit, onChangeStatus }: ProjectsGridProps) {
-  const theme = useTheme()
-
   if (loading) {
     return (
       <Box
@@ -898,7 +896,7 @@ function EditProjectDrawer({
           <FormField label="Project Name" required>
             <Input
               value={form.name ?? ''}
-              onChange={(e) => set('name', e.target.value)}
+              onChange={(v) => set('name', v)}
               placeholder="Project name"
               size="sm"
             />
@@ -923,7 +921,7 @@ function EditProjectDrawer({
         <FormField label="Location">
           <Input
             value={form.location ?? ''}
-            onChange={(e) => set('location', e.target.value)}
+            onChange={(v) => set('location', v)}
             placeholder="Building, City"
             size="sm"
           />
@@ -933,8 +931,8 @@ function EditProjectDrawer({
           <Input
             type="number"
             value={form.carpetArea?.toString() ?? ''}
-            onChange={(e) =>
-              set('carpetArea', e.target.value ? Number(e.target.value) : null)
+            onChange={(v) =>
+              set('carpetArea', v ? Number(v) : null)
             }
             placeholder="e.g. 4500"
             size="sm"
@@ -945,8 +943,8 @@ function EditProjectDrawer({
           <Input
             type="number"
             value={form.headcount?.toString() ?? ''}
-            onChange={(e) =>
-              set('headcount', e.target.value ? Number(e.target.value) : null)
+            onChange={(v) =>
+              set('headcount', v ? Number(v) : null)
             }
             placeholder="e.g. 120"
             size="sm"
@@ -979,7 +977,7 @@ function EditProjectDrawer({
           <Input
             type="date"
             value={form.startDate ?? ''}
-            onChange={(e) => set('startDate', e.target.value || null)}
+            onChange={(v) => set('startDate', v || null)}
             size="sm"
           />
         </FormField>
@@ -988,7 +986,7 @@ function EditProjectDrawer({
           <Input
             type="date"
             value={form.expectedEndDate ?? ''}
-            onChange={(e) => set('expectedEndDate', e.target.value || null)}
+            onChange={(v) => set('expectedEndDate', v || null)}
             size="sm"
           />
         </FormField>
@@ -1033,7 +1031,7 @@ export default function ProjectsPage() {
   // Load data
   useEffect(() => {
     dispatch(fetchProjects({ page: pagination.page, pageSize: pagination.pageSize }))
-    dispatch(fetchUsers())
+    dispatch(fetchUsers({}))
   }, [dispatch])
 
   const refetch = useCallback(() => {
@@ -1065,13 +1063,17 @@ export default function ProjectsPage() {
     if (!sortConfig.field) return filteredItems
     return [...filteredItems].sort((a, b) => {
       const field = sortConfig.field as keyof Project
-      let aVal: unknown = a[field] ?? ''
-      let bVal: unknown = b[field] ?? ''
-      if (typeof aVal === 'string') aVal = aVal.toLowerCase()
-      if (typeof bVal === 'string') bVal = bVal.toLowerCase()
-      if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1
-      if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1
-      return 0
+      const rawA = a[field]
+      const rawB = b[field]
+      let cmp = 0
+      if (typeof rawA === 'number' && typeof rawB === 'number') {
+        cmp = rawA - rawB
+      } else {
+        const aStr = String(rawA ?? '').toLowerCase()
+        const bStr = String(rawB ?? '').toLowerCase()
+        cmp = aStr.localeCompare(bStr)
+      }
+      return sortConfig.direction === 'asc' ? cmp : -cmp
     })
   }, [filteredItems, sortConfig])
 

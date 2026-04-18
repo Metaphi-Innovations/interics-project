@@ -1,6 +1,6 @@
 import { http, HttpResponse } from 'msw'
 import type { Expense, Reimbursement, VendorPayment } from '@/slices/live/types'
-import { expenses, expCounter, payments, reimbursements } from '@/mocks/liveFinanceMockState'
+import { expenses, nextExpenseId, payments, reimbursements } from '@/mocks/liveFinanceMockState'
 
 function parseDate(s: string): Date {
   return new Date(s + (s.length <= 10 ? 'T00:00:00' : ''))
@@ -43,10 +43,11 @@ export const financeHandlers = [
     if (!body.projectId) {
       return HttpResponse.json({ message: 'projectId is required' }, { status: 400 })
     }
+    const { projectId, ...rest } = body
     const newExp: Expense = {
-      id: `exp-${String(expCounter++).padStart(3, '0')}`,
-      projectId: body.projectId,
-      ...body,
+      ...rest,
+      id: nextExpenseId(),
+      projectId,
     }
     expenses.push(newExp)
     return HttpResponse.json(newExp, { status: 201 })

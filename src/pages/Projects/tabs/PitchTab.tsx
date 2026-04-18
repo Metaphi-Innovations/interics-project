@@ -7,7 +7,6 @@ import {
   Select as MuiSelect,
   MenuItem,
   FormControl,
-  Divider,
   Table,
   TableHead,
   TableBody,
@@ -21,16 +20,11 @@ import {
   DialogContent,
   DialogActions,
   IconButton as MuiIconButton,
-  Autocomplete,
   Button as MuiButton,
   InputAdornment,
-  Grid,
   Accordion,
   AccordionSummary,
   AccordionDetails,
-  LinearProgress,
-  Switch,
-  FormControlLabel,
 } from '@mui/material'
 import {
   Add,
@@ -54,7 +48,6 @@ import { fetchVendors } from '../../../slices/vendors/thunk'
 import { setActiveVersionId } from '../../../slices/pitch/reducer'
 import type { PitchVersion, PitchCategory, PitchService, ClientMilestone, VendorMapping, PlannedExpense } from '../../../slices/pitch/reducer'
 import type { Project } from '../../../slices/projects/reducer'
-import { WorkspaceSection } from '../../../components/templates'
 import { useToast } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { formatCurrency, formatInr } from '../../../utils/formatters'

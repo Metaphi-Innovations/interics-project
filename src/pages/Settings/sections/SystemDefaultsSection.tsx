@@ -97,7 +97,8 @@ function getLabelForValue(field: SelectField, value: string | number): string {
 
 export default function SystemDefaultsSection() {
   const dispatch = useAppDispatch()
-  const { toast } = useToast()
+  const success = useToast((s) => s.success)
+  const error = useToast((s) => s.error)
   const { systemDefaults, saving } = useAppSelector(s => s.settings)
   const [isEditing, setIsEditing] = useState(false)
   const [form, setForm] = useState<SystemDefaults>(systemDefaults)
@@ -115,9 +116,9 @@ export default function SystemDefaultsSection() {
       .unwrap()
       .then(() => {
         setIsEditing(false)
-        toast({ message: 'System defaults saved', severity: 'success' })
+        success('System defaults saved')
       })
-      .catch(() => toast({ message: 'Failed to save', severity: 'error' }))
+      .catch(() => error('Failed to save'))
   }
 
   const handleCancel = () => {
@@ -133,7 +134,7 @@ export default function SystemDefaultsSection() {
           <Typography variant="caption" color="text.secondary">Global defaults applied across the platform</Typography>
         </Box>
         {!isEditing && (
-          <Button variant="secondary" size="sm" onClick={() => setIsEditing(true)}>
+          <Button variant="outlined" color="secondary" size="sm" onClick={() => setIsEditing(true)}>
             <Edit sx={{ fontSize: 14, mr: 0.5 }} /> Edit
           </Button>
         )}
@@ -187,8 +188,8 @@ export default function SystemDefaultsSection() {
 
       {isEditing && (
         <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, pt: 2, mt: 2, borderTop: '1px solid #F0F0F0' }}>
-          <Button size="sm" variant="secondary" onClick={handleCancel}>Cancel</Button>
-          <Button size="sm" variant="primary" onClick={handleSave} disabled={saving}>
+          <Button size="sm" variant="outlined" color="secondary" onClick={handleCancel}>Cancel</Button>
+          <Button size="sm" variant="contained" color="primary" onClick={handleSave} disabled={saving}>
             {saving ? 'Saving...' : 'Save Changes'}
           </Button>
         </Box>

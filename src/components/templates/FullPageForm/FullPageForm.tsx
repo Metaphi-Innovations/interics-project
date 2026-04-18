@@ -1,7 +1,6 @@
 import type { ReactNode } from 'react'
 import { Box, Stack, Divider, CircularProgress, Step, StepLabel, Stepper } from '@mui/material'
 import { Typography } from '@mui/material'
-import { useTheme } from '@mui/material/styles'
 import { tokens } from '@/design-system/tokens'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward'
@@ -76,7 +75,6 @@ export function FullPageForm({
   saveLabel = 'Save',
   saveLoading = false,
 }: FullPageFormProps) {
-  const theme = useTheme()
   const isWizard = Boolean(steps && steps.length > 0)
 
   return (
@@ -108,12 +106,11 @@ export function FullPageForm({
         {/* Left: breadcrumb */}
         <Stack direction="row" alignItems="center" gap={0.5}>
           <IconButton
-            size="small"
+            icon={<ArrowBackIcon sx={{ fontSize: 16 }} />}
+            size="sm"
             onClick={onCancel}
             sx={{ color: tokens.color.neutral[500], p: 0.5 }}
-          >
-            <ArrowBackIcon sx={{ fontSize: 16 }} />
-          </IconButton>
+          />
           <Typography
             variant="body2"
             sx={{
@@ -135,7 +132,8 @@ export function FullPageForm({
         {/* Right: actions */}
         <Stack direction="row" alignItems="center" gap={1}>
           <Button
-            variant="secondary"
+            variant="text"
+            color="secondary"
             size="sm"
             onClick={onCancel}
             sx={{
@@ -149,7 +147,8 @@ export function FullPageForm({
           </Button>
           {!isWizard && (
             <Button
-              variant="primary"
+              variant="contained"
+              color="primary"
               size="sm"
               onClick={onSave}
               endIcon={
@@ -307,7 +306,8 @@ export function FullPageForm({
           <Box>
             {activeStep > 0 && (
               <Button
-                variant="secondary"
+                variant="outlined"
+                color="secondary"
                 size="sm"
                 onClick={onBack}
                 startIcon={<ArrowBackIcon fontSize="small" />}
@@ -321,7 +321,8 @@ export function FullPageForm({
           {/* Right: Cancel + Next/Submit */}
           <Stack direction="row" alignItems="center" gap={1}>
             <Button
-              variant="secondary"
+              variant="text"
+              color="secondary"
               size="sm"
               onClick={onCancel}
               sx={{
@@ -335,7 +336,8 @@ export function FullPageForm({
             </Button>
             {isLastStep ? (
               <Button
-                variant="primary"
+                variant="contained"
+                color="primary"
                 size="sm"
                 onClick={onSubmit}
                 endIcon={
@@ -351,7 +353,8 @@ export function FullPageForm({
               </Button>
             ) : (
               <Button
-                variant="primary"
+                variant="contained"
+                color="primary"
                 size="sm"
                 onClick={onNext}
                 endIcon={

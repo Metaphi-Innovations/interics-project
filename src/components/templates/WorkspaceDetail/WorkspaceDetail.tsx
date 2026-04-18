@@ -212,7 +212,8 @@ export function WorkspaceDetail({
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
           {primaryAction && (
             <Button
-              variant="secondary"
+              variant="outlined"
+              color="secondary"
               size="sm"
               onClick={primaryAction.onClick}
             >

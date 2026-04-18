@@ -1,7 +1,6 @@
 import type {
   ClientInvoice,
   ClientInvoiceLineItem,
-  ClientInvoicePayment,
   Expense,
   Reimbursement,
   VendorInvoice,
@@ -496,10 +495,32 @@ export let reimbursements: Reimbursement[] = [
 
 export let invCounter = 7
 export let invPaymentCounter = 7
-export let viCounter = 6
-export let payCounter = 2
-export let expCounter = 8
-export let rmbCounter = 4
+
+let viCounter = 6
+let payCounter = 2
+let expCounter = 8
+let rmbCounter = 4
+
+export function nextVendorInvoiceId(): string {
+  viCounter += 1
+  return `VINV-${String(viCounter).padStart(3, '0')}`
+}
+
+export function nextPaymentId(): string {
+  payCounter += 1
+  return `PAY-${String(payCounter).padStart(3, '0')}`
+}
+
+export function nextExpenseId(): string {
+  expCounter += 1
+  return `exp-${String(expCounter).padStart(3, '0')}`
+}
+
+export function nextReimbursementId(): string {
+  rmbCounter += 1
+  const num = String(rmbCounter).padStart(3, '0')
+  return `rmb-${num}`
+}
 
 /** Project display names for MSW aggregations when optional fields are missing */
 export const PROJECT_NAMES: Record<string, string> = {

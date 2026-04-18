@@ -108,7 +108,7 @@ export function ContactDrawer({ open, onClose, mode, contact, onSave }: ContactD
           <Input
             placeholder="e.g. Rajesh Kumar"
             value={form.name}
-            onChange={(e) => set('name', e.target.value)}
+            onChange={(v) => set('name', v)}
             error={!!errors.name}
             size="sm"
           />
@@ -118,7 +118,7 @@ export function ContactDrawer({ open, onClose, mode, contact, onSave }: ContactD
           <Input
             placeholder="e.g. Managing Director"
             value={form.designation}
-            onChange={(e) => set('designation', e.target.value)}
+            onChange={(v) => set('designation', v)}
             size="sm"
           />
         </FormField>
@@ -127,7 +127,7 @@ export function ContactDrawer({ open, onClose, mode, contact, onSave }: ContactD
           <Input
             placeholder="+91 9876543210"
             value={form.phone}
-            onChange={(e) => set('phone', e.target.value)}
+            onChange={(v) => set('phone', v)}
             error={!!errors.phone}
             size="sm"
           />
@@ -137,7 +137,7 @@ export function ContactDrawer({ open, onClose, mode, contact, onSave }: ContactD
           <Input
             placeholder="name@company.com"
             value={form.email}
-            onChange={(e) => set('email', e.target.value)}
+            onChange={(v) => set('email', v)}
             error={!!errors.email}
             size="sm"
           />

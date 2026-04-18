@@ -102,8 +102,11 @@ export function VendorMappingDrawer({
 
   if (!service) return null
 
+  /** Narrowed for callbacks — TS does not propagate null-narrowing into nested functions. */
+  const activeService = service
+
   const totalMapped = mappings.reduce((sum, m) => sum + m.value, 0)
-  const remaining = service.value - totalMapped
+  const remaining = activeService.value - totalMapped
 
   function openQuoteFilePicker(mappingId: string) {
     setQuotePickMappingId(mappingId)
@@ -115,7 +118,7 @@ export function VendorMappingDrawer({
     const mid = quotePickMappingId
     e.target.value = ''
     if (!file || !mid || !onVendorQuotationChange) return
-    onVendorQuotationChange(service.id, mid, {
+    onVendorQuotationChange(activeService.id, mid, {
       fileName: file.name,
       fileUrl: URL.createObjectURL(file),
       uploadedAt: new Date().toISOString(),
@@ -170,7 +173,7 @@ export function VendorMappingDrawer({
                 size="small"
                 variant="text"
                 onClick={() => {
-                  onVendorQuotationChange!(service.id, mapping.id, undefined)
+                  onVendorQuotationChange!(activeService.id, mapping.id, undefined)
                   openQuoteFilePicker(mapping.id)
                 }}
                 sx={{ fontSize: 11, minWidth: 0 }}
@@ -219,7 +222,7 @@ export function VendorMappingDrawer({
       const updated = [...prev]
       let next: VendorMapping = { ...updated[idx], [field]: val } as VendorMapping
       if (field === 'value') {
-        next.percentage = service!.value > 0 ? Math.round((Number(val) / service!.value) * 100) : 0
+        next.percentage = activeService.value > 0 ? Math.round((Number(val) / activeService.value) * 100) : 0
         next = reapplyVendorAmountsFromPercentages(next)
       }
       updated[idx] = next

@@ -550,8 +550,6 @@ interface VendorsGridProps {
 }
 
 function VendorsGrid({ items, loading, onView, onEdit, onDelete }: VendorsGridProps) {
-  const theme = useTheme()
-
   if (loading) {
     return (
       <Box

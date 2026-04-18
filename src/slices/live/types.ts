@@ -75,6 +75,8 @@ export interface VendorInvoice {
   milestoneName: string
   invoiceNumber: string
   invoiceDate: string
+  /** Optional for list views that only expose invoice date */
+  dueDate?: string
   baseAmount: number
   tdsRate: number
   tdsAmount: number

@@ -427,9 +427,9 @@ export default function TDSPage() {
                   <XAxis dataKey="period" tick={{ fontSize: 11 }} />
                   <YAxis tickFormatter={axisTickInr} width={56} tick={{ fontSize: 10 }} />
                   <Tooltip
-                    formatter={(value: number | string, name: string) => [
-                      `₹${formatInr(Number(value))}`,
-                      name,
+                    formatter={(value, name) => [
+                      `₹${formatInr(Number(value ?? 0))}`,
+                      String(name),
                     ]}
                     labelStyle={{ fontSize: 12 }}
                   />
@@ -548,7 +548,7 @@ export default function TDSPage() {
               Vendor TDS
             </Box>
           </Stack>
-          <Button variant="secondary" size="sm" onClick={exportCurrentTab}>
+          <Button variant="outlined" color="secondary" size="sm" onClick={exportCurrentTab}>
             Export CSV
           </Button>
         </Stack>
@@ -685,7 +685,7 @@ export default function TDSPage() {
         width={440}
         footer={
           <Stack direction="row" justifyContent="flex-end" sx={{ width: 1 }}>
-            <Button variant="secondary" size="sm" onClick={() => setDrawerEntry(null)}>
+            <Button variant="outlined" color="secondary" size="sm" onClick={() => setDrawerEntry(null)}>
               Close
             </Button>
           </Stack>

@@ -311,31 +311,86 @@ const MOCK_DATA = {
 } as const
 
 type BundleKey = keyof typeof MOCK_DATA
-type FilingRow = (typeof MOCK_DATA)['2026-04']['filing'][number]
-type GstRet = (typeof MOCK_DATA)['2026-04']['gstReturns'][number]
-type Ded = (typeof MOCK_DATA)['2026-04']['deductions'][number]
-type Ch = (typeof MOCK_DATA)['2026-04']['challans'][number]
-type GstSummary = (typeof MOCK_DATA)['2026-04']['gstSummary']
-type TdsSummary = (typeof MOCK_DATA)['2026-04']['tdsSummary']
+
+/** Mutable clones of demo rows — `as const` seeds are widened on copy for handler mutations. */
+interface FilingRowState {
+  id: string
+  type: 'GST' | 'TDS'
+  returnType: string
+  period: string
+  dueDate: string
+  filedDate: string | null
+  status: 'pending' | 'filed' | 'overdue'
+  lateFee: number | null
+}
+
+interface GstSummaryState {
+  period: string
+  outputTax: number
+  inputCredit: number
+  netLiability: number
+  paid: number
+  pending: number
+}
+
+interface GstReturnState {
+  id: string
+  returnType: string
+  period: string
+  dueDate: string
+  filedDate: string | null
+  status: 'pending' | 'filed' | 'overdue'
+  liability: number
+}
+
+interface TdsSummaryState {
+  period: string
+  totalDeducted: number
+  totalDeposited: number
+  pendingDeposit: number
+}
+
+interface DeductionState {
+  id: string
+  period: string
+  deducteeType: 'vendor' | 'client'
+  deducteeName: string
+  pan: string
+  amount: number
+  section: string
+  challanId: string | null
+  projectId: string
+  projectName: string
+}
+
+interface ChallanState {
+  id: string
+  period: string
+  bsrCode: string
+  depositDate: string
+  amount: number
+  section: string
+  linkedDeductionIds: string[]
+}
 
 interface MutableBundle {
-  filingItems: FilingRow[]
-  gstSummary: GstSummary
-  gstReturns: GstRet[]
-  tdsSummary: TdsSummary
-  deductions: Ded[]
-  challans: Ch[]
+  filingItems: FilingRowState[]
+  gstSummary: GstSummaryState
+  gstReturns: GstReturnState[]
+  tdsSummary: TdsSummaryState
+  deductions: DeductionState[]
+  challans: ChallanState[]
 }
 
 function bundleFromSeed(key: BundleKey): MutableBundle {
   const s = MOCK_DATA[key]
   return {
-    filingItems: clone(s.filing),
-    gstSummary: clone(s.gstSummary),
-    gstReturns: clone(s.gstReturns),
-    tdsSummary: clone(s.tdsSummary),
-    deductions: clone(s.deductions),
-    challans: clone(s.challans),
+    filingItems: clone(s.filing) as unknown as FilingRowState[],
+    gstSummary: clone(s.gstSummary) as GstSummaryState,
+    gstReturns: clone(s.gstReturns) as unknown as GstReturnState[],
+    tdsSummary: clone(s.tdsSummary) as TdsSummaryState,
+    deductions: clone(s.deductions) as unknown as DeductionState[],
+    challans: clone(s.challans) as unknown as ChallanState[],
   }
 }
 

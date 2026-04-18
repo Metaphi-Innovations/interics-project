@@ -67,7 +67,8 @@ function GroupTitle({ label }: { label: string }) {
 
 export default function GeneralSettingsSection() {
   const dispatch = useAppDispatch()
-  const { toast } = useToast()
+  const success = useToast((s) => s.success)
+  const error = useToast((s) => s.error)
   const { companyProfile, saving } = useAppSelector(s => s.settings)
   const [isEditing, setIsEditing] = useState(false)
   const [editForm, setEditForm] = useState<CompanyProfile>(companyProfile)
@@ -109,10 +110,10 @@ export default function GeneralSettingsSection() {
       .unwrap()
       .then(() => {
         setIsEditing(false)
-        toast({ message: 'Company profile saved', severity: 'success' })
+        success('Company profile saved')
       })
       .catch(() => {
-        toast({ message: 'Failed to save profile', severity: 'error' })
+        error('Failed to save profile')
       })
   }
 
@@ -145,7 +146,8 @@ export default function GeneralSettingsSection() {
         </Box>
         {!isEditing && (
           <Button
-            variant="secondary"
+            variant="outlined"
+            color="secondary"
             size="sm"
             onClick={handleEdit}
           >
@@ -311,8 +313,8 @@ export default function GeneralSettingsSection() {
 
           {/* Footer */}
           <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, pt: 2, mt: 2, borderTop: '1px solid #F0F0F0' }}>
-            <Button size="sm" variant="secondary" onClick={handleCancel}>Cancel</Button>
-            <Button size="sm" variant="primary" onClick={handleSave} disabled={saving}>
+            <Button size="sm" variant="outlined" color="secondary" onClick={handleCancel}>Cancel</Button>
+            <Button size="sm" variant="contained" color="primary" onClick={handleSave} disabled={saving}>
               {saving ? 'Saving...' : 'Save Changes'}
             </Button>
           </Box>

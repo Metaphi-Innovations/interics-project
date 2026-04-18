@@ -1,6 +1,6 @@
 import { createTheme, alpha, type Theme } from '@mui/material/styles';
 import type { ThemeConfig } from './themeConfig';
-import { generateScale, generateNeutralScale, tokens } from './tokens';
+import { generateScale, tokens } from './tokens';
 
 // ─── Custom breakpoints ───────────────────────────────────────────────────────
 
@@ -21,7 +21,6 @@ declare module '@mui/material/styles' {
 
 export function generateTheme(config: ThemeConfig): Theme {
   const primary = generateScale(config.brandColor);
-  const neutral = generateNeutralScale(config.brandColor);
 
   const isLight = config.mode === 'light';
 

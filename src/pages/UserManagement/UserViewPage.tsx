@@ -150,7 +150,7 @@ export default function UserViewPage() {
     return (
       <UserManagementLayout>
         <Typography color="error">User not found.</Typography>
-        <Button variant="secondary" size="sm" onClick={() => navigate('/user-management/users')} sx={{ mt: 2 }}>
+        <Button variant="outlined" color="secondary" size="sm" onClick={() => navigate('/user-management/users')} sx={{ mt: 2 }}>
           Back to Users
         </Button>
       </UserManagementLayout>
@@ -180,7 +180,8 @@ export default function UserViewPage() {
         actions={
           canEdit ? (
             <Button
-              variant="primary"
+              variant="contained"
+              color="primary"
               size="sm"
               onClick={() => navigate(`/user-management/users/${user.id}/edit`)}
               sx={{ bgcolor: tokens.color.success[600], '&:hover': { bgcolor: tokens.color.success[700] } }}

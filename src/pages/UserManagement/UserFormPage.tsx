@@ -219,7 +219,7 @@ export default function UserFormPage() {
     return (
       <UserManagementLayout>
         <Typography color="error">User not found.</Typography>
-        <Button variant="secondary" size="sm" onClick={handleCancel} sx={{ mt: 2 }}>
+        <Button variant="outlined" color="secondary" size="sm" onClick={handleCancel} sx={{ mt: 2 }}>
           Back to Users
         </Button>
       </UserManagementLayout>
@@ -237,11 +237,12 @@ export default function UserFormPage() {
         title={pageTitle}
         actions={
           <Stack direction="row" gap={1}>
-            <Button variant="secondary" size="sm" onClick={handleCancel} disabled={saving}>
+            <Button variant="outlined" color="secondary" size="sm" onClick={handleCancel} disabled={saving}>
               Cancel
             </Button>
             <Button
-              variant="primary"
+              variant="contained"
+              color="primary"
               size="sm"
               onClick={handleSubmit}
               disabled={saving}

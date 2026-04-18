@@ -2,13 +2,13 @@ import { http, HttpResponse } from 'msw'
 import type { Expense, Reimbursement, VendorInvoice, VendorPayment } from '../../slices/live/types'
 import {
   expenses,
-  expCounter,
-  payCounter,
+  nextExpenseId,
+  nextPaymentId,
+  nextReimbursementId,
+  nextVendorInvoiceId,
   payments,
   reimbursements,
-  rmbCounter,
   vendorInvoices,
-  viCounter,
 } from '@/mocks/liveFinanceMockState'
 
 // ─── Handlers ─────────────────────────────────────────────────────────────────
@@ -24,7 +24,7 @@ export const liveHandlers = [
     const id = params.id as string
     const body = await request.json() as Omit<VendorInvoice, 'id' | 'projectId'>
     const newVI: VendorInvoice = {
-      id: `VINV-${String(viCounter++).padStart(3, '0')}`,
+      id: nextVendorInvoiceId(),
       projectId: id,
       ...body,
     }
@@ -41,7 +41,7 @@ export const liveHandlers = [
     const id = params.id as string
     const body = await request.json() as Omit<VendorPayment, 'id' | 'projectId'>
     const newP: VendorPayment = {
-      id: `PAY-${String(payCounter++).padStart(3, '0')}`,
+      id: nextPaymentId(),
       projectId: id,
       ...body,
     }
@@ -76,7 +76,7 @@ export const liveHandlers = [
     const id = params.id as string
     const body = await request.json() as Omit<Expense, 'id' | 'projectId'>
     const newExp: Expense = {
-      id: `exp-${String(expCounter++).padStart(3, '0')}`,
+      id: nextExpenseId(),
       projectId: id,
       ...body,
     }
@@ -101,9 +101,8 @@ export const liveHandlers = [
   http.post('/api/projects/:id/reimbursements', async ({ params, request }) => {
     const id = params.id as string
     const body = await request.json() as Omit<Reimbursement, 'id' | 'projectId'>
-    const num = String(rmbCounter++).padStart(3, '0')
     const newR: Reimbursement = {
-      id: `rmb-${num}`,
+      id: nextReimbursementId(),
       projectId: id,
       ...body,
     }

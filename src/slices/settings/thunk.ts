@@ -314,7 +314,7 @@ export const updateNumberingSchemes = createAsyncThunk(
   'settings/updateNumberingSchemes',
   async (data: NumberingSchemes, { rejectWithValue }) => {
     try {
-      const res = await settingsApi.updateNumberingSchemes(data as Record<string, unknown>)
+      const res = await settingsApi.updateNumberingSchemes(data as unknown as Record<string, unknown>)
       return res.data as NumberingSchemes
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } }
@@ -340,7 +340,7 @@ export const updateSystemDefaults = createAsyncThunk(
   'settings/updateSystemDefaults',
   async (data: SystemDefaults, { rejectWithValue }) => {
     try {
-      const res = await settingsApi.updateSystemDefaults(data as Record<string, unknown>)
+      const res = await settingsApi.updateSystemDefaults(data as unknown as Record<string, unknown>)
       return res.data as SystemDefaults
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } }

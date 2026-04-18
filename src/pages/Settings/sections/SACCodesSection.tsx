@@ -21,7 +21,8 @@ const defaultForm: SACForm = { code: '', description: '', gstRateId: '', status:
 
 export default function SACCodesSection() {
   const dispatch = useAppDispatch()
-  const { toast } = useToast()
+  const success = useToast((s) => s.success)
+  const error = useToast((s) => s.error)
   const { sacCodes, gstRates, saving } = useAppSelector(s => s.settings)
   const [search, setSearch] = useState('')
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -71,9 +72,9 @@ export default function SACCodesSection() {
     action.unwrap()
       .then(() => {
         setDrawerOpen(false)
-        toast({ message: editingRow ? 'SAC code updated' : 'SAC code added', severity: 'success' })
+        success(editingRow ? 'SAC code updated' : 'SAC code added')
       })
-      .catch(() => toast({ message: 'Failed to save SAC code', severity: 'error' }))
+      .catch(() => error('Failed to save SAC code'))
   }
 
   return (
@@ -83,7 +84,7 @@ export default function SACCodesSection() {
           <Typography variant="h6" fontWeight={600}>SAC Code Master</Typography>
           <Typography variant="caption" color="text.secondary">Service Accounting Codes linked to GST rates</Typography>
         </Box>
-        <Button variant="primary" size="sm" onClick={openAdd}>+ Add SAC Code</Button>
+        <Button variant="contained" color="primary" size="sm" onClick={openAdd}>+ Add SAC Code</Button>
       </Box>
 
       <TextField
@@ -192,8 +193,8 @@ export default function SACCodesSection() {
             </TextField>
           </Box>
           <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, mt: 4 }}>
-            <Button size="sm" variant="secondary" onClick={() => setDrawerOpen(false)}>Cancel</Button>
-            <Button size="sm" variant="primary" onClick={handleSave} disabled={saving}>
+            <Button size="sm" variant="outlined" color="secondary" onClick={() => setDrawerOpen(false)}>Cancel</Button>
+            <Button size="sm" variant="contained" color="primary" onClick={handleSave} disabled={saving}>
               {saving ? 'Saving...' : 'Save'}
             </Button>
           </Box>

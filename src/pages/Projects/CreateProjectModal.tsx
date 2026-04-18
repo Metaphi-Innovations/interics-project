@@ -27,7 +27,6 @@ import {
   ArrowBack,
   ArrowForward,
   Check,
-  Add,
   Upload,
   PersonOutline,
 } from '@mui/icons-material'
@@ -38,7 +37,6 @@ import { fetchUsers } from '../../slices/users/thunk'
 import { fetchRoles } from '../../slices/roles/thunk'
 import { isProjectManagerRole } from './projectManagerRoles'
 import { createProject } from '../../slices/projects/thunk'
-import type { Customer } from '../../slices/customers/reducer'
 import type { User } from '../../slices/users/reducer'
 import { useToast } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
@@ -124,8 +122,8 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
   useEffect(() => {
     if (open) {
       dispatch(fetchCustomers({}))
-      dispatch(fetchUsers())
-      dispatch(fetchRoles())
+      dispatch(fetchUsers({}))
+      dispatch(fetchRoles(undefined))
     }
   }, [open, dispatch])
 

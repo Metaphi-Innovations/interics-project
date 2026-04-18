@@ -8,6 +8,7 @@ interface FetchProjectsParams {
   search?: string
   status?: string
   type?: string
+  projectManager?: string
 }
 
 export const fetchProjects = createAsyncThunk(

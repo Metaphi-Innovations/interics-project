@@ -541,7 +541,7 @@ export default function FilingSummaryPage() {
                   <XAxis dataKey="period" tick={{ fontSize: 11 }} />
                   <YAxis tickFormatter={axisTickInr} width={56} tick={{ fontSize: 10 }} />
                   <Tooltip
-                    formatter={(v: number | string, name: string) => [`₹${formatInr(Number(v))}`, name]}
+                    formatter={(v, name) => [`₹${formatInr(Number(v ?? 0))}`, String(name)]}
                     labelStyle={{ fontSize: 12 }}
                   />
                   <Legend wrapperStyle={{ fontSize: 12 }} />

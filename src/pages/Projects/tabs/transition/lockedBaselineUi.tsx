@@ -21,7 +21,7 @@ import type { PitchCategory, PitchService } from '@/slices/pitch/reducer'
 import { WorkspaceSection } from '@/components/templates'
 import { tokens } from '@/design-system/tokens'
 import { formatCurrency, formatDate } from '@/utils/formatters'
-import { computeBaselineReadiness } from '@/utils/baselineReadiness'
+import { computeBaselineReadiness, type BaselineReadinessRow } from '@/utils/baselineReadiness'
 import {
   deriveClientMilestoneDisplayStatus,
   deriveVendorMappingMilestoneDisplayStatus,

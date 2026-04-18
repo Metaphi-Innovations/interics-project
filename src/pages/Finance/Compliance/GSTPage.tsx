@@ -479,7 +479,7 @@ export default function GSTPage() {
                   <XAxis dataKey="period" tick={{ fontSize: 11 }} />
                   <YAxis tickFormatter={axisTickInr} width={56} tick={{ fontSize: 10 }} />
                   <Tooltip
-                    formatter={(v: number | string) => [`₹${formatInr(Number(v))}`, 'GST']}
+                    formatter={(v) => [`₹${formatInr(Number(v ?? 0))}`, 'GST']}
                     labelStyle={{ fontSize: 12 }}
                   />
                   <Bar dataKey="gst" name="GST" fill={CHART_GST} radius={[4, 4, 0, 0]} />
@@ -590,7 +590,7 @@ export default function GSTPage() {
               </Box>
             ))}
           </Stack>
-          <Button variant="secondary" size="sm" onClick={exportCurrentTab}>
+          <Button variant="outlined" color="secondary" size="sm" onClick={exportCurrentTab}>
             Export CSV
           </Button>
         </Stack>
@@ -791,7 +791,7 @@ export default function GSTPage() {
         width={440}
         footer={
           <Stack direction="row" justifyContent="flex-end" sx={{ width: 1 }}>
-            <Button variant="secondary" size="sm" onClick={() => setDrawerEntry(null)}>
+            <Button variant="outlined" color="secondary" size="sm" onClick={() => setDrawerEntry(null)}>
               Close
             </Button>
           </Stack>

@@ -10,6 +10,7 @@ import {
   Divider,
 } from '@mui/material'
 import { useTheme, alpha } from '@mui/material/styles'
+import type { Theme } from '@mui/material/styles'
 import useMediaQuery from '@mui/material/useMediaQuery'
 import {
   Download,
@@ -268,7 +269,7 @@ function KpiCard({
   trendArrow?: 'up' | 'down'
   valueColor?: string
   onClick: () => void
-  theme: ReturnType<typeof useTheme>
+  theme: Theme
 }) {
   const trendBg =
     trendVariant === 'positive'
@@ -355,7 +356,7 @@ function KpiCard({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
-  const theme = useTheme()
+  const theme = useTheme() as Theme
   const navigate = useNavigate()
   const dispatch = useAppDispatch()
   const { showToast } = useToast()
@@ -1548,9 +1549,9 @@ export default function DashboardPage() {
                 />
                 <Tooltip
                   contentStyle={tooltipContentStyle}
-                  formatter={(value: number, name: string) => [
-                    ru(value),
-                    name,
+                  formatter={(value, name) => [
+                    ru(Number(value ?? 0)),
+                    String(name),
                   ]}
                 />
                 <Area
@@ -1625,7 +1626,7 @@ export default function DashboardPage() {
                 />
                 <Tooltip
                   contentStyle={tooltipContentStyle}
-                  formatter={(value: number) => [`${value.toFixed(1)}%`, 'Margin']}
+                  formatter={(value) => [`${Number(value ?? 0).toFixed(1)}%`, 'Margin']}
                 />
                 <ReferenceLine y={0} stroke={dividerColor} strokeDasharray="4 4" />
                 <Line
@@ -1692,7 +1693,7 @@ export default function DashboardPage() {
                 />
                 <Tooltip
                   contentStyle={tooltipContentStyle}
-                  formatter={(value: number, name: string) => [ru(value), name]}
+                  formatter={(value, name) => [ru(Number(value ?? 0)), String(name)]}
                 />
                 <Bar
                   dataKey="inflow"

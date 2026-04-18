@@ -307,7 +307,6 @@ let clientPOs: ClientPO[] = [
     endDate: '2026-12-31',
     poValue: 1_200_000,
     documentUrl: null,
-    fileName: null,
     uploadedAt: '2026-01-05',
   },
 ]
@@ -442,7 +441,7 @@ export const baselineHandlers = [
     const cats = structuredClone(body.categories ?? []) as PitchCategory[]
     const planned = structuredClone(body.plannedExpenses ?? []) as PlannedExpense[]
     const originals = body.originalServiceValues ?? {}
-    const fin = recalcBaselineFinancials(cats, planned, originals)
+    const fin = recalcBaselineFinancials(cats, planned, originals, projectId)
 
     const newBaseline: Baseline = {
       id: `bl-${String(baselineCounter++).padStart(3, '0')}`,
@@ -480,6 +479,7 @@ export const baselineHandlers = [
         merged.categories,
         planned,
         merged.originalServiceValues ?? {},
+        baselines[idx].projectId,
       )
       merged = {
         ...merged,
@@ -505,12 +505,13 @@ export const baselineHandlers = [
     const body = await request.json() as Omit<VendorPO, 'id' | 'projectId' | 'milestones'> & {
       milestones?: VendorPO['milestones']
     }
+    const { milestones: bodyMilestones, status: bodyStatus, ...bodyRest } = body
     const newVendorPO: VendorPO = {
+      ...bodyRest,
       id: `vpo-${String(vendorPOCounter++).padStart(3, '0')}`,
       projectId,
-      milestones: body.milestones ?? [],
-      status: body.status ?? 'Draft',
-      ...body,
+      milestones: bodyMilestones ?? [],
+      status: bodyStatus ?? 'Draft',
     }
     vendorPOs.push(newVendorPO)
     return HttpResponse.json(newVendorPO, { status: 201 })

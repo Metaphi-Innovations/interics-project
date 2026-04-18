@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { Box, Card, CardContent, Divider } from '@mui/material'
+import { Box, Card, CardContent } from '@mui/material'
 import { Typography } from '@mui/material'
 import { tokens } from '@/design-system/tokens'
 

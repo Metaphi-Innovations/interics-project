@@ -54,16 +54,16 @@ import {
   WorkspaceSection,
 } from '../../components/templates'
 import { DrawerForm, FormField, FormSection } from '../../components/templates/DrawerForm'
-import { StatusBadge, useToast, Input, AvatarGroup } from '@/design-system/components'
+import { StatusBadge, useToast, Input } from '@/design-system/components'
 import type { StatusType } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { useTheme, alpha } from '@mui/material/styles'
+import type { Theme } from '@mui/material/styles'
 import {
   getInitials,
   getAvatarColor,
   formatCurrency,
   formatDate,
-  toSlug,
   fromSlug,
 } from '../../utils/formatters'
 
@@ -71,7 +71,7 @@ import {
 
 function getProgressStyle(
   label: string,
-  palette: ReturnType<typeof useTheme>['palette'],
+  palette: Theme['palette'],
 ): { bg: string; color: string } {
   const lower = label.toLowerCase()
   if (lower.includes('risk') || lower.includes('cancel'))
@@ -651,7 +651,7 @@ function EditProjectDrawer({
           <FormField label="Project Name" required>
             <Input
               value={form.name ?? ''}
-              onChange={(e) => set('name', e.target.value)}
+              onChange={(v) => set('name', v)}
               size="sm"
             />
           </FormField>
@@ -671,7 +671,7 @@ function EditProjectDrawer({
         <FormField label="Location">
           <Input
             value={form.location ?? ''}
-            onChange={(e) => set('location', e.target.value)}
+            onChange={(v) => set('location', v)}
             size="sm"
           />
         </FormField>
@@ -679,8 +679,8 @@ function EditProjectDrawer({
           <Input
             type="number"
             value={form.carpetArea?.toString() ?? ''}
-            onChange={(e) =>
-              set('carpetArea', e.target.value ? Number(e.target.value) : null)
+            onChange={(v) =>
+              set('carpetArea', v ? Number(v) : null)
             }
             size="sm"
           />
@@ -689,8 +689,8 @@ function EditProjectDrawer({
           <Input
             type="number"
             value={form.headcount?.toString() ?? ''}
-            onChange={(e) =>
-              set('headcount', e.target.value ? Number(e.target.value) : null)
+            onChange={(v) =>
+              set('headcount', v ? Number(v) : null)
             }
             size="sm"
           />
@@ -718,7 +718,7 @@ function EditProjectDrawer({
           <Input
             type="date"
             value={form.startDate ?? ''}
-            onChange={(e) => set('startDate', e.target.value || null)}
+            onChange={(v) => set('startDate', v || null)}
             size="sm"
           />
         </FormField>
@@ -726,7 +726,7 @@ function EditProjectDrawer({
           <Input
             type="date"
             value={form.expectedEndDate ?? ''}
-            onChange={(e) => set('expectedEndDate', e.target.value || null)}
+            onChange={(v) => set('expectedEndDate', v || null)}
             size="sm"
           />
         </FormField>
@@ -822,9 +822,8 @@ function ChangeStatusDialog({ open, project, onClose, onConfirm }: StatusDialogP
 // ─── ProjectDetailPage ────────────────────────────────────────────────────────
 
 export default function ProjectDetailPage() {
-  const theme = useTheme()
+  const theme = useTheme() as Theme
   const { id: slug } = useParams<{ id: string }>()
-  const navigate = useNavigate()
   const location = useLocation()
   const dispatch = useAppDispatch()
   const toast = useToast()
@@ -845,7 +844,7 @@ export default function ProjectDetailPage() {
   }, [location.hash])
 
   useEffect(() => {
-    dispatch(fetchUsers())
+    dispatch(fetchUsers({}))
     dispatch(fetchProjects({})).then((action) => {
       if (fetchProjects.fulfilled.match(action)) {
         const foundId = fromSlug(slug ?? '', action.payload.items)
@@ -912,17 +911,6 @@ export default function ProjectDetailPage() {
   const tabConfig = getTabConfig(project.status)
   const progressStyle = getProgressStyle(project.progress, theme.palette)
 
-  const tabs = tabConfig.map((t) => ({
-    label: t.locked ? (
-      <Stack direction="row" alignItems="center" gap={0.5} component="span">
-        {t.label}
-        <Lock sx={{ fontSize: 11, opacity: 0.5 }} />
-      </Stack>
-    ) as unknown as string : t.label,
-    value: t.value,
-    icon: t.icon,
-  }))
-
   // Build WorkspaceDetail tabs (with Tooltip for locked ones)
   const workspaceTabs = tabConfig.map((t) => ({
     label: t.locked ? `${t.label} 🔒` : t.label,
@@ -951,23 +939,24 @@ export default function ProjectDetailPage() {
         </WorkspaceSection>
       )
     }
+    const proj = project!
     switch (activeTab) {
       case 'overview':
-        return <OverviewTab project={project} />
+        return <OverviewTab project={proj} />
       case 'pitch':
-        return <PitchTab project={project} />
+        return <PitchTab project={proj} />
       case 'transition':
-        return <TransitionTab project={project} />
+        return <TransitionTab project={proj} />
       case 'live':
-        return <LiveTab project={project} />
+        return <LiveTab project={proj} />
       case 'financials':
-        return <FinancialsTab project={project} />
+        return <FinancialsTab project={proj} />
       case 'documents':
         return <DocumentsTab />
       case 'activity':
         return <ActivityTab />
       default:
-        return <OverviewTab project={project} />
+        return <OverviewTab project={proj} />
     }
   }
 

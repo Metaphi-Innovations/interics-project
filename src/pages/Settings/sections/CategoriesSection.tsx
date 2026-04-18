@@ -21,7 +21,8 @@ const defaultForm: CategoryForm = { name: '', description: '', status: 'active' 
 
 export default function CategoriesSection() {
   const dispatch = useAppDispatch()
-  const { toast } = useToast()
+  const success = useToast((s) => s.success)
+  const error = useToast((s) => s.error)
   const { categories, saving } = useAppSelector(s => s.settings)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [editingRow, setEditingRow] = useState<Category | null>(null)
@@ -51,9 +52,9 @@ export default function CategoriesSection() {
     action.unwrap()
       .then(() => {
         setDrawerOpen(false)
-        toast({ message: editingRow ? 'Category updated' : 'Category added', severity: 'success' })
+        success(editingRow ? 'Category updated' : 'Category added')
       })
-      .catch(() => toast({ message: 'Failed to save category', severity: 'error' }))
+      .catch(() => error('Failed to save category'))
   }
 
   const handleDelete = async () => {
@@ -61,9 +62,9 @@ export default function CategoriesSection() {
     try {
       await settingsApi.deleteCategory(deleteTarget.id)
       dispatch(fetchCategories())
-      toast({ message: 'Category deleted', severity: 'success' })
+      success('Category deleted')
     } catch {
-      toast({ message: 'Failed to delete category', severity: 'error' })
+      error('Failed to delete category')
     } finally {
       setDeleteTarget(null)
     }
@@ -76,7 +77,7 @@ export default function CategoriesSection() {
           <Typography variant="h6" fontWeight={600}>Service Categories (SOW)</Typography>
           <Typography variant="caption" color="text.secondary">High-level groupings used in Pitch builder</Typography>
         </Box>
-        <Button variant="primary" size="sm" onClick={openAdd}>+ Add Category</Button>
+        <Button variant="contained" color="primary" size="sm" onClick={openAdd}>+ Add Category</Button>
       </Box>
 
       <Table size="small">
@@ -171,8 +172,8 @@ export default function CategoriesSection() {
             </TextField>
           </Box>
           <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, mt: 4 }}>
-            <Button size="sm" variant="secondary" onClick={() => setDrawerOpen(false)}>Cancel</Button>
-            <Button size="sm" variant="primary" onClick={handleSave} disabled={saving}>
+            <Button size="sm" variant="outlined" color="secondary" onClick={() => setDrawerOpen(false)}>Cancel</Button>
+            <Button size="sm" variant="contained" color="primary" onClick={handleSave} disabled={saving}>
               {saving ? 'Saving...' : 'Save'}
             </Button>
           </Box>
@@ -188,8 +189,8 @@ export default function CategoriesSection() {
           </DialogContentText>
         </DialogContent>
         <DialogActions>
-          <Button size="sm" variant="secondary" onClick={() => setDeleteTarget(null)}>Cancel</Button>
-          <Button size="sm" variant="primary" onClick={handleDelete}
+          <Button size="sm" variant="outlined" color="secondary" onClick={() => setDeleteTarget(null)}>Cancel</Button>
+          <Button size="sm" variant="contained" color="primary" onClick={handleDelete}
             sx={{ bgcolor: 'error.main', '&:hover': { bgcolor: 'error.dark' } }}>
             Delete
           </Button>

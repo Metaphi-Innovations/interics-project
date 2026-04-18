@@ -44,7 +44,8 @@ function FormSection({ label, children }: { label: string; children: React.React
 
 export default function ServicesSection() {
   const dispatch = useAppDispatch()
-  const { toast } = useToast()
+  const success = useToast((s) => s.success)
+  const error = useToast((s) => s.error)
   const { services, categories, sacCodes, gstRates, saving } = useAppSelector(s => s.settings)
   const [search, setSearch] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('all')
@@ -124,9 +125,9 @@ export default function ServicesSection() {
     ).unwrap()
       .then(() => {
         setDrawerOpen(false)
-        toast({ message: editingRow ? 'Service updated' : 'Service added', severity: 'success' })
+        success(editingRow ? 'Service updated' : 'Service added')
       })
-      .catch(() => toast({ message: 'Failed to save service', severity: 'error' }))
+      .catch(() => error('Failed to save service'))
   }
 
   return (
@@ -136,7 +137,7 @@ export default function ServicesSection() {
           <Typography variant="h6" fontWeight={600}>Services Master</Typography>
           <Typography variant="caption" color="text.secondary">Atomic units used in Pitch builder and invoicing</Typography>
         </Box>
-        <Button variant="primary" size="sm" onClick={openAdd}>+ Add Service</Button>
+        <Button variant="contained" color="primary" size="sm" onClick={openAdd}>+ Add Service</Button>
       </Box>
 
       {/* Toolbar */}
@@ -272,8 +273,8 @@ export default function ServicesSection() {
           </Box>
 
           <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, mt: 2 }}>
-            <Button size="sm" variant="secondary" onClick={() => setDrawerOpen(false)}>Cancel</Button>
-            <Button size="sm" variant="primary" onClick={handleSave} disabled={saving}>
+            <Button size="sm" variant="outlined" color="secondary" onClick={() => setDrawerOpen(false)}>Cancel</Button>
+            <Button size="sm" variant="contained" color="primary" onClick={handleSave} disabled={saving}>
               {saving ? 'Saving...' : 'Save'}
             </Button>
           </Box>

@@ -18,7 +18,6 @@ import { formatCurrency, formatDate } from '../../../../utils/formatters'
 import {
   baselineVendorServiceRows,
   computeVendorCardCounts,
-  globalVendorContextKey,
   itemsSummary,
   SettlementRightPanel,
   SettlementSummaryStrip,

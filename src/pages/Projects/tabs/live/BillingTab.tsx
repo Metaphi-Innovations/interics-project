@@ -15,7 +15,7 @@ import {
 import { alpha } from '@mui/material/styles'
 import { ArrowRight } from 'lucide-react'
 import { WorkspaceSection } from '../../../../components/templates'
-import { DrawerForm, FormField, FormSection } from '../../../../components/templates/DrawerForm'
+import { DrawerForm, FormField } from '../../../../components/templates/DrawerForm'
 import {
   StatusBadge,
   Input,

@@ -244,7 +244,7 @@ function Step3ProjectSetup({
         <FormField label="Project Name" required error={errors.name}>
           <Input
             value={formData.name}
-            onChange={(e) => set('name', e.target.value)}
+            onChange={(v) => set('name', v)}
             placeholder="e.g. Acme Corp - Head Office Redesign"
             size="sm"
             error={Boolean(errors.name)}
@@ -270,7 +270,7 @@ function Step3ProjectSetup({
       <FormField label="Location">
         <Input
           value={formData.location}
-          onChange={(e) => set('location', e.target.value)}
+          onChange={(v) => set('location', v)}
           placeholder="Building, City"
           size="sm"
         />
@@ -280,7 +280,7 @@ function Step3ProjectSetup({
         <Input
           type="number"
           value={formData.carpetArea}
-          onChange={(e) => set('carpetArea', e.target.value)}
+          onChange={(v) => set('carpetArea', v)}
           placeholder="e.g. 4500"
           size="sm"
         />
@@ -290,7 +290,7 @@ function Step3ProjectSetup({
         <Input
           type="number"
           value={formData.headcount}
-          onChange={(e) => set('headcount', e.target.value)}
+          onChange={(v) => set('headcount', v)}
           placeholder="e.g. 120"
           size="sm"
         />
@@ -342,7 +342,7 @@ function Step3ProjectSetup({
         <Input
           type="date"
           value={formData.startDate}
-          onChange={(e) => set('startDate', e.target.value)}
+          onChange={(v) => set('startDate', v)}
           size="sm"
         />
       </FormField>
@@ -351,7 +351,7 @@ function Step3ProjectSetup({
         <Input
           type="date"
           value={formData.expectedEndDate}
-          onChange={(e) => set('expectedEndDate', e.target.value)}
+          onChange={(v) => set('expectedEndDate', v)}
           size="sm"
         />
       </FormField>
@@ -565,8 +565,8 @@ export default function CreateProjectPage() {
 
   useEffect(() => {
     dispatch(fetchCustomers({}))
-    dispatch(fetchUsers())
-    dispatch(fetchRoles())
+    dispatch(fetchUsers({}))
+    dispatch(fetchRoles(undefined))
   }, [dispatch])
 
   const managers = users.filter((u) => isProjectManagerRole(u.role))
