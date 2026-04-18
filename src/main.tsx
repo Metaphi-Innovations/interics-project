@@ -5,13 +5,14 @@ import { store } from './store'
 import { FoundationThemeProvider } from './design-system/ThemeContext'
 import App from './App.tsx'
 
+/** MSW runs in dev and production so deploys (e.g. Vercel) use mock APIs without env flags or a backend. */
 async function enableMocking() {
-  if (import.meta.env.DEV) {
-    const { worker } = await import('./mocks/browser')
-    return worker.start({
-      onUnhandledRequest: 'bypass',
-    })
-  }
+  const { worker } = await import('./mocks/browser')
+  return worker.start({
+    onUnhandledRequest: 'bypass',
+    quiet: !import.meta.env.DEV,
+    serviceWorker: { url: '/mockServiceWorker.js' },
+  })
 }
 
 enableMocking().then(() => {
