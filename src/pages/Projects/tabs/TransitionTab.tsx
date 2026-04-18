@@ -1,5 +1,4 @@
 import { useState, useEffect, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
 import {
   Box,
   Stack,
@@ -100,10 +99,7 @@ import { formatCurrency, formatDate, formatInr } from '../../../utils/formatters
 import {
   BaselineReadinessBlock,
   LockedFinancialHierarchy,
-  ClientVendorMappingSection,
-  MilestoneOverviewSection,
   DocumentsTraceabilitySection,
-  StructuredVendorPOList,
 } from './transition/lockedBaselineUi'
 
 // ─── Upload PO Drawer ─────────────────────────────────────────────────────────
@@ -1814,7 +1810,6 @@ interface StateCProps {
   onIssueVendorPO: () => void
   projectId: string
   onRequestEditBaseline: () => void
-  onTrackVendorPayments: (vpo: VendorPO) => void
 }
 
 function StateC({
@@ -1824,7 +1819,6 @@ function StateC({
   saving,
   onIssueVendorPO,
   onRequestEditBaseline,
-  onTrackVendorPayments,
 }: StateCProps) {
   const margin =
     baseline.totalRevenue > 0
@@ -1893,20 +1887,12 @@ function StateC({
         <Box sx={{ mb: 2 }}>
           <LockedFinancialHierarchy categories={baseline.categories} />
         </Box>
-        <Box sx={{ mb: 2 }}>
-          <ClientVendorMappingSection categories={baseline.categories} />
-        </Box>
-        <Box sx={{ mb: 2 }}>
-          <MilestoneOverviewSection categories={baseline.categories} />
-        </Box>
+        {/* Client vs Vendor Mapping: temporarily hidden — re-add ClientVendorMappingSection when required */}
+        {/* Milestone Overview: temporarily hidden — re-add MilestoneOverviewSection when required */}
         <Box sx={{ mb: 2 }}>
           <DocumentsTraceabilitySection clientPOs={clientPOs} categories={baseline.categories} vendorPOs={vendorPOs} />
         </Box>
-        <StructuredVendorPOList
-          vendorPOs={vendorPOs}
-          categories={baseline.categories}
-          onTrackPayments={onTrackVendorPayments}
-        />
+        {/* Vendor Purchase Orders: temporarily hidden — re-add StructuredVendorPOList when required */}
       </Box>
 
       <Box sx={{ position: { xs: 'static', md: 'sticky' }, top: 80 }}>
@@ -2043,7 +2029,6 @@ interface TransitionTabProps {
 
 export default function TransitionTab({ project }: TransitionTabProps) {
   const dispatch = useAppDispatch()
-  const navigate = useNavigate()
   const showToast = useToast((s) => s.showToast)
   void useTheme()
 
@@ -2386,9 +2371,6 @@ export default function TransitionTab({ project }: TransitionTabProps) {
           onIssueVendorPO={() => setIssueVendorPOOpen(true)}
           projectId={project.id}
           onRequestEditBaseline={() => setUnlockBaselineDialogOpen(true)}
-          onTrackVendorPayments={() => {
-            void navigate('/finance/payables')
-          }}
         />
       )}
 

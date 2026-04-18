@@ -270,6 +270,7 @@ export function LockedFinancialHierarchy({ categories }: LockedFinancialHierarch
   )
 }
 
+/** Not mounted from TransitionTab State C while the section is hidden; wire back when Client vs Vendor Mapping is required again. */
 export function ClientVendorMappingSection({ categories }: { categories: PitchCategory[] }) {
   return (
     <WorkspaceSection
@@ -315,6 +316,7 @@ export function ClientVendorMappingSection({ categories }: { categories: PitchCa
   )
 }
 
+/** Not mounted from TransitionTab State C while the section is hidden; wire back when Milestone Overview is required again. */
 export function MilestoneOverviewSection({ categories }: { categories: PitchCategory[] }) {
   const clientRows = categories.flatMap((cat) =>
     cat.services.flatMap((svc) =>
@@ -606,6 +608,7 @@ function statusChipLabel(s: VendorPO['status']): string {
   return s
 }
 
+/** Not mounted from TransitionTab State C while the section is hidden; wire back when Vendor PO overview is required again. */
 export function StructuredVendorPOList({
   vendorPOs,
   categories,
