@@ -217,6 +217,20 @@ function sortProjectsByIdDesc(list: Project[]): Project[] {
   })
 }
 
+/** Avoids `Unexpected token '<'` when the dev server returns HTML instead of JSON. */
+async function fetchJsonArray(url: string): Promise<unknown[]> {
+  try {
+    const r = await fetch(url)
+    if (!r.ok) return []
+    const ct = r.headers.get('content-type') ?? ''
+    if (!ct.includes('application/json')) return []
+    const data: unknown = await r.json()
+    return Array.isArray(data) ? data : []
+  } catch {
+    return []
+  }
+}
+
 // ─── KPI Card ─────────────────────────────────────────────────────────────────
 
 function KpiCard({
@@ -331,8 +345,8 @@ export default function DashboardPage() {
   const dispatch = useAppDispatch()
   const chartHeight = useMediaQuery(theme.breakpoints.down('md')) ? 180 : 220
 
-  const clientInvoices = useAppSelector((s) => s.receivables.items)
-  const projects = useAppSelector((s) => s.projects.items)
+  const clientInvoices = useAppSelector((s) => s.receivables.items ?? [])
+  const projects = useAppSelector((s) => s.projects.items ?? [])
 
   const [dateRange, setDateRange] = useState<DateRange>('This Month')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('All Status')
@@ -363,8 +377,8 @@ export default function DashboardPage() {
         projects.map(async (p) => {
           const base = `/api/projects/${p.id}`
           const [vr, er] = await Promise.all([
-            fetch(`${base}/vendor-invoices`).then((r) => (r.ok ? r.json() : [])),
-            fetch(`${base}/expenses`).then((r) => (r.ok ? r.json() : [])),
+            fetchJsonArray(`${base}/vendor-invoices`),
+            fetchJsonArray(`${base}/expenses`),
           ])
           return {
             v: vr as VendorInvoice[],
@@ -1076,9 +1090,9 @@ export default function DashboardPage() {
           <Typography variant="h6" fontWeight={600} sx={{ mb: 2 }}>
             Status Distribution
           </Typography>
-          <Box sx={{ position: 'relative', height: chartHeight }}>
+          <Box sx={{ position: 'relative', height: chartHeight, minWidth: 0 }}>
             {statusData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" minHeight={chartHeight}>
                 <PieChart>
                   <Pie
                     data={statusData}
@@ -1385,8 +1399,8 @@ export default function DashboardPage() {
               ))}
             </MuiSelect>
           </Box>
-          <Box sx={{ height: chartHeight }}>
-            <ResponsiveContainer width="100%" height="100%">
+          <Box sx={{ height: chartHeight, minWidth: 0 }}>
+            <ResponsiveContainer width="100%" height="100%" minHeight={chartHeight}>
               <AreaChart
                 data={monthlySeries}
                 margin={{ top: 4, right: 4, left: -20, bottom: 0 }}
@@ -1472,8 +1486,8 @@ export default function DashboardPage() {
               Net margin % over time
             </Typography>
           </Box>
-          <Box sx={{ height: chartHeight }}>
-            <ResponsiveContainer width="100%" height="100%">
+          <Box sx={{ height: chartHeight, minWidth: 0 }}>
+            <ResponsiveContainer width="100%" height="100%" minHeight={chartHeight}>
               <LineChart
                 data={monthlySeries}
                 margin={{ top: 4, right: 4, left: -20, bottom: 0 }}
@@ -1542,8 +1556,12 @@ export default function DashboardPage() {
           <Typography variant="caption" color="text.secondary" sx={{ mb: 2, display: 'block' }}>
             Monthly inflow (incl. GST) vs outflow
           </Typography>
-          <Box sx={{ height: chartHeight - 20 }}>
-            <ResponsiveContainer width="100%" height="100%">
+          <Box sx={{ height: chartHeight - 20, minWidth: 0 }}>
+            <ResponsiveContainer
+              width="100%"
+              height="100%"
+              minHeight={Math.max(0, chartHeight - 20)}
+            >
               <BarChart data={cashFlowData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
                 <CartesianGrid
                   strokeDasharray="3 3"

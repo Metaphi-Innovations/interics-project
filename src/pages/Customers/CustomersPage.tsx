@@ -608,28 +608,28 @@ export default function CustomersPage() {
     {
       label: 'TOTAL CUSTOMERS',
       value: items.length,
-      color: 'default' as const,
-      icon: <People sx={{ fontSize: 20 }} />,
+      variant: 'default' as const,
+      icon: <People sx={{ fontSize: 24 }} />,
     },
     {
       label: 'ACTIVE PROJECTS',
       value: items.reduce((sum, c) => sum + c.activeProjects, 0),
-      color: 'success' as const,
-      icon: <FolderOpen sx={{ fontSize: 20 }} />,
+      variant: 'success' as const,
+      icon: <FolderOpen sx={{ fontSize: 24 }} />,
     },
     {
       label: 'TOTAL RECEIVABLES',
       value: '₹' + formatCurrency(items.reduce((sum, c) => sum + c.totalReceivables, 0)),
-      color: 'info' as const,
-      icon: <TrendingUp sx={{ fontSize: 20 }} />,
+      variant: 'teal' as const,
+      icon: <TrendingUp sx={{ fontSize: 24 }} />,
     },
     {
       label: 'OUTSTANDING',
       value: '₹' + formatCurrency(
         items.filter((c) => c.status === 'Active').reduce((sum, c) => sum + c.totalReceivables, 0)
       ),
-      color: 'warning' as const,
-      icon: <AccountBalance sx={{ fontSize: 20 }} />,
+      variant: 'warning' as const,
+      icon: <AccountBalance sx={{ fontSize: 24 }} />,
     },
   ]
 

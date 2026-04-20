@@ -19,7 +19,7 @@ import {
 } from '@mui/material'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import { useTheme, alpha } from '@mui/material/styles'
-import { Receipt, Plus } from 'lucide-react'
+import { Receipt, Plus, Wallet, Layers, Link2, Users } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { ListingTemplate } from '@/components/templates'
 import type { FilterField, ColumnItem } from '@/components/templates/ListingTemplate'
@@ -218,10 +218,30 @@ export default function ExpensesPage() {
   }, [tabFiltered])
 
   const statCards = [
-    { label: 'Total Expenses', value: `₹${formatCurrency(kpis.total)}`, color: 'default' as const },
-    { label: 'Additional', value: `₹${formatCurrency(kpis.additional)}`, color: 'default' as const },
-    { label: 'Vendor Linked', value: `₹${formatCurrency(kpis.vendorLinked)}`, color: 'info' as const },
-    { label: 'Common', value: `₹${formatCurrency(kpis.common)}`, color: 'default' as const },
+    {
+      label: 'Total Expenses',
+      value: `₹${formatCurrency(kpis.total)}`,
+      variant: 'default' as const,
+      icon: <Wallet size={24} strokeWidth={1.75} />,
+    },
+    {
+      label: 'Additional',
+      value: `₹${formatCurrency(kpis.additional)}`,
+      variant: 'purple' as const,
+      icon: <Layers size={24} strokeWidth={1.75} />,
+    },
+    {
+      label: 'Vendor Linked',
+      value: `₹${formatCurrency(kpis.vendorLinked)}`,
+      variant: 'info' as const,
+      icon: <Link2 size={24} strokeWidth={1.75} />,
+    },
+    {
+      label: 'Common',
+      value: `₹${formatCurrency(kpis.common)}`,
+      variant: 'teal' as const,
+      icon: <Users size={24} strokeWidth={1.75} />,
+    },
   ]
 
   const tabs = [

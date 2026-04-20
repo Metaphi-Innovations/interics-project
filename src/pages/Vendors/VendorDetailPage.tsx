@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import {
   Box,
+  Divider,
   Stack,
   Typography,
   Chip as MuiChip,
@@ -16,6 +17,7 @@ import {
   DialogContent,
   DialogActions,
   Grid,
+  Link,
 } from '@mui/material'
 import {
   VerifiedUser,
@@ -25,31 +27,21 @@ import {
   Email,
   Payment,
   FolderOpen,
-  Description,
   Add,
   Delete,
-  Star,
   StarBorder,
-  AutoAwesome,
-  EditNote,
   Person,
-  Sync,
-  PictureAsPdf,
 } from '@mui/icons-material'
-import { Plus } from 'lucide-react'
+import { ChevronRight, History, Plus } from 'lucide-react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { fetchVendorById, updateVendor } from '../../slices/vendors/thunk'
 import { clearSelected } from '../../slices/vendors/reducer'
-import type { Contact, ActivityEntry } from '../../slices/customers/reducer'
-import {
-  WorkspaceDetail,
-  WorkspaceSection,
-  WorkspaceTwoCol,
-} from '../../components/templates'
+import type { Contact } from '../../slices/customers/reducer'
+import { WorkspaceDetail, WorkspaceSection } from '../../components/templates'
 import { VendorDrawer } from './VendorDrawer'
 import { ContactDrawer } from '../../components/ContactDrawer'
-import { StatusBadge, CopyButton, useToast, Button } from '@/design-system/components'
+import { StatusBadge, useToast, Button } from '@/design-system/components'
 import type { StatusType } from '@/design-system/components'
 import {
   getInitials,
@@ -58,17 +50,40 @@ import {
 } from '../../utils/formatters'
 import { tokens } from '@/design-system/tokens'
 import { useTheme, alpha } from '@mui/material/styles'
-import dayjs from 'dayjs'
+import {
+  getRecordDetailFlatSectionSx,
+  getRecordDetailOverviewRightCardSx,
+  RecordDetailSectionTitle,
+  formatFullAddress,
+  getRecordTagChipColors,
+  gstStatusHeaderPillSx,
+  type ActivityFilterCategory,
+  filterActivityLog,
+  getActivityTimelineVisual,
+  formatActivityTimestamp,
+  RecordDetailTaxDocCard,
+} from '../workspace/recordDetailTabUtils'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function LabelValue({ label, children }: { label: string; children: React.ReactNode }) {
+  const theme = useTheme()
   return (
     <Box>
-      <Typography variant="overline" sx={{ fontSize: 10, color: 'text.secondary', display: 'block' }}>
+      <Typography
+        component="div"
+        sx={{
+          fontSize: 10,
+          color: 'text.secondary',
+          textTransform: 'uppercase',
+          letterSpacing: '0.4px',
+          display: 'block',
+          mb: theme.spacing(0.25),
+        }}
+      >
         {label}
       </Typography>
-      <Box sx={{ mt: '2px' }}>{children}</Box>
+      <Box sx={{ mt: theme.spacing(0.25) }}>{children}</Box>
     </Box>
   )
 }
@@ -118,19 +133,14 @@ function NotFound() {
   )
 }
 
-function activityIcon(type: ActivityEntry['type']) {
-  const size = 14
-  switch (type) {
-    case 'record_created':    return <AutoAwesome sx={{ fontSize: size, color: 'primary.main' }} />
-    case 'profile_edited':    return <EditNote sx={{ fontSize: size, color: 'info.main' }} />
-    case 'contact_added':
-    case 'contact_removed':   return <Person sx={{ fontSize: size, color: 'success.main' }} />
-    case 'primary_changed':   return <Star sx={{ fontSize: size, color: 'warning.main' }} />
-    case 'document_uploaded': return <Description sx={{ fontSize: size, color: 'info.main' }} />
-    case 'status_changed':    return <Sync sx={{ fontSize: size, color: 'error.main' }} />
-    default:                  return <EditNote sx={{ fontSize: size }} />
-  }
-}
+const ACTIVITY_FILTER_OPTIONS: { id: ActivityFilterCategory; label: string }[] = [
+  { id: 'all', label: 'All' },
+  { id: 'profile', label: 'Profile' },
+  { id: 'documents', label: 'Documents' },
+  { id: 'contacts', label: 'Contacts' },
+  { id: 'financial', label: 'Financial' },
+  { id: 'system', label: 'System' },
+]
 
 // ── VendorDetailPage ──────────────────────────────────────────────────────────
 
@@ -150,6 +160,7 @@ export default function VendorDetailPage() {
   const [contactDrawerOpen, setContactDrawerOpen] = useState(false)
   const [editingContact, setEditingContact] = useState<Contact | null>(null)
   const [deleteConfirmContact, setDeleteConfirmContact] = useState<Contact | null>(null)
+  const [activityFilter, setActivityFilter] = useState<ActivityFilterCategory>('all')
 
   useEffect(() => {
     if (!slug) return
@@ -244,97 +255,267 @@ export default function VendorDetailPage() {
 
   function renderOverview() {
     const primary = primaryContact()
+    const gstRegistered = vendor!.gstStatus === 'Registered'
+    const gstPill = gstStatusHeaderPillSx(gstRegistered, theme)
+    const mono =
+      (theme.typography as { fontFamilyMonospace?: string }).fontFamilyMonospace ?? `'Courier New', monospace`
+    const addressStr = formatFullAddress(
+      vendor!.address,
+      vendor!.city,
+      vendor!.state,
+      vendor!.pincode,
+    ).trim()
+    const fd = vendor!.financialDetails
+    const totalPayables = fd?.totalPayables ?? vendor!.totalPayables ?? 0
+    const amountPaid = fd?.amountPaid ?? 0
+    const outstanding = fd?.outstanding ?? 0
+
     return (
-      <Box>
-        <WorkspaceTwoCol>
-          <Box>
-            <WorkspaceSection title="Vendor Profile">
-              <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
-                <LabelValue label="Vendor Name">
-                  <Typography variant="body2" fontWeight={500}>{vendor!.name}</Typography>
-                </LabelValue>
-                <LabelValue label="Status">
-                  <StatusBadge status={vendor!.status.toLowerCase() as StatusType} />
-                </LabelValue>
-              </Box>
-            </WorkspaceSection>
-
-            <WorkspaceSection title="Address & Location">
-              <Typography variant="body2" color="text.secondary">
-                {vendor!.address && <>{vendor!.address}<br /></>}
-                {vendor!.city}, {vendor!.state}
-                {vendor!.pincode && ` - ${vendor!.pincode}`}
-              </Typography>
-            </WorkspaceSection>
-          </Box>
-
-          <Box>
-            <WorkspaceSection title="Contact Details">
-              {primary ? (
-                <Stack direction="row" alignItems="flex-start" gap={2}
-                  sx={{ p: 1.5, borderRadius: 2, border: '1px solid', borderColor: 'divider' }}
+      <Box
+        sx={{
+          display: 'grid',
+          gap: theme.spacing(2),
+          gridTemplateColumns: { xs: '1fr', md: '1fr 320px' },
+          alignItems: 'start',
+        }}
+      >
+        <Stack gap={0}>
+          <Box sx={getRecordDetailFlatSectionSx(theme, { isLast: false })}>
+            <RecordDetailSectionTitle>Vendor profile</RecordDetailSectionTitle>
+            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: theme.spacing(2) }}>
+              <LabelValue label="Vendor name">
+                <Typography variant="body2" sx={{ color: 'text.primary', fontWeight: 500, fontSize: theme.typography.body2.fontSize }}>
+                  {vendor!.name}
+                </Typography>
+              </LabelValue>
+              <LabelValue label="Status">
+                <StatusBadge status={vendor!.status.toLowerCase() as StatusType} />
+              </LabelValue>
+              <LabelValue label="GST status">
+                <Box
+                  component="span"
+                  sx={{
+                    ...gstPill,
+                    fontSize: theme.typography.caption.fontSize,
+                    fontWeight: 600,
+                    px: theme.spacing(1),
+                    py: theme.spacing(0.5),
+                    borderRadius: tokens.borderRadius.md,
+                    lineHeight: 1.2,
+                    display: 'inline-block',
+                  }}
                 >
-                  <Box
-                    sx={{
-                      width: 44, height: 44, borderRadius: '50%', flexShrink: 0,
-                      bgcolor: getAvatarColor(primary.name).bg,
-                      color: getAvatarColor(primary.name).text,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: 14, fontWeight: 700,
-                    }}
-                  >
-                    {getInitials(primary.name)}
-                  </Box>
-                  <Box sx={{ flex: 1, minWidth: 0 }}>
-                    <Typography variant="body2" fontWeight={600} sx={{ fontSize: 14 }}>{primary.name}</Typography>
-                    {primary.designation && (
-                      <Typography variant="caption" color="text.secondary">{primary.designation}</Typography>
-                    )}
-                    <Stack gap={0.25} sx={{ mt: 1 }}>
-                      <Stack direction="row" alignItems="center" gap={0.5}>
-                        <Phone sx={{ fontSize: 12, color: 'text.secondary' }} />
-                        <Typography variant="body2" sx={{ fontSize: 12 }}>{primary.phone}</Typography>
-                      </Stack>
-                      <Stack direction="row" alignItems="center" gap={0.5}>
-                        <Email sx={{ fontSize: 12, color: 'text.secondary' }} />
-                        <Typography variant="body2" sx={{ fontSize: 12 }}>{primary.email}</Typography>
-                      </Stack>
-                    </Stack>
-                  </Box>
-                </Stack>
-              ) : (
-                <Box sx={{ py: 3, textAlign: 'center' }}>
-                  <Person sx={{ fontSize: 28, color: tokens.color.neutral[300], mb: 1 }} />
-                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>No contact added yet</Typography>
-                  <Button
-                    variant="outlined"
-                    color="secondary"
-                    size="sm"
-                    startIcon={<Plus size={14} strokeWidth={2} />}
-                    onClick={() => { setEditingContact(null); setContactDrawerOpen(true) }}
-                  >
-                    Add Contact
-                  </Button>
+                  {vendor!.gstStatus}
                 </Box>
-              )}
-            </WorkspaceSection>
+              </LabelValue>
+              <LabelValue label="GSTIN">
+                <Typography
+                  variant="body2"
+                  sx={{
+                    fontFamily: mono,
+                    letterSpacing: '0.5px',
+                    color: 'text.primary',
+                    fontWeight: 500,
+                    fontSize: theme.typography.body2.fontSize,
+                  }}
+                >
+                  {vendor!.gstin ?? '—'}
+                </Typography>
+              </LabelValue>
+              <LabelValue label="PAN">
+                <Typography
+                  variant="body2"
+                  sx={{
+                    fontFamily: mono,
+                    letterSpacing: '0.5px',
+                    color: 'text.primary',
+                    fontWeight: 500,
+                    fontSize: theme.typography.body2.fontSize,
+                  }}
+                >
+                  {vendor!.pan ?? '—'}
+                </Typography>
+              </LabelValue>
+              <LabelValue label="Vendor type">
+                <Typography variant="body2" sx={{ color: 'text.primary', fontWeight: 500, fontSize: theme.typography.body2.fontSize }}>
+                  {vendor!.financialDetails?.vendorType ?? '—'}
+                </Typography>
+              </LabelValue>
+            </Box>
           </Box>
-        </WorkspaceTwoCol>
 
-        {(vendor!.tags.length > 0 || vendor!.notes) && (
-          <WorkspaceSection title="Specialization & Terms">
-            {vendor!.tags.length > 0 && (
-              <Stack direction="row" flexWrap="wrap" gap={0.5} sx={{ mb: 1.5 }}>
-                {vendor!.tags.map((tag) => (
-                  <MuiChip key={tag} label={tag} size="small" variant="outlined" sx={{ height: 20, fontSize: 11 }} />
-                ))}
+          <Box sx={getRecordDetailFlatSectionSx(theme, { isLast: false })}>
+            <RecordDetailSectionTitle>Address & location</RecordDetailSectionTitle>
+            {addressStr ? (
+              <Typography
+                variant="body2"
+                sx={{ color: 'text.primary', fontWeight: 500, fontSize: theme.typography.body2.fontSize, whiteSpace: 'pre-line' }}
+              >
+                {addressStr}
+              </Typography>
+            ) : (
+              <Typography variant="body2" color="text.disabled">
+                No address added
+              </Typography>
+            )}
+          </Box>
+
+          <Box sx={getRecordDetailFlatSectionSx(theme, { isLast: true })}>
+            <RecordDetailSectionTitle>Specialization</RecordDetailSectionTitle>
+            {vendor!.tags.length > 0 ? (
+              <Stack direction="row" flexWrap="wrap" gap={theme.spacing(0.75)}>
+                {vendor!.tags.map((tag) => {
+                  const c = getRecordTagChipColors(tag, theme)
+                  return (
+                    <MuiChip
+                      key={tag}
+                      label={tag}
+                      size="small"
+                      variant="filled"
+                      sx={{
+                        bgcolor: c.bg,
+                        color: c.color,
+                        fontWeight: 600,
+                        fontSize: theme.typography.caption.fontSize,
+                        borderRadius: tokens.borderRadius.lg,
+                        border: 'none',
+                        height: 22,
+                      }}
+                    />
+                  )
+                })}
               </Stack>
+            ) : (
+              <Typography variant="body2" color="text.disabled">
+                No specialization tags
+              </Typography>
             )}
-            {vendor!.notes && (
-              <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic', mt: 1 }}>{vendor!.notes}</Typography>
-            )}
-          </WorkspaceSection>
-        )}
+          </Box>
+        </Stack>
+
+        <Box sx={getRecordDetailOverviewRightCardSx(theme)}>
+          <RecordDetailSectionTitle>Primary contact</RecordDetailSectionTitle>
+          {primary ? (
+            <Stack direction="row" alignItems="flex-start" gap={theme.spacing(2)}>
+              <Box
+                sx={{
+                  width: 48,
+                  height: 48,
+                  borderRadius: '50%',
+                  flexShrink: 0,
+                  bgcolor: getAvatarColor(primary.name).bg,
+                  color: getAvatarColor(primary.name).text,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: 14,
+                  fontWeight: 700,
+                }}
+              >
+                {getInitials(primary.name)}
+              </Box>
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography variant="body2" fontWeight={500}>
+                  {primary.name}
+                </Typography>
+                {primary.designation ? (
+                  <Typography variant="body2" color="text.secondary">
+                    {primary.designation}
+                  </Typography>
+                ) : null}
+                <Stack direction="row" alignItems="center" gap={0.5} sx={{ mt: 1 }}>
+                  <Phone sx={{ fontSize: 12, color: 'text.secondary' }} />
+                  <Typography variant="body2" sx={{ fontSize: 12 }}>
+                    {primary.phone}
+                  </Typography>
+                </Stack>
+                <Stack direction="row" alignItems="center" gap={0.5}>
+                  <Email sx={{ fontSize: 12, color: 'text.secondary' }} />
+                  <Link href={`mailto:${primary.email}`} variant="body2" sx={{ fontSize: 12, color: 'primary.main' }}>
+                    {primary.email}
+                  </Link>
+                </Stack>
+              </Box>
+            </Stack>
+          ) : (
+            <Box sx={{ py: 2, textAlign: 'center' }}>
+              <Person sx={{ fontSize: 28, color: tokens.color.neutral[300], mb: 1 }} />
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                No contact added yet
+              </Typography>
+              <Button
+                variant="outlined"
+                color="secondary"
+                size="sm"
+                startIcon={<Plus size={14} strokeWidth={2} />}
+                onClick={() => {
+                  setEditingContact(null)
+                  setContactDrawerOpen(true)
+                }}
+              >
+                Add contact
+              </Button>
+            </Box>
+          )}
+
+          <Divider sx={{ my: theme.spacing(1.5) }} />
+
+          <RecordDetailSectionTitle>Financial summary</RecordDetailSectionTitle>
+          <Stack gap={theme.spacing(1.5)}>
+            <Stack direction="row" justifyContent="space-between" alignItems="center">
+              <Typography variant="caption" color="text.secondary">
+                Total Payables
+              </Typography>
+              <Typography variant="body2" fontWeight={600}>
+                ₹{formatCurrency(totalPayables)}
+              </Typography>
+            </Stack>
+            <Stack direction="row" justifyContent="space-between" alignItems="center">
+              <Typography variant="caption" color="text.secondary">
+                Paid
+              </Typography>
+              <Typography variant="body2" fontWeight={600} sx={{ color: 'success.main' }}>
+                ₹{formatCurrency(amountPaid)}
+              </Typography>
+            </Stack>
+            <Stack direction="row" justifyContent="space-between" alignItems="center">
+              <Typography variant="caption" color="text.secondary">
+                Outstanding
+              </Typography>
+              <Typography
+                variant="body2"
+                fontWeight={600}
+                sx={{ color: outstanding > 0 ? 'warning.main' : 'text.primary' }}
+              >
+                ₹{formatCurrency(outstanding)}
+              </Typography>
+            </Stack>
+          </Stack>
+
+          <Divider sx={{ my: theme.spacing(1.5) }} />
+
+          <RecordDetailSectionTitle>Quick actions</RecordDetailSectionTitle>
+          <Stack gap={0.25} alignItems="flex-start">
+            <Button
+              variant="text"
+              color="primary"
+              size="sm"
+              endIcon={<ChevronRight size={16} />}
+              onClick={() => setActiveTab('payments')}
+            >
+              View Payment History
+            </Button>
+            <Button
+              variant="text"
+              color="primary"
+              size="sm"
+              endIcon={<ChevronRight size={16} />}
+              onClick={() => setActiveTab('projects')}
+            >
+              View Linked Projects
+            </Button>
+          </Stack>
+        </Box>
       </Box>
     )
   }
@@ -342,117 +523,44 @@ export default function VendorDetailPage() {
   // ── renderDocsTax ──────────────────────────────────────────────────────────
 
   function renderDocsTax() {
+    const onCopy = () => showToast({ title: 'Copied to clipboard', variant: 'success' })
     return (
-      <Box>
-        <WorkspaceSection title="GST Registration">
-          <Stack direction="row" alignItems="center" gap={2} flexWrap="wrap" sx={{ py: 0.5 }}>
-            <StatusBadge
-              status={vendor!.gstStatus === 'Unregistered' ? 'inactive' : 'active'}
-              label={vendor!.gstStatus}
-            />
-            <Typography variant="body2" color="text.secondary" component="span" sx={{ fontWeight: 500 }}>
-              GSTIN:
-            </Typography>
-            {vendor!.gstin ? (
-              <>
-                <Typography
-                  variant="body2"
-                  fontWeight={500}
-                  sx={{ fontFamily: 'monospace', letterSpacing: 0.5, fontSize: 13 }}
-                >
-                  {vendor!.gstin}
-                </Typography>
-                <CopyButton value={vendor!.gstin} size="sm" />
-              </>
-            ) : (
-              <Typography variant="body2" color="text.disabled">
-                Not applicable
-              </Typography>
-            )}
-            <Typography variant="body2" color="text.disabled" component="span" sx={{ userSelect: 'none' }}>
-              |
-            </Typography>
-            {vendor!.gstDocument ? (
-              <Stack
-                direction="row"
-                alignItems="center"
-                gap={0.5}
-                onClick={() => openTaxDocument(vendor!.gstDocument!.url)}
-                sx={{ cursor: 'pointer' }}
-                role="link"
-                tabIndex={0}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault()
-                    openTaxDocument(vendor!.gstDocument!.url)
-                  }
-                }}
-              >
-                <PictureAsPdf sx={{ fontSize: 18, color: 'text.secondary' }} />
-                <Typography variant="body2" color="primary.main" sx={{ fontSize: 13, textDecoration: 'underline' }}>
-                  {vendor!.gstDocument.name}
-                </Typography>
-              </Stack>
-            ) : (
-              <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12 }}>
-                No document uploaded
-              </Typography>
-            )}
-          </Stack>
-        </WorkspaceSection>
-
-        <WorkspaceSection title="PAN / Income Tax">
-          <Stack direction="row" alignItems="center" gap={2} flexWrap="wrap" sx={{ py: 0.5 }}>
-            <Typography variant="body2" color="text.secondary" component="span" sx={{ fontWeight: 500 }}>
-              PAN:
-            </Typography>
-            {vendor!.pan ? (
-              <>
-                <Typography
-                  variant="body2"
-                  fontWeight={500}
-                  sx={{ fontFamily: 'monospace', letterSpacing: 0.5, fontSize: 13 }}
-                >
-                  {vendor!.pan}
-                </Typography>
-                <CopyButton value={vendor!.pan} size="sm" />
-              </>
-            ) : (
-              <Typography variant="body2" color="text.disabled">
-                Not provided
-              </Typography>
-            )}
-            <Typography variant="body2" color="text.disabled" component="span" sx={{ userSelect: 'none' }}>
-              |
-            </Typography>
-            {vendor!.panDocument ? (
-              <Stack
-                direction="row"
-                alignItems="center"
-                gap={0.5}
-                onClick={() => openTaxDocument(vendor!.panDocument!.url)}
-                sx={{ cursor: 'pointer' }}
-                role="link"
-                tabIndex={0}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault()
-                    openTaxDocument(vendor!.panDocument!.url)
-                  }
-                }}
-              >
-                <PictureAsPdf sx={{ fontSize: 18, color: 'text.secondary' }} />
-                <Typography variant="body2" color="primary.main" sx={{ fontSize: 13, textDecoration: 'underline' }}>
-                  {vendor!.panDocument.name}
-                </Typography>
-              </Stack>
-            ) : (
-              <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12 }}>
-                No document uploaded
-              </Typography>
-            )}
-          </Stack>
-        </WorkspaceSection>
+      <Box
+        sx={{
+          display: 'grid',
+          gap: theme.spacing(1.5),
+          gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
+          alignItems: 'start',
+        }}
+      >
+        <RecordDetailTaxDocCard
+          variant="gst"
+          title="GST Registration"
+          statusChip={{
+            label: vendor!.gstStatus,
+            isRegistered: vendor!.gstStatus === 'Registered',
+          }}
+          fieldLabel="GSTIN"
+          fieldValue={vendor!.gstin}
+          document={vendor!.gstDocument ?? null}
+          emptyDocMessage="No certificate uploaded"
+          uploadButtonLabel="+ Upload Certificate"
+          onView={openTaxDocument}
+          onDownload={openTaxDocument}
+          onCopySuccess={onCopy}
+        />
+        <RecordDetailTaxDocCard
+          variant="pan"
+          title="PAN / Income Tax"
+          fieldLabel="PAN"
+          fieldValue={vendor!.pan}
+          document={vendor!.panDocument ?? null}
+          emptyDocMessage="No document uploaded"
+          uploadButtonLabel="+ Upload Document"
+          onView={openTaxDocument}
+          onDownload={openTaxDocument}
+          onCopySuccess={onCopy}
+        />
       </Box>
     )
   }
@@ -636,46 +744,109 @@ export default function VendorDetailPage() {
 
   function renderActivity() {
     const log = vendor!.activityLog ?? []
+    const filtered = filterActivityLog(log, activityFilter)
+
     if (log.length === 0) {
       return (
-        <WorkspaceSection>
-          <Box sx={{ py: 5, textAlign: 'center' }}>
-            <Typography variant="body2" color="text.secondary">Activity log will appear here as changes are made</Typography>
-          </Box>
-        </WorkspaceSection>
+        <Box sx={{ py: 6, textAlign: 'center' }}>
+          <History size={40} strokeWidth={1.25} color={tokens.color.neutral[300]} style={{ margin: '0 auto 12px' }} />
+          <Typography variant="body2" fontWeight={500}>
+            No activity yet
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+            Actions will appear here as the record is updated.
+          </Typography>
+        </Box>
       )
     }
+
     return (
-      <WorkspaceSection title="Activity Log">
-        <Stack gap={0}>
-          {log.slice(0, 10).map((entry, i) => (
-            <Stack key={entry.id} direction="row" alignItems="flex-start" gap={1.5}
-              sx={{ position: 'relative', pb: i < log.length - 1 ? 2.5 : 0 }}
-            >
-              {i < log.length - 1 && (
-                <Box sx={{ position: 'absolute', left: 15, top: 28, bottom: 0, width: 1, bgcolor: 'divider', zIndex: 0 }} />
-              )}
-              <Box sx={{
-                width: 30, height: 30, borderRadius: '50%', flexShrink: 0, zIndex: 1,
-                bgcolor: alpha(theme.palette.primary.main, 0.08),
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}>
-                {activityIcon(entry.type)}
-              </Box>
-              <Box sx={{ flex: 1, pt: '5px' }}>
-                <Typography variant="body2" sx={{ fontSize: 13, lineHeight: 1.4 }}>{entry.description}</Typography>
-                <Stack direction="row" gap={1} sx={{ mt: 0.25 }}>
-                  <Typography variant="caption" color="text.secondary">{entry.user}</Typography>
-                  <Typography variant="caption" color="text.disabled">·</Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    {dayjs(entry.timestamp).format('DD MMM YYYY, h:mm A')}
-                  </Typography>
-                </Stack>
-              </Box>
-            </Stack>
-          ))}
+      <Box>
+        <Stack direction="row" flexWrap="wrap" gap={0.75} sx={{ mb: 2.5 }}>
+          {ACTIVITY_FILTER_OPTIONS.map((opt) => {
+            const selected = activityFilter === opt.id
+            return (
+              <MuiChip
+                key={opt.id}
+                label={opt.label}
+                size="small"
+                onClick={() => setActivityFilter(opt.id)}
+                variant={selected ? 'filled' : 'outlined'}
+                color={selected ? 'primary' : 'default'}
+                sx={{
+                  height: 26,
+                  fontSize: theme.typography.caption.fontSize,
+                  fontWeight: selected ? 600 : 500,
+                }}
+              />
+            )
+          })}
         </Stack>
-      </WorkspaceSection>
+
+        {filtered.length === 0 ? (
+          <Box sx={{ py: 4, textAlign: 'center' }}>
+            <Typography variant="body2" color="text.secondary">
+              No activity matches this filter.
+            </Typography>
+          </Box>
+        ) : (
+          <Stack gap={0}>
+            {filtered.map((entry, i) => {
+              const { Icon, bg, iconColor } = getActivityTimelineVisual(entry.type, theme)
+              const isLast = i === filtered.length - 1
+              return (
+                <Box
+                  key={entry.id}
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: theme.spacing(1.5),
+                    py: theme.spacing(1.25),
+                    px: 0,
+                    borderBottom: isLast ? 'none' : '0.5px solid',
+                    borderColor: 'divider',
+                    bgcolor: 'transparent',
+                    '&:hover': { bgcolor: 'action.hover' },
+                  }}
+                >
+                  <Box
+                    sx={{
+                      width: 28,
+                      height: 28,
+                      borderRadius: tokens.borderRadius.sm,
+                      flexShrink: 0,
+                      bgcolor: bg,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <Icon size={14} strokeWidth={1.75} color={iconColor} />
+                  </Box>
+                  <Box sx={{ flex: 1, pt: theme.spacing(0.25) }}>
+                    <Typography variant="body2" fontWeight={500} sx={{ lineHeight: 1.4 }}>
+                      {entry.description}
+                    </Typography>
+                    <Typography
+                      component="div"
+                      sx={{
+                        mt: theme.spacing(0.25),
+                        fontSize: theme.typography.caption.fontSize,
+                        color: 'text.secondary',
+                        whiteSpace: 'normal',
+                        overflow: 'visible',
+                        display: 'block',
+                      }}
+                    >
+                      {entry.user} · {formatActivityTimestamp(entry.timestamp)}
+                    </Typography>
+                  </Box>
+                </Box>
+              )
+            })}
+          </Stack>
+        )}
+      </Box>
     )
   }
 

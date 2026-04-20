@@ -105,8 +105,8 @@ const projectsSlice = createSlice({
       })
       .addCase(fetchProjects.fulfilled, (state, action) => {
         state.loading = false
-        state.items = action.payload.items
-        state.pagination.total = action.payload.total
+        state.items = action.payload.items ?? []
+        state.pagination.total = action.payload.total ?? 0
       })
       .addCase(fetchProjects.rejected, (state, action) => {
         state.loading = false

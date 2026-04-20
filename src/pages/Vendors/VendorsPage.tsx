@@ -46,6 +46,7 @@ import { VendorDrawer } from './VendorDrawer'
 import { StatusBadge, useToast, Modal, Button } from '@/design-system/components'
 import type { StatusType } from '@/design-system/components'
 import { getInitials, getAvatarColor, formatCurrency, toSlug } from '../../utils/formatters'
+import { getSpecializationTagSx } from '../../utils/specializationTagStyles'
 import { tokens } from '@/design-system/tokens'
 
 // ─── Avatar Cell ──────────────────────────────────────────────────────────────
@@ -188,6 +189,7 @@ function VendorTable({
   items, loading, visibleColumns, sortField, sortDirection, onSort, onView, onEdit, onDelete,
 }: VendorTableProps) {
   const theme = useTheme()
+  const tagMode = theme.palette.mode === 'dark' ? 'dark' : 'light'
   const hoverBg = alpha(theme.palette.primary.main, 0.04)
 
   return (
@@ -341,20 +343,24 @@ function VendorTable({
               {visibleColumns.specialization && (
                 <TableCell sx={{ py: '10px', px: '14px', display: { xs: 'none', lg: 'table-cell' } }}>
                   <Stack direction="row" flexWrap="wrap" gap={0.5}>
-                    {vendor.tags.slice(0, 2).map((tag) => (
-                      <MuiChip
-                        key={tag}
-                        label={tag}
-                        size="small"
-                        sx={{
-                          height: 20,
-                          fontSize: 10,
-                          bgcolor: tokens.color.primary[50],
-                          color: tokens.color.primary[700],
-                          '& .MuiChip-label': { px: '6px' },
-                        }}
-                      />
-                    ))}
+                    {vendor.tags.slice(0, 2).map((tag) => {
+                      const c = getSpecializationTagSx(tag, tagMode)
+                      return (
+                        <MuiChip
+                          key={tag}
+                          label={tag}
+                          size="small"
+                          sx={{
+                            height: 20,
+                            fontSize: 10,
+                            bgcolor: c.bg,
+                            color: c.color,
+                            border: 'none',
+                            '& .MuiChip-label': { px: '6px' },
+                          }}
+                        />
+                      )
+                    })}
                     {vendor.tags.length > 2 && (
                       <MuiChip
                         label={`+${vendor.tags.length - 2} more`}
@@ -742,26 +748,26 @@ export default function VendorsPage() {
     {
       label: 'TOTAL VENDORS',
       value: items.length,
-      color: 'default' as const,
-      icon: <LocalShipping sx={{ fontSize: 20 }} />,
+      variant: 'default' as const,
+      icon: <LocalShipping sx={{ fontSize: 24 }} />,
     },
     {
       label: 'ACTIVE PROJECTS',
       value: items.reduce((sum, v) => sum + v.activeProjects, 0),
-      color: 'success' as const,
-      icon: <FolderOpen sx={{ fontSize: 20 }} />,
+      variant: 'success' as const,
+      icon: <FolderOpen sx={{ fontSize: 24 }} />,
     },
     {
       label: 'TOTAL PAYABLES',
       value: '₹' + formatCurrency(items.reduce((sum, v) => sum + v.totalPayables, 0)),
-      color: 'warning' as const,
-      icon: <TrendingDown sx={{ fontSize: 20 }} />,
+      variant: 'warning' as const,
+      icon: <TrendingDown sx={{ fontSize: 24 }} />,
     },
     {
       label: 'ACTIVE VENDORS',
       value: items.filter((v) => v.status === 'Active').length,
-      color: 'info' as const,
-      icon: <CheckCircle sx={{ fontSize: 20 }} />,
+      variant: 'teal' as const,
+      icon: <CheckCircle sx={{ fontSize: 24 }} />,
     },
   ]
 

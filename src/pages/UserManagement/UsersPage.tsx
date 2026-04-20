@@ -553,10 +553,10 @@ export default function UsersPage() {
 
   const statCards: StatCardItem[] = useMemo(
     () => [
-      { label: 'Total Users', value: totalUsers, color: 'default', icon: <Group sx={{ fontSize: 20 }} /> },
-      { label: 'Active Users', value: activeUsers, color: 'success', icon: <CheckCircle sx={{ fontSize: 20 }} /> },
-      { label: 'Privileged', value: privileged, color: 'info', icon: <Group sx={{ fontSize: 20 }} /> },
-      { label: 'Inactive Users', value: inactiveUsers, color: 'warning', icon: <Block sx={{ fontSize: 20 }} /> },
+      { label: 'Total Users', value: totalUsers, variant: 'default', icon: <Group sx={{ fontSize: 24 }} /> },
+      { label: 'Active Users', value: activeUsers, variant: 'success', icon: <CheckCircle sx={{ fontSize: 24 }} /> },
+      { label: 'Privileged', value: privileged, variant: 'info', icon: <Group sx={{ fontSize: 24 }} /> },
+      { label: 'Inactive Users', value: inactiveUsers, variant: 'warning', icon: <Block sx={{ fontSize: 24 }} /> },
     ],
     [totalUsers, activeUsers, privileged, inactiveUsers],
   )

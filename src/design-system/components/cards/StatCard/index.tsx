@@ -71,7 +71,7 @@ export default function StatCard({
       <BaseCard headerColor={headerColor} sx={sx}>
         <Box sx={{ p: 2.5, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-            <Skeleton variant="rounded" width={40} height={40} />
+            <Skeleton variant="circular" width={theme.spacing(8)} height={theme.spacing(8)} />
             <Skeleton variant="text" width="50%" height={20} />
           </Box>
           <Skeleton variant="text" width="40%" height={40} />
@@ -95,15 +95,21 @@ export default function StatCard({
           {icon && (
             <Box
               sx={{
-                width: 40,
-                height: 40,
-                borderRadius: '10px',
+                width: theme.spacing(8),
+                height: theme.spacing(8),
+                minWidth: theme.spacing(8),
+                borderRadius: '50%',
                 bgcolor: iconBg,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 color: iconFg,
                 flexShrink: 0,
+                '& svg': {
+                  width: theme.spacing(5),
+                  height: theme.spacing(5),
+                  fontSize: theme.spacing(5),
+                },
               }}
             >
               {icon}

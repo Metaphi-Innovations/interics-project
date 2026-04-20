@@ -32,7 +32,7 @@ export default function LiveTab({ project }: LiveTabProps) {
     if (v === 'billing' || v === 'payments' || v === 'expenses' || v === 'reimbursement' || v === 'compliance') {
       setActiveSubTab(v)
     }
-  }, [project.id, location.key])
+  }, [project.id, location.key, location.state])
 
   useEffect(() => {
     dispatch(fetchInvoices(project.id))

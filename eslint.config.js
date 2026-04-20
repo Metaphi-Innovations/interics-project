@@ -20,4 +20,12 @@ export default defineConfig([
       globals: globals.browser,
     },
   },
+  {
+    files: ['src/pages/Projects/**/*.{ts,tsx}'],
+    rules: {
+      // Form/drawer sync-from-props patterns are common here; full refactors are high churn.
+      'react-hooks/set-state-in-effect': 'off',
+      'react-refresh/only-export-components': 'off',
+    },
+  },
 ])

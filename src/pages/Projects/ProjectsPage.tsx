@@ -191,7 +191,8 @@ interface RowActionsProps {
   onChangeStatus: () => void
 }
 
-function RowActions({ project: _project, onView, onEdit, onChangeStatus }: RowActionsProps) {
+function RowActions(props: RowActionsProps) {
+  const { onView, onEdit, onChangeStatus } = props
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   return (
     <>
@@ -1032,7 +1033,7 @@ export default function ProjectsPage() {
   useEffect(() => {
     dispatch(fetchProjects({ page: pagination.page, pageSize: pagination.pageSize }))
     dispatch(fetchUsers({}))
-  }, [dispatch])
+  }, [dispatch, pagination.page, pagination.pageSize])
 
   const refetch = useCallback(() => {
     dispatch(
@@ -1083,26 +1084,26 @@ export default function ProjectsPage() {
     {
       label: 'TOTAL PROJECTS',
       value: pagination.total,
-      color: 'default' as const,
-      icon: <FolderKanban size={20} strokeWidth={1.75} />,
+      variant: 'default' as const,
+      icon: <FolderKanban size={24} strokeWidth={1.75} />,
     },
     {
       label: 'LIVE PROJECTS',
       value: items.filter((p) => p.status === 'Live').length,
-      color: 'success' as const,
-      icon: <PlayCircle sx={{ fontSize: 20 }} />,
+      variant: 'success' as const,
+      icon: <PlayCircle sx={{ fontSize: 24 }} />,
     },
     {
       label: 'COMPLETED',
       value: items.filter((p) => p.status === 'Completed').length,
-      color: 'info' as const,
-      icon: <CheckCircle sx={{ fontSize: 20 }} />,
+      variant: 'info' as const,
+      icon: <CheckCircle sx={{ fontSize: 24 }} />,
     },
     {
       label: 'TOTAL VALUE',
       value: '₹' + formatCurrency(totalValue),
-      color: 'warning' as const,
-      icon: <CurrencyRupee sx={{ fontSize: 20 }} />,
+      variant: 'teal' as const,
+      icon: <CurrencyRupee sx={{ fontSize: 24 }} />,
     },
   ]
 

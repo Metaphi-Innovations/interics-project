@@ -5,7 +5,6 @@ import {
   Stack,
   Typography,
   Chip as MuiChip,
-  Grid,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -33,7 +32,6 @@ import {
   LocationOn,
   CalendarToday,
   Lock,
-  Upload as UploadIcon,
   TrendingUp,
   TrendingDown,
   AttachMoney,
@@ -43,6 +41,9 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import PitchTab from './tabs/PitchTab'
 import TransitionTab from './tabs/TransitionTab'
 import LiveTab from './tabs/LiveTab'
+import FinancialsTab from './tabs/FinancialsTab'
+import DocumentsTab from './tabs/DocumentsTab'
+import ActivityTab from './tabs/ActivityTab'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { fetchProjects, fetchProjectById, updateProject, changeProjectStatus } from '../../slices/projects/thunk'
 import { fetchUsers } from '../../slices/users/thunk'
@@ -85,28 +86,6 @@ function getProgressStyle(
   if (lower.includes('archive'))
     return { bg: palette.action.hover as string, color: palette.text.secondary }
   return { bg: palette.action.hover as string, color: palette.text.secondary }
-}
-
-// ─── Label/Value pair ─────────────────────────────────────────────────────────
-
-function LabelValue({
-  label,
-  children,
-}: {
-  label: string
-  children: React.ReactNode
-}) {
-  return (
-    <Box>
-      <Typography
-        variant="overline"
-        sx={{ fontSize: 10, color: 'text.secondary', letterSpacing: 0.6, display: 'block' }}
-      >
-        {label}
-      </Typography>
-      <Box sx={{ mt: '2px' }}>{children}</Box>
-    </Box>
-  )
 }
 
 // ─── Loading skeleton ─────────────────────────────────────────────────────────
@@ -237,6 +216,28 @@ function EmptyState({
   )
 }
 
+// ─── Label/Value pair ─────────────────────────────────────────────────────────
+
+function LabelValue({
+  label,
+  children,
+}: {
+  label: string
+  children: React.ReactNode
+}) {
+  return (
+    <Box>
+      <Typography
+        variant="overline"
+        sx={{ fontSize: 10, color: 'text.secondary', letterSpacing: 0.6, display: 'block' }}
+      >
+        {label}
+      </Typography>
+      <Box sx={{ mt: '2px' }}>{children}</Box>
+    </Box>
+  )
+}
+
 // ─── Tab content ──────────────────────────────────────────────────────────────
 
 const OVERVIEW_CARD_SX = {
@@ -253,23 +254,19 @@ function OverviewTab({ project }: { project: Project }) {
   const theme = useTheme()
   const revenue = project.totalClientPOValue
 
-  // Receivables (mock approximation from project data)
   const totalReceivable = revenue
   const collected = project.invoicedAmount
   const outstanding = totalReceivable - collected
   const collectionPct = totalReceivable > 0 ? Math.round((collected / totalReceivable) * 100) : 0
 
-  // Stage progress
   const stageIndex = project.status === 'Pitch' ? 1 :
     project.status === 'Live' ? 2 :
     project.status === 'Completed' || project.status === 'Archived' ? 3 : 0
 
-  // Completion %
   const completion = project.status === 'Completed' || project.status === 'Archived' ? 100 :
     project.status === 'Live' ? 55 :
     project.status === 'Pitch' ? 15 : 30
 
-  // Team members (just PM for now)
   const teamMembers = [project.projectManager]
 
   return (
@@ -281,7 +278,6 @@ function OverviewTab({ project }: { project: Project }) {
         alignItems: 'start',
       }}
     >
-      {/* ── LEFT COLUMN ───────────────────────────────────────── */}
       <Box>
         <WorkspaceSection title="Project Details">
           <Box
@@ -335,7 +331,7 @@ function OverviewTab({ project }: { project: Project }) {
                   sx={{
                     width: 24, height: 24, borderRadius: '50%',
                     bgcolor: alpha(getAvatarColor(project.projectManager).bg, 0.15),
-                    color: getAvatarColor(project.projectManager).bg,
+                    color: getAvatarColor(project.projectManager).text,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     fontSize: 9, fontWeight: 700,
                   }}
@@ -355,10 +351,8 @@ function OverviewTab({ project }: { project: Project }) {
         </WorkspaceSection>
       </Box>
 
-      {/* ── RIGHT COLUMN ──────────────────────────────────────── */}
       <Box sx={{ position: 'sticky', top: 80, display: 'flex', flexDirection: 'column', gap: 2 }}>
 
-        {/* Card 1 — Status & Progress */}
         <Box sx={OVERVIEW_CARD_SX}>
           <Typography variant="overline" sx={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.6, color: 'text.secondary', display: 'block', mb: 1.5 }}>
             Status & Progress
@@ -382,7 +376,6 @@ function OverviewTab({ project }: { project: Project }) {
               />
             </Stack>
 
-            {/* Stage stepper dots */}
             <Box>
               <Typography variant="caption" sx={{ fontSize: 10, color: 'text.secondary', display: 'block', mb: 0.75 }}>Stage</Typography>
               <Stack direction="row" alignItems="center" gap={0.5}>
@@ -417,7 +410,6 @@ function OverviewTab({ project }: { project: Project }) {
               </Stack>
             </Box>
 
-            {/* Overall completion */}
             <Box>
               <Stack direction="row" justifyContent="space-between" sx={{ mb: 0.5 }}>
                 <Typography variant="caption" sx={{ fontSize: 10, color: 'text.secondary' }}>Overall Completion</Typography>
@@ -433,7 +425,6 @@ function OverviewTab({ project }: { project: Project }) {
           </Stack>
         </Box>
 
-        {/* Card 3 — Receivables Snapshot */}
         <Box sx={OVERVIEW_CARD_SX}>
           <Typography variant="overline" sx={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.6, color: 'text.secondary', display: 'block', mb: 1.5 }}>
             Receivables Snapshot
@@ -472,7 +463,6 @@ function OverviewTab({ project }: { project: Project }) {
           </Stack>
         </Box>
 
-        {/* Card 4 — Team */}
         <Box sx={OVERVIEW_CARD_SX}>
           <Typography variant="overline" sx={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.6, color: 'text.secondary', display: 'block', mb: 1.5 }}>
             Team
@@ -487,7 +477,7 @@ function OverviewTab({ project }: { project: Project }) {
                   sx={{
                     width: 28, height: 28, borderRadius: '50%',
                     bgcolor: alpha(getAvatarColor(project.projectManager).bg, 0.15),
-                    color: getAvatarColor(project.projectManager).bg,
+                    color: getAvatarColor(project.projectManager).text,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     fontSize: 10, fontWeight: 700,
                   }}
@@ -509,7 +499,7 @@ function OverviewTab({ project }: { project: Project }) {
                     sx={{
                       width: 28, height: 28, borderRadius: '50%',
                       bgcolor: alpha(getAvatarColor(name).bg, 0.15),
-                      color: getAvatarColor(name).bg,
+                      color: getAvatarColor(name).text,
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                       fontSize: 9, fontWeight: 700, border: '1px solid white',
                     }}
@@ -528,83 +518,6 @@ function OverviewTab({ project }: { project: Project }) {
         </Box>
       </Box>
     </Box>
-  )
-}
-
-
-
-
-function FinancialsTab({ project }: { project: Project }) {
-  const profit = project.totalClientPOValue - project.totalVendorPOValue
-  const stats = [
-    { label: 'Revenue', value: project.totalClientPOValue, color: 'success' as const },
-    { label: 'Cost', value: project.totalVendorPOValue, color: 'error' as const },
-    { label: 'Invoiced', value: project.invoicedAmount, color: 'info' as const },
-    { label: 'Profit', value: profit, color: profit >= 0 ? 'success' as const : 'error' as const },
-  ]
-
-  return (
-    <>
-      <Grid container spacing={2} sx={{ mb: 2 }}>
-        {stats.map((s) => (
-          <Grid key={s.label} size={{ xs: 6, lg: 3 }}>
-            <Box
-              sx={{
-                p: '14px 16px',
-                border: `1px solid ${tokens.color.neutral[100]}`,
-                borderRadius: 2,
-              }}
-            >
-              <Typography
-                variant="overline"
-                sx={{ fontSize: 10, color: 'text.secondary', display: 'block' }}
-              >
-                {s.label}
-              </Typography>
-              <Typography variant="h6" sx={{ fontWeight: 700, fontSize: 15, mt: '2px' }}>
-                ₹{formatCurrency(Math.abs(s.value))}
-              </Typography>
-            </Box>
-          </Grid>
-        ))}
-      </Grid>
-      <WorkspaceSection title="Detailed Reports">
-        <EmptyState
-          icon={<BarChartIcon sx={{ fontSize: 48 }} />}
-          title="Detailed financial reports coming soon"
-          description="Charts and breakdowns by category, vendor, and time period will appear here."
-        />
-      </WorkspaceSection>
-    </>
-  )
-}
-
-function DocumentsTab() {
-  return (
-    <WorkspaceSection title="Project Documents">
-      <EmptyState
-        icon={<FilePresent sx={{ fontSize: 48 }} />}
-        title="No documents yet"
-        description="Upload project documents, contracts, and files."
-        action={
-          <MuiButton variant="outlined" size="small" startIcon={<UploadIcon />}>
-            Upload Document
-          </MuiButton>
-        }
-      />
-    </WorkspaceSection>
-  )
-}
-
-function ActivityTab() {
-  return (
-    <WorkspaceSection title="Activity Log">
-      <EmptyState
-        icon={<History sx={{ fontSize: 48 }} />}
-        title="No activity yet"
-        description="Actions taken on this project will be logged here."
-      />
-    </WorkspaceSection>
   )
 }
 
@@ -952,9 +865,9 @@ export default function ProjectDetailPage() {
       case 'financials':
         return <FinancialsTab project={proj} />
       case 'documents':
-        return <DocumentsTab />
+        return <DocumentsTab project={proj} />
       case 'activity':
-        return <ActivityTab />
+        return <ActivityTab project={proj} />
       default:
         return <OverviewTab project={proj} />
     }

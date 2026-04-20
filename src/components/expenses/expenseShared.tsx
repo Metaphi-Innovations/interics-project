@@ -1,5 +1,5 @@
 import { Box, Stack, Typography } from '@mui/material'
-import { Badge, Modal, StatusBadge } from '@/design-system/components'
+import { Modal, StatusBadge } from '@/design-system/components'
 import type { StatusType } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import type { Expense, ExpenseType } from '@/slices/live/types'
@@ -12,18 +12,18 @@ export function expenseStatusDisplay(
     case 'pending':
       return { status: 'pending', label: 'Pending' }
     case 'included_in_payment':
-      return { status: 'paid', label: 'Included in Payment' }
+      return { status: 'included_in_payment', label: 'Included in Payment' }
   }
 }
 
 export function ExpenseTypeBadge({ type }: { type: ExpenseType }) {
   switch (type) {
     case 'additional':
-      return <Badge label="Additional" variant="soft" color="neutral" size="sm" />
+      return <StatusBadge status="additional" size="small" />
     case 'vendor_linked':
-      return <Badge label="Vendor Linked" variant="soft" color="info" size="sm" />
+      return <StatusBadge status="vendor_linked" size="small" />
     case 'common':
-      return <Badge label="Common" variant="soft" color="secondary" size="sm" />
+      return <StatusBadge status="common" size="small" />
   }
 }
 

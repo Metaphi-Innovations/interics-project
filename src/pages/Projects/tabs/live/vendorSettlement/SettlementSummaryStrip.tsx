@@ -1,5 +1,7 @@
-import { Box, Typography } from '@mui/material'
-import { tokens } from '@/design-system/tokens'
+import type { ReactNode } from 'react'
+import { Box } from '@mui/material'
+import { Banknote, CircleCheck, Clock, SlidersHorizontal } from 'lucide-react'
+import { KpiStatCard } from '@/components/templates/KpiStatCard'
 import type { VendorInvoice, VendorPayment } from '@/slices/live/reducer'
 import { formatCurrency } from '@/utils/formatters'
 
@@ -15,15 +17,36 @@ export function SettlementSummaryStrip({
   const pendingSettlement = totalPayable - totalPaid
   const adjustments = payments.reduce((s, p) => s + p.reimbursementAdditions, 0)
 
-  const metrics = [
-    { label: 'Total Payable', value: totalPayable },
-    { label: 'Total Paid', value: totalPaid, highlight: true },
+  const metrics: {
+    label: string
+    value: string
+    variant: 'default' | 'success' | 'warning' | 'teal'
+    icon: ReactNode
+  }[] = [
     {
-      label: 'Pending Settlement',
-      value: pendingSettlement,
-      color: pendingSettlement > 0 ? 'warning.main' : 'success.main',
+      label: 'TOTAL PAYABLE',
+      value: `₹${formatCurrency(totalPayable)}`,
+      variant: 'default',
+      icon: <Banknote size={24} strokeWidth={1.75} />,
     },
-    { label: 'Adjustments', value: adjustments },
+    {
+      label: 'TOTAL PAID',
+      value: `₹${formatCurrency(totalPaid)}`,
+      variant: 'success',
+      icon: <CircleCheck size={24} strokeWidth={1.75} />,
+    },
+    {
+      label: 'PENDING SETTLEMENT',
+      value: `₹${formatCurrency(pendingSettlement)}`,
+      variant: 'warning',
+      icon: <Clock size={24} strokeWidth={1.75} />,
+    },
+    {
+      label: 'ADJUSTMENTS',
+      value: `₹${formatCurrency(adjustments)}`,
+      variant: 'teal',
+      icon: <SlidersHorizontal size={24} strokeWidth={1.75} />,
+    },
   ]
 
   return (
@@ -36,33 +59,13 @@ export function SettlementSummaryStrip({
       }}
     >
       {metrics.map((m) => (
-        <Box
+        <KpiStatCard
           key={m.label}
-          sx={{
-            p: 2,
-            border: `1px solid ${tokens.color.neutral[100]}`,
-            borderRadius: 2,
-            bgcolor: m.highlight ? tokens.color.primary[50] : 'background.paper',
-          }}
-        >
-          <Typography
-            variant="overline"
-            sx={{ fontSize: 10, color: 'text.secondary', display: 'block', letterSpacing: 0.6 }}
-          >
-            {m.label}
-          </Typography>
-          <Typography
-            variant="h6"
-            sx={{
-              fontWeight: 700,
-              fontSize: 15,
-              mt: 0.5,
-              color: m.color ?? (m.highlight ? 'primary.main' : 'text.primary'),
-            }}
-          >
-            ₹{formatCurrency(m.value)}
-          </Typography>
-        </Box>
+          label={m.label}
+          value={m.value}
+          variant={m.variant}
+          icon={m.icon}
+        />
       ))}
     </Box>
   )

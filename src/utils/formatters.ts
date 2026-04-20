@@ -22,19 +22,19 @@ export const getInitials = (name: string): string =>
     .toUpperCase()
 
 export const getAvatarColor = (name: string): { bg: string; text: string } => {
-  const palettes = [
-    { bg: '#D4EDE7', text: '#0A5144' }, // teal
-    { bg: '#E4DDF5', text: '#4A3AAF' }, // purple
-    { bg: '#FAE0D0', text: '#B83A0A' }, // orange
-    { bg: '#D0E4F5', text: '#1A4F8A' }, // blue
-    { bg: '#D0F0DC', text: '#145E2E' }, // green
-    { bg: '#F5D0D0', text: '#8A1414' }, // red
-    { bg: '#EDD0F5', text: '#7A1490' }, // violet
-    { bg: '#F5EDD0', text: '#8A6A14' }, // amber
-    { bg: '#D0EEF5', text: '#145E6E' }, // cyan
-    { bg: '#F5D0EE', text: '#8A1470' }, // pink
+  const colors = [
+    { bg: '#DBEAFE', text: '#1D4ED8' }, // blue
+    { bg: '#EDE9FE', text: '#7C3AED' }, // purple
+    { bg: '#DCFCE7', text: '#15803D' }, // green
+    { bg: '#FEF3C7', text: '#B45309' }, // amber
+    { bg: '#CCFBF1', text: '#0F766E' }, // teal
+    { bg: '#FEE2E2', text: '#B91C1C' }, // red
+    { bg: '#FCE7F3', text: '#BE185D' }, // pink
+    { bg: '#FFEDD5', text: '#C2410C' }, // orange
   ]
-  return palettes[name.charCodeAt(0) % palettes.length]
+  const index =
+    name.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % colors.length
+  return colors[index]
 }
 
 export const toSlug = (name: string): string =>

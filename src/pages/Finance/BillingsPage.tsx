@@ -14,6 +14,10 @@ import {
   MenuItem,
   Divider,
 } from '@mui/material'
+import CheckCircleIcon from '@mui/icons-material/CheckCircle'
+import ReceiptLongIcon from '@mui/icons-material/ReceiptLong'
+import WarningAmberIcon from '@mui/icons-material/WarningAmber'
+import BalanceIcon from '@mui/icons-material/Balance'
 import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore'
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp'
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'
@@ -395,10 +399,30 @@ export default function BillingsPage() {
   }, [items])
 
   const statCards = [
-    { label: 'Total invoiced', value: `₹${kpis.totalInvoiced.toLocaleString('en-IN')}`, color: 'default' as const },
-    { label: 'Received', value: `₹${kpis.received.toLocaleString('en-IN')}`, color: 'success' as const },
-    { label: 'Outstanding', value: `₹${kpis.outstanding.toLocaleString('en-IN')}`, color: 'warning' as const },
-    { label: 'TDS deducted', value: `₹${kpis.tdsDeducted.toLocaleString('en-IN')}`, color: 'default' as const },
+    {
+      label: 'Total invoiced',
+      value: `₹${kpis.totalInvoiced.toLocaleString('en-IN')}`,
+      variant: 'default' as const,
+      icon: <ReceiptLongIcon sx={{ fontSize: 24 }} />,
+    },
+    {
+      label: 'Received',
+      value: `₹${kpis.received.toLocaleString('en-IN')}`,
+      variant: 'success' as const,
+      icon: <CheckCircleIcon sx={{ fontSize: 24 }} />,
+    },
+    {
+      label: 'Outstanding',
+      value: `₹${kpis.outstanding.toLocaleString('en-IN')}`,
+      variant: 'warning' as const,
+      icon: <WarningAmberIcon sx={{ fontSize: 24 }} />,
+    },
+    {
+      label: 'TDS deducted',
+      value: `₹${kpis.tdsDeducted.toLocaleString('en-IN')}`,
+      variant: 'purple' as const,
+      icon: <BalanceIcon sx={{ fontSize: 24 }} />,
+    },
   ]
 
   const tabs = [

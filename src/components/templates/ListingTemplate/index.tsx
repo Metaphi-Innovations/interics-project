@@ -32,14 +32,36 @@ import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import { useTheme, alpha } from '@mui/material/styles'
 import { tokens } from '@/design-system/tokens'
+import { KpiStatCard, type StatCardVariant } from '../KpiStatCard'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
+
+export type { StatCardVariant }
 
 export interface StatCardItem {
   label: string
   value: string | number
+  variant?: StatCardVariant
+  /** @deprecated Prefer `variant` */
   color?: 'default' | 'success' | 'warning' | 'error' | 'info'
   icon?: ReactNode
+}
+
+const LEGACY_STAT_VARIANT: Record<
+  NonNullable<StatCardItem['color']>,
+  StatCardVariant
+> = {
+  default: 'default',
+  success: 'success',
+  warning: 'warning',
+  error: 'danger',
+  info: 'info',
+}
+
+function statCardVariant(item: StatCardItem): StatCardVariant {
+  if (item.variant != null) return item.variant
+  if (item.color != null) return LEGACY_STAT_VARIANT[item.color]
+  return 'default'
 }
 
 export interface TabItem {
@@ -141,66 +163,6 @@ export interface ListingTemplateProps {
   hideToolbar?: boolean
   /** Extra node in page header row (e.g. period selector), right side */
   headerRight?: ReactNode
-}
-
-// ─── Internal StatCard ────────────────────────────────────────────────────────
-
-function StatCard({ item }: { item: StatCardItem }) {
-  const theme = useTheme()
-
-  const color = item.color ?? 'default'
-
-  const bgMap: Record<NonNullable<StatCardItem['color']>, string> = {
-    default: theme.palette.background.paper,
-    success: alpha(theme.palette.success.main, 0.12),
-    warning: alpha(theme.palette.warning.main, 0.12),
-    info:    alpha(theme.palette.info.main, 0.12),
-    error:   alpha(theme.palette.error.main, 0.12),
-  }
-
-  const iconColorMap: Record<NonNullable<StatCardItem['color']>, string> = {
-    default: theme.palette.text.secondary,
-    success: theme.palette.success.main,
-    warning: theme.palette.warning.main,
-    info:    theme.palette.info.main,
-    error:   theme.palette.error.main,
-  }
-
-  const valueColorMap: Record<NonNullable<StatCardItem['color']>, string> = {
-    default: theme.palette.text.primary,
-    success: theme.palette.success.main,
-    warning: theme.palette.warning.main,
-    info:    theme.palette.info.main,
-    error:   theme.palette.error.main,
-  }
-
-  return (
-    <Card
-      elevation={0}
-      sx={{
-        p: '16px 20px',
-        borderRadius: '10px',
-        backgroundColor: bgMap[color],
-      }}
-    >
-      <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
-        <Typography
-          variant="overline"
-          sx={{ fontSize: '10px', color: 'text.secondary', letterSpacing: '0.8px', display: 'block' }}
-        >
-          {item.label}
-        </Typography>
-        {item.icon && (
-          <Box sx={{ color: iconColorMap[color], opacity: 0.7, display: 'flex', alignItems: 'center', fontSize: '20px' }}>
-            {item.icon}
-          </Box>
-        )}
-      </Stack>
-      <Typography variant="h5" sx={{ fontWeight: 700, mt: '6px', color: valueColorMap[color] }}>
-        {item.value}
-      </Typography>
-    </Card>
-  )
 }
 
 // ─── Filters Popover ──────────────────────────────────────────────────────────
@@ -512,7 +474,13 @@ export function ListingTemplate({
           }}
         >
           {statCards.map((card, i) => (
-            <StatCard key={i} item={card} />
+            <KpiStatCard
+              key={i}
+              label={card.label}
+              value={card.value}
+              variant={statCardVariant(card)}
+              icon={card.icon}
+            />
           ))}
         </Grid>
       )}
