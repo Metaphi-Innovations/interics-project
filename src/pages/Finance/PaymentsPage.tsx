@@ -11,8 +11,11 @@ import {
   FormControl,
   Select,
   MenuItem,
+  IconButton,
+  Menu,
 } from '@mui/material'
 import { useTheme, alpha } from '@mui/material/styles'
+import MoreVertIcon from '@mui/icons-material/MoreVert'
 import axios from 'axios'
 import { ArrowLeft, Banknote } from 'lucide-react'
 import client from '@/api/client'
@@ -68,6 +71,8 @@ const PAY_CELL_SX = {
   px: 1.75,
 }
 
+const menuItemSx = { fontSize: 12, minHeight: 32, py: 0.5 }
+
 async function fetchBaselineForProject(projectId: string): Promise<Baseline | null> {
   try {
     const res = await client.get<Baseline>(`/projects/${projectId}/baseline`)
@@ -111,6 +116,9 @@ export default function PaymentsPage() {
 
   const [mode, setMode] = useState<PageMode>('listing')
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
+
+  const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null)
+  const [menuRowKey, setMenuRowKey] = useState<string | null>(null)
 
   useEffect(() => {
     void dispatch(fetchProjects({}))
@@ -305,6 +313,17 @@ export default function PaymentsPage() {
     setMode('settlement')
   }, [])
 
+  function openSettlementMenu(e: React.MouseEvent<HTMLElement>, key: string) {
+    e.stopPropagation()
+    setMenuAnchor(e.currentTarget)
+    setMenuRowKey(key)
+  }
+
+  function closeSettlementMenu() {
+    setMenuAnchor(null)
+    setMenuRowKey(null)
+  }
+
   const backToListing = useCallback(() => {
     setMode('listing')
     setSelectedKey(null)
@@ -366,6 +385,7 @@ export default function PaymentsPage() {
   return (
     <>
       {mode === 'listing' && (
+        <>
         <ListingTemplate
           icon={<Banknote size={20} strokeWidth={1.75} />}
           title="Payments"
@@ -509,13 +529,13 @@ export default function PaymentsPage() {
                             Settled
                           </Typography>
                         ) : (
-                          <Button
-                            size="sm"
-                            variant="outlined"
-                            color="primary"
-                            label="Settle"
-                            onClick={() => goToSettlement(key)}
-                          />
+                          <IconButton
+                            size="small"
+                            aria-label="More actions"
+                            onClick={(e) => openSettlementMenu(e, key)}
+                          >
+                            <MoreVertIcon sx={{ fontSize: 16 }} />
+                          </IconButton>
                         )}
                       </TableCell>
                     </TableRow>
@@ -525,6 +545,25 @@ export default function PaymentsPage() {
             </Table>
           )}
         </ListingTemplate>
+
+        <Menu
+          anchorEl={menuAnchor}
+          open={Boolean(menuAnchor) && menuRowKey != null}
+          onClose={closeSettlementMenu}
+          onClick={(e) => e.stopPropagation()}
+          slotProps={{ paper: { elevation: 2 } }}
+        >
+          <MenuItem
+            sx={menuItemSx}
+            onClick={() => {
+              if (menuRowKey) goToSettlement(menuRowKey)
+              closeSettlementMenu()
+            }}
+          >
+            Settle
+          </MenuItem>
+        </Menu>
+        </>
       )}
 
       {mode === 'settlement' && (
