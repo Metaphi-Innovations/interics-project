@@ -1,10 +1,12 @@
-import { BrowserRouter, Navigate, Routes, Route, useNavigate } from 'react-router-dom'
+import { Component, type ErrorInfo, type ReactNode } from 'react'
+import { BrowserRouter, Navigate, Routes, Route, useNavigate, Outlet } from 'react-router-dom'
 import {
   AppShell,
   ToastProvider,
   type NavConfig,
   type UserMenuUser,
 } from '@/design-system/components'
+import type { SidebarUser } from '@/design-system/components/navigation/Sidebar'
 import {
   LayoutDashboard,
   FolderKanban,
@@ -180,9 +182,70 @@ const navConfig: NavConfig[] = [
   },
 ]
 
+interface AppShellLayoutProps {
+  user: UserMenuUser
+  sidebarUser: SidebarUser | null
+  onLogout: () => void
+}
+
+function AppShellLayout({ user, sidebarUser, onLogout }: AppShellLayoutProps) {
+  const navigate = useNavigate()
+  return (
+    <ToastProvider>
+      <AppShell
+        navConfig={navConfig}
+        user={user}
+        appName="IDC Project Accounts"
+        logoMark="DC"
+        onSignOut={onLogout}
+        onProfileClick={() => {}}
+        onSettingsClick={() => navigate('/settings')}
+        sidebarUser={sidebarUser}
+        onLogout={onLogout}
+      >
+        <Outlet />
+      </AppShell>
+    </ToastProvider>
+  )
+}
+
+interface AppErrorBoundaryState {
+  error: Error | null
+}
+
+class AppErrorBoundary extends Component<{ children: ReactNode }, AppErrorBoundaryState> {
+  state: AppErrorBoundaryState = { error: null }
+
+  static getDerivedStateFromError(error: Error): AppErrorBoundaryState {
+    return { error }
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo): void {
+    console.error('[App]', error, info.componentStack)
+  }
+
+  render(): ReactNode {
+    if (this.state.error) {
+      return (
+        <div style={{ padding: 24, fontFamily: 'system-ui, sans-serif' }}>
+          <h1 style={{ fontSize: 18 }}>Something went wrong</h1>
+          <p style={{ color: '#666', marginTop: 8 }}>{this.state.error.message}</p>
+          <button
+            type="button"
+            style={{ marginTop: 16, padding: '8px 16px', cursor: 'pointer' }}
+            onClick={() => window.location.reload()}
+          >
+            Reload page
+          </button>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
 function AppInner() {
   const dispatch = useAppDispatch()
-  const navigate = useNavigate()
   const { user } = useAppSelector(s => s.auth)
 
   const topbarUser: UserMenuUser = user
@@ -205,96 +268,81 @@ function AppInner() {
       {/* Demo routes — no layout */}
       <Route path="/demo/create-project" element={<FullPageFormDemo />} />
 
-      {/* Project wizard — no AppShell layout */}
+      {/* Project wizard — no AppShell layout (must be before layout so /projects/create is not caught by projects/:id) */}
       <Route path="/projects/create" element={<CreateProjectPage />} />
 
-      {/* App routes — AppShell layout */}
+      {/* App routes — single pathless layout + Outlet (React Router 7–friendly) */}
       <Route
-        path="/*"
         element={
-          <ToastProvider>
-            <AppShell
-                navConfig={navConfig}
-                user={topbarUser}
-                appName="IDC Project Accounts"
-                logoMark="DC"
-                onSignOut={handleLogout}
-                onProfileClick={() => {}}
-                onSettingsClick={() => navigate('/settings')}
-                sidebarUser={sidebarUser}
-                onLogout={handleLogout}
-              >
-                <Routes>
-                  <Route path="/dashboard" element={<DashboardPage />} />
-                  <Route path="/projects" element={<ProjectsPage />} />
-                  <Route path="/projects/:id" element={<ProjectDetailPage />} />
-                  <Route path="/customers" element={<CustomersPage />} />
-                  <Route path="/customers/:id" element={<CustomerDetailPage />} />
-                  <Route path="/vendors" element={<VendorsPage />} />
-                  <Route path="/vendors/:id" element={<VendorDetailPage />} />
-                  <Route path="/finance/receivables" element={<BillingsPage />} />
-                  <Route path="/finance/payables" element={<PaymentsPage />} />
-                  <Route path="/finance/expenses" element={<ExpensesPage />} />
-                  <Route path="/finance/compliance" element={<ComplianceLayout />}>
-                    <Route index element={<Navigate to="filing-summary" replace />} />
-                    <Route path="filing" element={<Navigate to="filing-summary" replace />} />
-                    <Route path="filing-summary" element={<ComplianceFilingSummaryPage />} />
-                    <Route path="filing-checklist" element={<FilingChecklistPage />} />
-                    <Route path="gst" element={<GSTPage />} />
-                    <Route path="tds" element={<TDSPage />} />
-                  </Route>
-                  <Route path="/reports" element={<ReportsPage />} />
-                  <Route path="/documents" element={<DocumentsPage />} />
-                  <Route path="/audit-logs" element={<AuditLogsPage />} />
-                  <Route path="/user-management" element={<Navigate to="/user-management/users" replace />} />
-                  <Route
-                    path="/user-management/users/create"
-                    element={
-                      <UserManagementPermissionRoute>
-                        <UserFormPage />
-                      </UserManagementPermissionRoute>
-                    }
-                  />
-                  <Route
-                    path="/user-management/users/:id/edit"
-                    element={
-                      <UserManagementPermissionRoute>
-                        <UserFormPage />
-                      </UserManagementPermissionRoute>
-                    }
-                  />
-                  <Route
-                    path="/user-management/users/:id"
-                    element={
-                      <UserManagementPermissionRoute>
-                        <UserViewPage />
-                      </UserManagementPermissionRoute>
-                    }
-                  />
-                  <Route
-                    path="/user-management/users"
-                    element={
-                      <UserManagementPermissionRoute>
-                        <UsersPage />
-                      </UserManagementPermissionRoute>
-                    }
-                  />
-                  <Route
-                    path="/user-management/roles/*"
-                    element={
-                      <UserManagementPermissionRoute>
-                        <RolesPage />
-                      </UserManagementPermissionRoute>
-                    }
-                  />
-                  <Route path="/settings" element={<SettingsPage />} />
-                  <Route index element={<Navigate to="/dashboard" replace />} />
-                  <Route path="*" element={<Navigate to="/dashboard" replace />} />
-                </Routes>
-            </AppShell>
-          </ToastProvider>
+          <AppShellLayout user={topbarUser} sidebarUser={sidebarUser} onLogout={handleLogout} />
         }
-      />
+      >
+        <Route index element={<Navigate to="/dashboard" replace />} />
+        <Route path="dashboard" element={<DashboardPage />} />
+        <Route path="projects" element={<ProjectsPage />} />
+        <Route path="projects/:id" element={<ProjectDetailPage />} />
+        <Route path="customers" element={<CustomersPage />} />
+        <Route path="customers/:id" element={<CustomerDetailPage />} />
+        <Route path="vendors" element={<VendorsPage />} />
+        <Route path="vendors/:id" element={<VendorDetailPage />} />
+        <Route path="finance/receivables" element={<BillingsPage />} />
+        <Route path="finance/payables" element={<PaymentsPage />} />
+        <Route path="finance/expenses" element={<ExpensesPage />} />
+        <Route path="finance/compliance" element={<ComplianceLayout />}>
+          <Route index element={<Navigate to="filing-summary" replace />} />
+          <Route path="filing" element={<Navigate to="filing-summary" replace />} />
+          <Route path="filing-summary" element={<ComplianceFilingSummaryPage />} />
+          <Route path="filing-checklist" element={<FilingChecklistPage />} />
+          <Route path="gst" element={<GSTPage />} />
+          <Route path="tds" element={<TDSPage />} />
+        </Route>
+        <Route path="reports" element={<ReportsPage />} />
+        <Route path="documents" element={<DocumentsPage />} />
+        <Route path="audit-logs" element={<AuditLogsPage />} />
+        <Route path="user-management" element={<Navigate to="/user-management/users" replace />} />
+        <Route
+          path="user-management/users/create"
+          element={
+            <UserManagementPermissionRoute>
+              <UserFormPage />
+            </UserManagementPermissionRoute>
+          }
+        />
+        <Route
+          path="user-management/users/:id/edit"
+          element={
+            <UserManagementPermissionRoute>
+              <UserFormPage />
+            </UserManagementPermissionRoute>
+          }
+        />
+        <Route
+          path="user-management/users/:id"
+          element={
+            <UserManagementPermissionRoute>
+              <UserViewPage />
+            </UserManagementPermissionRoute>
+          }
+        />
+        <Route
+          path="user-management/users"
+          element={
+            <UserManagementPermissionRoute>
+              <UsersPage />
+            </UserManagementPermissionRoute>
+          }
+        />
+        <Route
+          path="user-management/roles/*"
+          element={
+            <UserManagementPermissionRoute>
+              <RolesPage />
+            </UserManagementPermissionRoute>
+          }
+        />
+        <Route path="settings" element={<SettingsPage />} />
+        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+      </Route>
     </Routes>
   )
 }
@@ -302,7 +350,9 @@ function AppInner() {
 export default function App() {
   return (
     <BrowserRouter>
-      <AppInner />
+      <AppErrorBoundary>
+        <AppInner />
+      </AppErrorBoundary>
     </BrowserRouter>
   )
 }
