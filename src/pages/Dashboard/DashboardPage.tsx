@@ -748,7 +748,7 @@ export default function DashboardPage() {
             onClick={() => setCreateProjectOpen(true)}
             sx={{ bgcolor: 'primary.main', fontWeight: 600, px: 2, height: 34 }}
           >
-            + New Project
+            New Project
           </Button>
         </Box>
       </Box>
@@ -1397,8 +1397,8 @@ export default function DashboardPage() {
                     <stop offset="95%" stopColor={theme.palette.primary.main} stopOpacity={0} />
                   </linearGradient>
                   <linearGradient id="costGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor={theme.palette.error.light} stopOpacity={0.15} />
-                    <stop offset="95%" stopColor={theme.palette.error.light} stopOpacity={0} />
+                    <stop offset="5%" stopColor={theme.palette.error.main} stopOpacity={0.15} />
+                    <stop offset="95%" stopColor={theme.palette.error.main} stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid
@@ -1437,7 +1437,7 @@ export default function DashboardPage() {
                   type="monotone"
                   dataKey="cost"
                   name="Cost"
-                  stroke={theme.palette.error.light}
+                  stroke={theme.palette.error.main}
                   strokeWidth={2}
                   fill="url(#costGrad)"
                 />
@@ -1452,7 +1452,7 @@ export default function DashboardPage() {
               </Typography>
             </Box>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-              <Box sx={{ width: 10, height: 3, bgcolor: 'error.light', borderRadius: 0.5 }} />
+              <Box sx={{ width: 10, height: 3, bgcolor: 'error.main', borderRadius: 0.5 }} />
               <Typography variant="caption" color="text.secondary">
                 Cost
               </Typography>

@@ -183,7 +183,7 @@ export function VendorMilestoneEditor({ mapping, onChange }: VendorMilestoneEdit
           '&:hover': { backgroundColor: alpha(theme.palette.primary.main, 0.08) },
         }}
       >
-        + Add Milestone
+        Add Milestone
       </MuiButton>
 
       <Divider sx={{ my: 2 }} />
@@ -212,7 +212,7 @@ export function VendorMilestoneEditor({ mapping, onChange }: VendorMilestoneEdit
               onClick={addRetention}
               sx={{ fontSize: 12, alignSelf: 'flex-start' }}
             >
-              + Add Retention Milestone
+              Add Retention Milestone
             </MuiButton>
           </Stack>
         ) : (

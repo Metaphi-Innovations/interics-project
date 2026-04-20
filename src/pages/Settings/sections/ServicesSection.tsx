@@ -5,6 +5,7 @@ import {
   Drawer, IconButton, Divider,
 } from '@mui/material'
 import { Edit, ToggleOff, ToggleOn } from '@mui/icons-material'
+import { Plus } from 'lucide-react'
 import { Button } from '@/design-system/components'
 import { StatusBadge } from '@/design-system/components'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
@@ -137,7 +138,9 @@ export default function ServicesSection() {
           <Typography variant="h6" fontWeight={600}>Services Master</Typography>
           <Typography variant="caption" color="text.secondary">Atomic units used in Pitch builder and invoicing</Typography>
         </Box>
-        <Button variant="contained" color="primary" size="sm" onClick={openAdd}>+ Add Service</Button>
+        <Button variant="contained" color="primary" size="sm" startIcon={<Plus size={14} strokeWidth={2} />} onClick={openAdd}>
+          Add Service
+        </Button>
       </Box>
 
       {/* Toolbar */}

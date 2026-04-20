@@ -457,8 +457,7 @@ export default function TDSPage() {
           </Typography>
           <Box sx={{ mb: 2 }}>
             <Select
-              label="Project"
-              placeholder="All projects"
+              placeholder="All"
               size="sm"
               fullWidth
               clearable

@@ -477,7 +477,7 @@ export default function BillingsPage() {
         icon={<TrendingUp size={20} />}
         title="Billings"
         subtitle="Cross-project client invoices and payments"
-        primaryAction={{ label: '+ Create Invoice', onClick: () => setDrawerCreate(true), startIcon: <Plus size={16} /> }}
+        primaryAction={{ label: 'Create Invoice', onClick: () => setDrawerCreate(true), startIcon: <Plus size={16} /> }}
         statCards={statCards}
         tabs={tabs}
         activeTab={filters.statusTab}

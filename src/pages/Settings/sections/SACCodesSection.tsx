@@ -5,6 +5,7 @@ import {
   Drawer, MenuItem, IconButton,
 } from '@mui/material'
 import { Edit, ToggleOff, ToggleOn } from '@mui/icons-material'
+import { Plus } from 'lucide-react'
 import { Button } from '@/design-system/components'
 import { StatusBadge } from '@/design-system/components'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
@@ -84,7 +85,9 @@ export default function SACCodesSection() {
           <Typography variant="h6" fontWeight={600}>SAC Code Master</Typography>
           <Typography variant="caption" color="text.secondary">Service Accounting Codes linked to GST rates</Typography>
         </Box>
-        <Button variant="contained" color="primary" size="sm" onClick={openAdd}>+ Add SAC Code</Button>
+        <Button variant="contained" color="primary" size="sm" startIcon={<Plus size={14} strokeWidth={2} />} onClick={openAdd}>
+          Add SAC Code
+        </Button>
       </Box>
 
       <TextField

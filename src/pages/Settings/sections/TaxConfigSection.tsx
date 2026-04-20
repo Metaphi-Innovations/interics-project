@@ -5,6 +5,7 @@ import {
   Drawer, TextField, MenuItem, IconButton,
 } from '@mui/material'
 import { Edit, ToggleOff, ToggleOn } from '@mui/icons-material'
+import { Plus } from 'lucide-react'
 import { Button } from '@/design-system/components'
 import { StatusBadge } from '@/design-system/components'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
@@ -113,7 +114,9 @@ export default function TaxConfigSection() {
         <Box>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
             <Typography variant="body2" fontWeight={600}>Goods & Services Tax (GST) Slabs</Typography>
-            <Button variant="contained" color="primary" size="sm" onClick={openAddGST}>+ Add Rate</Button>
+            <Button variant="contained" color="primary" size="sm" startIcon={<Plus size={14} strokeWidth={2} />} onClick={openAddGST}>
+              Add Rate
+            </Button>
           </Box>
           <Table size="small">
             <TableHead>
@@ -156,7 +159,9 @@ export default function TaxConfigSection() {
         <Box>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
             <Typography variant="body2" fontWeight={600}>TDS Sections</Typography>
-            <Button variant="contained" color="primary" size="sm" onClick={openAddTDS}>+ Add Section</Button>
+            <Button variant="contained" color="primary" size="sm" startIcon={<Plus size={14} strokeWidth={2} />} onClick={openAddTDS}>
+              Add Section
+            </Button>
           </Box>
           <Table size="small">
             <TableHead>

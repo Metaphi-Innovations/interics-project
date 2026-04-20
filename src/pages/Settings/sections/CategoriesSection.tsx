@@ -6,6 +6,7 @@ import {
   Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions,
 } from '@mui/material'
 import { Edit, ToggleOff, ToggleOn, DeleteOutline } from '@mui/icons-material'
+import { Plus } from 'lucide-react'
 import { Button } from '@/design-system/components'
 import { StatusBadge } from '@/design-system/components'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
@@ -77,7 +78,9 @@ export default function CategoriesSection() {
           <Typography variant="h6" fontWeight={600}>Service Categories (SOW)</Typography>
           <Typography variant="caption" color="text.secondary">High-level groupings used in Pitch builder</Typography>
         </Box>
-        <Button variant="contained" color="primary" size="sm" onClick={openAdd}>+ Add Category</Button>
+        <Button variant="contained" color="primary" size="sm" startIcon={<Plus size={14} strokeWidth={2} />} onClick={openAdd}>
+          Add Category
+        </Button>
       </Box>
 
       <Table size="small">

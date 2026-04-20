@@ -187,7 +187,7 @@ function VersionBar({ versions, activeVersionId, onVersionChange, onNewVersion, 
           onClick={onNewVersion}
           sx={{ fontSize: 12, height: 32, fontWeight: 600 }}
         >
-          + New Version
+          New Version
         </MuiButton>
         <MuiButton
           variant="outlined"
@@ -416,7 +416,7 @@ function MilestoneDrawer({ open, onClose, service, onSave, initialMode = 'view' 
             onClick={addMilestone}
             sx={{ fontSize: 12 }}
           >
-            + Add Milestone
+            Add Milestone
           </MuiButton>
         )}
       </Box>
@@ -883,7 +883,7 @@ function CategoryAccordion({ category, index, projectId, versionId, pitchService
               {category.services.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={7} sx={{ py: 3, textAlign: 'center', color: 'text.disabled', fontSize: 12 }}>
-                    Use the &quot;+ Add Service&quot; button below to add a service to this category.
+                    Use the &quot;Add Service&quot; button below to add a service to this category.
                   </TableCell>
                 </TableRow>
               ) : (
@@ -925,7 +925,7 @@ function CategoryAccordion({ category, index, projectId, versionId, pitchService
             },
           }}
         >
-          + Add Service
+          Add Service
         </MuiButton>
         <Stack direction="row" justifyContent="flex-end"
           sx={{ px: 2, py: 1, bgcolor: tokens.color.neutral[50], borderTop: `1px solid ${tokens.color.neutral[100]}` }}>
@@ -1164,7 +1164,7 @@ export default function PitchTab({ project }: PitchTabProps) {
                 disabled={!activeVersion || categoriesLoading || availableMasterToAdd.length === 0}
                 sx={{ fontSize: 12 }}
               >
-                + Add Category
+                Add Category
               </MuiButton>
               {activeVersion && !categoriesLoading && masterCategories.length > 0 && availableMasterToAdd.length === 0 && (
                 <Typography variant="caption" color="text.secondary" sx={{ fontSize: 12 }}>
@@ -1201,7 +1201,7 @@ export default function PitchTab({ project }: PitchTabProps) {
                   }}
                   sx={{ fontSize: 12, fontWeight: 600 }}
                 >
-                  + Add Expense
+                  Add Expense
                 </MuiButton>
               </Stack>
               <Box sx={{ overflowX: 'auto' }}>

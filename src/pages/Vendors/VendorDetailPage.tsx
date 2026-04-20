@@ -36,6 +36,7 @@ import {
   Sync,
   PictureAsPdf,
 } from '@mui/icons-material'
+import { Plus } from 'lucide-react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { fetchVendorById, updateVendor } from '../../slices/vendors/thunk'
@@ -305,8 +306,14 @@ export default function VendorDetailPage() {
                 <Box sx={{ py: 3, textAlign: 'center' }}>
                   <Person sx={{ fontSize: 28, color: tokens.color.neutral[300], mb: 1 }} />
                   <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>No contact added yet</Typography>
-                  <Button variant="outlined" color="secondary" size="sm" onClick={() => { setEditingContact(null); setContactDrawerOpen(true) }}>
-                    + Add Contact
+                  <Button
+                    variant="outlined"
+                    color="secondary"
+                    size="sm"
+                    startIcon={<Plus size={14} strokeWidth={2} />}
+                    onClick={() => { setEditingContact(null); setContactDrawerOpen(true) }}
+                  >
+                    Add Contact
                   </Button>
                 </Box>
               )}

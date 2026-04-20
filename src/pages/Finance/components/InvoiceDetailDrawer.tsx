@@ -12,6 +12,7 @@ import {
   Button as MuiButton,
 } from '@mui/material'
 import dayjs from 'dayjs'
+import { Plus } from 'lucide-react'
 import { DrawerForm, FormSection } from '@/components/templates'
 import { StatusBadge, Button, useToast } from '@/design-system/components'
 import type { StatusType } from '@/design-system/components'
@@ -270,8 +271,13 @@ export function InvoiceDetailDrawer({
             )}
             {canPay && (
               <Box sx={{ mt: 2 }}>
-                <Button variant="contained" size="sm" onClick={() => onRecordPayment(inv)}>
-                  + Record Payment
+                <Button
+                  variant="contained"
+                  size="sm"
+                  startIcon={<Plus size={14} strokeWidth={2} />}
+                  onClick={() => onRecordPayment(inv)}
+                >
+                  Record Payment
                 </Button>
               </Box>
             )}

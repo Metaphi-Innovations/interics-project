@@ -23,6 +23,7 @@ import {
   CircularProgress,
 } from '@mui/material'
 import {
+  Add,
   Close,
   ArrowBack,
   ArrowForward,
@@ -329,9 +330,10 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
           size="small"
           color={showInlineCustomer ? 'error' : 'primary'}
           sx={{ fontSize: 13 }}
+          startIcon={showInlineCustomer ? undefined : <Add sx={{ fontSize: 18 }} />}
           onClick={() => setShowInlineCustomer(!showInlineCustomer)}
         >
-          {showInlineCustomer ? 'Cancel' : '+ Create New Customer'}
+          {showInlineCustomer ? 'Cancel' : 'Create New Customer'}
         </MuiButton>
 
         <Collapse in={showInlineCustomer}>

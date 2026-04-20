@@ -421,7 +421,7 @@ function POListSection({ clientPOs, onAddPO, onEditPO, onDeletePO }: POListSecti
           onClick={onAddPO}
           sx={{ fontSize: 11, height: 28 }}
         >
-          + Add PO
+          Add PO
         </MuiButton>
       }
     >
@@ -1519,7 +1519,7 @@ function TransitionExpensePlanningBlock({
           }}
           sx={{ fontSize: 12, fontWeight: 600 }}
         >
-          + Add Expense
+          Add Expense
         </MuiButton>
       </Stack>
       <Box sx={{ overflowX: 'auto' }}>

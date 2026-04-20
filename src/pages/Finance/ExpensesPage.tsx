@@ -365,7 +365,7 @@ export default function ExpensesPage() {
         title="Expenses"
         subtitle="Cross-project expense tracking"
         primaryAction={{
-          label: '+ Add Expense',
+          label: 'Add Expense',
           onClick: () => setDrawerOpen(true),
           startIcon: <Plus size={16} strokeWidth={2} />,
         }}

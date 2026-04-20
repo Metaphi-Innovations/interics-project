@@ -665,7 +665,7 @@ export default function UsersPage() {
           primaryAction={
             canCreate
               ? {
-                  label: '+ Add User',
+                  label: 'Add User',
                   onClick: () => navigate('/user-management/users/create'),
                   startIcon: <Add sx={{ fontSize: 16 }} />,
                 }

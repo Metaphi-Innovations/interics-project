@@ -33,7 +33,7 @@ import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore'
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp'
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'
 import { useTheme, alpha } from '@mui/material/styles'
-import { Truck, MoreHorizontal, Eye, Pencil, Trash2, Phone, Mail, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Truck, Plus, MoreHorizontal, Eye, Pencil, Trash2, Phone, Mail, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { fetchVendors, deleteVendor } from '../../slices/vendors/thunk'
@@ -926,7 +926,11 @@ export default function VendorsPage() {
         icon={<Truck size={20} />}
         title="Vendors"
         subtitle="Manage vendor relationships and payment details"
-        primaryAction={{ label: '+ Add Vendor', onClick: openAddDrawer }}
+        primaryAction={{
+          label: 'Add Vendor',
+          onClick: openAddDrawer,
+          startIcon: <Plus size={16} strokeWidth={2} />,
+        }}
         statCards={statCards}
         searchPlaceholder="Search vendors..."
         searchValue={filters.search}

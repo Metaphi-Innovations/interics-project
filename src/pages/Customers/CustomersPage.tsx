@@ -32,7 +32,7 @@ import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore'
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp'
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'
 import { useTheme, alpha } from '@mui/material/styles'
-import { Building2, MoreHorizontal, Eye, Pencil, Trash2, Phone, Mail, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Building2, Plus, MoreHorizontal, Eye, Pencil, Trash2, Phone, Mail, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { fetchCustomers, deleteCustomer } from '../../slices/customers/thunk'
@@ -807,7 +807,11 @@ export default function CustomersPage() {
         icon={<Building2 size={20} />}
         title="Customers"
         subtitle="Manage client relationships and billing details"
-        primaryAction={{ label: '+ Add Customer', onClick: openAddDrawer }}
+        primaryAction={{
+          label: 'Add Customer',
+          onClick: openAddDrawer,
+          startIcon: <Plus size={16} strokeWidth={2} />,
+        }}
         statCards={statCards}
         showViewToggle
         searchPlaceholder="Search customers..."

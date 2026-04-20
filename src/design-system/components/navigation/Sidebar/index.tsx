@@ -139,15 +139,6 @@ function renderNavConfig(
   })
 }
 
-function getInitials(name: string): string {
-  return name
-    .split(' ')
-    .filter(Boolean)
-    .slice(0, 2)
-    .map(w => w[0].toUpperCase())
-    .join('')
-}
-
 function SidebarContent({
   navConfig,
   collapsed,
@@ -296,7 +287,7 @@ function SidebarContent({
           collapsed={collapsed}
         />
 
-        {sidebarUser && (
+        {sidebarUser && (!collapsed || onLogout) && (
           <Box
             sx={{
               mt: '4px',
@@ -309,28 +300,28 @@ function SidebarContent({
               justifyContent: collapsed ? 'center' : 'space-between',
             }}
           >
-            {/* Avatar */}
-            <Box
-              sx={{
-                width: 32,
-                height: 32,
-                borderRadius: '50%',
-                bgcolor: 'primary.main',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0,
-              }}
-            >
-              <Typography
-                variant="caption"
-                sx={{ fontWeight: 700, color: 'white', fontSize: '11px' }}
-              >
-                {getInitials(sidebarUser.name)}
-              </Typography>
-            </Box>
-
-            {!collapsed && (
+            {collapsed ? (
+              onLogout && (
+                <Tooltip title="Sign out" placement="top">
+                  <IconButton
+                    size="small"
+                    onClick={onLogout}
+                    sx={{
+                      width: 28,
+                      height: 28,
+                      flexShrink: 0,
+                      color: theme.palette.text.disabled,
+                      '&:hover': {
+                        color: theme.palette.error.main,
+                        background: alpha(theme.palette.error.main, 0.08),
+                      },
+                    }}
+                  >
+                    <LogOut size={16} strokeWidth={1.75} />
+                  </IconButton>
+                </Tooltip>
+              )
+            ) : (
               <>
                 <Box sx={{ flex: 1, minWidth: 0 }}>
                   <Typography

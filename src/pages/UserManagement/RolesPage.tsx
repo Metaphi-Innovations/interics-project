@@ -21,7 +21,7 @@ import {
 } from '@mui/material'
 import { useTheme, alpha } from '@mui/material/styles'
 import { Edit, Delete } from '@mui/icons-material'
-import { ShieldCheck } from 'lucide-react'
+import { Plus, ShieldCheck } from 'lucide-react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { fetchRoles, deleteRole } from '@/slices/roles/thunk'
@@ -171,10 +171,11 @@ export default function RolesPage() {
               variant="contained"
               color="primary"
               size="sm"
+              startIcon={<Plus size={14} strokeWidth={2} />}
               onClick={() => navigate('/user-management/roles/create')}
               sx={{ bgcolor: tokens.color.success[600], '&:hover': { bgcolor: tokens.color.success[700] } }}
             >
-              + Create Role
+              Create Role
             </Button>
           )}
         </Stack>

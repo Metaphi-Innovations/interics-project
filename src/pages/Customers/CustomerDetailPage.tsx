@@ -37,6 +37,7 @@ import {
   Sync,
   PictureAsPdf,
 } from '@mui/icons-material'
+import { Plus } from 'lucide-react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { fetchCustomerById, updateCustomer } from '../../slices/customers/thunk'
@@ -319,8 +320,14 @@ export default function CustomerDetailPage() {
                   <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
                     No contact added yet
                   </Typography>
-                  <Button variant="outlined" color="secondary" size="sm" onClick={() => { setEditingContact(null); setContactDrawerOpen(true) }}>
-                    + Add Contact
+                  <Button
+                    variant="outlined"
+                    color="secondary"
+                    size="sm"
+                    startIcon={<Plus size={14} strokeWidth={2} />}
+                    onClick={() => { setEditingContact(null); setContactDrawerOpen(true) }}
+                  >
+                    Add Contact
                   </Button>
                 </Box>
               )}

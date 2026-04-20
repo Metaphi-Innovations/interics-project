@@ -1,12 +1,19 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
-import { BrowserRouter, Navigate, Routes, Route, useNavigate, Outlet } from 'react-router-dom'
+import {
+  BrowserRouter,
+  Navigate,
+  Routes,
+  Route,
+  useNavigate,
+  useLocation,
+  Outlet,
+} from 'react-router-dom'
 import {
   AppShell,
   ToastProvider,
   type NavConfig,
   type UserMenuUser,
 } from '@/design-system/components'
-import type { SidebarUser } from '@/design-system/components/navigation/Sidebar'
 import {
   LayoutDashboard,
   FolderKanban,
@@ -24,7 +31,9 @@ import {
 } from 'lucide-react'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { logout } from '@/slices/auth/reducer'
-// Auth UI disabled for now — routes redirect to the app.
+
+import LoginPage from '@/pages/Auth/LoginPage'
+import ForgotPasswordPage from '@/pages/Auth/ForgotPasswordPage'
 
 // Demo pages (no layout)
 import FullPageFormDemo from '@/pages/Demo/FullPageFormDemo'
@@ -184,11 +193,10 @@ const navConfig: NavConfig[] = [
 
 interface AppShellLayoutProps {
   user: UserMenuUser
-  sidebarUser: SidebarUser | null
   onLogout: () => void
 }
 
-function AppShellLayout({ user, sidebarUser, onLogout }: AppShellLayoutProps) {
+function AppShellLayout({ user, onLogout }: AppShellLayoutProps) {
   const navigate = useNavigate()
   return (
     <ToastProvider>
@@ -200,13 +208,22 @@ function AppShellLayout({ user, sidebarUser, onLogout }: AppShellLayoutProps) {
         onSignOut={onLogout}
         onProfileClick={() => {}}
         onSettingsClick={() => navigate('/settings')}
-        sidebarUser={sidebarUser}
-        onLogout={onLogout}
+        sidebarUser={null}
+        onLogout={undefined}
       >
         <Outlet />
       </AppShell>
     </ToastProvider>
   )
+}
+
+function ProtectedRoute() {
+  const { user, token } = useAppSelector(s => s.auth)
+  const location = useLocation()
+  if (!user || !token) {
+    return <Navigate to="/login" replace state={{ from: location }} />
+  }
+  return <Outlet />
 }
 
 interface AppErrorBoundaryState {
@@ -246,102 +263,102 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, AppErrorBounda
 
 function AppInner() {
   const dispatch = useAppDispatch()
+  const navigate = useNavigate()
   const { user } = useAppSelector(s => s.auth)
 
   const topbarUser: UserMenuUser = user
     ? { name: user.name, email: user.email, role: user.role }
     : { name: 'Guest', email: '', role: '' }
 
-  const sidebarUser = user ? { name: user.name, role: user.role } : null
-
   function handleLogout() {
     dispatch(logout())
-    window.location.href = '/dashboard'
+    navigate('/login', { replace: true })
   }
 
   return (
     <Routes>
-      {/* Auth routes disabled — send users into the app */}
-      <Route path="/login" element={<Navigate to="/dashboard" replace />} />
-      <Route path="/forgot-password" element={<Navigate to="/dashboard" replace />} />
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
 
-      {/* Demo routes — no layout */}
-      <Route path="/demo/create-project" element={<FullPageFormDemo />} />
+      <Route element={<ProtectedRoute />}>
+        {/* Demo routes — no layout */}
+        <Route path="/demo/create-project" element={<FullPageFormDemo />} />
 
-      {/* Project wizard — no AppShell layout (must be before layout so /projects/create is not caught by projects/:id) */}
-      <Route path="/projects/create" element={<CreateProjectPage />} />
+        {/* Project wizard — no AppShell layout (must be before layout so /projects/create is not caught by projects/:id) */}
+        <Route path="/projects/create" element={<CreateProjectPage />} />
 
-      {/* App routes — single pathless layout + Outlet (React Router 7–friendly) */}
-      <Route
-        element={
-          <AppShellLayout user={topbarUser} sidebarUser={sidebarUser} onLogout={handleLogout} />
-        }
-      >
-        <Route index element={<Navigate to="/dashboard" replace />} />
-        <Route path="dashboard" element={<DashboardPage />} />
-        <Route path="projects" element={<ProjectsPage />} />
-        <Route path="projects/:id" element={<ProjectDetailPage />} />
-        <Route path="customers" element={<CustomersPage />} />
-        <Route path="customers/:id" element={<CustomerDetailPage />} />
-        <Route path="vendors" element={<VendorsPage />} />
-        <Route path="vendors/:id" element={<VendorDetailPage />} />
-        <Route path="finance/receivables" element={<BillingsPage />} />
-        <Route path="finance/payables" element={<PaymentsPage />} />
-        <Route path="finance/expenses" element={<ExpensesPage />} />
-        <Route path="finance/compliance" element={<ComplianceLayout />}>
-          <Route index element={<Navigate to="filing-summary" replace />} />
-          <Route path="filing" element={<Navigate to="filing-summary" replace />} />
-          <Route path="filing-summary" element={<ComplianceFilingSummaryPage />} />
-          <Route path="filing-checklist" element={<FilingChecklistPage />} />
-          <Route path="gst" element={<GSTPage />} />
-          <Route path="tds" element={<TDSPage />} />
+        {/* App routes — single pathless layout + Outlet (React Router 7–friendly) */}
+        <Route
+          element={
+            <AppShellLayout user={topbarUser} onLogout={handleLogout} />
+          }
+        >
+          <Route index element={<Navigate to="/dashboard" replace />} />
+          <Route path="dashboard" element={<DashboardPage />} />
+          <Route path="projects" element={<ProjectsPage />} />
+          <Route path="projects/:id" element={<ProjectDetailPage />} />
+          <Route path="customers" element={<CustomersPage />} />
+          <Route path="customers/:id" element={<CustomerDetailPage />} />
+          <Route path="vendors" element={<VendorsPage />} />
+          <Route path="vendors/:id" element={<VendorDetailPage />} />
+          <Route path="finance/receivables" element={<BillingsPage />} />
+          <Route path="finance/payables" element={<PaymentsPage />} />
+          <Route path="finance/expenses" element={<ExpensesPage />} />
+          <Route path="finance/compliance" element={<ComplianceLayout />}>
+            <Route index element={<Navigate to="filing-summary" replace />} />
+            <Route path="filing" element={<Navigate to="filing-summary" replace />} />
+            <Route path="filing-summary" element={<ComplianceFilingSummaryPage />} />
+            <Route path="filing-checklist" element={<FilingChecklistPage />} />
+            <Route path="gst" element={<GSTPage />} />
+            <Route path="tds" element={<TDSPage />} />
+          </Route>
+          <Route path="reports" element={<ReportsPage />} />
+          <Route path="documents" element={<DocumentsPage />} />
+          <Route path="audit-logs" element={<AuditLogsPage />} />
+          <Route path="user-management" element={<Navigate to="/user-management/users" replace />} />
+          <Route
+            path="user-management/users/create"
+            element={
+              <UserManagementPermissionRoute>
+                <UserFormPage />
+              </UserManagementPermissionRoute>
+            }
+          />
+          <Route
+            path="user-management/users/:id/edit"
+            element={
+              <UserManagementPermissionRoute>
+                <UserFormPage />
+              </UserManagementPermissionRoute>
+            }
+          />
+          <Route
+            path="user-management/users/:id"
+            element={
+              <UserManagementPermissionRoute>
+                <UserViewPage />
+              </UserManagementPermissionRoute>
+            }
+          />
+          <Route
+            path="user-management/users"
+            element={
+              <UserManagementPermissionRoute>
+                <UsersPage />
+              </UserManagementPermissionRoute>
+            }
+          />
+          <Route
+            path="user-management/roles/*"
+            element={
+              <UserManagementPermissionRoute>
+                <RolesPage />
+              </UserManagementPermissionRoute>
+            }
+          />
+          <Route path="settings" element={<SettingsPage />} />
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Route>
-        <Route path="reports" element={<ReportsPage />} />
-        <Route path="documents" element={<DocumentsPage />} />
-        <Route path="audit-logs" element={<AuditLogsPage />} />
-        <Route path="user-management" element={<Navigate to="/user-management/users" replace />} />
-        <Route
-          path="user-management/users/create"
-          element={
-            <UserManagementPermissionRoute>
-              <UserFormPage />
-            </UserManagementPermissionRoute>
-          }
-        />
-        <Route
-          path="user-management/users/:id/edit"
-          element={
-            <UserManagementPermissionRoute>
-              <UserFormPage />
-            </UserManagementPermissionRoute>
-          }
-        />
-        <Route
-          path="user-management/users/:id"
-          element={
-            <UserManagementPermissionRoute>
-              <UserViewPage />
-            </UserManagementPermissionRoute>
-          }
-        />
-        <Route
-          path="user-management/users"
-          element={
-            <UserManagementPermissionRoute>
-              <UsersPage />
-            </UserManagementPermissionRoute>
-          }
-        />
-        <Route
-          path="user-management/roles/*"
-          element={
-            <UserManagementPermissionRoute>
-              <RolesPage />
-            </UserManagementPermissionRoute>
-          }
-        />
-        <Route path="settings" element={<SettingsPage />} />
-        <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Route>
     </Routes>
   )

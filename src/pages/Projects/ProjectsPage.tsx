@@ -39,7 +39,7 @@ import {
   LocationOn,
   Category as CategoryIcon,
 } from '@mui/icons-material'
-import { FolderKanban } from 'lucide-react'
+import { FolderKanban, Plus } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { fetchProjects, changeProjectStatus, updateProject } from '../../slices/projects/thunk'
@@ -1268,8 +1268,9 @@ export default function ProjectsPage() {
         title="Projects"
         subtitle="Track and manage all design projects"
         primaryAction={{
-          label: '+ Create Project',
+          label: 'Create Project',
           onClick: () => setCreateModalOpen(true),
+          startIcon: <Plus size={16} strokeWidth={2} />,
         }}
         statCards={statCards}
         tabs={tabs}
