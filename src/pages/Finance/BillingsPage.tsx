@@ -10,7 +10,6 @@ import {
   TableRow,
   Skeleton,
   IconButton as MuiIconButton,
-  Button as MuiButton,
   Menu,
   MenuItem,
   Divider,
@@ -138,18 +137,7 @@ function RowActions({
   const canMarkSent = inv.status === 'draft'
 
   return (
-    <Stack direction="row" alignItems="center" justifyContent="flex-end" gap={0.5}>
-      <MuiButton
-        size="small"
-        variant="text"
-        color="primary"
-        onClick={(e) => {
-          e.stopPropagation()
-          onView()
-        }}
-      >
-        View
-      </MuiButton>
+    <Stack direction="row" alignItems="center" justifyContent="flex-end">
       <MuiIconButton
         size="small"
         onClick={(e) => {
@@ -167,6 +155,15 @@ function RowActions({
         onClick={(e) => e.stopPropagation()}
         slotProps={{ paper: { elevation: 2 } }}
       >
+        <MenuItem
+          sx={menuItemSx}
+          onClick={() => {
+            onView()
+            setAnchor(null)
+          }}
+        >
+          View
+        </MenuItem>
         {canRecordPayment && (
           <MenuItem
             sx={menuItemSx}

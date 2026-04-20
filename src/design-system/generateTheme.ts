@@ -96,12 +96,26 @@ export function generateTheme(config: ThemeConfig): Theme {
       h4: { fontSize: '16px', fontWeight: 600, lineHeight: 1.4  },
       h5: { fontSize: '14px', fontWeight: 600, lineHeight: 1.4  },
       h6: { fontSize: '13px', fontWeight: 600, lineHeight: 1.5  },
-      body1:   { fontSize: '13px', lineHeight: 1.5 },
-      body2:   { fontSize: '12px', lineHeight: 1.5 },
-      caption: { fontSize: '11px', lineHeight: 1.5 },
+      // Body: explicit weights; caption/overline a bit stronger for UI chrome
+      body1: {
+        fontSize:   '13px',
+        lineHeight: 1.5,
+        fontWeight: tokens.fontWeight.normal,
+      },
+      body2: {
+        fontSize:   '12px',
+        lineHeight: 1.5,
+        fontWeight: tokens.fontWeight.normal,
+      },
+      caption: {
+        fontSize:   '11px',
+        lineHeight: 1.5,
+        fontWeight: tokens.fontWeight.medium,
+      },
       overline: {
         fontSize:      '10px',
-        fontWeight:    600,
+        lineHeight:    1.5,
+        fontWeight:    tokens.fontWeight.semibold,
         letterSpacing: '0.8px',
         textTransform: 'uppercase',
       },

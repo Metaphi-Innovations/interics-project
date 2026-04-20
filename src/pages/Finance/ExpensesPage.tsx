@@ -12,7 +12,7 @@ import {
   FormControl,
   Select,
   MenuItem,
-  Button as MuiButton,
+  Divider,
   IconButton as MuiIconButton,
   Menu,
   MenuItem as MuiMenuItem,
@@ -499,20 +499,10 @@ export default function ExpensesPage() {
                         </TableCell>
                       )}
                       <TableCell align="right" sx={CELL_SX}>
-                        <Stack direction="row" alignItems="center" justifyContent="flex-end" gap={0.5}>
-                          <MuiButton
-                            size="small"
-                            variant="text"
-                            color="primary"
-                            onClick={() => setViewExpense(exp)}
-                          >
-                            View
-                          </MuiButton>
-                          {exp.status === 'pending' && (
-                            <MuiIconButton size="small" aria-label="More" onClick={(e) => openMenu(e, exp)}>
-                              <MoreVertIcon sx={{ fontSize: 16 }} />
-                            </MuiIconButton>
-                          )}
+                        <Stack direction="row" alignItems="center" justifyContent="flex-end">
+                          <MuiIconButton size="small" aria-label="More" onClick={(e) => openMenu(e, exp)}>
+                            <MoreVertIcon sx={{ fontSize: 16 }} />
+                          </MuiIconButton>
                         </Stack>
                       </TableCell>
                     </TableRow>
@@ -525,28 +515,42 @@ export default function ExpensesPage() {
 
       <Menu
         anchorEl={menuAnchor}
-        open={Boolean(menuAnchor) && menuExpense != null && menuExpense.status === 'pending'}
+        open={Boolean(menuAnchor) && menuExpense != null}
         onClose={closeMenu}
         slotProps={{ paper: { elevation: 2 } }}
       >
         <MuiMenuItem
           sx={menuItemSx}
           onClick={() => {
-            if (menuExpense) goEditProject(menuExpense)
+            if (menuExpense) setViewExpense(menuExpense)
             closeMenu()
           }}
         >
-          Edit
+          View
         </MuiMenuItem>
-        <MuiMenuItem
-          sx={{ ...menuItemSx, color: 'error.main' }}
-          onClick={() => {
-            if (menuExpense) setDeleteTarget(menuExpense)
-            closeMenu()
-          }}
-        >
-          Delete
-        </MuiMenuItem>
+        {menuExpense?.status === 'pending' && (
+          <>
+            <Divider />
+            <MuiMenuItem
+              sx={menuItemSx}
+              onClick={() => {
+                if (menuExpense) goEditProject(menuExpense)
+                closeMenu()
+              }}
+            >
+              Edit
+            </MuiMenuItem>
+            <MuiMenuItem
+              sx={{ ...menuItemSx, color: 'error.main' }}
+              onClick={() => {
+                if (menuExpense) setDeleteTarget(menuExpense)
+                closeMenu()
+              }}
+            >
+              Delete
+            </MuiMenuItem>
+          </>
+        )}
       </Menu>
 
       <GlobalExpenseDrawer
