@@ -1,13 +1,13 @@
 /**
- * Logo URL (`/public` root). Example: `/logo-full.png` → `public/logo-full.png`.
+ * Logo URL (`/public` root). Example: `/logo-mark.png` → `public/logo-mark.png`.
  */
-export const AUTH_LOGO_SRC = '/logo-full.png'
+export const AUTH_LOGO_SRC = '/logo-mark.png'
 
 /**
  * When true, the image is a full lockup (icon + wordmark). Hide the separate
  * `AUTH_PRODUCT_NAME` label beside the image. Set false for a mark-only asset.
  */
-export const AUTH_LOGO_IS_FULL_LOCKUP = true
+export const AUTH_LOGO_IS_FULL_LOCKUP = false
 
 export const AUTH_PRODUCT_NAME = 'INTERICS'
 

@@ -1,7 +1,6 @@
 import { Box, Typography } from '@mui/material'
 import { alpha, useTheme } from '@mui/material/styles'
 import { tokens } from '@/design-system/tokens'
-import { APP_VERSION } from '@/config/version'
 import {
   AUTH_HEADLINE,
   AUTH_LOGO_IS_FULL_LOCKUP,
@@ -81,6 +80,7 @@ export default function AuthBrandingPanel() {
               width: 'auto',
               maxWidth: '100%',
               objectFit: 'contain',
+              filter: 'brightness(0) invert(1)',
             }}
           />
           {!AUTH_LOGO_IS_FULL_LOCKUP && (
@@ -115,10 +115,6 @@ export default function AuthBrandingPanel() {
             {`· ${AUTH_TAGLINE_PILLARS.join(' · ')} ·`}
           </Typography>
         </Box>
-
-        <Typography variant="caption" sx={{ color: alpha(white, 0.65) }}>
-          Version {APP_VERSION} — Secured connection
-        </Typography>
       </Box>
     </Box>
   )

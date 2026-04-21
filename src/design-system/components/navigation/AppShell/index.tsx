@@ -46,7 +46,7 @@ export default function AppShell({
   user,
   logo,
   logoCollapsed,
-  appName = 'Foundation',
+  appName = 'Interics',
   logoMark = 'F',
   logoFullSrc = '/logo-full.png',
   logoMarkSrc = '/logo-mark.png',

@@ -1,19 +1,13 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { Box, Typography, Alert, Divider } from '@mui/material'
+import { Box, Typography, Alert } from '@mui/material'
 import { alpha, useTheme } from '@mui/material/styles'
 import { Eye, EyeOff } from 'lucide-react'
 import { Input, Button, IconButton, Checkbox } from '@/design-system/components'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { loginThunk } from '@/slices/auth/thunk'
-import { APP_VERSION } from '@/config/version'
 import AuthSplitLayout from '@/pages/Auth/components/AuthSplitLayout'
-import {
-  AUTH_PRODUCT_NAME,
-  AUTH_SUPPORT_MAILTO,
-  REMEMBER_EMAIL_KEY,
-  SAVED_EMAIL_KEY,
-} from '@/pages/Auth/authConstants'
+import { AUTH_SUPPORT_MAILTO, REMEMBER_EMAIL_KEY, SAVED_EMAIL_KEY } from '@/pages/Auth/authConstants'
 
 function validateEmail(value: string): string {
   if (!value) return 'Email is required'
@@ -179,24 +173,6 @@ export default function LoginPage() {
       >
         Sign In
       </Button>
-
-      <Divider sx={{ my: 3 }} />
-
-      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', textAlign: 'center', lineHeight: 1.6 }}>
-        <Box
-          component="span"
-          onClick={() => navigate('/forgot-password')}
-          sx={{ cursor: 'pointer', color: 'primary.main', fontWeight: 600 }}
-        >
-          Forgot password
-        </Box>
-        {' · '}
-        Contact IT support for account issues · v{APP_VERSION}
-      </Typography>
-
-      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', textAlign: 'center', mt: 1.5 }}>
-        {AUTH_PRODUCT_NAME} Project Accounts · Interics Design Consultants
-      </Typography>
     </AuthSplitLayout>
   )
 }

@@ -45,6 +45,7 @@ export default function AuthMobileBar() {
           width: 'auto',
           maxWidth: '100%',
           objectFit: 'contain',
+          filter: 'brightness(0) invert(1)',
         }}
       />
       {!AUTH_LOGO_IS_FULL_LOCKUP && (
