@@ -1,0 +1,57 @@
+name: Frontend Deploy - glts.dev.metaphi.in
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+
+    env:
+      PATH: /home/runner/.nvm/versions/node/v20.19.6/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      PM2_HOME: /home/runner/.pm2
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Verify runner user
+        run: |
+          whoami
+          id
+          echo "HOME=$HOME"
+
+      - name: Verify node, npm and pm2
+        run: |
+          node -v
+          npm -v
+          pm2 -v
+
+      - name: Ensure deployment directory exists
+        run: |
+          mkdir -p /var/www/glts
+
+      - name: Copy files to deployment directory
+        run: |
+          rsync -av --delete \
+            --exclude='.git' \
+            --exclude='node_modules' \
+            --exclude='.env' \
+            ./ /var/www/bisc.metaphi.in/
+
+      - name: Install dependencies
+        working-directory: /var/www/glts
+        run: |
+          npm install
+
+      - name: Stop existing PM2 process
+        working-directory: /var/www/glts
+        run: |
+          pm2 restart 11
+          sleep 2
+  
+      - name: Show PM2 logs
+        run: |
+          pm2 logs glts --lines 30 --nostream
