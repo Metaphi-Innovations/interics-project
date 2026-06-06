@@ -26,12 +26,17 @@ import {
 } from '@/design-system/components'
 import type { StatusType } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
-import { DEFAULT_GST_RATE, DEFAULT_TDS_RATE } from '@/config/billingRates'
+import { DEFAULT_GST_RATE } from '@/config/billingRates'
 import { useAppDispatch, useAppSelector } from '../../../../store/hooks'
 import { createInvoice, fetchInvoices } from '../../../../slices/live/thunk'
 import type { ClientInvoice, ClientInvoiceLineItem } from '../../../../slices/live/types'
 import { formatDate, formatInr } from '../../../../utils/formatters'
-import { BILLABLE_BY_PROJECT, type BillableMilestone } from './billableMilestones'
+import {
+  BILLABLE_BY_PROJECT,
+  buildBillableFromClientPOs,
+  type BillableMilestone,
+} from './billableMilestones'
+import { fetchClientPO } from '../../../../slices/baseline/thunk'
 import {
   InvoiceLineItems,
   computeGst,
@@ -40,6 +45,7 @@ import {
 import { sacCodeForService } from '@/pages/Finance/utils/projectBillable'
 import { fetchServices, fetchSACCodes } from '@/slices/settings/thunk'
 import { RecordClientInvoicePaymentModal } from './RecordClientInvoicePaymentModal'
+import { BillingPitchSummary } from './BillingPitchSummary'
 import {
   balancePending,
   isDueDateOverdue,
@@ -65,10 +71,6 @@ function hasInvoiceForMilestone(invoices: ClientInvoice[], m: BillableMilestone)
 }
 
 function gstOnBase(base: number, rate: number): number {
-  return Math.round((base * rate) / 100)
-}
-
-function tdsOnBase(base: number, rate: number): number {
   return Math.round((base * rate) / 100)
 }
 
@@ -102,15 +104,6 @@ function milestoneStatusBadge(phase: MilestoneBillPhase): { type: StatusType; la
   }
 }
 
-function invoiceRowBadge(inv: ClientInvoice): { type: StatusType; label: string } {
-  if (inv.status === 'paid' || balancePending(inv) <= MONEY_EPS) return { type: 'paid', label: 'Paid' }
-  if (inv.status === 'draft') return { type: 'invoice_draft', label: 'Draft' }
-  const overdue = isDueDateOverdue(inv.dueDate) && balancePending(inv) > MONEY_EPS
-  if (overdue) return { type: 'overdue', label: 'Overdue' }
-  if (inv.status === 'partially_paid') return { type: 'partially_paid', label: 'Partially Paid' }
-  return { type: 'sent', label: 'Invoiced' }
-}
-
 const SECTION_HEADER_SX = {
   fontSize: '0.75rem',
   fontWeight: 600,
@@ -137,6 +130,45 @@ const TABLE_CELL_SX = {
   px: 2,
 }
 
+/** Column widths for the receivables table (must sum to 100%). */
+const RECEIVABLES_COL_WIDTH = {
+  milestone: '15%',
+  invoiceDetails: '13%',
+  dueDate: '10%',
+  amountBreakdown: '18%',
+  paymentSummary: '16%',
+  status: '9%',
+  action: '19%',
+} as const
+
+const RECEIVABLES_STATUS_HEADER_SX = {
+  ...TABLE_HEADER_SX,
+  width: RECEIVABLES_COL_WIDTH.status,
+  textAlign: 'center',
+} as const
+
+const RECEIVABLES_STATUS_CELL_SX = {
+  ...TABLE_CELL_SX,
+  width: RECEIVABLES_COL_WIDTH.status,
+  textAlign: 'center',
+  verticalAlign: 'middle',
+} as const
+
+const RECEIVABLES_ACTION_HEADER_SX = {
+  ...TABLE_HEADER_SX,
+  width: RECEIVABLES_COL_WIDTH.action,
+  px: 2.5,
+  textAlign: 'center',
+} as const
+
+const RECEIVABLES_ACTION_CELL_SX = {
+  ...TABLE_CELL_SX,
+  width: RECEIVABLES_COL_WIDTH.action,
+  textAlign: 'center',
+  verticalAlign: 'middle',
+  px: 2.5,
+} as const
+
 function SectionHeader({ children }: { children: string }) {
   return (
     <Typography variant="caption" component="div" sx={SECTION_HEADER_SX}>
@@ -162,7 +194,7 @@ function AmountBreakdownColumn({
         Base: ₹{formatInr(base)}
       </Typography>
       <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-        GST ({gstRate}%): +₹{formatInr(gstAmount)}
+        GST ({gstRate}%): ₹{formatInr(gstAmount)}
       </Typography>
       <Typography variant="body2" sx={{ fontWeight: 600 }}>
         Gross: ₹{formatInr(gross)}
@@ -171,22 +203,58 @@ function AmountBreakdownColumn({
   )
 }
 
-function TdsColumn({
-  tdsLabel,
-  tdsAmount,
-  netReceivable,
+function InvoiceDetailsColumn({
+  invoiceNumber,
+  invoiceDate,
+  onView,
 }: {
-  tdsLabel: string
-  tdsAmount: number
-  netReceivable: number
+  invoiceNumber: string
+  invoiceDate: string
+  onView: () => void
 }) {
   return (
     <Stack gap={0.25}>
-      <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-        {tdsLabel}: −₹{formatInr(tdsAmount)}
+      <Typography
+        variant="body2"
+        onClick={onView}
+        sx={{
+          color: 'primary.main',
+          cursor: 'pointer',
+          fontWeight: 500,
+          lineHeight: 1.35,
+          '&:hover': { textDecoration: 'underline' },
+        }}
+      >
+        {invoiceNumber}
       </Typography>
-      <Typography variant="body2" sx={{ fontWeight: 600, color: 'primary.main' }}>
-        Net Receivable: ₹{formatInr(netReceivable)}
+      <Typography variant="caption" color="text.secondary" display="block">
+        {formatDate(invoiceDate)}
+      </Typography>
+    </Stack>
+  )
+}
+
+function PaymentSummaryColumn({
+  tds,
+  received,
+  outstanding,
+}: {
+  tds: number
+  received: number
+  outstanding: number
+}) {
+  const outstandingColor =
+    outstanding > MONEY_EPS ? tokens.color.error[600] : tokens.color.success[600]
+  return (
+    <Stack gap={0.25}>
+      <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+        TDS: ₹{formatInr(tds)}
+      </Typography>
+      <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+        Received: ₹{formatInr(received)}
+      </Typography>
+      <Typography variant="body2" sx={{ fontWeight: 600, color: outstandingColor }}>
+        Outstanding: ₹{formatInr(outstanding)}
       </Typography>
     </Stack>
   )
@@ -225,67 +293,6 @@ function lineItemsToPayload(lines: DraftLineItem[]): ClientInvoiceLineItem[] {
     milestoneId: li.milestoneId,
     lineSource: li.lineSource === 'manual' ? 'manual' : 'milestone',
   }))
-}
-
-// ─── Summary Strip ────────────────────────────────────────────────────────────
-
-function SummaryStrip({ invoices }: { invoices: ClientInvoice[] }) {
-  const totalInvoiced = invoices.reduce((s, i) => s + i.grossAmount, 0)
-  const received = invoices.reduce((s, i) => s + totalReceivedBank(i.payments), 0)
-  const outstanding = invoices.reduce((s, i) => s + balancePending(i), 0)
-  const tds = invoices.reduce((s, i) => s + totalTdsFromPayments(i.payments), 0)
-
-  const metrics = [
-    { label: 'TOTAL INVOICED', value: totalInvoiced },
-    { label: 'RECEIVED', value: received, highlight: true },
-    {
-      label: 'OUTSTANDING',
-      value: outstanding,
-      color: outstanding > MONEY_EPS ? 'warning.main' : 'success.main',
-    },
-    { label: 'TDS DEDUCTED', value: tds },
-  ]
-
-  return (
-    <Box
-      sx={{
-        display: 'grid',
-        gridTemplateColumns: { xs: 'repeat(2, 1fr)', md: 'repeat(4, 1fr)' },
-        gap: 2,
-        mb: 2,
-      }}
-    >
-      {metrics.map((m) => (
-        <Box
-          key={m.label}
-          sx={{
-            p: 2,
-            border: `1px solid ${tokens.color.neutral[100]}`,
-            borderRadius: 2,
-            bgcolor: m.highlight ? tokens.color.primary[50] : 'background.paper',
-          }}
-        >
-          <Typography
-            variant="overline"
-            sx={{ fontSize: 10, color: 'text.secondary', display: 'block', letterSpacing: 0.6 }}
-          >
-            {m.label}
-          </Typography>
-          <Typography
-            variant="h6"
-            sx={{
-              fontWeight: 700,
-              fontSize: 15,
-              mt: 0.25,
-              color: m.color ?? (m.highlight ? 'primary.main' : 'text.primary'),
-            }}
-          >
-            ₹{formatInr(m.value)}
-          </Typography>
-        </Box>
-      ))}
-    </Box>
-  )
 }
 
 // ─── Generate Invoice Drawer ─────────────────────────────────────────────────
@@ -510,6 +517,7 @@ function GenerateInvoiceDrawer({
               projectSourced
               allowEmpty={false}
               manualAddCollapsed
+              hideSacColumn
             />
           </Box>
         </Box>
@@ -602,46 +610,43 @@ function ViewInvoiceDrawer({
 
   if (!invoice) return null
 
-  const st = invoiceRowBadge(invoice)
+  const phase = milestoneBillPhase(invoice)
+  const badge = milestoneStatusBadge(phase)
   const bal = balancePending(invoice)
   const showPay = bal > MONEY_EPS
   const bankReceived = totalReceivedBank(invoice.payments)
   const tdsTotal = totalTdsFromPayments(invoice.payments)
   const roll = rollupsFromLineItems(invoice.lineItems)
 
-  const headerActions = (
-    <Stack direction="row" gap={1} flexWrap="wrap" justifyContent="flex-end">
-      {showPay && (
-        <Button
-          size="sm"
-          variant="contained"
-          color="primary"
-          label="Record Payment"
-          onClick={onRecordPayment}
-        />
-      )}
-      <Button size="sm" variant="outlined" color="primary" label="Download PDF" onClick={onDownloadPdf} />
-    </Stack>
-  )
-
   return (
     <DrawerForm
       open={open}
       onClose={onClose}
+      hideCloseButton
       title={invoice.invoiceNumber}
       subtitle={
         <Stack direction="row" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={1} sx={{ mt: 0.5 }}>
           <Typography variant="body2" color="text.secondary">
             {projectName}
           </Typography>
-          <StatusBadge status={st.type} label={st.label} />
+          <StatusBadge status={badge.type} label={badge.label} />
         </Stack>
       }
       width={560}
-      headerActions={headerActions}
+      headerActions={
+        <Button size="sm" variant="outlined" color="primary" label="Download PDF" onClick={onDownloadPdf} />
+      }
       footer={
-        <Stack direction="row" justifyContent="flex-end" sx={{ px: 2.5, py: 1.75 }}>
-          <Button variant="text" size="sm" label="Close" onClick={onClose} />
+        <Stack direction="row" justifyContent="flex-end" gap={1} sx={{ px: 2.5, py: 1.75 }}>
+          <Button
+            size="sm"
+            variant="contained"
+            color="primary"
+            label="Record Invoice"
+            onClick={onRecordPayment}
+            disabled={!showPay}
+          />
+          <Button size="sm" variant="outlined" color="primary" label="Cancel" onClick={onClose} />
         </Stack>
       }
     >
@@ -759,6 +764,7 @@ interface BillingTabProps {
 export default function BillingTab({ projectId, projectName, clientId, clientName }: BillingTabProps) {
   const dispatch = useAppDispatch()
   const { invoices } = useAppSelector((s) => s.live)
+  const clientPOs = useAppSelector((s) => s.baseline.clientPOs)
   const showToast = useToast((s) => s.showToast)
 
   const [generateOpen, setGenerateOpen] = useState(false)
@@ -769,14 +775,19 @@ export default function BillingTab({ projectId, projectName, clientId, clientNam
   useEffect(() => {
     dispatch(fetchServices())
     dispatch(fetchSACCodes())
-  }, [dispatch])
+    void dispatch(fetchClientPO(projectId))
+  }, [dispatch, projectId])
 
   const projectInvoices = useMemo(
     () => invoices.filter((i) => i.projectId === projectId),
     [invoices, projectId],
   )
 
-  const billableTemplates = BILLABLE_BY_PROJECT[projectId] ?? []
+  const billableTemplates = useMemo(() => {
+    const fromPOs = buildBillableFromClientPOs(clientPOs, projectId)
+    if (fromPOs.length > 0) return fromPOs
+    return BILLABLE_BY_PROJECT[projectId] ?? []
+  }, [clientPOs, projectId])
 
   function openGenerate(row: BillableMilestone) {
     if (hasInvoiceForMilestone(projectInvoices, row)) return
@@ -800,24 +811,46 @@ export default function BillingTab({ projectId, projectName, clientId, clientNam
 
   return (
     <>
-      <SummaryStrip invoices={projectInvoices} />
+      <BillingPitchSummary projectId={projectId} />
 
-      <WorkspaceSection title="Milestones to Invoice" noPadding>
-        <Table size="small">
+      <WorkspaceSection title="Receivables" noPadding>
+        <Box sx={{ width: '100%', overflow: 'hidden' }}>
+        <Table
+          size="small"
+          sx={{
+            tableLayout: 'fixed',
+            width: '100%',
+            '& .MuiTableCell-root': { verticalAlign: 'top', wordBreak: 'break-word' },
+          }}
+        >
           <TableHead>
             <TableRow>
-              <TableCell sx={TABLE_HEADER_SX}>Milestone / Service</TableCell>
-              <TableCell sx={TABLE_HEADER_SX}>Amount Breakdown</TableCell>
-              <TableCell sx={TABLE_HEADER_SX}>TDS</TableCell>
-              <TableCell sx={TABLE_HEADER_SX}>Status</TableCell>
-              <TableCell sx={TABLE_HEADER_SX}>Action</TableCell>
+              <TableCell sx={{ ...TABLE_HEADER_SX, width: RECEIVABLES_COL_WIDTH.milestone }}>
+                Milestone / Service
+              </TableCell>
+              <TableCell sx={{ ...TABLE_HEADER_SX, width: RECEIVABLES_COL_WIDTH.invoiceDetails }}>
+                Invoice Details
+              </TableCell>
+              <TableCell sx={{ ...TABLE_HEADER_SX, width: RECEIVABLES_COL_WIDTH.dueDate }}>
+                Due Date
+              </TableCell>
+              <TableCell sx={{ ...TABLE_HEADER_SX, width: RECEIVABLES_COL_WIDTH.amountBreakdown }}>
+                Amount Breakdown
+              </TableCell>
+              <TableCell sx={{ ...TABLE_HEADER_SX, width: RECEIVABLES_COL_WIDTH.paymentSummary }}>
+                Payment Summary
+              </TableCell>
+              <TableCell sx={RECEIVABLES_STATUS_HEADER_SX}>Status</TableCell>
+              <TableCell sx={RECEIVABLES_ACTION_HEADER_SX} align="center">
+                Action
+              </TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {billableTemplates.length === 0 && (
               <TableRow>
                 <TableCell
-                  colSpan={5}
+                  colSpan={7}
                   sx={{
                     ...TABLE_CELL_SX,
                     textAlign: 'center',
@@ -834,43 +867,62 @@ export default function BillingTab({ projectId, projectName, clientId, clientNam
               const inv = findInvoiceForMilestone(projectInvoices, m)
               const phase = milestoneBillPhase(inv)
               const badge = milestoneStatusBadge(phase)
+              const dueOverdue =
+                inv != null && balancePending(inv) > MONEY_EPS && isDueDateOverdue(inv.dueDate)
 
               let base: number
               let gstRate: number
               let gstAmount: number
               let gross: number
-              let tdsAmt: number
-              let netRec: number
-              let tdsLabel: string
-
               if (inv) {
                 const roll = rollupsFromLineItems(inv.lineItems)
                 base = roll.baseAmount
-                gstRate = inv.baseAmount > 0 ? Math.round((100 * inv.gstAmount) / inv.baseAmount) : DEFAULT_GST_RATE
+                gstRate =
+                  inv.baseAmount > 0
+                    ? Math.round((100 * inv.gstAmount) / inv.baseAmount)
+                    : DEFAULT_GST_RATE
                 gstAmount = inv.gstAmount
                 gross = inv.grossAmount
-                const paidTds = totalTdsFromPayments(inv.payments)
-                tdsAmt = paidTds > 0 ? paidTds : tdsOnBase(base, DEFAULT_TDS_RATE)
-                tdsLabel = paidTds > 0 ? 'TDS' : `TDS (${DEFAULT_TDS_RATE}%)`
-                netRec = balancePending(inv)
               } else {
                 base = m.baseAmount
                 gstRate = DEFAULT_GST_RATE
                 gstAmount = gstOnBase(m.baseAmount, DEFAULT_GST_RATE)
                 gross = base + gstAmount
-                tdsAmt = tdsOnBase(base, DEFAULT_TDS_RATE)
-                tdsLabel = `TDS (${DEFAULT_TDS_RATE}%)`
-                netRec = gross - tdsAmt
               }
+
+              const tds = inv ? totalTdsFromPayments(inv.payments) : 0
+              const received = inv ? totalReceivedBank(inv.payments) : 0
+              const outstanding = inv ? balancePending(inv) : 0
 
               return (
                 <TableRow key={milestoneRowKey(m)} hover>
                   <TableCell sx={TABLE_CELL_SX}>
-                    <Typography variant="body1" sx={{ fontWeight: 600 }}>
+                    <Typography variant="body2" sx={{ fontWeight: 600, lineHeight: 1.35 }}>
                       {m.milestoneName}
                     </Typography>
-                    <Typography variant="caption" color="text.secondary">
+                    <Typography variant="caption" color="text.secondary" display="block">
                       {m.serviceName}
+                    </Typography>
+                  </TableCell>
+                  <TableCell sx={TABLE_CELL_SX}>
+                    {inv ? (
+                      <InvoiceDetailsColumn
+                        invoiceNumber={inv.invoiceNumber}
+                        invoiceDate={inv.invoiceDate}
+                        onView={() => setViewInvoice(inv)}
+                      />
+                    ) : (
+                      <Typography variant="body2" color="text.disabled">
+                        —
+                      </Typography>
+                    )}
+                  </TableCell>
+                  <TableCell sx={TABLE_CELL_SX}>
+                    <Typography
+                      variant="body2"
+                      color={inv ? (dueOverdue ? 'error.main' : 'text.primary') : 'text.disabled'}
+                    >
+                      {inv ? formatDate(inv.dueDate) : '—'}
                     </Typography>
                   </TableCell>
                   <TableCell sx={TABLE_CELL_SX}>
@@ -882,150 +934,66 @@ export default function BillingTab({ projectId, projectName, clientId, clientNam
                     />
                   </TableCell>
                   <TableCell sx={TABLE_CELL_SX}>
-                    <TdsColumn tdsLabel={tdsLabel} tdsAmount={tdsAmt} netReceivable={netRec} />
-                  </TableCell>
-                  <TableCell sx={TABLE_CELL_SX}>
-                    <StatusBadge status={badge.type} label={badge.label} />
-                  </TableCell>
-                  <TableCell sx={TABLE_CELL_SX}>
-                    {phase === 'not_invoiced' ? (
-                      <Button
-                        size="sm"
-                        variant="contained"
-                        color="primary"
-                        label="Generate Invoice"
-                        onClick={() => openGenerate(m)}
+                    {inv ? (
+                      <PaymentSummaryColumn
+                        tds={tds}
+                        received={received}
+                        outstanding={outstanding}
                       />
                     ) : (
-                      <Button
-                        size="sm"
-                        variant="outlined"
-                        color="primary"
-                        label="View Invoice"
-                        onClick={() => inv && setViewInvoice(inv)}
-                      />
+                      <Typography variant="caption" color="text.disabled">
+                        —
+                      </Typography>
                     )}
+                  </TableCell>
+                  <TableCell sx={RECEIVABLES_STATUS_CELL_SX}>
+                    <Box
+                      sx={{
+                        display: 'flex',
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        width: '100%',
+                      }}
+                    >
+                      <StatusBadge status={badge.type} label={badge.label} />
+                    </Box>
+                  </TableCell>
+                  <TableCell sx={RECEIVABLES_ACTION_CELL_SX} align="center">
+                    <Stack
+                      gap={0.5}
+                      alignItems="center"
+                      justifyContent="center"
+                      sx={{ width: '100%', px: 0.5, mx: 'auto' }}
+                    >
+                      {phase === 'not_invoiced' ? (
+                        <Button
+                          size="sm"
+                          variant="contained"
+                          color="primary"
+                          label="Draft Invoice"
+                          onClick={() => openGenerate(m)}
+                          sx={{ width: '100%', maxWidth: 168 }}
+                        />
+                      ) : (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="outlined"
+                            color="primary"
+                            label="View Invoice"
+                            onClick={() => inv && setViewInvoice(inv)}
+                            sx={{ width: '100%', maxWidth: 168 }}
+                          />
+                        </>
+                      )}
+                    </Stack>
                   </TableCell>
                 </TableRow>
               )
             })}
           </TableBody>
         </Table>
-      </WorkspaceSection>
-
-      <WorkspaceSection title="Client Invoices" noPadding>
-        {projectInvoices.length === 0 ? (
-          <Box sx={{ py: 4, px: 2, textAlign: 'center' }}>
-            <Typography variant="body2" color="text.secondary">
-              No invoices generated yet
-            </Typography>
-          </Box>
-        ) : (
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell sx={TABLE_HEADER_SX}>Milestone / Service</TableCell>
-                <TableCell sx={TABLE_HEADER_SX}>Invoice No</TableCell>
-                <TableCell sx={TABLE_HEADER_SX}>Invoice Date</TableCell>
-                <TableCell sx={TABLE_HEADER_SX}>Due Date</TableCell>
-                <TableCell sx={TABLE_HEADER_SX}>Amount Breakdown</TableCell>
-                <TableCell sx={TABLE_HEADER_SX}>TDS Amount</TableCell>
-                <TableCell sx={TABLE_HEADER_SX}>Net Receivable</TableCell>
-                <TableCell sx={TABLE_HEADER_SX}>Status</TableCell>
-                <TableCell sx={TABLE_HEADER_SX}>Actions</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {projectInvoices.map((inv) => {
-                const st = invoiceRowBadge(inv)
-                const dueOverdue =
-                  balancePending(inv) > MONEY_EPS && isDueDateOverdue(inv.dueDate)
-                const showReceipt = balancePending(inv) > MONEY_EPS
-
-                return (
-                  <TableRow key={inv.id} hover>
-                    <TableCell sx={TABLE_CELL_SX}>
-                      <Typography variant="body1" sx={{ fontWeight: 600 }}>
-                        {inv.milestoneName}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        {inv.serviceName}
-                      </Typography>
-                    </TableCell>
-                    <TableCell sx={TABLE_CELL_SX}>
-                      <Typography
-                        variant="body2"
-                        onClick={() => setViewInvoice(inv)}
-                        sx={{
-                          color: 'primary.main',
-                          cursor: 'pointer',
-                          fontWeight: 500,
-                          '&:hover': { textDecoration: 'underline' },
-                        }}
-                      >
-                        {inv.invoiceNumber}
-                      </Typography>
-                    </TableCell>
-                    <TableCell sx={TABLE_CELL_SX}>
-                      <Typography variant="body2">{formatDate(inv.invoiceDate)}</Typography>
-                    </TableCell>
-                    <TableCell sx={TABLE_CELL_SX}>
-                      <Typography
-                        variant="body2"
-                        color={dueOverdue ? 'error.main' : 'text.primary'}
-                      >
-                        {formatDate(inv.dueDate)}
-                      </Typography>
-                    </TableCell>
-                    <TableCell sx={TABLE_CELL_SX}>
-                      <AmountBreakdownColumn
-                        base={inv.baseAmount}
-                        gstRate={
-                          inv.baseAmount > 0
-                            ? Math.round((100 * inv.gstAmount) / inv.baseAmount)
-                            : DEFAULT_GST_RATE
-                        }
-                        gstAmount={inv.gstAmount}
-                        gross={inv.grossAmount}
-                      />
-                    </TableCell>
-                    <TableCell sx={TABLE_CELL_SX}>
-                      <Typography variant="body2">₹{formatInr(totalTdsFromPayments(inv.payments))}</Typography>
-                    </TableCell>
-                    <TableCell sx={TABLE_CELL_SX}>
-                      <Typography variant="body2" sx={{ fontWeight: 600, color: 'primary.main' }}>
-                        ₹{formatInr(balancePending(inv))}
-                      </Typography>
-                    </TableCell>
-                    <TableCell sx={TABLE_CELL_SX}>
-                      <StatusBadge status={st.type} label={st.label} />
-                    </TableCell>
-                    <TableCell sx={TABLE_CELL_SX}>
-                      <Stack direction="row" gap={0.5} flexWrap="wrap">
-                        <Button
-                          size="sm"
-                          variant="outlined"
-                          color="primary"
-                          label="View"
-                          onClick={() => setViewInvoice(inv)}
-                        />
-                        {showReceipt && (
-                          <Button
-                            size="sm"
-                            variant="outlined"
-                            color="primary"
-                            label="Record Payment"
-                            onClick={() => openPayment(inv)}
-                          />
-                        )}
-                      </Stack>
-                    </TableCell>
-                  </TableRow>
-                )
-              })}
-            </TableBody>
-          </Table>
-        )}
+        </Box>
       </WorkspaceSection>
 
       <GenerateInvoiceDrawer

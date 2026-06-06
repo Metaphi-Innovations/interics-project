@@ -13,13 +13,23 @@ import {
   deleteExpense,
   fetchReimbursements,
   createReimbursement,
+  fetchVendorPayableControls,
+  updateVendorPayableControl,
 } from './thunk'
-import type { ClientInvoice, Expense, Reimbursement, VendorInvoice, VendorPayment } from './types'
+import type {
+  ClientInvoice,
+  Expense,
+  Reimbursement,
+  VendorInvoice,
+  VendorPayableControl,
+  VendorPayment,
+} from './types'
 
 export type {
   ClientInvoice,
   VendorInvoice,
   VendorPayment,
+  VendorPayableControl,
   Expense,
   ExpenseType,
   Reimbursement,
@@ -29,6 +39,7 @@ export type {
 interface LiveState {
   invoices: ClientInvoice[]
   vendorInvoices: VendorInvoice[]
+  vendorPayableControls: VendorPayableControl[]
   payments: VendorPayment[]
   expenses: Expense[]
   reimbursements: Reimbursement[]
@@ -39,6 +50,7 @@ interface LiveState {
 const initialState: LiveState = {
   invoices: [],
   vendorInvoices: [],
+  vendorPayableControls: [],
   payments: [],
   expenses: [],
   reimbursements: [],
@@ -117,6 +129,27 @@ const liveSlice = createSlice({
       })
       .addCase(uploadVendorInvoice.rejected, (state) => {
         state.saving = false
+      })
+
+      .addCase(fetchVendorPayableControls.fulfilled, (state, action) => {
+        const projectId = action.meta.arg
+        state.vendorPayableControls = mergeByProjectId(
+          state.vendorPayableControls,
+          projectId,
+          action.payload,
+        )
+      })
+
+      .addCase(updateVendorPayableControl.fulfilled, (state, action) => {
+        const ctrl = action.payload
+        const idx = state.vendorPayableControls.findIndex(
+          (c) =>
+            c.projectId === ctrl.projectId &&
+            c.vendorId === ctrl.vendorId &&
+            c.serviceId === ctrl.serviceId,
+        )
+        if (idx === -1) state.vendorPayableControls.push(ctrl)
+        else state.vendorPayableControls[idx] = ctrl
       })
 
       .addCase(fetchPayments.fulfilled, (state, action) => {

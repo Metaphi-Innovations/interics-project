@@ -17,6 +17,15 @@ import {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+export interface ClientPOMilestone {
+  id: string
+  serviceId: string
+  serviceName: string
+  name: string
+  percentage: number
+  value: number
+}
+
 export interface ClientPO {
   id: string
   projectId: string
@@ -28,6 +37,7 @@ export interface ClientPO {
   /** Display name for documents section */
   fileName?: string
   uploadedAt?: string
+  milestones?: ClientPOMilestone[]
 }
 
 /** Payment milestone on a vendor PO (execution tracking). */

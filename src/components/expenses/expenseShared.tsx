@@ -24,18 +24,22 @@ export function ExpenseTypeBadge({ type }: { type: ExpenseType }) {
       return <StatusBadge status="vendor_linked" size="small" />
     case 'common':
       return <StatusBadge status="common" size="small" />
+    case 'office_expenses':
+      return <StatusBadge status="draft" label="Office Expenses" size="small" />
+    case 'reimbursable_expenses':
+      return <StatusBadge status="sent" label="Reimbursable Expenses" size="small" />
   }
 }
 
 export function expenseVendorCell(e: Expense): string {
-  if (e.type === 'additional') return '—'
-  if (e.type === 'vendor_linked') return e.vendorName ?? '—'
+  if (e.type === 'additional' || e.type === 'office_expenses') return '—'
+  if (e.type === 'vendor_linked' || e.type === 'reimbursable_expenses') return e.vendorName ?? '—'
   const n = e.vendorAllocations?.length ?? 0
   return n === 0 ? '—' : `${n} vendors`
 }
 
 export function expenseServiceCell(e: Expense): string {
-  if (e.type === 'vendor_linked') return e.serviceName ?? '—'
+  if (e.type === 'vendor_linked' || e.type === 'reimbursable_expenses') return e.serviceName ?? '—'
   return '—'
 }
 
@@ -156,13 +160,15 @@ export function ViewExpenseModal({
             </Typography>
           </Stack>
         </Stack>
-        {(expense.type === 'vendor_linked' || expense.type === 'common') && (
+        {(expense.type === 'vendor_linked' ||
+          expense.type === 'reimbursable_expenses' ||
+          expense.type === 'common') && (
           <Stack gap={0.5}>
             <Typography variant="caption" color="text.secondary">
               Vendor / Service
             </Typography>
             <Typography variant="body2" sx={{ fontSize: 13 }}>
-              {expense.type === 'vendor_linked' ? (
+              {expense.type === 'vendor_linked' || expense.type === 'reimbursable_expenses' ? (
                 <>
                   {expense.vendorName ?? '—'} · {expense.serviceName ?? '—'}
                 </>

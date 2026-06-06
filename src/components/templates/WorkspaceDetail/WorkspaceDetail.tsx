@@ -25,9 +25,10 @@ interface MetricItem {
 }
 
 interface TabItem {
-  label: string
+  label: ReactNode
   value: string
   icon?: ReactNode
+  disabled?: boolean
 }
 
 interface WorkspaceDetailProps {
@@ -64,6 +65,8 @@ interface WorkspaceDetailProps {
   tabs: TabItem[]
   activeTab: string
   onTabChange: (value: string) => void
+  /** Content aligned to the right of the tab bar (e.g. Convert Live) */
+  tabsEnd?: ReactNode
 
   children: ReactNode
 }
@@ -84,6 +87,7 @@ export function WorkspaceDetail({
   tabs,
   activeTab,
   onTabChange,
+  tabsEnd,
   children,
 }: WorkspaceDetailProps) {
   const navigate = useNavigate()
@@ -343,6 +347,10 @@ export function WorkspaceDetail({
         {/* Tab bar */}
         <Box
           sx={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 1,
             borderBottom: '1px solid',
             borderColor: 'divider',
             px: 2,
@@ -356,6 +364,8 @@ export function WorkspaceDetail({
             variant="scrollable"
             scrollButtons={false}
             sx={{
+              flex: 1,
+              minWidth: 0,
               minHeight: 44,
               '& .MuiTab-root': {
                 fontSize: 12,
@@ -386,9 +396,13 @@ export function WorkspaceDetail({
                 label={tab.label}
                 icon={tab.icon as React.ReactElement | undefined}
                 iconPosition="start"
+                disabled={tab.disabled}
               />
             ))}
           </Tabs>
+          {tabsEnd ? (
+            <Box sx={{ flexShrink: 0, pb: 0.5, alignSelf: 'center' }}>{tabsEnd}</Box>
+          ) : null}
         </Box>
 
         {/* Tab content */}

@@ -18,10 +18,6 @@ export function PitchFinancialSidebar({ version, metrics: fin }: PitchFinancialS
   const theme = useTheme()
   const marginPercent = fin.marginPercent
 
-  const gstRate = 0.18
-  const estGst = version.totalRevenue * gstRate
-  const totalBilling = version.totalRevenue + estGst
-
   const health =
     marginPercent > 50 ? { label: 'Excellent', color: theme.palette.success.main } :
     marginPercent > 30 ? { label: 'Good', color: theme.palette.warning.main } :
@@ -52,27 +48,24 @@ export function PitchFinancialSidebar({ version, metrics: fin }: PitchFinancialS
         </Typography>
         <Stack gap={0.75}>
           <Stack direction="row" justifyContent="space-between" alignItems="center">
-            <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary' }}>Base Revenue</Typography>
+            <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary' }}>Revenue</Typography>
             <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 700, color: tokens.color.primary[600] }}>
               ₹{formatLakh(version.totalRevenue)}
             </Typography>
           </Stack>
-          <Stack direction="row" justifyContent="space-between" alignItems="center">
-            <Typography variant="body2" sx={{ fontSize: 11, color: 'text.secondary' }}>Est. GST (18%)</Typography>
-            <Typography variant="body2" sx={{ fontSize: 11, color: 'text.secondary' }}>
-              +₹{formatLakh(estGst)}
-            </Typography>
-          </Stack>
           <Divider />
           <Stack direction="row" justifyContent="space-between" alignItems="center">
-            <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 600 }}>Total Billing</Typography>
-            <Typography variant="body2" sx={{ fontSize: 14, fontWeight: 700, color: 'primary.main' }}>
-              ₹{formatLakh(totalBilling)}
+            <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 600 }}>Total Cost</Typography>
+            <Typography variant="body2" sx={{ fontSize: 14, fontWeight: 700, color: 'warning.main' }}>
+              ₹{formatLakh(fin.totalCost)}
             </Typography>
           </Stack>
-          <Typography sx={{ fontSize: 10, color: 'text.disabled', mt: 0.5 }}>
-            GST is a pass-through liability, not your revenue
-          </Typography>
+          <Stack direction="row" justifyContent="space-between" alignItems="center">
+            <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 600 }}>Profitability</Typography>
+            <Typography variant="body2" sx={{ fontSize: 14, fontWeight: 700, color: fin.profitability < 0 ? 'error.main' : 'success.main' }}>
+              ₹{formatLakh(fin.profitability)}
+            </Typography>
+          </Stack>
         </Stack>
       </Box>
 

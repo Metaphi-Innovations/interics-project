@@ -88,7 +88,7 @@ export const sendInvoice = createAsyncThunk(
   'receivables/send',
   async (id: string, { rejectWithValue }) => {
     try {
-      const response = await receivablesApi.patchStatus(id, { status: 'sent' })
+      const response = await receivablesApi.patchStatus(id, { status: 'tax' })
       return response.data as Invoice
     } catch (err: unknown) {
       const error = err as { response?: { data?: { message?: string } } }

@@ -13,11 +13,13 @@ export const AUTH_PRODUCT_NAME = 'INTERICS'
 
 export const AUTH_HEADLINE = 'Project Accounts Tracking'
 
-/** Short pillars shown in the branding panel (middle-dot separators). */
-export const AUTH_TAGLINE_PILLARS = ['Projects', 'Compliance', 'Reporting'] as const
-
-/** Support contact for “Need help?” — mailto: link */
-export const AUTH_SUPPORT_MAILTO = 'mailto:support@interics.example?subject=Account%20help'
+/** Feature highlights on the auth branding panel. */
+export const AUTH_FEATURE_HIGHLIGHTS = [
+  'Project Management',
+  'Receivables & Payables Tracking',
+  'Compliance Monitoring',
+  'Reports & Analytics',
+] as const
 
 export const REMEMBER_EMAIL_KEY = 'interics:auth-remember'
 export const SAVED_EMAIL_KEY = 'interics:auth-email'

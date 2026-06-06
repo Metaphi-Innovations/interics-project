@@ -19,6 +19,7 @@ export interface FileUploadProps {
   onError?: (error: string) => void
   disabled?: boolean
   helperText?: string
+  showAcceptText?: boolean
   error?: boolean
   preview?: boolean
   sx?: SxProps<Theme>
@@ -40,6 +41,7 @@ export default function FileUpload({
   onError,
   disabled = false,
   helperText,
+  showAcceptText = true,
   error = false,
   preview = false,
   sx,
@@ -162,7 +164,7 @@ export default function FileUpload({
         <Typography variant="body2" color="text.secondary">
           Drag & drop or click to browse
         </Typography>
-        {accept && (
+        {accept && showAcceptText && (
           <Typography variant="caption" color="text.disabled">
             {accept}
           </Typography>

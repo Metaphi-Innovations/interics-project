@@ -55,6 +55,11 @@ export interface VendorMapping {
   retention?: VendorRetention
   isMeasurable: boolean
   quotation?: VendorQuotation
+  gstRate?: number
+  /** GST amount borne by Interics (pitch / billing display). */
+  gstByUs?: number
+  /** GST amount borne by the client (pitch / billing display). */
+  gstByClient?: number
 }
 
 export interface PlannedExpenseSplit {
@@ -65,7 +70,7 @@ export interface PlannedExpenseSplit {
 
 export interface PlannedExpense {
   id: string
-  type: 'additional' | 'vendor' | 'common'
+  type: 'additional' | 'vendor' | 'common' | 'office_expenses' | 'reimbursable_expenses'
   name: string
   amount: number
   vendorId?: string
@@ -75,6 +80,8 @@ export interface PlannedExpense {
   serviceName?: string
   milestoneId?: string
   milestoneName?: string
+  date?: string
+  documentUrl?: string
 }
 
 export interface PitchService {
@@ -86,6 +93,10 @@ export interface PitchService {
   value: number
   sacCode?: string
   gstRate?: number
+  /** GST amount borne by Interics (pitch / billing display). */
+  gstByUs?: number
+  /** GST amount borne by the client (pitch / billing display). */
+  gstByClient?: number
   clientMilestones: ClientMilestone[]
   vendorMappings: VendorMapping[]
   milestonesTotal: number

@@ -10,6 +10,7 @@ import type {
   Expense,
   Reimbursement,
   VendorInvoice,
+  VendorPayableControl,
   VendorPayment,
 } from './types'
 
@@ -122,6 +123,32 @@ export const uploadVendorInvoice = createAsyncThunk<
     return res.data
   } catch (err) {
     return rejectWithValue(errMessage(err, 'Failed to upload vendor invoice'))
+  }
+})
+
+export const fetchVendorPayableControls = createAsyncThunk<
+  VendorPayableControl[],
+  string,
+  { rejectValue: string }
+>('live/fetchVendorPayableControls', async (projectId, { rejectWithValue }) => {
+  try {
+    const res = await liveApi.getVendorPayableControls(projectId)
+    return res.data
+  } catch (err) {
+    return rejectWithValue(errMessage(err, 'Failed to fetch payable controls'))
+  }
+})
+
+export const updateVendorPayableControl = createAsyncThunk<
+  VendorPayableControl,
+  { projectId: string; data: VendorPayableControl },
+  { rejectValue: string }
+>('live/updateVendorPayableControl', async ({ projectId, data }, { rejectWithValue }) => {
+  try {
+    const res = await liveApi.updateVendorPayableControl(projectId, data)
+    return res.data
+  } catch (err) {
+    return rejectWithValue(errMessage(err, 'Failed to update payable controls'))
   }
 })
 

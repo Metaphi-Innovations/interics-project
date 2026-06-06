@@ -1,5 +1,6 @@
 import { createSlice } from '@reduxjs/toolkit'
 import type { PayloadAction } from '@reduxjs/toolkit'
+import type { ActivityEntry, Contact } from '../customers/reducer'
 import {
   fetchVendors,
   fetchVendorById,
@@ -22,12 +23,45 @@ export interface VendorFinancialDetails {
   gstStatus: string
 }
 
+export type VendorDocumentType =
+  | 'Catalogue'
+  | 'Brochure'
+  | 'Certificate'
+  | 'Compliance'
+  | 'Product'
+
+export interface VendorDocument {
+  id: string
+  name: string
+  type: VendorDocumentType
+  uploadedAt: string
+  expiryDate?: string | null
+  url: string
+}
+
+export interface VendorAdditionalComplianceDoc {
+  id: string
+  name: string
+  url: string
+  expiryDate?: string | null
+}
+
+export type ComplianceChipStatus = 'verified' | 'missing' | 'expired' | 'expiring_soon'
+
+export interface VendorCompliance {
+  gst?: ComplianceChipStatus
+  pan?: ComplianceChipStatus
+  bankCheque?: ComplianceChipStatus
+  insurance?: { status: ComplianceChipStatus; expiryDate?: string | null }
+}
+
 export interface Vendor {
   id: string
   name: string
   gstin: string | null
   pan: string | null
   gstStatus: 'Registered' | 'Unregistered'
+  website?: string | null
   contactPerson: string
   designation?: string | null
   phone: string
@@ -43,11 +77,16 @@ export interface Vendor {
   activeProjects: number
   totalPayables: number
   createdAt: string
-  contacts?: import('../customers/reducer').Contact[]
+  contacts?: Contact[]
   gstDocument?: { name: string; url: string } | null
   panDocument?: { name: string; url: string } | null
-  activityLog?: import('../customers/reducer').ActivityEntry[]
+  bankChequeDocument?: { name: string; url: string } | null
+  insuranceDocument?: { name: string; url: string } | null
+  activityLog?: ActivityEntry[]
   financialDetails?: VendorFinancialDetails
+  documents?: VendorDocument[]
+  additionalComplianceDocuments?: VendorAdditionalComplianceDoc[]
+  compliance?: VendorCompliance
 }
 
 interface Pagination {

@@ -68,7 +68,20 @@ export default function AuthSplitLayout({ children }: { children: ReactNode }) {
             pt: { xs: 6, sm: 7 },
           }}
         >
-          <Box sx={{ width: '100%', maxWidth: 440 }}>{children}</Box>
+          <Box
+            sx={{
+              width: '100%',
+              maxWidth: 440,
+              bgcolor: 'background.paper',
+              borderRadius: tokens.borderRadius.xl,
+              boxShadow: tokens.shadow.md,
+              border: (t) =>
+                `1px solid ${t.palette.mode === 'light' ? tokens.color.neutral[100] : t.palette.divider}`,
+              p: { xs: 3, sm: 4 },
+            }}
+          >
+            {children}
+          </Box>
         </Box>
       </Box>
     </Box>

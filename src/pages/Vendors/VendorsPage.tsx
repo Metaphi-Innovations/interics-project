@@ -17,23 +17,18 @@ import {
   MenuItem,
   Tooltip,
   Divider,
+  Link as MuiLink,
 } from '@mui/material'
 import {
-  LocalShipping,
-  FolderOpen,
-  TrendingDown,
-  CheckCircle,
-  Circle,
   VerifiedUser,
   LocationOn,
-  Person,
-  Phone as PhoneIcon,
+  Circle,
 } from '@mui/icons-material'
 import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore'
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp'
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'
 import { useTheme, alpha } from '@mui/material/styles'
-import { Truck, Plus, MoreHorizontal, Eye, Pencil, Trash2, Phone, Mail, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Truck, Plus, MoreHorizontal, Eye, Pencil, Trash2, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { fetchVendors, deleteVendor } from '../../slices/vendors/thunk'
@@ -44,12 +39,145 @@ import { ListingTemplate } from '../../components/templates'
 import type { FilterField, ColumnItem } from '../../components/templates/ListingTemplate'
 import { VendorDrawer } from './VendorDrawer'
 import { StatusBadge, useToast, Modal, Button } from '@/design-system/components'
-import type { StatusType } from '@/design-system/components'
-import { getInitials, getAvatarColor, formatCurrency, toSlug } from '../../utils/formatters'
+import { getInitials, getAvatarColor, toSlug } from '../../utils/formatters'
 import { getSpecializationTagSx } from '../../utils/specializationTagStyles'
 import { tokens } from '@/design-system/tokens'
+import { getPrimaryContact } from '../../utils/vendorContacts'
+import { getVendorListingCompliance } from '../../utils/vendorCompliance'
 
-// ─── Avatar Cell ──────────────────────────────────────────────────────────────
+const VENDOR_ACTION_WIDTH_PX = 56
+const VENDOR_CELL_PAD_X = '14px'
+
+type VendorTableVisibleColumns = {
+  primaryContact: boolean
+  website: boolean
+  location: boolean
+  specialization: boolean
+  compliance: boolean
+}
+
+function vendorDataColCount(visible: VendorTableVisibleColumns): number {
+  return (
+    1 +
+    (visible.primaryContact ? 1 : 0) +
+    (visible.website ? 1 : 0) +
+    (visible.location ? 1 : 0) +
+    (visible.specialization ? 1 : 0) +
+    (visible.compliance ? 1 : 0)
+  )
+}
+
+function vendorColWidth(visible: VendorTableVisibleColumns): string {
+  return `calc((100% - ${VENDOR_ACTION_WIDTH_PX}px) / ${vendorDataColCount(visible)})`
+}
+
+const TABLE_HEADER_CELL_SX = {
+  fontSize: 11,
+  fontWeight: 600,
+  color: 'text.secondary',
+  py: '8px',
+  px: VENDOR_CELL_PAD_X,
+  borderBottom: `2px solid ${tokens.color.neutral[100]}`,
+  verticalAlign: 'bottom' as const,
+  boxSizing: 'border-box' as const,
+}
+
+const TABLE_HEADER_ACTION_SX = {
+  ...TABLE_HEADER_CELL_SX,
+  width: VENDOR_ACTION_WIDTH_PX,
+  minWidth: VENDOR_ACTION_WIDTH_PX,
+  maxWidth: VENDOR_ACTION_WIDTH_PX,
+  whiteSpace: 'nowrap' as const,
+}
+
+const TABLE_CELL_SX = {
+  py: '7px',
+  px: VENDOR_CELL_PAD_X,
+  verticalAlign: 'top' as const,
+  boxSizing: 'border-box' as const,
+}
+
+const TABLE_CELL_COMPACT_SX = {
+  ...TABLE_CELL_SX,
+}
+
+const TABLE_CELL_COMPLIANCE_SX = {
+  ...TABLE_CELL_SX,
+  verticalAlign: 'middle' as const,
+}
+
+const TABLE_CELL_ACTION_SX = {
+  py: '7px',
+  px: VENDOR_CELL_PAD_X,
+  width: VENDOR_ACTION_WIDTH_PX,
+  minWidth: VENDOR_ACTION_WIDTH_PX,
+  maxWidth: VENDOR_ACTION_WIDTH_PX,
+  verticalAlign: 'middle' as const,
+  textAlign: 'center' as const,
+  boxSizing: 'border-box' as const,
+}
+
+function getVendorWebsiteHref(raw: string | null | undefined): string | null {
+  const t = raw?.trim()
+  if (!t) return null
+  if (/^https?:\/\//i.test(t)) return t
+  return `https://${t}`
+}
+
+function formatVendorWebsiteLabel(raw: string | null | undefined): string | null {
+  const href = getVendorWebsiteHref(raw)
+  if (!href) return null
+  try {
+    const u = new URL(href)
+    return u.hostname
+  } catch {
+    return raw!.replace(/^https?:\/\//i, '').replace(/\/$/, '') || null
+  }
+}
+
+function getTotalVendorProjectCount(vendor: Vendor): number {
+  const fd = vendor.financialDetails
+  if (fd) return fd.activeProjects + fd.completedProjects
+  return vendor.activeProjects
+}
+
+function PrimaryVendorContactCell({ vendor }: { vendor: Vendor }) {
+  const primary = getPrimaryContact(vendor)
+  if (!primary) {
+    return (
+      <Typography variant="body2" sx={{ fontSize: 12, color: 'text.disabled' }}>
+        —
+      </Typography>
+    )
+  }
+  return (
+    <Box sx={{ minWidth: 0 }}>
+      <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 500, lineHeight: 1.35, wordBreak: 'break-word' }}>
+        {primary.name}
+        {primary.designation ? (
+          <Typography component="span" sx={{ fontSize: 12, fontWeight: 400, color: 'text.secondary' }}>
+            {' — '}{primary.designation}
+          </Typography>
+        ) : null}
+      </Typography>
+      {primary.phone ? (
+        <Typography variant="caption" sx={{ fontSize: 11, color: 'text.secondary', display: 'block', lineHeight: 1.35 }}>
+          {primary.phone}
+        </Typography>
+      ) : null}
+      {primary.email ? (
+        <Typography variant="caption" sx={{ fontSize: 11, color: 'text.secondary', display: 'block', lineHeight: 1.35, wordBreak: 'break-word' }}>
+          {primary.email}
+        </Typography>
+      ) : null}
+    </Box>
+  )
+}
+
+function ComplianceStatusCell({ vendor }: { vendor: Vendor }) {
+  const { label, statusBadgeType } = getVendorListingCompliance(vendor)
+  return <StatusBadge status={statusBadgeType} label={label} />
+}
 
 function VendorAvatar({ name }: { name: string }) {
   return (
@@ -181,32 +309,50 @@ interface VendorTableProps {
   sortDirection: 'asc' | 'desc'
   onSort: (field: string, direction: 'asc' | 'desc') => void
   onView: (id: string) => void
+  onProjects: (vendor: Vendor, e?: React.MouseEvent) => void
   onEdit: (vendor: Vendor) => void
   onDelete: (vendor: Vendor) => void
 }
 
 function VendorTable({
-  items, loading, visibleColumns, sortField, sortDirection, onSort, onView, onEdit, onDelete,
+  items,
+  loading,
+  visibleColumns,
+  sortField,
+  sortDirection,
+  onSort,
+  onView,
+  onProjects,
+  onEdit,
+  onDelete,
 }: VendorTableProps) {
   const theme = useTheme()
   const tagMode = theme.palette.mode === 'dark' ? 'dark' : 'light'
   const hoverBg = alpha(theme.palette.primary.main, 0.04)
+  const colWidth = vendorColWidth(visibleColumns)
+  const headDataSx = { ...TABLE_HEADER_CELL_SX, width: colWidth }
+  const cellDataSx = { ...TABLE_CELL_SX, width: colWidth }
+  const cellCompactSx = { ...TABLE_CELL_COMPACT_SX, width: colWidth }
 
   return (
-    <TableContainer>
-      <Table size="small">
+    <TableContainer sx={{ overflow: 'visible', width: '100%' }}>
+      <Table size="small" sx={{ tableLayout: 'fixed', width: '100%', minWidth: 0 }}>
         <TableHead>
           <TableRow sx={{ bgcolor: alpha(theme.palette.text.primary, 0.02) }}>
             <SortHeader
-              label="Vendor"
+              label="Vendor Name"
               field="name"
               sortField={sortField}
               sortDirection={sortDirection}
               onSort={onSort}
+              sx={{ ...headDataSx, verticalAlign: 'bottom' }}
             />
-            {visibleColumns.contactPerson && (
-              <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', py: '8px', px: '14px', borderBottom: `2px solid ${tokens.color.neutral[100]}` }}>
-                Contact Person
+            {visibleColumns.primaryContact && (
+              <TableCell sx={headDataSx}>Primary Contact</TableCell>
+            )}
+            {visibleColumns.website && (
+              <TableCell sx={{ ...headDataSx, display: { xs: 'none', sm: 'table-cell' } }}>
+                Website
               </TableCell>
             )}
             {visibleColumns.location && (
@@ -216,52 +362,33 @@ function VendorTable({
                 sortField={sortField}
                 sortDirection={sortDirection}
                 onSort={onSort}
-                sx={{ display: { xs: 'none', md: 'table-cell' } }}
+                sx={{ ...headDataSx, display: { xs: 'none', md: 'table-cell' }, verticalAlign: 'bottom' }}
               />
             )}
             {visibleColumns.specialization && (
-              <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', py: '8px', px: '14px', borderBottom: `2px solid ${tokens.color.neutral[100]}`, display: { xs: 'none', lg: 'table-cell' } }}>
+              <TableCell sx={{ ...headDataSx, display: { xs: 'none', lg: 'table-cell' } }}>
                 Specialization
               </TableCell>
             )}
-            {visibleColumns.projects && (
-              <SortHeader
-                label="Projects"
-                field="activeProjects"
-                sortField={sortField}
-                sortDirection={sortDirection}
-                onSort={onSort}
-                sx={{ display: { xs: 'none', lg: 'table-cell' } }}
-              />
+            {visibleColumns.compliance && (
+              <TableCell sx={{ ...headDataSx, display: { xs: 'none', md: 'table-cell' } }}>
+                Compliance Status
+              </TableCell>
             )}
-            {visibleColumns.payables && (
-              <SortHeader
-                label="Payables"
-                field="totalPayables"
-                sortField={sortField}
-                sortDirection={sortDirection}
-                onSort={onSort}
-                sx={{ display: { xs: 'none', lg: 'table-cell' } }}
-              />
-            )}
-            <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', py: '8px', px: '14px', borderBottom: `2px solid ${tokens.color.neutral[100]}` }}>
-              Status
-            </TableCell>
-            <TableCell sx={{ width: 48, py: '8px', px: '8px', borderBottom: `2px solid ${tokens.color.neutral[100]}` }} />
+            <TableCell sx={TABLE_HEADER_ACTION_SX}>Action</TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
-          {loading && (
+          {loading &&
             [...Array(5)].map((_, i) => (
               <TableRow key={i}>
                 {[...Array(8)].map((__, j) => (
-                  <TableCell key={j} sx={{ py: '10px', px: '14px' }}>
+                  <TableCell key={j} sx={{ py: '10px', px: VENDOR_CELL_PAD_X }}>
                     <Skeleton variant="text" width="80%" height={20} />
                   </TableCell>
                 ))}
               </TableRow>
-            ))
-          )}
+            ))}
 
           {!loading && items.length === 0 && (
             <TableRow>
@@ -279,144 +406,117 @@ function VendorTable({
             </TableRow>
           )}
 
-          {!loading && items.map((vendor) => (
-            <TableRow
-              key={vendor.id}
-              onClick={() => onView(vendor.id)}
-              sx={{
-                cursor: 'pointer',
-                '&:hover': { bgcolor: hoverBg },
-                '&:last-child td': { border: 0 },
-              }}
-            >
-              {/* Vendor */}
-              <TableCell sx={{ py: '10px', px: '14px' }}>
-                <Stack direction="row" alignItems="center" gap={1.5}>
-                  <VendorAvatar name={vendor.name} />
-                  <Box>
-                    <Typography variant="body2" fontWeight={500} sx={{ fontSize: 12, lineHeight: 1.3 }}>
-                      {vendor.name}
-                    </Typography>
-                    <Stack direction="row" gap={0.5} sx={{ mt: '3px' }}>
-                      <MuiChip
-                        label={vendor.gstStatus}
-                        size="small"
-                        variant="outlined"
-                        sx={{ height: 18, fontSize: 10, '& .MuiChip-label': { px: '6px' } }}
-                      />
+          {!loading &&
+            items.map((vendor) => {
+              const href = getVendorWebsiteHref(vendor.website)
+              const host = formatVendorWebsiteLabel(vendor.website)
+              return (
+                <TableRow
+                  key={vendor.id}
+                  onClick={() => onView(vendor.id)}
+                  sx={{
+                    cursor: 'pointer',
+                    '&:hover': { bgcolor: hoverBg },
+                    '&:last-child td': { border: 0 },
+                  }}
+                >
+                  <TableCell sx={cellDataSx}>
+                    <Stack direction="row" alignItems="center" gap={1.25}>
+                      <VendorAvatar name={vendor.name} />
+                      <Typography variant="body2" fontWeight={500} sx={{ fontSize: 12, lineHeight: 1.35, wordBreak: 'break-word' }}>
+                        {vendor.name}
+                      </Typography>
                     </Stack>
-                  </Box>
-                </Stack>
-              </TableCell>
+                  </TableCell>
 
-              {/* Contact Person */}
-              {visibleColumns.contactPerson && (
-                <TableCell sx={{ py: '10px', px: '14px' }}>
-                  <Typography variant="body2" fontWeight={500} sx={{ fontSize: 12 }}>
-                    {vendor.contactPerson}
-                  </Typography>
-                  <Stack direction="row" alignItems="center" gap="3px" sx={{ mt: '3px' }}>
-                    <Phone size={11} color={tokens.color.neutral[400]} />
-                    <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
-                      {vendor.phone}
-                    </Typography>
-                  </Stack>
-                  <Stack direction="row" alignItems="center" gap="3px">
-                    <Mail size={11} color={tokens.color.neutral[400]} />
-                    <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
-                      {vendor.email}
-                    </Typography>
-                  </Stack>
-                </TableCell>
-              )}
-
-              {/* Location */}
-              {visibleColumns.location && (
-                <TableCell sx={{ py: '10px', px: '14px', display: { xs: 'none', md: 'table-cell' } }}>
-                  <Typography variant="body2" sx={{ fontSize: 12 }}>
-                    {vendor.city}, {vendor.state}
-                  </Typography>
-                </TableCell>
-              )}
-
-              {/* Specialization */}
-              {visibleColumns.specialization && (
-                <TableCell sx={{ py: '10px', px: '14px', display: { xs: 'none', lg: 'table-cell' } }}>
-                  <Stack direction="row" flexWrap="wrap" gap={0.5}>
-                    {vendor.tags.slice(0, 2).map((tag) => {
-                      const c = getSpecializationTagSx(tag, tagMode)
-                      return (
-                        <MuiChip
-                          key={tag}
-                          label={tag}
-                          size="small"
-                          sx={{
-                            height: 20,
-                            fontSize: 10,
-                            bgcolor: c.bg,
-                            color: c.color,
-                            border: 'none',
-                            '& .MuiChip-label': { px: '6px' },
-                          }}
-                        />
-                      )
-                    })}
-                    {vendor.tags.length > 2 && (
-                      <MuiChip
-                        label={`+${vendor.tags.length - 2} more`}
-                        size="small"
-                        sx={{
-                          height: 20,
-                          fontSize: 10,
-                          bgcolor: tokens.color.neutral[100],
-                          '& .MuiChip-label': { px: '6px' },
-                        }}
-                      />
-                    )}
-                  </Stack>
-                </TableCell>
-              )}
-
-              {/* Projects */}
-              {visibleColumns.projects && (
-                <TableCell sx={{ py: '10px', px: '14px', display: { xs: 'none', lg: 'table-cell' } }}>
-                  {vendor.activeProjects === 0 ? (
-                    <Typography variant="body2" color="text.disabled" sx={{ fontSize: 12 }}>
-                      0 Active
-                    </Typography>
-                  ) : (
-                    <Typography variant="body2" color="primary.main" fontWeight={500} sx={{ fontSize: 12 }}>
-                      {vendor.activeProjects} Active
-                    </Typography>
+                  {visibleColumns.primaryContact && (
+                    <TableCell sx={cellCompactSx}>
+                      <PrimaryVendorContactCell vendor={vendor} />
+                    </TableCell>
                   )}
-                </TableCell>
-              )}
 
-              {/* Payables */}
-              {visibleColumns.payables && (
-                <TableCell sx={{ py: '10px', px: '14px', display: { xs: 'none', lg: 'table-cell' } }}>
-                  <Typography variant="body2" fontWeight={500} sx={{ fontSize: 12 }}>
-                    ₹{formatCurrency(vendor.totalPayables)}
-                  </Typography>
-                </TableCell>
-              )}
+                  {visibleColumns.website && (
+                    <TableCell
+                      sx={{ ...cellDataSx, display: { xs: 'none', sm: 'table-cell' } }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {href && host ? (
+                        <MuiLink
+                          href={href}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          variant="body2"
+                          underline="hover"
+                          sx={{ fontSize: 12, display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                        >
+                          {host}
+                        </MuiLink>
+                      ) : (
+                        <Typography variant="body2" sx={{ fontSize: 12, color: 'text.disabled' }}>
+                          —
+                        </Typography>
+                      )}
+                    </TableCell>
+                  )}
 
-              {/* Status */}
-              <TableCell sx={{ py: '10px', px: '14px' }}>
-                <StatusBadge status={vendor.status.toLowerCase() as StatusType} />
-              </TableCell>
+                  {visibleColumns.location && (
+                    <TableCell sx={{ ...cellDataSx, display: { xs: 'none', md: 'table-cell' } }}>
+                      <Typography variant="body2" sx={{ fontSize: 12 }}>
+                        {vendor.city}, {vendor.state}
+                      </Typography>
+                    </TableCell>
+                  )}
 
-              {/* Actions */}
-              <TableCell sx={{ py: '6px', px: '8px' }} onClick={(e) => e.stopPropagation()}>
-                <RowActions
-                  vendor={vendor}
-                  onView={() => onView(vendor.id)}
-                  onEdit={() => onEdit(vendor)}
-                  onDelete={() => onDelete(vendor)}
-                />
-              </TableCell>
-            </TableRow>
-          ))}
+                  {visibleColumns.specialization && (
+                    <TableCell sx={{ ...cellDataSx, display: { xs: 'none', lg: 'table-cell' } }}>
+                      <Stack direction="row" flexWrap="wrap" gap={0.5} useFlexGap>
+                        {vendor.tags.map((tag) => {
+                          const c = getSpecializationTagSx(tag, tagMode)
+                          return (
+                            <MuiChip
+                              key={tag}
+                              label={tag}
+                              size="small"
+                              sx={{
+                                height: 20,
+                                fontSize: 10,
+                                bgcolor: c.bg,
+                                color: c.color,
+                                border: 'none',
+                                '& .MuiChip-label': { px: '6px' },
+                              }}
+                            />
+                          )
+                        })}
+                        {vendor.tags.length === 0 ? (
+                          <Typography variant="body2" sx={{ fontSize: 12, color: 'text.disabled' }}>
+                            —
+                          </Typography>
+                        ) : null}
+                      </Stack>
+                    </TableCell>
+                  )}
+
+                  {visibleColumns.compliance && (
+                    <TableCell
+                      sx={{ ...TABLE_CELL_COMPLIANCE_SX, width: colWidth, display: { xs: 'none', md: 'table-cell' } }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <ComplianceStatusCell vendor={vendor} />
+                    </TableCell>
+                  )}
+
+                  <TableCell sx={TABLE_CELL_ACTION_SX} onClick={(e) => e.stopPropagation()}>
+                    <RowActions
+                      vendor={vendor}
+                      onView={() => onView(vendor.id)}
+                      onEdit={() => onEdit(vendor)}
+                      onDelete={() => onDelete(vendor)}
+                    />
+                  </TableCell>
+                </TableRow>
+              )
+            })}
         </TableBody>
       </Table>
     </TableContainer>
@@ -428,13 +528,17 @@ function VendorTable({
 interface VendorGridCardProps {
   vendor: Vendor
   onView: (id: string) => void
+  onProjects: (vendor: Vendor, e?: React.MouseEvent) => void
   onEdit: (vendor: Vendor) => void
   onDelete: (vendor: Vendor) => void
 }
 
-function VendorGridCard({ vendor, onView, onEdit, onDelete }: VendorGridCardProps) {
+function VendorGridCard({ vendor, onView, onProjects, onEdit, onDelete }: VendorGridCardProps) {
   const theme = useTheme()
+  const tagMode = theme.palette.mode === 'dark' ? 'dark' : 'light'
   const [anchor, setAnchor] = useState<null | HTMLElement>(null)
+  const host = formatVendorWebsiteLabel(vendor.website)
+  const href = getVendorWebsiteHref(vendor.website)
 
   return (
     <MuiCard
@@ -449,7 +553,6 @@ function VendorGridCard({ vendor, onView, onEdit, onDelete }: VendorGridCardProp
         '&:hover': { boxShadow: tokens.shadow.md },
       }}
     >
-      {/* Top row */}
       <Stack direction="row" alignItems="flex-start" justifyContent="space-between">
         <Stack direction="row" alignItems="center" gap={1.5} sx={{ flex: 1, minWidth: 0 }}>
           <VendorAvatar name={vendor.name} />
@@ -493,54 +596,49 @@ function VendorGridCard({ vendor, onView, onEdit, onDelete }: VendorGridCardProp
         </Menu>
       </Stack>
 
-      <Stack direction="row" gap={0.5} sx={{ mt: '6px' }}>
-        <MuiChip label={vendor.gstStatus} size="small" variant="outlined" sx={{ height: 18, fontSize: 10, '& .MuiChip-label': { px: '6px' } }} />
-      </Stack>
-
       <Divider sx={{ my: '10px' }} />
 
-      {/* Info rows */}
-      <Stack gap="6px">
-        <Stack direction="row" alignItems="center" gap="5px">
-          <Person sx={{ fontSize: 11, color: 'text.secondary', flexShrink: 0 }} />
-          <Typography variant="caption" sx={{ fontSize: 11, color: 'text.secondary' }}>
-            {vendor.contactPerson}
-          </Typography>
-        </Stack>
-        <Stack direction="row" alignItems="center" gap="5px">
-          <LocationOn sx={{ fontSize: 11, color: 'text.secondary', flexShrink: 0 }} />
-          <Typography variant="caption" sx={{ fontSize: 11, color: 'text.secondary', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {vendor.city}, {vendor.state}
-          </Typography>
-        </Stack>
-        <Stack direction="row" alignItems="center" gap="5px">
-          <PhoneIcon sx={{ fontSize: 11, color: 'text.secondary', flexShrink: 0 }} />
-          <Typography variant="caption" sx={{ fontSize: 11, color: 'text.secondary' }}>
-            {vendor.phone}
-          </Typography>
-        </Stack>
-      </Stack>
+      <Box sx={{ mb: 1.25 }}>
+        <PrimaryVendorContactCell vendor={vendor} />
+      </Box>
 
-      <Divider sx={{ my: '10px' }} />
+      {href && host ? (
+        <MuiLink
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          variant="caption"
+          sx={{ fontSize: 11, display: 'block', mb: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+        >
+          {host}
+        </MuiLink>
+      ) : null}
 
-      {/* Bottom row */}
-      <Stack direction="row" alignItems="center" justifyContent="space-between">
-        <Typography variant="body2" fontWeight={700} sx={{ fontSize: 14, color: theme.palette.primary.main }}>
-          ₹{formatCurrency(vendor.totalPayables)}
+      <Stack direction="row" alignItems="center" gap="5px" sx={{ mb: 1 }}>
+        <LocationOn sx={{ fontSize: 11, color: 'text.secondary', flexShrink: 0 }} />
+        <Typography variant="caption" sx={{ fontSize: 11, color: 'text.secondary', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {vendor.city}, {vendor.state}
         </Typography>
-        <Stack direction="row" alignItems="center" gap={1}>
-          {vendor.activeProjects > 0 ? (
-            <Typography variant="caption" sx={{ fontSize: 11, color: 'primary.main', fontWeight: 500 }}>
-              {vendor.activeProjects} Active
-            </Typography>
-          ) : (
-            <Typography variant="caption" sx={{ fontSize: 11, color: 'text.disabled' }}>
-              0 Active
-            </Typography>
-          )}
-          <StatusBadge status={vendor.status.toLowerCase() as StatusType} />
-        </Stack>
       </Stack>
+
+      <Stack direction="row" flexWrap="wrap" gap={0.5} useFlexGap sx={{ mb: 1 }}>
+        {vendor.tags.map((tag) => {
+          const c = getSpecializationTagSx(tag, tagMode)
+          return (
+            <MuiChip
+              key={tag}
+              label={tag}
+              size="small"
+              sx={{ height: 20, fontSize: 10, bgcolor: c.bg, color: c.color, border: 'none', '& .MuiChip-label': { px: '6px' } }}
+            />
+          )
+        })}
+      </Stack>
+
+      <Divider sx={{ my: '10px' }} />
+
+      <ComplianceStatusCell vendor={vendor} />
     </MuiCard>
   )
 }
@@ -551,11 +649,12 @@ interface VendorsGridProps {
   items: Vendor[]
   loading: boolean
   onView: (id: string) => void
+  onProjects: (vendor: Vendor, e?: React.MouseEvent) => void
   onEdit: (vendor: Vendor) => void
   onDelete: (vendor: Vendor) => void
 }
 
-function VendorsGrid({ items, loading, onView, onEdit, onDelete }: VendorsGridProps) {
+function VendorsGrid({ items, loading, onView, onProjects, onEdit, onDelete }: VendorsGridProps) {
   if (loading) {
     return (
       <Box
@@ -596,6 +695,7 @@ function VendorsGrid({ items, loading, onView, onEdit, onDelete }: VendorsGridPr
           key={vendor.id}
           vendor={vendor}
           onView={onView}
+          onProjects={onProjects}
           onEdit={onEdit}
           onDelete={onDelete}
         />
@@ -686,11 +786,11 @@ export default function VendorsPage() {
   const [activeFilters, setActiveFilters] = useState<Record<string, unknown>>({})
   const [viewMode, setViewMode] = useState<'table' | 'grid'>('table')
   const [visibleColumns, setVisibleColumns] = useState({
-    contactPerson: true,
+    primaryContact: true,
+    website: true,
     location: true,
     specialization: true,
-    projects: true,
-    payables: true,
+    compliance: true,
   })
 
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -730,6 +830,11 @@ export default function VendorsPage() {
   // Sort items client-side
   const sortedItems = [...items].sort((a, b) => {
     if (!sortConfig.field) return 0
+    if (sortConfig.field === 'projects') {
+      const av = getTotalVendorProjectCount(a)
+      const bv = getTotalVendorProjectCount(b)
+      return sortConfig.direction === 'asc' ? av - bv : bv - av
+    }
     const field = sortConfig.field as keyof Vendor
     const aVal = a[field]
     const bVal = b[field]
@@ -743,41 +848,12 @@ export default function VendorsPage() {
     return sortConfig.direction === 'asc' ? cmp : -cmp
   })
 
-  // KPI stat cards
-  const statCards = [
-    {
-      label: 'TOTAL VENDORS',
-      value: items.length,
-      variant: 'default' as const,
-      icon: <LocalShipping sx={{ fontSize: 24 }} />,
-    },
-    {
-      label: 'ACTIVE PROJECTS',
-      value: items.reduce((sum, v) => sum + v.activeProjects, 0),
-      variant: 'success' as const,
-      icon: <FolderOpen sx={{ fontSize: 24 }} />,
-    },
-    {
-      label: 'TOTAL PAYABLES',
-      value: '₹' + formatCurrency(items.reduce((sum, v) => sum + v.totalPayables, 0)),
-      variant: 'warning' as const,
-      icon: <TrendingDown sx={{ fontSize: 24 }} />,
-    },
-    {
-      label: 'ACTIVE VENDORS',
-      value: items.filter((v) => v.status === 'Active').length,
-      variant: 'teal' as const,
-      icon: <CheckCircle sx={{ fontSize: 24 }} />,
-    },
-  ]
-
-  // Column visibility config
   const columnsConfig: ColumnItem[] = [
-    { field: 'contactPerson',  label: 'Contact Person',  visible: visibleColumns.contactPerson },
-    { field: 'location',       label: 'Location',         visible: visibleColumns.location },
-    { field: 'specialization', label: 'Specialization',   visible: visibleColumns.specialization },
-    { field: 'projects',       label: 'Projects',         visible: visibleColumns.projects },
-    { field: 'payables',       label: 'Payables',         visible: visibleColumns.payables },
+    { field: 'primaryContact', label: 'Primary Contact', visible: visibleColumns.primaryContact },
+    { field: 'website', label: 'Website', visible: visibleColumns.website },
+    { field: 'location', label: 'Location', visible: visibleColumns.location },
+    { field: 'specialization', label: 'Specialization', visible: visibleColumns.specialization },
+    { field: 'compliance', label: 'Compliance Status', visible: visibleColumns.compliance },
   ]
 
   // Filter config
@@ -914,6 +990,12 @@ export default function VendorsPage() {
     }
   }
 
+  function handleNavigateToVendorProjects(vendor: Vendor, e?: React.MouseEvent) {
+    e?.preventDefault()
+    e?.stopPropagation()
+    navigate(`/vendors/${toSlug(vendor.name)}?tab=projects`)
+  }
+
   async function handleDelete() {
     if (!deleteTarget) return
     try {
@@ -931,14 +1013,13 @@ export default function VendorsPage() {
       <ListingTemplate
         icon={<Truck size={20} />}
         title="Vendors"
-        subtitle="Manage vendor relationships and payment details"
+        subtitle="Vendor directory and procurement relationships"
         primaryAction={{
           label: 'Add Vendor',
           onClick: openAddDrawer,
           startIcon: <Plus size={16} strokeWidth={2} />,
         }}
-        statCards={statCards}
-        searchPlaceholder="Search vendors..."
+        searchPlaceholder="Search by name, contact, or specialization..."
         searchValue={filters.search}
         onSearchChange={handleSearchChange}
         tabs={tabs}
@@ -958,6 +1039,7 @@ export default function VendorsPage() {
             items={sortedItems}
             loading={loading}
             onView={handleNavigateToVendor}
+            onProjects={handleNavigateToVendorProjects}
             onEdit={openEditDrawer}
             onDelete={setDeleteTarget}
           />
@@ -970,6 +1052,7 @@ export default function VendorsPage() {
             sortDirection={sortConfig.direction}
             onSort={handleSortChange}
             onView={handleNavigateToVendor}
+            onProjects={handleNavigateToVendorProjects}
             onEdit={openEditDrawer}
             onDelete={setDeleteTarget}
           />

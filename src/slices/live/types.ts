@@ -85,6 +85,24 @@ export interface VendorInvoice {
   documentUrl?: string
 }
 
+/** Per vendor–service row on a project (Finance → Payments payable control). */
+export interface VendorPayableComplianceChecks {
+  insurance: boolean
+  contractSigned: boolean
+  documentsSubmitted: boolean
+}
+
+export type VendorComplianceStatus = 'complete' | 'pending'
+
+export interface VendorPayableControl {
+  projectId: string
+  vendorId: string
+  serviceId: string
+  clientPaymentReceived: boolean
+  vendorComplianceStatus: VendorComplianceStatus
+  complianceChecks: VendorPayableComplianceChecks
+}
+
 /** Vendor payment (settlement record) */
 export interface VendorPayment {
   id: string
@@ -106,12 +124,19 @@ export interface VendorPayment {
   referenceNumber?: string
 }
 
-export type ExpenseType = 'additional' | 'vendor_linked' | 'common'
+export type ExpenseType =
+  | 'additional'
+  | 'vendor_linked'
+  | 'common'
+  | 'office_expenses'
+  | 'reimbursable_expenses'
 
 export interface Expense {
   id: string
   projectId: string
   projectName?: string
+  /** Filled when expense is synced from Pitch planned expenses. */
+  sourcePlannedExpenseId?: string
   type: ExpenseType
   description: string
   amount: number

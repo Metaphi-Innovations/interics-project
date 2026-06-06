@@ -1,5 +1,6 @@
 import { createAsyncThunk } from '@reduxjs/toolkit'
 import { projectsApi } from '../../api/projectsApi'
+import { getProjectAssignedMembers } from '@/utils/projectAssignedTeam'
 import type { Project } from './reducer'
 
 /** Coerce various list API shapes into what the projects slice expects. */
@@ -53,7 +54,14 @@ export const fetchProjects = createAsyncThunk(
       const response = await projectsApi.getAll(
         params as Record<string, unknown>
       )
-      return normalizeProjectsListResponse(response.data)
+      const { items, total } = normalizeProjectsListResponse(response.data)
+      return {
+        items: items.map((project) => ({
+          ...project,
+          assignedTeam: getProjectAssignedMembers(project),
+        })),
+        total,
+      }
     } catch (err: unknown) {
       const error = err as { response?: { data?: { message?: string } } }
       return rejectWithValue(error.response?.data?.message ?? 'Failed to fetch projects')

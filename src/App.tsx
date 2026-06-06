@@ -28,6 +28,7 @@ import {
   // ClipboardList,
   Settings2,
   Users,
+  UserPlus,
 } from 'lucide-react'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { logout } from '@/slices/auth/reducer'
@@ -47,6 +48,7 @@ import CustomersPage from '@/pages/Customers/CustomersPage'
 import CustomerDetailPage from '@/pages/Customers/CustomerDetailPage'
 import VendorsPage from '@/pages/Vendors/VendorsPage'
 import VendorDetailPage from '@/pages/Vendors/VendorDetailPage'
+import AddedTeamPage from '@/pages/AddedTeam/AddedTeamPage'
 import BillingsPage from '@/pages/Finance/BillingsPage'
 import PaymentsPage from '@/pages/Finance/PaymentsPage'
 import ExpensesPage from '@/pages/Finance/ExpensesPage'
@@ -100,6 +102,12 @@ const navConfig: NavConfig[] = [
         icon: <Truck size={16} strokeWidth={1.75} />,
         href: '/vendors',
       },
+      {
+        type: 'item',
+        label: 'Added Team',
+        icon: <UserPlus size={16} strokeWidth={1.75} />,
+        href: '/added-team',
+      },
     ],
   },
   {
@@ -108,13 +116,13 @@ const navConfig: NavConfig[] = [
     children: [
       {
         type: 'item',
-        label: 'Billings',
+        label: 'Receivable',
         icon: <TrendingUp size={16} strokeWidth={1.75} />,
         href: '/finance/receivables',
       },
       {
         type: 'item',
-        label: 'Payments',
+        label: 'Payable',
         icon: <TrendingDown size={16} strokeWidth={1.75} />,
         href: '/finance/payables',
       },
@@ -301,6 +309,7 @@ function AppInner() {
           <Route path="customers/:id" element={<CustomerDetailPage />} />
           <Route path="vendors" element={<VendorsPage />} />
           <Route path="vendors/:id" element={<VendorDetailPage />} />
+          <Route path="added-team" element={<AddedTeamPage />} />
           <Route path="finance/receivables" element={<BillingsPage />} />
           <Route path="finance/payables" element={<PaymentsPage />} />
           <Route path="finance/expenses" element={<ExpensesPage />} />

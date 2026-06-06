@@ -20,7 +20,6 @@ import {
   computeVendorCardCounts,
   itemsSummary,
   SettlementRightPanel,
-  SettlementSummaryStrip,
   PaymentDetailModal,
   TABLE_CELL_SX,
   TABLE_HEADER_SX,
@@ -86,8 +85,6 @@ export default function PaymentsTab({ projectId }: PaymentsTabProps) {
 
   return (
     <>
-      <SettlementSummaryStrip vendorInvoices={projectInvoices} payments={projectPayments} />
-
       <Stack
         direction={{ xs: 'column', md: 'row' }}
         alignItems="stretch"

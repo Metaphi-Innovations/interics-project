@@ -64,6 +64,8 @@ export interface Customer {
   address: string | null
   pincode?: string | null
   tags: string[]
+  sector?: string
+  msmeRegistered?: boolean
   notes: string | null
   status: 'Active' | 'Inactive'
   activeProjects: number

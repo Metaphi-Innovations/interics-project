@@ -27,6 +27,12 @@ interface DrawerFormProps {
   hideFooter?: boolean
   /** Rendered in the header row before the close button (e.g. Edit). */
   headerActions?: ReactNode
+  /** Hide the top-right close (X) control. */
+  hideCloseButton?: boolean
+  /** Removes the bottom border from the header */
+  hideHeaderDivider?: boolean
+  /** Override header container styles */
+  headerSx?: object
 }
 
 export function DrawerForm({
@@ -45,6 +51,9 @@ export function DrawerForm({
   footer,
   hideFooter = false,
   headerActions,
+  hideCloseButton = false,
+  hideHeaderDivider = false,
+  headerSx = {},
 }: DrawerFormProps) {
   const handleCancel = onCancel ?? onClose
 
@@ -75,8 +84,9 @@ export function DrawerForm({
           px: '20px',
           py: '16px',
           flexShrink: 0,
-          borderBottom: '1px solid',
+          borderBottom: hideHeaderDivider ? 'none' : '1px solid',
           borderBottomColor: 'divider',
+          ...headerSx,
         }}
       >
         <Box>
@@ -95,21 +105,23 @@ export function DrawerForm({
             </Box>
           )}
         </Box>
-        {headerActions != null && (
-          <Box sx={{ display: 'flex', alignItems: 'center', mr: 0.5 }}>
-            {headerActions}
-          </Box>
-        )}
-        <MuiIconButton
-          size="small"
-          onClick={onClose}
-          sx={{
-            color: tokens.color.neutral[400],
-            '&:hover': { bgcolor: 'action.hover' },
-          }}
-        >
-          <CloseIcon fontSize="small" />
-        </MuiIconButton>
+        <Stack direction="row" alignItems="center" gap={0.5} sx={{ flexShrink: 0 }}>
+          {headerActions != null && (
+            <Box sx={{ display: 'flex', alignItems: 'center' }}>{headerActions}</Box>
+          )}
+          {!hideCloseButton && (
+            <MuiIconButton
+              size="small"
+              onClick={onClose}
+              sx={{
+                color: tokens.color.neutral[400],
+                '&:hover': { bgcolor: 'action.hover' },
+              }}
+            >
+              <CloseIcon fontSize="small" />
+            </MuiIconButton>
+          )}
+        </Stack>
       </Stack>
 
       {/* Scrollable content */}

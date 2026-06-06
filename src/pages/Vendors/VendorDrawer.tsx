@@ -1,10 +1,11 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { Box, Stack, TextField, MenuItem, Autocomplete, Chip as MuiChip, Typography } from '@mui/material'
 import { DrawerForm, FormSection, FormField } from '../../components/templates'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { createVendor, updateVendor } from '../../slices/vendors/thunk'
-import { useToast, Button } from '@/design-system/components'
+import { useToast, Button, DatePicker } from '@/design-system/components'
 import type { Vendor } from '../../slices/vendors/reducer'
+import { buildVendorComplianceSnapshot } from '../../utils/vendorCompliance'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -27,10 +28,13 @@ const VENDOR_TAGS = [
 
 const GSTIN_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/
 
+const COMPLIANCE_ACCEPT = '.pdf,application/pdf,image/*'
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface FormState {
   name: string
+  website: string
   gstStatus: 'Registered' | 'Unregistered'
   gstin: string
   pan: string
@@ -49,6 +53,7 @@ interface FormState {
 
 const defaultForm: FormState = {
   name: '',
+  website: '',
   gstStatus: 'Unregistered',
   gstin: '',
   pan: '',
@@ -63,6 +68,24 @@ const defaultForm: FormState = {
   tags: [],
   paymentTerms: '',
   notes: '',
+}
+
+function fileToDoc(file: File): { name: string; url: string } {
+  return { name: file.name, url: URL.createObjectURL(file) }
+}
+
+function toIsoDate(d: Date | null): string | null {
+  if (!d) return null
+  const y = d.getFullYear()
+  const mo = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${mo}-${day}`
+}
+
+function parseIsoDate(iso?: string | null): Date | null {
+  if (!iso) return null
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? null : d
 }
 
 export interface VendorDrawerProps {
@@ -96,6 +119,125 @@ function validate(form: FormState): Record<string, string> {
   return errors
 }
 
+interface CompactComplianceDocRowProps {
+  label: string
+  file: File | null
+  existing?: { name: string; url: string } | null
+  onFileSelect: (file: File | null) => void
+}
+
+function CompactComplianceDocRow({
+  label,
+  file,
+  existing,
+  onFileSelect,
+}: CompactComplianceDocRowProps) {
+  const inputRef = useRef<HTMLInputElement>(null)
+  const displayName = file?.name ?? existing?.name ?? null
+  const [fileBlobUrl, setFileBlobUrl] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!file) {
+      setFileBlobUrl(null)
+      return undefined
+    }
+    const url = URL.createObjectURL(file)
+    setFileBlobUrl(url)
+    return () => URL.revokeObjectURL(url)
+  }, [file])
+
+  const viewUrl = file ? fileBlobUrl : (existing?.url ?? null)
+
+  function openDocument() {
+    if (!viewUrl) return
+    window.open(viewUrl, '_blank', 'noopener,noreferrer')
+  }
+
+  function downloadDocument() {
+    if (!viewUrl || !displayName) return
+    const a = document.createElement('a')
+    a.href = viewUrl
+    a.download = displayName
+    a.rel = 'noopener noreferrer'
+    a.click()
+  }
+
+  return (
+    <FormField label={label}>
+      <input
+        ref={inputRef}
+        type="file"
+        accept={COMPLIANCE_ACCEPT}
+        hidden
+        onChange={(e) => {
+          const picked = e.target.files?.[0] ?? null
+          onFileSelect(picked)
+          e.target.value = ''
+        }}
+      />
+      {!displayName ? (
+        <Button
+          type="button"
+          variant="outlined"
+          color="secondary"
+          size="sm"
+          label="Upload"
+          onClick={() => inputRef.current?.click()}
+        />
+      ) : (
+        <Stack
+          direction="row"
+          alignItems="center"
+          justifyContent="space-between"
+          gap={1}
+          sx={{ minHeight: 28 }}
+        >
+          <Typography
+            variant="body2"
+            color="text.secondary"
+            sx={{
+              fontSize: 12,
+              flex: 1,
+              minWidth: 0,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {displayName}
+          </Typography>
+          <Stack direction="row" gap={0.25} flexShrink={0}>
+            <Button
+              type="button"
+              variant="text"
+              color="primary"
+              size="sm"
+              label="View"
+              onClick={openDocument}
+            />
+            <Button
+              type="button"
+              variant="text"
+              color="primary"
+              size="sm"
+              label="Download"
+              onClick={downloadDocument}
+            />
+            <Button
+              type="button"
+              variant="text"
+              color="secondary"
+              size="sm"
+              label="Replace"
+              onClick={() => inputRef.current?.click()}
+            />
+          </Stack>
+        </Stack>
+      )}
+    </FormField>
+  )
+}
+
 // ─── VendorDrawer ─────────────────────────────────────────────────────────────
 
 export function VendorDrawer({ open, onClose, mode, vendor }: VendorDrawerProps) {
@@ -107,16 +249,20 @@ export function VendorDrawer({ open, onClose, mode, vendor }: VendorDrawerProps)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [gstCertFile, setGstCertFile] = useState<File | null>(null)
   const [panDocFile, setPanDocFile] = useState<File | null>(null)
-  const gstFileInputRef = useRef<HTMLInputElement>(null)
-  const panFileInputRef = useRef<HTMLInputElement>(null)
+  const [bankChequeFile, setBankChequeFile] = useState<File | null>(null)
+  const [insuranceFile, setInsuranceFile] = useState<File | null>(null)
+  const [insuranceExpiry, setInsuranceExpiry] = useState<Date | null>(null)
 
   useEffect(() => {
     if (open) {
       setGstCertFile(null)
       setPanDocFile(null)
+      setBankChequeFile(null)
+      setInsuranceFile(null)
       if (vendor && mode === 'edit') {
         setForm({
           name: vendor.name,
+          website: vendor.website ?? '',
           gstStatus: vendor.gstStatus,
           gstin: vendor.gstin ?? '',
           pan: vendor.pan ?? '',
@@ -132,8 +278,10 @@ export function VendorDrawer({ open, onClose, mode, vendor }: VendorDrawerProps)
           paymentTerms: vendor.paymentTerms ?? '',
           notes: vendor.notes ?? '',
         })
+        setInsuranceExpiry(parseIsoDate(vendor.compliance?.insurance?.expiryDate))
       } else {
         setForm(defaultForm)
+        setInsuranceExpiry(null)
       }
       setErrors({})
     }
@@ -150,25 +298,58 @@ export function VendorDrawer({ open, onClose, mode, vendor }: VendorDrawerProps)
 
     const gstDocument =
       gstCertFile !== null
-        ? { name: gstCertFile.name, url: URL.createObjectURL(gstCertFile) }
+        ? fileToDoc(gstCertFile)
         : mode === 'edit'
           ? (vendor?.gstDocument ?? null)
           : null
 
     const panDocument =
       panDocFile !== null
-        ? { name: panDocFile.name, url: URL.createObjectURL(panDocFile) }
+        ? fileToDoc(panDocFile)
         : mode === 'edit'
           ? (vendor?.panDocument ?? null)
           : null
 
+    const bankChequeDocument =
+      bankChequeFile !== null
+        ? fileToDoc(bankChequeFile)
+        : mode === 'edit'
+          ? (vendor?.bankChequeDocument ?? null)
+          : null
+
+    const insuranceDocument =
+      insuranceFile !== null
+        ? fileToDoc(insuranceFile)
+        : mode === 'edit'
+          ? (vendor?.insuranceDocument ?? null)
+          : null
+
+    const insuranceExpiryIso = toIsoDate(insuranceExpiry)
+
+    const compliance = buildVendorComplianceSnapshot(
+      {
+        gstDocument,
+        panDocument,
+        bankChequeDocument,
+        insuranceDocument,
+        gstin: form.gstStatus === 'Registered' ? form.gstin.trim() : null,
+        pan: form.pan.trim() || null,
+        gstStatus: form.gstStatus,
+      },
+      insuranceExpiryIso,
+    )
+
     const payload = {
       name: form.name.trim(),
+      website: form.website.trim() || null,
       gstStatus: form.gstStatus,
       gstin: form.gstStatus === 'Registered' ? form.gstin.trim() : null,
       pan: form.pan.trim() || null,
       gstDocument,
       panDocument,
+      bankChequeDocument,
+      insuranceDocument,
+      compliance,
       contactPerson: form.contactPerson.trim(),
       designation: form.designation.trim() || null,
       phone: form.phone.trim(),
@@ -208,8 +389,7 @@ export function VendorDrawer({ open, onClose, mode, vendor }: VendorDrawerProps)
       submitLabel={mode === 'add' ? 'Save Vendor' : 'Update Vendor'}
       submitLoading={saving}
     >
-      {/* ── Vendor Details ───────────────────────────────────────────── */}
-      <FormSection title="Vendor Details" columns={2}>
+      <FormSection title="Vendor Details" columns={2} divider={false}>
         <Box sx={{ gridColumn: 'span 2' }}>
           <FormField label="Vendor Name" required error={errors.name}>
             <TextField
@@ -222,120 +402,20 @@ export function VendorDrawer({ open, onClose, mode, vendor }: VendorDrawerProps)
             />
           </FormField>
         </Box>
-      </FormSection>
-
-      {/* ── Tax & Compliance ─────────────────────────────────────────── */}
-      <FormSection title="Tax & Compliance" columns={2}>
-        <FormField label="GST Status">
-          <TextField
-            fullWidth
-            size="small"
-            select
-            value={form.gstStatus}
-            onChange={(e) => {
-              const val = e.target.value as 'Registered' | 'Unregistered'
-              update('gstStatus', val)
-              if (val === 'Unregistered') update('gstin', '')
-            }}
-          >
-            <MenuItem value="Registered">Registered</MenuItem>
-            <MenuItem value="Unregistered">Unregistered</MenuItem>
-          </TextField>
-        </FormField>
-
-        <FormField
-          label="GSTIN"
-          required={form.gstStatus === 'Registered'}
-          hint="15-digit GST number"
-          error={errors.gstin}
-        >
-          <TextField
-            fullWidth
-            size="small"
-            value={form.gstin}
-            onChange={(e) => update('gstin', e.target.value.toUpperCase())}
-            placeholder="29ABCDE1234F1Z5"
-            disabled={form.gstStatus === 'Unregistered'}
-            error={!!errors.gstin}
-          />
-        </FormField>
-
         <Box sx={{ gridColumn: 'span 2' }}>
-          <FormField label="Upload GST Certificate" hint="PDF or image (optional)">
-            <Stack direction="row" alignItems="center" gap={2} flexWrap="wrap">
-              <input
-                ref={gstFileInputRef}
-                type="file"
-                accept=".pdf,application/pdf,image/*"
-                hidden
-                onChange={(e) => {
-                  const file = e.target.files?.[0]
-                  if (file) setGstCertFile(file)
-                  e.target.value = ''
-                }}
-              />
-              <Button
-                type="button"
-                variant="outlined"
-                color="secondary"
-                size="sm"
-                onClick={() => gstFileInputRef.current?.click()}
-              >
-                {gstCertFile || (mode === 'edit' && vendor?.gstDocument) ? 'Replace' : 'Upload'}
-              </Button>
-              {(gstCertFile?.name ?? (mode === 'edit' ? vendor?.gstDocument?.name : undefined)) && (
-                <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12 }}>
-                  {gstCertFile?.name ?? vendor?.gstDocument?.name}
-                </Typography>
-              )}
-            </Stack>
-          </FormField>
-        </Box>
-
-        <FormField label="PAN Number" hint="10-character PAN">
-          <TextField
-            fullWidth
-            size="small"
-            value={form.pan}
-            onChange={(e) => update('pan', e.target.value.toUpperCase())}
-            placeholder="ABCDE1234F"
-          />
-        </FormField>
-
-        <Box sx={{ gridColumn: 'span 2' }}>
-          <FormField label="Upload PAN Document" hint="PDF or image (optional)">
-            <Stack direction="row" alignItems="center" gap={2} flexWrap="wrap">
-              <input
-                ref={panFileInputRef}
-                type="file"
-                accept=".pdf,application/pdf,image/*"
-                hidden
-                onChange={(e) => {
-                  const file = e.target.files?.[0]
-                  if (file) setPanDocFile(file)
-                  e.target.value = ''
-                }}
-              />
-              <Button
-                type="button"
-                variant="outlined"
-                color="secondary"
-                size="sm"
-                onClick={() => panFileInputRef.current?.click()}
-              >
-                {panDocFile || (mode === 'edit' && vendor?.panDocument) ? 'Replace' : 'Upload'}
-              </Button>
-              {(panDocFile?.name ?? (mode === 'edit' ? vendor?.panDocument?.name : undefined)) && (
-                <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12 }}>
-                  {panDocFile?.name ?? vendor?.panDocument?.name}
-                </Typography>
-              )}
-            </Stack>
+          <FormField label="Website" hint="Company site (https optional)">
+            <TextField
+              fullWidth
+              size="small"
+              type="url"
+              value={form.website}
+              onChange={(e) => update('website', e.target.value)}
+              placeholder="https://example.com"
+            />
           </FormField>
         </Box>
       </FormSection>
 
-      {/* ── Contact Details ──────────────────────────────────────────── */}
       <FormSection title="Contact Details" columns={2}>
         <FormField label="Contact Person" required error={errors.contactPerson}>
           <TextField
@@ -383,7 +463,6 @@ export function VendorDrawer({ open, onClose, mode, vendor }: VendorDrawerProps)
         </FormField>
       </FormSection>
 
-      {/* ── Address ─────────────────────────────────────────────────── */}
       <FormSection title="Address" columns={2}>
         <Box sx={{ gridColumn: 'span 2' }}>
           <FormField label="Address">
@@ -438,7 +517,88 @@ export function VendorDrawer({ open, onClose, mode, vendor }: VendorDrawerProps)
         </FormField>
       </FormSection>
 
-      {/* ── Vendor Profile ───────────────────────────────────────────── */}
+      <FormSection title="Tax & Compliance" columns={2}>
+        <FormField label="GST Status">
+          <TextField
+            fullWidth
+            size="small"
+            select
+            value={form.gstStatus}
+            onChange={(e) => {
+              const val = e.target.value as 'Registered' | 'Unregistered'
+              update('gstStatus', val)
+              if (val === 'Unregistered') update('gstin', '')
+            }}
+          >
+            <MenuItem value="Registered">Registered</MenuItem>
+            <MenuItem value="Unregistered">Unregistered</MenuItem>
+          </TextField>
+        </FormField>
+
+        <FormField
+          label="GSTIN"
+          required={form.gstStatus === 'Registered'}
+          hint="15-digit GST number"
+          error={errors.gstin}
+        >
+          <TextField
+            fullWidth
+            size="small"
+            value={form.gstin}
+            onChange={(e) => update('gstin', e.target.value.toUpperCase())}
+            placeholder="29ABCDE1234F1Z5"
+            disabled={form.gstStatus === 'Unregistered'}
+            error={!!errors.gstin}
+          />
+        </FormField>
+
+        <FormField label="PAN Number" hint="10-character PAN">
+          <TextField
+            fullWidth
+            size="small"
+            value={form.pan}
+            onChange={(e) => update('pan', e.target.value.toUpperCase())}
+            placeholder="ABCDE1234F"
+          />
+        </FormField>
+      </FormSection>
+
+      <FormSection title="Compliance Documents" columns={2}>
+        <CompactComplianceDocRow
+          label="GST Certificate"
+          file={gstCertFile}
+          existing={mode === 'edit' ? vendor?.gstDocument : null}
+          onFileSelect={setGstCertFile}
+        />
+        <CompactComplianceDocRow
+          label="PAN Card"
+          file={panDocFile}
+          existing={mode === 'edit' ? vendor?.panDocument : null}
+          onFileSelect={setPanDocFile}
+        />
+        <CompactComplianceDocRow
+          label="Cancelled Cheque"
+          file={bankChequeFile}
+          existing={mode === 'edit' ? vendor?.bankChequeDocument : null}
+          onFileSelect={setBankChequeFile}
+        />
+        <CompactComplianceDocRow
+          label="Insurance Document"
+          file={insuranceFile}
+          existing={mode === 'edit' ? vendor?.insuranceDocument : null}
+          onFileSelect={setInsuranceFile}
+        />
+
+        <Box sx={{ gridColumn: 'span 2' }}>
+          <FormField
+            label="Insurance Expiry Date"
+            hint="Track insurance expiry when a policy is uploaded"
+          >
+            <DatePicker value={insuranceExpiry} onChange={setInsuranceExpiry} fullWidth size="sm" />
+          </FormField>
+        </Box>
+      </FormSection>
+
       <FormSection title="Vendor Profile" columns={2}>
         <Box sx={{ gridColumn: 'span 2' }}>
           <FormField label="Specialization Tags">

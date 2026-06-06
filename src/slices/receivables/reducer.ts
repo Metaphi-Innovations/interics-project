@@ -16,6 +16,8 @@ export type InvoiceStatus =
   | 'partially_paid'
   | 'overdue'
   | 'paid'
+  | 'uploaded'
+  | 'tax'
 
 export type LineSource = 'milestone' | 'service' | 'manual'
 

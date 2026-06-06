@@ -7,6 +7,7 @@ import type {
   Expense,
   Reimbursement,
   VendorInvoice,
+  VendorPayableControl,
   VendorPayment,
 } from '@/slices/live/types'
 
@@ -52,6 +53,12 @@ export const liveApi = {
 
   uploadVendorInvoice: (projectId: string, data: CreateVendorInvoiceBody) =>
     client.post<VendorInvoice>(`${root(projectId)}/vendor-invoices`, data),
+
+  getVendorPayableControls: (projectId: string) =>
+    client.get<VendorPayableControl[]>(`${root(projectId)}/vendor-payable-controls`),
+
+  updateVendorPayableControl: (projectId: string, data: VendorPayableControl) =>
+    client.put<VendorPayableControl>(`${root(projectId)}/vendor-payable-controls`, data),
 
   getPayments: (projectId: string) =>
     client.get<VendorPayment[]>(`${root(projectId)}/payments`),

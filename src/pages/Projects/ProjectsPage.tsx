@@ -32,12 +32,9 @@ import {
   ArrowDownward,
   PlayCircle,
   CheckCircle,
-  CurrencyRupee,
   Visibility,
   Edit,
-  Business,
   LocationOn,
-  Category as CategoryIcon,
 } from '@mui/icons-material'
 import { FolderKanban, Plus } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
@@ -66,16 +63,18 @@ import {
   getAvatarColor,
   toSlug,
 } from '../../utils/formatters'
+import { formatProjectSite } from '../../utils/projectSite'
+import { getProjectTypes, PROJECT_TYPE_OPTIONS } from './projectTypes'
+import { ProjectTypeTags } from './components/ProjectTypeTags'
+import { ProjectTypesField } from './components/ProjectTypesField'
 
 // ─── Column visibility state ──────────────────────────────────────────────────
 
 interface ColumnVisibility {
   projectName: boolean
-  client: boolean
   status: boolean
   type: boolean
-  manager: boolean
-  value: boolean
+  projectLead: boolean
   dates: boolean
 }
 
@@ -295,9 +294,26 @@ function ProjectsTable({
     whiteSpace: 'nowrap' as const,
   }
 
+  const actionColWidth = 56
+  const actionHeadSx = {
+    ...headSx,
+    width: actionColWidth,
+    minWidth: actionColWidth,
+    textAlign: 'center' as const,
+    verticalAlign: 'middle' as const,
+  }
+  const actionCellSx = {
+    ...cellSx,
+    width: actionColWidth,
+    minWidth: actionColWidth,
+    p: '4px',
+    textAlign: 'center' as const,
+    verticalAlign: 'middle' as const,
+  }
+
   return (
     <Box sx={{ overflowX: 'auto' }}>
-      <Table size="small" sx={{ minWidth: 700 }}>
+      <Table size="small" sx={{ minWidth: 640 }}>
         <TableHead>
           <TableRow>
             <TableCell sx={headSx}>
@@ -309,37 +325,15 @@ function ProjectsTable({
                 onSort={onSort}
               />
             </TableCell>
-            {columns.client && (
-              <TableCell sx={headSx}>
-                <SortHeader
-                  field="customerName"
-                  label="Client"
-                  currentField={sortField}
-                  direction={sortDirection}
-                  onSort={onSort}
-                />
-              </TableCell>
-            )}
             {columns.status && <TableCell sx={headSx}>Status</TableCell>}
             {columns.type && (
               <TableCell sx={{ ...headSx, display: { xs: 'none', lg: 'table-cell' } }}>
                 Type
               </TableCell>
             )}
-            {columns.manager && (
+            {columns.projectLead && (
               <TableCell sx={{ ...headSx, display: { xs: 'none', lg: 'table-cell' } }}>
-                Manager
-              </TableCell>
-            )}
-            {columns.value && (
-              <TableCell sx={headSx} align="right">
-                <SortHeader
-                  field="projectValue"
-                  label="Value"
-                  currentField={sortField}
-                  direction={sortDirection}
-                  onSort={onSort}
-                />
+                Project Lead
               </TableCell>
             )}
             {columns.dates && (
@@ -353,7 +347,7 @@ function ProjectsTable({
                 />
               </TableCell>
             )}
-            <TableCell sx={{ ...headSx, width: 48 }} />
+            <TableCell sx={actionHeadSx}>Action</TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
@@ -384,20 +378,11 @@ function ProjectsTable({
                         {project.name}
                       </Typography>
                       <Typography variant="caption" color="text.secondary" sx={{ fontSize: 10 }}>
-                        {project.projectCode}
+                        {formatProjectSite(project) || project.projectCode}
                       </Typography>
                     </Box>
                   </Stack>
                 </TableCell>
-
-                {/* Client */}
-                {columns.client && (
-                  <TableCell sx={cellSx}>
-                    <Typography variant="body2" sx={{ fontSize: 12 }}>
-                      {project.customerName}
-                    </Typography>
-                  </TableCell>
-                )}
 
                 {/* Status */}
                 {columns.status && (
@@ -414,24 +399,12 @@ function ProjectsTable({
                 {/* Type */}
                 {columns.type && (
                   <TableCell sx={{ ...cellSx, display: { xs: 'none', lg: 'table-cell' } }}>
-                    <MuiChip
-                      label={project.type}
-                      size="small"
-                      variant="outlined"
-                      sx={{
-                        height: 20,
-                        fontSize: 10,
-                        borderRadius: '4px',
-                        color: tokens.color.neutral[600],
-                        borderColor: tokens.color.neutral[300],
-                        '& .MuiChip-label': { px: '6px' },
-                      }}
-                    />
+                    <ProjectTypeTags types={getProjectTypes(project)} maxVisible={4} />
                   </TableCell>
                 )}
 
-                {/* Manager */}
-                {columns.manager && (
+                {/* Project Lead */}
+                {columns.projectLead && (
                   <TableCell sx={{ ...cellSx, display: { xs: 'none', lg: 'table-cell' } }}>
                     <Stack direction="row" alignItems="center" gap="4px">
                       <PersonOutline sx={{ fontSize: 13, color: 'text.secondary' }} />
@@ -439,15 +412,6 @@ function ProjectsTable({
                         {project.projectManager}
                       </Typography>
                     </Stack>
-                  </TableCell>
-                )}
-
-                {/* Value */}
-                {columns.value && (
-                  <TableCell sx={cellSx} align="right">
-                    <Typography variant="body2" sx={{ fontWeight: 600, fontSize: 12 }}>
-                      ₹{formatCurrency(project.projectValue)}
-                    </Typography>
                   </TableCell>
                 )}
 
@@ -485,16 +449,22 @@ function ProjectsTable({
                 )}
 
                 {/* Actions */}
-                <TableCell
-                  sx={{ ...cellSx, p: '4px' }}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <RowActions
-                    project={project}
-                    onView={() => onView(project)}
-                    onEdit={() => onEdit(project)}
-                    onChangeStatus={() => onChangeStatus(project)}
-                  />
+                <TableCell sx={actionCellSx} onClick={(e) => e.stopPropagation()}>
+                  <Box
+                    sx={{
+                      display: 'flex',
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      width: '100%',
+                    }}
+                  >
+                    <RowActions
+                      project={project}
+                      onView={() => onView(project)}
+                      onEdit={() => onEdit(project)}
+                      onChangeStatus={() => onChangeStatus(project)}
+                    />
+                  </Box>
                 </TableCell>
               </TableRow>
             )
@@ -588,7 +558,7 @@ function ProjectGridCard({ project, onView, onEdit, onChangeStatus }: ProjectGri
 
       {/* Project code */}
       <Typography variant="caption" sx={{ color: tokens.color.neutral[400], fontSize: 10, mt: '4px', display: 'block' }}>
-        {project.projectCode}
+        {formatProjectSite(project) || project.projectCode}
       </Typography>
 
       {/* Status row */}
@@ -602,15 +572,9 @@ function ProjectGridCard({ project, onView, onEdit, onChangeStatus }: ProjectGri
       {/* Info rows */}
       <Stack gap="6px">
         <Stack direction="row" alignItems="center" gap="5px">
-          <Business sx={{ fontSize: 11, color: 'text.secondary', flexShrink: 0 }} />
-          <Typography variant="caption" sx={{ fontSize: 11, color: 'text.secondary', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {project.customerName}
-          </Typography>
-        </Stack>
-        <Stack direction="row" alignItems="center" gap="5px">
           <PersonOutline sx={{ fontSize: 11, color: 'text.secondary', flexShrink: 0 }} />
           <Typography variant="caption" sx={{ fontSize: 11, color: 'text.secondary' }}>
-            {project.projectManager}
+            Lead: {project.projectManager}
           </Typography>
         </Stack>
         {project.location && (
@@ -621,12 +585,9 @@ function ProjectGridCard({ project, onView, onEdit, onChangeStatus }: ProjectGri
             </Typography>
           </Stack>
         )}
-        <Stack direction="row" alignItems="center" gap="5px">
-          <CategoryIcon sx={{ fontSize: 11, color: 'text.secondary', flexShrink: 0 }} />
-          <Typography variant="caption" sx={{ fontSize: 11, color: 'text.secondary' }}>
-            {project.type}
-          </Typography>
-        </Stack>
+        <Box sx={{ mt: 0.5 }}>
+          <ProjectTypeTags types={getProjectTypes(project)} maxVisible={3} />
+        </Box>
       </Stack>
 
       <Divider sx={{ my: '10px' }} />
@@ -904,20 +865,14 @@ function EditProjectDrawer({
           </FormField>
         </Box>
 
-        <FormField label="Project Type">
-          <MuiSelect
-            value={form.type ?? ''}
-            onChange={(e) => set('type', e.target.value)}
-            size="small"
-            fullWidth
-            displayEmpty
-            sx={{ fontSize: 12 }}
-          >
-            <MenuItem value="" sx={{ fontSize: 12 }}>Select…</MenuItem>
-            <MenuItem value="Design Only" sx={{ fontSize: 12 }}>Design Only</MenuItem>
-            <MenuItem value="Design & Build" sx={{ fontSize: 12 }}>Design & Build</MenuItem>
-          </MuiSelect>
-        </FormField>
+        <Box sx={{ gridColumn: '1 / -1' }}>
+          <FormField label="Project Type" required>
+            <ProjectTypesField
+              value={form.projectTypes ?? []}
+              onChange={(v) => set('projectTypes', v)}
+            />
+          </FormField>
+        </Box>
 
         <FormField label="Location">
           <Input
@@ -1011,14 +966,12 @@ export default function ProjectsPage() {
   const [createModalOpen, setCreateModalOpen] = useState(false)
 
   // Local state
-  const [activeTab, setActiveTab] = useState('all')
+  const [activeTab, setActiveTab] = useState(() => filters.status || 'Live')
   const [columnVisibility, setColumnVisibility] = useState<ColumnVisibility>({
     projectName: true,
-    client: true,
     status: true,
     type: true,
-    manager: true,
-    value: true,
+    projectLead: true,
     dates: true,
   })
   const [editDrawerOpen, setEditDrawerOpen] = useState(false)
@@ -1029,11 +982,17 @@ export default function ProjectsPage() {
   // Debounce timer
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Load data
+  // Load users
   useEffect(() => {
-    dispatch(fetchProjects({ page: pagination.page, pageSize: pagination.pageSize }))
     dispatch(fetchUsers({}))
-  }, [dispatch, pagination.page, pagination.pageSize])
+  }, [dispatch])
+
+  // Default to Live tab/filter on entry unless a status already exists in current session state.
+  useEffect(() => {
+    if (!filters.status) {
+      dispatch(setFilters({ status: 'Live' }))
+    }
+  }, [dispatch, filters.status])
 
   const refetch = useCallback(() => {
     dispatch(
@@ -1078,8 +1037,6 @@ export default function ProjectsPage() {
     })
   }, [filteredItems, sortConfig])
 
-  // Stats (from all items)
-  const totalValue = items.reduce((sum, p) => sum + p.projectValue, 0)
   const statCards = [
     {
       label: 'TOTAL PROJECTS',
@@ -1098,12 +1055,6 @@ export default function ProjectsPage() {
       value: items.filter((p) => p.status === 'Completed').length,
       variant: 'info' as const,
       icon: <CheckCircle sx={{ fontSize: 24 }} />,
-    },
-    {
-      label: 'TOTAL VALUE',
-      value: '₹' + formatCurrency(totalValue),
-      variant: 'teal' as const,
-      icon: <CurrencyRupee sx={{ fontSize: 24 }} />,
     },
   ]
 
@@ -1152,13 +1103,12 @@ export default function ProjectsPage() {
       type: 'select' as const,
       options: [
         { label: 'All', value: '' },
-        { label: 'Design Only', value: 'Design Only' },
-        { label: 'Design & Build', value: 'Design & Build' },
+        ...PROJECT_TYPE_OPTIONS.map((t) => ({ label: t, value: t })),
       ],
     },
     {
       field: 'projectManager',
-      label: 'Project Manager',
+      label: 'Project Lead',
       type: 'select' as const,
       options: [
         { label: 'All', value: '' },
@@ -1168,11 +1118,9 @@ export default function ProjectsPage() {
   ]
 
   const columnItems = [
-    { field: 'client', label: 'Client', visible: columnVisibility.client },
     { field: 'status', label: 'Status', visible: columnVisibility.status },
     { field: 'type', label: 'Type', visible: columnVisibility.type },
-    { field: 'manager', label: 'Manager', visible: columnVisibility.manager },
-    { field: 'value', label: 'Value', visible: columnVisibility.value },
+    { field: 'projectLead', label: 'Project Lead', visible: columnVisibility.projectLead },
     { field: 'dates', label: 'Dates', visible: columnVisibility.dates },
   ]
 

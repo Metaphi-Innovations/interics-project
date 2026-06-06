@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   Box,
   Divider,
@@ -12,12 +12,9 @@ import {
   TableHead,
   TableRow,
   IconButton as MuiIconButton,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Grid,
   Link,
+  TextField,
+  MenuItem,
 } from '@mui/material'
 import {
   VerifiedUser,
@@ -25,18 +22,21 @@ import {
   Edit,
   Phone,
   Email,
-  Payment,
   FolderOpen,
   Add,
   Delete,
   StarBorder,
+  Star,
   Person,
 } from '@mui/icons-material'
 import { ChevronRight, History, Plus } from 'lucide-react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { fetchVendorById, updateVendor } from '../../slices/vendors/thunk'
 import { clearSelected } from '../../slices/vendors/reducer'
+import type {
+  Vendor,
+} from '../../slices/vendors/reducer'
 import type { Contact } from '../../slices/customers/reducer'
 import { WorkspaceDetail, WorkspaceSection } from '../../components/templates'
 import { VendorDrawer } from './VendorDrawer'
@@ -46,8 +46,17 @@ import type { StatusType } from '@/design-system/components'
 import {
   getInitials,
   getAvatarColor,
-  formatCurrency,
 } from '../../utils/formatters'
+import {
+  normalizeContacts,
+  legacyContactsFromVendor,
+  getPrimaryContact as getVendorListingPrimaryContact,
+  primaryFieldsFromVendor,
+} from '../../utils/vendorContacts'
+import {
+  getVendorComplianceChips,
+  getVendorListingCompliance,
+} from '../../utils/vendorCompliance'
 import { tokens } from '@/design-system/tokens'
 import { useTheme, alpha } from '@mui/material/styles'
 import {
@@ -85,21 +94,6 @@ function LabelValue({ label, children }: { label: string; children: React.ReactN
       </Typography>
       <Box sx={{ mt: theme.spacing(0.25) }}>{children}</Box>
     </Box>
-  )
-}
-
-function SummaryCard({ title, rows }: { title: string; rows: { label: string; value: React.ReactNode }[] }) {
-  return (
-    <WorkspaceSection title={title}>
-      <Stack gap={1.5}>
-        {rows.map((row, i) => (
-          <Stack key={i} direction="row" justifyContent="space-between" alignItems="center">
-            <Typography variant="caption" color="text.secondary">{row.label}</Typography>
-            <Box sx={{ fontWeight: 600, fontSize: 13 }}>{row.value}</Box>
-          </Stack>
-        ))}
-      </Stack>
-    </WorkspaceSection>
   )
 }
 
@@ -142,16 +136,41 @@ const ACTIVITY_FILTER_OPTIONS: { id: ActivityFilterCategory; label: string }[] =
   { id: 'system', label: 'System' },
 ]
 
+const VENDOR_DETAIL_TAB_VALUES = ['overview', 'contacts', 'documents-compliance', 'projects', 'activity'] as const
+
+function getTotalVendorProjects(vendor: Vendor): number {
+  const fd = vendor.financialDetails
+  if (fd) return fd.activeProjects + fd.completedProjects
+  return vendor.activeProjects
+}
+
+function vendorWebsiteHref(raw: string | null | undefined): string | null {
+  const t = raw?.trim()
+  if (!t) return null
+  return /^https?:\/\//i.test(t) ? t : `https://${t}`
+}
+
+function vendorWebsiteHost(raw: string | null | undefined): string | null {
+  const href = vendorWebsiteHref(raw)
+  if (!href) return null
+  try {
+    return new URL(href).hostname
+  } catch {
+    return raw!.replace(/^https?:\/\//i, '').replace(/\/$/, '') || null
+  }
+}
+
 // ── VendorDetailPage ──────────────────────────────────────────────────────────
 
 export default function VendorDetailPage() {
   const { id: slug } = useParams<{ id: string }>()
+  const [searchParams] = useSearchParams()
   const dispatch = useAppDispatch()
   const vendor = useAppSelector((s) => s.vendors.selectedItem)
   const { showToast } = useToast()
   const theme = useTheme()
 
-  const [activeTab, setActiveTab] = useState('overview')
+  const [activeTab, setActiveTab] = useState<(typeof VENDOR_DETAIL_TAB_VALUES)[number]>('overview')
   const [localLoading, setLocalLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -159,7 +178,6 @@ export default function VendorDetailPage() {
   const [contacts, setContacts] = useState<Contact[]>([])
   const [contactDrawerOpen, setContactDrawerOpen] = useState(false)
   const [editingContact, setEditingContact] = useState<Contact | null>(null)
-  const [deleteConfirmContact, setDeleteConfirmContact] = useState<Contact | null>(null)
   const [activityFilter, setActivityFilter] = useState<ActivityFilterCategory>('all')
 
   useEffect(() => {
@@ -177,10 +195,17 @@ export default function VendorDetailPage() {
   }, [slug, dispatch])
 
   useEffect(() => {
-    if (vendor) {
-      setContacts(vendor.contacts ?? [])
-    }
+    if (!vendor) return
+    const seed = vendor.contacts?.length ? vendor.contacts : legacyContactsFromVendor(vendor)
+    setContacts(normalizeContacts(seed))
   }, [vendor])
+
+  useEffect(() => {
+    const tab = searchParams.get('tab')
+    if (tab && (VENDOR_DETAIL_TAB_VALUES as readonly string[]).includes(tab)) {
+      setActiveTab(tab as (typeof VENDOR_DETAIL_TAB_VALUES)[number])
+    }
+  }, [searchParams])
 
   async function handleToggleStatus() {
     if (!vendor) return
@@ -198,43 +223,69 @@ export default function VendorDetailPage() {
   }
 
   function primaryContact(): Contact | undefined {
-    return contacts.find((c) => c.isPrimary)
+    if (!vendor) return undefined
+    return getVendorListingPrimaryContact({ ...vendor, contacts })
   }
 
-  function handleSaveContact(data: Omit<Contact, 'id'> & { id?: string }) {
+  async function persistContacts(nextContacts: Contact[]) {
+    if (!vendor) return
+    const normalized = normalizeContacts(nextContacts)
+    const primary = getVendorListingPrimaryContact({ ...vendor, contacts: normalized })
+    try {
+      await dispatch(
+        updateVendor({
+          id: vendor.id,
+          data: {
+            contacts: normalized,
+            ...primaryFieldsFromVendor(primary),
+          },
+        }),
+      ).unwrap()
+      setContacts(normalized)
+    } catch {
+      showToast({ title: 'Failed to save contacts', variant: 'error' })
+    }
+  }
+
+  async function handleSaveContact(data: Omit<Contact, 'id'> & { id?: string }) {
+    let next: Contact[]
     if (data.id) {
-      setContacts((prev) =>
-        prev.map((c) => {
-          if (data.isPrimary) return { ...c, isPrimary: c.id === data.id }
-          return c.id === data.id ? { ...c, ...data, id: c.id } : c
-        })
-      )
+      next = contacts.map((c) => {
+        if (c.id === data.id) {
+          return { ...c, ...data, id: c.id, isPrimary: data.isPrimary ?? c.isPrimary }
+        }
+        return data.isPrimary ? { ...c, isPrimary: false } : c
+      })
+      if (data.isPrimary) {
+        next = next.map((c) => ({ ...c, isPrimary: c.id === data.id }))
+      }
       showToast({ title: 'Contact updated', variant: 'success' })
     } else {
       const newId = `vc-local-${Date.now()}`
-      setContacts((prev) => {
-        let next = [...prev]
-        if (data.isPrimary) next = next.map((c) => ({ ...c, isPrimary: false }))
-        next.push({ ...data, id: newId })
-        return next
-      })
+      const isFirst = contacts.length === 0
+      const makePrimary = Boolean(data.isPrimary) || isFirst
+      let list = makePrimary ? contacts.map((c) => ({ ...c, isPrimary: false })) : [...contacts]
+      list.push({ ...data, id: newId, isPrimary: makePrimary })
+      next = list
       showToast({ title: 'Contact added', variant: 'success' })
     }
     setContactDrawerOpen(false)
     setEditingContact(null)
+    await persistContacts(next)
   }
 
-  function handleSetPrimary(contactId: string) {
-    setContacts((prev) => prev.map((c) => ({ ...c, isPrimary: c.id === contactId })))
+  async function handleSetPrimary(contactId: string) {
+    const next = contacts.map((c) => ({ ...c, isPrimary: c.id === contactId }))
+    await persistContacts(next)
     showToast({ title: 'Primary contact updated', variant: 'success' })
   }
 
-  function handleDeleteContact(contact: Contact) {
-    if (contact.isPrimary) {
-      setDeleteConfirmContact(contact)
-      return
+  async function handleDeleteContact(contact: Contact) {
+    let next = contacts.filter((c) => c.id !== contact.id)
+    if (next.length > 0) {
+      next = normalizeContacts(next)
     }
-    setContacts((prev) => prev.filter((c) => c.id !== contact.id))
+    await persistContacts(next)
     showToast({ title: 'Contact removed', variant: 'success' })
   }
 
@@ -243,11 +294,9 @@ export default function VendorDetailPage() {
 
   const tabs = [
     { label: 'Overview', value: 'overview' },
-    { label: 'Documents & Tax', value: 'docs-tax' },
     { label: 'Contacts', value: 'contacts' },
+    { label: 'Documents & Compliance', value: 'documents-compliance' },
     { label: 'Linked Projects', value: 'projects' },
-    { label: 'Payment History', value: 'payments' },
-    { label: 'Financial Details', value: 'financial' },
     { label: 'Activity', value: 'activity' },
   ]
 
@@ -265,10 +314,11 @@ export default function VendorDetailPage() {
       vendor!.state,
       vendor!.pincode,
     ).trim()
-    const fd = vendor!.financialDetails
-    const totalPayables = fd?.totalPayables ?? vendor!.totalPayables ?? 0
-    const amountPaid = fd?.amountPaid ?? 0
-    const outstanding = fd?.outstanding ?? 0
+    const projTotal = getTotalVendorProjects(vendor!)
+    const siteHref = vendorWebsiteHref(vendor!.website)
+    const siteHost = vendorWebsiteHost(vendor!.website)
+    const complianceSnap = getVendorComplianceChips(vendor!)
+    const overallCompliance = getVendorListingCompliance(vendor!)
 
     return (
       <Box
@@ -460,35 +510,56 @@ export default function VendorDetailPage() {
 
           <Divider sx={{ my: theme.spacing(1.5) }} />
 
-          <RecordDetailSectionTitle>Financial summary</RecordDetailSectionTitle>
-          <Stack gap={theme.spacing(1.5)}>
-            <Stack direction="row" justifyContent="space-between" alignItems="center">
-              <Typography variant="caption" color="text.secondary">
-                Total Payables
+          <RecordDetailSectionTitle>Procurement summary</RecordDetailSectionTitle>
+          <Stack gap={theme.spacing(1)}>
+            <LabelValue label="Website">
+              {siteHref && siteHost ? (
+                <Link href={siteHref} target="_blank" rel="noopener noreferrer" variant="body2" sx={{ fontSize: 12 }}>
+                  {siteHost}
+                </Link>
+              ) : (
+                <Typography variant="body2" color="text.disabled" sx={{ fontSize: 12 }}>
+                  —
+                </Typography>
+              )}
+            </LabelValue>
+            <LabelValue label="Linked projects">
+              <Typography variant="body2" fontWeight={600} sx={{ fontSize: 12 }}>
+                {projTotal} Project{projTotal === 1 ? '' : 's'}
               </Typography>
-              <Typography variant="body2" fontWeight={600}>
-                ₹{formatCurrency(totalPayables)}
+            </LabelValue>
+            <Stack direction="row" alignItems="center" gap={0.75} sx={{ mt: 0.5, mb: 0.5 }}>
+              <Typography component="span" sx={{ fontSize: 14 }}>
+                {overallCompliance.emoji}
               </Typography>
+              <StatusBadge
+                status={overallCompliance.statusBadgeType}
+                label={overallCompliance.label}
+              />
             </Stack>
-            <Stack direction="row" justifyContent="space-between" alignItems="center">
-              <Typography variant="caption" color="text.secondary">
-                Paid
-              </Typography>
-              <Typography variant="body2" fontWeight={600} sx={{ color: 'success.main' }}>
-                ₹{formatCurrency(amountPaid)}
-              </Typography>
-            </Stack>
-            <Stack direction="row" justifyContent="space-between" alignItems="center">
-              <Typography variant="caption" color="text.secondary">
-                Outstanding
-              </Typography>
-              <Typography
-                variant="body2"
-                fontWeight={600}
-                sx={{ color: outstanding > 0 ? 'warning.main' : 'text.primary' }}
-              >
-                ₹{formatCurrency(outstanding)}
-              </Typography>
+            <Stack direction="row" flexWrap="wrap" gap={0.5} useFlexGap>
+              {complianceSnap.map((c) => {
+                const sx =
+                  c.tone === 'verified'
+                    ? { bgcolor: alpha(tokens.color.primary[500], 0.08), color: tokens.color.primary[700] }
+                    : c.tone === 'warning'
+                      ? { bgcolor: alpha(theme.palette.warning.main, 0.12), color: theme.palette.warning.dark }
+                      : { bgcolor: tokens.color.neutral[100], color: 'text.disabled' }
+                return (
+                  <MuiChip
+                    key={c.label}
+                    label={c.label}
+                    size="small"
+                    sx={{
+                      height: 18,
+                      fontSize: 9,
+                      fontWeight: 600,
+                      '& .MuiChip-label': { px: '5px' },
+                      ...sx,
+                    }}
+                  />
+                )
+              })}
             </Stack>
           </Stack>
 
@@ -496,15 +567,6 @@ export default function VendorDetailPage() {
 
           <RecordDetailSectionTitle>Quick actions</RecordDetailSectionTitle>
           <Stack gap={0.25} alignItems="flex-start">
-            <Button
-              variant="text"
-              color="primary"
-              size="sm"
-              endIcon={<ChevronRight size={16} />}
-              onClick={() => setActiveTab('payments')}
-            >
-              View Payment History
-            </Button>
             <Button
               variant="text"
               color="primary"
@@ -520,48 +582,91 @@ export default function VendorDetailPage() {
     )
   }
 
-  // ── renderDocsTax ──────────────────────────────────────────────────────────
+  // ── renderDocumentsCompliance ───────────────────────────────────────────────
 
-  function renderDocsTax() {
+  function renderDocumentsCompliance() {
     const onCopy = () => showToast({ title: 'Copied to clipboard', variant: 'success' })
+    const insExpiry = vendor!.compliance?.insurance?.expiryDate
+
+    function fmtTs(iso: string) {
+      try {
+        return new Intl.DateTimeFormat(undefined, {
+          dateStyle: 'medium',
+        }).format(new Date(iso))
+      } catch {
+        return iso
+      }
+    }
+
     return (
-      <Box
-        sx={{
-          display: 'grid',
-          gap: theme.spacing(1.5),
-          gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
-          alignItems: 'start',
-        }}
-      >
-        <RecordDetailTaxDocCard
-          variant="gst"
-          title="GST Registration"
-          statusChip={{
-            label: vendor!.gstStatus,
-            isRegistered: vendor!.gstStatus === 'Registered',
-          }}
-          fieldLabel="GSTIN"
-          fieldValue={vendor!.gstin}
-          document={vendor!.gstDocument ?? null}
-          emptyDocMessage="No certificate uploaded"
-          uploadButtonLabel="+ Upload Certificate"
-          onView={openTaxDocument}
-          onDownload={openTaxDocument}
-          onCopySuccess={onCopy}
-        />
-        <RecordDetailTaxDocCard
-          variant="pan"
-          title="PAN / Income Tax"
-          fieldLabel="PAN"
-          fieldValue={vendor!.pan}
-          document={vendor!.panDocument ?? null}
-          emptyDocMessage="No document uploaded"
-          uploadButtonLabel="+ Upload Document"
-          onView={openTaxDocument}
-          onDownload={openTaxDocument}
-          onCopySuccess={onCopy}
-        />
-      </Box>
+      <Stack gap={theme.spacing(2)}>
+        <WorkspaceSection title="Compliance registration">
+          <Box
+            sx={{
+              display: 'grid',
+              gap: theme.spacing(1.5),
+              gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
+              alignItems: 'start',
+            }}
+          >
+            <RecordDetailTaxDocCard
+              variant="gst"
+              title="GST Registration"
+              statusChip={{
+                label: vendor!.gstStatus,
+                isRegistered: vendor!.gstStatus === 'Registered',
+              }}
+              fieldLabel="GSTIN"
+              fieldValue={vendor!.gstin}
+              document={vendor!.gstDocument ?? null}
+              emptyDocMessage="No certificate uploaded"
+              uploadButtonLabel="+ Upload Certificate"
+              onView={openTaxDocument}
+              onDownload={openTaxDocument}
+              onCopySuccess={onCopy}
+            />
+            <RecordDetailTaxDocCard
+              variant="pan"
+              title="PAN / Income Tax"
+              fieldLabel="PAN"
+              fieldValue={vendor!.pan}
+              document={vendor!.panDocument ?? null}
+              emptyDocMessage="No document uploaded"
+              uploadButtonLabel="+ Upload Document"
+              onView={openTaxDocument}
+              onDownload={openTaxDocument}
+              onCopySuccess={onCopy}
+            />
+            <RecordDetailTaxDocCard
+              variant="cheque"
+              title="Bank Cancelled Cheque"
+              fieldLabel="Verification document"
+              fieldValue="—"
+              document={vendor!.bankChequeDocument ?? null}
+              emptyDocMessage="No cancelled cheque uploaded"
+              uploadButtonLabel="+ Upload cheque"
+              onView={openTaxDocument}
+              onDownload={openTaxDocument}
+              onCopySuccess={onCopy}
+            />
+            <Box>
+              <RecordDetailTaxDocCard
+                variant="insurance"
+                title="Insurance"
+                fieldLabel={insExpiry ? 'Policy expiry' : 'Coverage'}
+                fieldValue={insExpiry ? fmtTs(insExpiry) : 'General liability'}
+                document={vendor!.insuranceDocument ?? null}
+                emptyDocMessage="No insurance document uploaded"
+                uploadButtonLabel="+ Upload certificate"
+                onView={openTaxDocument}
+                onDownload={openTaxDocument}
+                onCopySuccess={onCopy}
+              />
+            </Box>
+          </Box>
+        </WorkspaceSection>
+
+      </Stack>
     )
   }
 
@@ -612,6 +717,11 @@ export default function VendorDetailPage() {
                     {getInitials(contact.name)}
                   </Box>
                   <Box sx={{ flex: 1, minWidth: 0 }}>
+                    {contact.isPrimary ? (
+                      <Typography variant="caption" color="primary" fontWeight={700} sx={{ display: 'block', mb: 0.25 }}>
+                        Primary Contact
+                      </Typography>
+                    ) : null}
                     <Typography variant="body2" fontWeight={600}>{contact.name}</Typography>
                     {contact.designation && (
                       <Typography variant="caption" color="text.secondary">{contact.designation}</Typography>
@@ -634,19 +744,19 @@ export default function VendorDetailPage() {
                     >
                       <Edit sx={{ fontSize: 15 }} />
                     </MuiIconButton>
-                    {!contact.isPrimary && (
-                      <MuiIconButton size="small" title="Set as primary"
-                        onClick={() => handleSetPrimary(contact.id)}
-                        sx={{ color: 'text.secondary', '&:hover': { color: 'warning.main' } }}
-                      >
-                        <StarBorder sx={{ fontSize: 15 }} />
-                      </MuiIconButton>
-                    )}
+                    <MuiIconButton
+                      size="small"
+                      title={contact.isPrimary ? 'Primary contact' : 'Set as primary'}
+                      onClick={() => { void handleSetPrimary(contact.id) }}
+                      sx={{ color: contact.isPrimary ? 'warning.main' : 'text.secondary', '&:hover': { color: 'warning.main' } }}
+                    >
+                      {contact.isPrimary ? <Star sx={{ fontSize: 15 }} /> : <StarBorder sx={{ fontSize: 15 }} />}
+                    </MuiIconButton>
                     <MuiIconButton size="small" title="Delete contact"
-                      onClick={() => handleDeleteContact(contact)}
+                      onClick={() => { void handleDeleteContact(contact) }}
                       sx={{ color: 'text.secondary', '&:hover': { color: 'error.main' } }}
                     >
-                      <Delete sx={{ fontSize: 15 }} />
+                      <Delete sx={{ fontSize: 17 }} />
                     </MuiIconButton>
                   </Stack>
                 </Stack>
@@ -661,7 +771,9 @@ export default function VendorDetailPage() {
   // ── renderProjects ─────────────────────────────────────────────────────────
 
   function renderProjects() {
-    if (vendor!.activeProjects === 0) {
+    const totalProj = getTotalVendorProjects(vendor!)
+
+    if (totalProj === 0) {
       return (
         <WorkspaceSection title="Linked Projects">
           <Box sx={{ py: 5, textAlign: 'center' }}>
@@ -673,7 +785,7 @@ export default function VendorDetailPage() {
       )
     }
     return (
-      <WorkspaceSection title="Linked Projects">
+      <WorkspaceSection title={`Linked Projects (${totalProj})`}>
         <Table size="small">
           <TableHead>
             <TableRow>
@@ -684,7 +796,7 @@ export default function VendorDetailPage() {
             </TableRow>
           </TableHead>
           <TableBody>
-            {[...Array(vendor!.activeProjects)].map((_, i) => (
+            {[...Array(totalProj)].map((_, i) => (
               <TableRow key={i}>
                 <TableCell sx={{ fontSize: 12 }}>Project {i + 1}</TableCell>
                 <TableCell><StatusBadge status="active" /></TableCell>
@@ -695,48 +807,6 @@ export default function VendorDetailPage() {
           </TableBody>
         </Table>
       </WorkspaceSection>
-    )
-  }
-
-  // ── renderFinancial ────────────────────────────────────────────────────────
-
-  function renderFinancial() {
-    const fd = vendor!.financialDetails
-    if (!fd) {
-      return (
-        <WorkspaceSection>
-          <Box sx={{ py: 5, textAlign: 'center' }}>
-            <Typography variant="body2" color="text.secondary">Financial details not available</Typography>
-          </Box>
-        </WorkspaceSection>
-      )
-    }
-    const fmt = (n: number) => `\u20B9${formatCurrency(n)}`
-    return (
-      <Grid container spacing={2}>
-        <Grid size={{ xs: 12, md: 6 }}>
-          <SummaryCard
-            title="Payment Summary"
-            rows={[
-              { label: 'Total Payables', value: fmt(fd.totalPayables) },
-              { label: 'Amount Paid', value: fmt(fd.amountPaid) },
-              { label: 'Outstanding', value: <Box sx={{ color: fd.outstanding > 0 ? 'error.main' : 'success.main' }}>{fmt(fd.outstanding)}</Box> },
-              { label: 'TDS Deducted', value: fmt(fd.tdsDeducted) },
-            ]}
-          />
-        </Grid>
-        <Grid size={{ xs: 12, md: 6 }}>
-          <SummaryCard
-            title="Project Summary"
-            rows={[
-              { label: 'Active Projects', value: fd.activeProjects },
-              { label: 'Completed Projects', value: fd.completedProjects },
-              { label: 'Total Contract Value', value: fmt(fd.totalContractValue) },
-              { label: 'Last Payment Date', value: fd.lastPaymentDate },
-            ]}
-          />
-        </Grid>
-      </Grid>
     )
   }
 
@@ -850,29 +920,19 @@ export default function VendorDetailPage() {
     )
   }
 
-  function renderPlaceholder(icon: React.ReactNode, message: string) {
-    return (
-      <WorkspaceSection>
-        <Box sx={{ py: 5, textAlign: 'center' }}>
-          <Box sx={{ color: tokens.color.neutral[300], mb: 1 }}>{icon}</Box>
-          <Typography variant="body2" color="text.secondary">{message}</Typography>
-        </Box>
-      </WorkspaceSection>
-    )
-  }
-
   function renderTabContent() {
     switch (activeTab) {
-      case 'overview':  return renderOverview()
-      case 'docs-tax':  return renderDocsTax()
-      case 'contacts':  return renderContacts()
-      case 'projects':  return renderProjects()
-      case 'payments':  return renderPlaceholder(<Payment sx={{ fontSize: 36 }} />, 'Payment history will appear here once vendor payments are recorded')
-      case 'financial': return renderFinancial()
-      case 'activity':  return renderActivity()
-      default:          return null
+      case 'overview': return renderOverview()
+      case 'contacts': return renderContacts()
+      case 'documents-compliance': return renderDocumentsCompliance()
+      case 'projects': return renderProjects()
+      case 'activity': return renderActivity()
+      default: return null
     }
   }
+
+  const headerPrimary =
+    getVendorListingPrimaryContact({ ...vendor, contacts })?.name ?? vendor.contactPerson
 
   return (
     <>
@@ -885,7 +945,7 @@ export default function VendorDetailPage() {
         title={vendor.name}
         titleMeta={<StatusBadge status={vendor.status.toLowerCase() as StatusType} />}
         metaItems={[
-          { icon: <Person sx={{ fontSize: 12 }} />, label: vendor.contactPerson },
+          { icon: <Person sx={{ fontSize: 12 }} />, label: headerPrimary },
           { icon: <VerifiedUser sx={{ fontSize: 12 }} />, label: `GST: ${vendor.gstStatus}` },
           { icon: <LocationOn sx={{ fontSize: 12 }} />, label: `${vendor.city}, ${vendor.state}` },
         ]}
@@ -903,7 +963,7 @@ export default function VendorDetailPage() {
         ]}
         tabs={tabs}
         activeTab={activeTab}
-        onTabChange={setActiveTab}
+        onTabChange={(v) => setActiveTab(v as (typeof VENDOR_DETAIL_TAB_VALUES)[number])}
       >
         {renderTabContent()}
       </WorkspaceDetail>
@@ -920,21 +980,8 @@ export default function VendorDetailPage() {
         onClose={() => { setContactDrawerOpen(false); setEditingContact(null) }}
         mode={editingContact ? 'edit' : 'add'}
         contact={editingContact}
-        onSave={handleSaveContact}
+        onSave={(data) => { void handleSaveContact(data) }}
       />
-
-      <Dialog open={!!deleteConfirmContact} onClose={() => setDeleteConfirmContact(null)} maxWidth="xs">
-        <DialogTitle sx={{ fontSize: 15, fontWeight: 600 }}>Cannot Delete Primary Contact</DialogTitle>
-        <DialogContent>
-          <Typography variant="body2" color="text.secondary">
-            <strong>{deleteConfirmContact?.name}</strong> is the primary contact. Please set another
-            contact as primary before deleting this one.
-          </Typography>
-        </DialogContent>
-        <DialogActions sx={{ px: 2.5, pb: 2 }}>
-          <Button variant="outlined" color="secondary" size="sm" onClick={() => setDeleteConfirmContact(null)}>OK, got it</Button>
-        </DialogActions>
-      </Dialog>
 
     </>
   )

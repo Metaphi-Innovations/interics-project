@@ -1,3 +1,5 @@
+import type { ClientPO } from '@/slices/baseline/reducer'
+
 /** Demo billable milestones per project — keep in sync with MSW client invoice seeds. */
 
 export interface BillableMilestone {
@@ -78,4 +80,25 @@ export const BILLABLE_BY_PROJECT: Record<string, BillableMilestone[]> = {
       baseAmount: 120000,
     },
   ],
+}
+
+/** Build billable rows from Client PO milestones (live billing). */
+export function buildBillableFromClientPOs(
+  clientPOs: ClientPO[],
+  projectId: string,
+): BillableMilestone[] {
+  const rows: BillableMilestone[] = []
+  for (const po of clientPOs.filter((p) => p.projectId === projectId)) {
+    for (const m of po.milestones ?? []) {
+      if (!m.name?.trim()) continue
+      rows.push({
+        milestoneId: m.id,
+        milestoneName: m.name,
+        serviceId: m.serviceId || `po-svc-${po.id}`,
+        serviceName: m.serviceName?.trim() || po.poNumber,
+        baseAmount: m.value,
+      })
+    }
+  }
+  return rows
 }

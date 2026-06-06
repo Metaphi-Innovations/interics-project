@@ -61,7 +61,6 @@ type ReceivablesVisibleColumns = {
   baseAmount: boolean
   gstAmount: boolean
   totalAmount: boolean
-  tdsDeducted: boolean
   totalReceived: boolean
   balance: boolean
   status: boolean
@@ -122,6 +121,15 @@ function SortHeader({
 }
 
 const menuItemSx = { fontSize: 12, minHeight: 32, py: 0.5 }
+const HEADER_CELL_SX = {
+  fontSize: 11,
+  fontWeight: 600,
+  color: 'text.secondary',
+  py: 1,
+  px: 1.75,
+  borderBottom: `2px solid ${tokens.color.neutral[100]}`,
+}
+const BODY_CELL_SX = { fontSize: 12, py: 1, px: 1.75 }
 
 function RowActions({
   inv,
@@ -207,13 +215,26 @@ function RowActions({
   )
 }
 
+export function mapInvoiceStatus(inv: Invoice): string {
+  if (inv.status === 'uploaded') return 'draft'
+  if (inv.status === 'paid') return 'paid'
+  if (inv.status === 'overdue') return 'overdue'
+  if (inv.status === 'draft') return 'draft'
+  
+  const isOverdue = inv.balance > 0 && dayjs(inv.dueDate).isBefore(dayjs(), 'day')
+  if (isOverdue) return 'overdue'
+  
+  return 'tax'
+}
+
 export default function BillingsPage() {
   const dispatch = useAppDispatch()
   const { showToast } = useToast()
   const theme = useTheme()
   const hoverBg = alpha(theme.palette.primary.main, 0.04)
 
-  const { items, loading, filters, sortConfig, pagination, saving } = useAppSelector((s) => s.receivables)
+  const { items: rawItems, loading, filters, sortConfig, pagination, saving } = useAppSelector((s) => s.receivables)
+  const items = useMemo(() => rawItems.map((inv) => ({ ...inv, status: mapInvoiceStatus(inv) as Invoice['status'] })), [rawItems])
   const customers = useAppSelector((s) => s.customers.items)
   const projects = useAppSelector((s) => s.projects.items)
 
@@ -231,7 +252,6 @@ export default function BillingsPage() {
     baseAmount: false,
     gstAmount: false,
     totalAmount: true,
-    tdsDeducted: true,
     totalReceived: false,
     balance: true,
     status: true,
@@ -247,7 +267,6 @@ export default function BillingsPage() {
       { field: 'baseAmount', label: 'Base', visible: visibleColumns.baseAmount },
       { field: 'gstAmount', label: 'GST', visible: visibleColumns.gstAmount },
       { field: 'totalAmount', label: 'Total', visible: visibleColumns.totalAmount },
-      { field: 'tdsDeducted', label: 'TDS', visible: visibleColumns.tdsDeducted },
       { field: 'totalReceived', label: 'Received', visible: visibleColumns.totalReceived },
       { field: 'balance', label: 'Net receivable', visible: visibleColumns.balance },
       { field: 'status', label: 'Status', visible: visibleColumns.status },
@@ -335,9 +354,6 @@ export default function BillingsPage() {
 
   const tabFiltered = useMemo(() => {
     if (filters.statusTab === 'all') return baseFiltered
-    if (filters.statusTab === 'sent') {
-      return baseFiltered.filter((i) => i.status === 'sent' || i.status === 'unpaid')
-    }
     return baseFiltered.filter((i) => i.status === filters.statusTab)
   }, [baseFiltered, filters.statusTab])
 
@@ -379,24 +395,38 @@ export default function BillingsPage() {
   )
 
   const tabCounts = useMemo(() => {
-    const sentCount = baseFiltered.filter((i) => i.status === 'sent' || i.status === 'unpaid').length
     return {
       all: baseFiltered.length,
       draft: baseFiltered.filter((i) => i.status === 'draft').length,
-      sent: sentCount,
-      partially_paid: baseFiltered.filter((i) => i.status === 'partially_paid').length,
+      tax: baseFiltered.filter((i) => i.status === 'tax').length,
       overdue: baseFiltered.filter((i) => i.status === 'overdue').length,
       paid: baseFiltered.filter((i) => i.status === 'paid').length,
     }
   }, [baseFiltered])
 
   const kpis = useMemo(() => {
-    const totalInvoiced = items.reduce((s, i) => s + i.totalAmount, 0)
-    const received = items.reduce((s, i) => s + i.totalReceived, 0)
-    const outstanding = totalInvoiced - received
-    const tdsDeducted = items.reduce((s, i) => s + i.tdsDeducted, 0)
-    return { totalInvoiced, received, outstanding, tdsDeducted }
-  }, [items])
+    // TOTAL INVOICED: sum tax, overdue, paid invoices only (exclude draft)
+    const billedStatuses = new Set(['tax', 'sent', 'overdue', 'paid'])
+    const totalInvoiced = rawItems
+      .filter((i) => billedStatuses.has(i.status))
+      .reduce((s, i) => s + i.totalAmount, 0)
+
+    // RECEIVED: sum of actual recorded payment entries only
+    const received = rawItems.reduce((s, i) => s + (i.totalReceived ?? 0), 0)
+
+    // OUTSTANDING: Total Client PO Value − Total Received Amount (Live projects only)
+    const liveProjects = projects.filter((p) => p.status === 'Live')
+    const totalClientPO = liveProjects.reduce((s, p) => s + (p.totalClientPOValue ?? 0), 0)
+    const outstanding = Math.max(0, totalClientPO - received)
+
+    // TOTAL PAYABLE: Sum of all active Vendor PO Values (Live projects only)
+    const totalPayable = Math.max(
+      0,
+      liveProjects.reduce((s, p) => s + (p.totalVendorPOValue ?? 0), 0),
+    )
+
+    return { totalInvoiced, received, outstanding, totalPayable }
+  }, [rawItems, projects])
 
   const statCards = [
     {
@@ -418,8 +448,8 @@ export default function BillingsPage() {
       icon: <WarningAmberIcon sx={{ fontSize: 24 }} />,
     },
     {
-      label: 'TDS deducted',
-      value: `₹${kpis.tdsDeducted.toLocaleString('en-IN')}`,
+      label: 'Total Payable',
+      value: `₹${kpis.totalPayable.toLocaleString('en-IN')}`,
       variant: 'purple' as const,
       icon: <BalanceIcon sx={{ fontSize: 24 }} />,
     },
@@ -428,8 +458,7 @@ export default function BillingsPage() {
   const tabs = [
     { label: 'All', value: 'all', count: tabCounts.all },
     { label: 'Draft', value: 'draft', count: tabCounts.draft },
-    { label: 'Sent', value: 'sent', count: tabCounts.sent },
-    { label: 'Partially Paid', value: 'partially_paid', count: tabCounts.partially_paid },
+    { label: 'Tax', value: 'tax', count: tabCounts.tax },
     { label: 'Overdue', value: 'overdue', count: tabCounts.overdue },
     { label: 'Paid', value: 'paid', count: tabCounts.paid },
   ]
@@ -496,7 +525,7 @@ export default function BillingsPage() {
     <>
       <ListingTemplate
         icon={<TrendingUp size={20} />}
-        title="Billings"
+        title="Receivable"
         subtitle="Cross-project client invoices and payments"
         primaryAction={{ label: 'Create Invoice', onClick: () => setDrawerCreate(true), startIcon: <Plus size={16} /> }}
         statCards={statCards}
@@ -520,7 +549,7 @@ export default function BillingsPage() {
         columns={columnsConfig}
         onColumnVisibilityChange={handleColumnVisibilityChange}
       >
-          <TableContainer sx={{ overflowX: 'auto' }}>
+          <TableContainer>
             <Table size="small">
               <TableHead>
                 <TableRow sx={{ bgcolor: alpha(theme.palette.text.primary, 0.02) }}>
@@ -529,7 +558,7 @@ export default function BillingsPage() {
                     <SortHeader label="Client" field="clientName" sortField={sortConfig.field} sortDirection={sortConfig.direction} onSort={handleSort} />
                   )}
                   {visibleColumns.projectName && (
-                    <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary' }}>Project</TableCell>
+                    <TableCell sx={HEADER_CELL_SX}>Project</TableCell>
                   )}
                   {visibleColumns.invoiceDate && (
                     <SortHeader label="Invoice date" field="invoiceDate" sortField={sortConfig.field} sortDirection={sortConfig.direction} onSort={handleSort} />
@@ -538,27 +567,37 @@ export default function BillingsPage() {
                     <SortHeader label="Due date" field="dueDate" sortField={sortConfig.field} sortDirection={sortConfig.direction} onSort={handleSort} />
                   )}
                   {visibleColumns.baseAmount && (
-                    <TableCell sx={{ fontSize: 11, fontWeight: 600 }}>Base</TableCell>
+                    <TableCell sx={HEADER_CELL_SX}>Base</TableCell>
                   )}
                   {visibleColumns.gstAmount && (
-                    <TableCell sx={{ fontSize: 11, fontWeight: 600 }}>GST</TableCell>
+                    <TableCell sx={HEADER_CELL_SX}>GST</TableCell>
                   )}
                   {visibleColumns.totalAmount && (
-                    <TableCell sx={{ fontSize: 11, fontWeight: 600 }}>Amount</TableCell>
-                  )}
-                  {visibleColumns.tdsDeducted && (
-                    <TableCell sx={{ fontSize: 11, fontWeight: 600 }}>TDS</TableCell>
+                    <TableCell sx={HEADER_CELL_SX}>Amount</TableCell>
                   )}
                   {visibleColumns.totalReceived && (
-                    <TableCell sx={{ fontSize: 11, fontWeight: 600 }}>Received</TableCell>
+                    <TableCell sx={HEADER_CELL_SX}>Received</TableCell>
                   )}
                   {visibleColumns.balance && (
-                    <TableCell sx={{ fontSize: 11, fontWeight: 600 }}>Net receivable</TableCell>
+                    <TableCell sx={HEADER_CELL_SX}>Net receivable</TableCell>
                   )}
                   {visibleColumns.status && (
-                    <TableCell sx={{ fontSize: 11, fontWeight: 600 }}>Status</TableCell>
+                    <TableCell sx={HEADER_CELL_SX}>Status</TableCell>
                   )}
-                  <TableCell sx={{ width: 48, position: 'sticky', right: 0, bgcolor: 'background.paper', zIndex: 1 }} />
+                  <TableCell
+                    align="right"
+                    sx={{
+                      width: 48,
+                      ...HEADER_CELL_SX,
+                      whiteSpace: 'nowrap',
+                      position: 'sticky',
+                      right: 0,
+                      bgcolor: 'background.paper',
+                      zIndex: 1,
+                    }}
+                  >
+                    Action
+                  </TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -585,7 +624,7 @@ export default function BillingsPage() {
                           }}
                           onClick={() => setDetailId(inv.id)}
                         >
-                          <TableCell sx={{ fontFamily: 'monospace', fontSize: 12 }}>
+                          <TableCell sx={{ ...BODY_CELL_SX, fontFamily: 'monospace' }}>
                             <Typography
                               component="button"
                               type="button"
@@ -607,48 +646,49 @@ export default function BillingsPage() {
                               {inv.invoiceNo}
                             </Typography>
                           </TableCell>
-                          {visibleColumns.clientName && <TableCell sx={{ fontSize: 12 }}>{inv.clientName}</TableCell>}
+                          {visibleColumns.clientName && <TableCell sx={BODY_CELL_SX}>{inv.clientName}</TableCell>}
                           {visibleColumns.projectName && (
-                            <TableCell sx={{ fontSize: 12 }}>
+                            <TableCell sx={BODY_CELL_SX}>
                               <Typography variant="body2" fontWeight={500}>
                                 {inv.projectName}
                               </Typography>
                             </TableCell>
                           )}
                           {visibleColumns.invoiceDate && (
-                            <TableCell sx={{ fontSize: 12 }}>{dayjs(inv.invoiceDate).format('DD MMM YYYY')}</TableCell>
+                            <TableCell sx={BODY_CELL_SX}>{dayjs(inv.invoiceDate).format('DD MMM YYYY')}</TableCell>
                           )}
                           {visibleColumns.dueDate && (
-                            <TableCell sx={{ fontSize: 12, color: dueRed ? 'error.main' : 'text.primary' }}>
+                            <TableCell sx={{ ...BODY_CELL_SX, color: dueRed ? 'error.main' : 'text.primary' }}>
                               {dayjs(inv.dueDate).format('DD MMM YYYY')}
                             </TableCell>
                           )}
                           {visibleColumns.baseAmount && (
-                            <TableCell sx={{ fontSize: 12 }}>₹{formatCurrency(inv.baseAmount)}</TableCell>
+                            <TableCell sx={BODY_CELL_SX}>₹{formatCurrency(inv.baseAmount)}</TableCell>
                           )}
                           {visibleColumns.gstAmount && (
-                            <TableCell sx={{ fontSize: 12 }}>₹{formatCurrency(inv.gstAmount)}</TableCell>
+                            <TableCell sx={BODY_CELL_SX}>₹{formatCurrency(inv.gstAmount)}</TableCell>
                           )}
                           {visibleColumns.totalAmount && (
-                            <TableCell sx={{ fontSize: 12, fontWeight: 700 }}>₹{formatCurrency(inv.totalAmount)}</TableCell>
-                          )}
-                          {visibleColumns.tdsDeducted && (
-                            <TableCell sx={{ fontSize: 12, color: 'text.secondary' }}>₹{formatCurrency(inv.tdsDeducted)}</TableCell>
+                            <TableCell sx={{ ...BODY_CELL_SX, fontWeight: 700 }}>₹{formatCurrency(inv.totalAmount)}</TableCell>
                           )}
                           {visibleColumns.totalReceived && (
-                            <TableCell sx={{ fontSize: 12, color: 'success.main' }}>₹{formatCurrency(inv.totalReceived)}</TableCell>
+                            <TableCell sx={{ ...BODY_CELL_SX, color: 'success.main' }}>₹{formatCurrency(inv.totalReceived)}</TableCell>
                           )}
                           {visibleColumns.balance && (
-                            <TableCell sx={{ fontSize: 12, color: inv.balance > 0 ? 'error.main' : 'text.primary' }}>
+                            <TableCell sx={{ ...BODY_CELL_SX, color: inv.balance > 0 ? 'error.main' : 'text.primary' }}>
                               ₹{formatCurrency(inv.balance)}
                             </TableCell>
                           )}
                           {visibleColumns.status && (
-                            <TableCell>
+                            <TableCell sx={BODY_CELL_SX}>
                               <StatusBadge status={invoiceStatusToBadgeType(inv.status) as StatusType} />
                             </TableCell>
                           )}
-                          <TableCell align="right" sx={{ position: 'sticky', right: 0, bgcolor: 'background.paper', zIndex: 1 }} onClick={(e) => e.stopPropagation()}>
+                          <TableCell
+                            align="right"
+                            sx={{ ...BODY_CELL_SX, position: 'sticky', right: 0, bgcolor: 'background.paper', zIndex: 1 }}
+                            onClick={(e) => e.stopPropagation()}
+                          >
                             <RowActions
                               inv={inv}
                               onView={() => setDetailId(inv.id)}

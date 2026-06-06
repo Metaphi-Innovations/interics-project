@@ -4,6 +4,7 @@ import type {
   Expense,
   Reimbursement,
   VendorInvoice,
+  VendorPayableControl,
   VendorPayment,
 } from '@/slices/live/types'
 import { DEFAULT_GST_RATE } from '@/config/billingRates'
@@ -310,6 +311,41 @@ export let vendorInvoices: VendorInvoice[] = [
     tdsAmount: 8000,
     netPayable: 72000,
     status: 'paid',
+  },
+]
+
+export let vendorPayableControls: VendorPayableControl[] = [
+  {
+    projectId: 'p-001',
+    vendorId: 'v-001',
+    serviceId: 'ps-002',
+    clientPaymentReceived: true,
+    vendorComplianceStatus: 'complete',
+    complianceChecks: { insurance: true, contractSigned: true, documentsSubmitted: true },
+  },
+  {
+    projectId: 'p-001',
+    vendorId: 'v-002',
+    serviceId: 'interior-design',
+    clientPaymentReceived: false,
+    vendorComplianceStatus: 'complete',
+    complianceChecks: { insurance: true, contractSigned: true, documentsSubmitted: true },
+  },
+  {
+    projectId: 'p-002',
+    vendorId: 'v-001',
+    serviceId: 'ps-002',
+    clientPaymentReceived: true,
+    vendorComplianceStatus: 'pending',
+    complianceChecks: { insurance: true, contractSigned: false, documentsSubmitted: false },
+  },
+  {
+    projectId: 'p-002',
+    vendorId: 'v-002',
+    serviceId: 'ps-001',
+    clientPaymentReceived: true,
+    vendorComplianceStatus: 'complete',
+    complianceChecks: { insurance: true, contractSigned: true, documentsSubmitted: true },
   },
 ]
 

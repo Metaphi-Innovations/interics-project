@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useRef, useState, useEffect, useMemo, type HTMLAttributes } from 'react'
 import {
   Box,
   Stack,
@@ -30,6 +30,7 @@ import {
   Check,
   Upload,
   PersonOutline,
+  Download,
 } from '@mui/icons-material'
 import { useNavigate } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
@@ -37,55 +38,113 @@ import { fetchCustomers, createCustomer } from '../../slices/customers/thunk'
 import { fetchUsers } from '../../slices/users/thunk'
 import { fetchRoles } from '../../slices/roles/thunk'
 import { isProjectManagerRole } from './projectManagerRoles'
+import { ProjectTypesField } from './components/ProjectTypesField'
 import { createProject } from '../../slices/projects/thunk'
 import type { User } from '../../slices/users/reducer'
 import { useToast } from '@/design-system/components'
+import { FileUpload } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { toSlug, getInitials, getAvatarColor } from '../../utils/formatters'
+import { SECTOR_OPTIONS } from '../../constants/sectors'
+import type { Contact, Customer } from '../../slices/customers/reducer'
+import {
+  PROJECT_SETUP_GRID_SX,
+  CUSTOMER_STEP_GRID_SX,
+  FORM_CONTROL_INPUT_SX,
+  READONLY_CALC_VALUE_SX,
+  calcTotalDesignFee,
+  calcTotalBuildValue,
+  formatProjectValueTotal,
+  getContactsForCustomer,
+  getDefaultContactIds,
+  findContactsByIds,
+  clientTeamFromContacts,
+  buildProjectDocumentsFromForm,
+} from './projectCreateHelpers'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface WizardFormData {
   customerId: string
   customerName: string
+  contactIds: string[]
   requirementFile: File | null
   requirementNotes: string
   name: string
   location: string
-  projectType: 'Design Only' | 'Design & Build' | ''
+  projectTypes: string[]
+  sector: string
   carpetArea: string
+  buildValuePerSqft: string
+  designFeePerSqft: string
   headcount: string
   projectManagerId: string
   projectManagerName: string
   startDate: string
   expectedEndDate: string
   teamMembers: User[]
+  finalLayoutDescription: string
+  finalLayoutLink: string
+  finalRcpDescription: string
+  finalRcpLink: string
+  finalViewsDescription: string
+  finalViewsLink: string
+  finalPhotographsDescription: string
+  finalPhotographsLink: string
+  finalHandoverDescription: string
+  finalHandoverLink: string
+  finalLayoutFile: File | null
+  finalRcpFile: File | null
+  finalViewsFile: File | null
+  finalPhotographsFile: File | null
+  finalHandoverFiles: File[]
 }
 
 interface StepErrors {
   customerId?: string
+  contactId?: string
   name?: string
-  projectType?: string
+  projectTypes?: string
+  sector?: string
   projectManagerId?: string
 }
 
-const STEPS = ['Customer', 'Requirements', 'Project Setup', 'Team']
+const STEPS = ['Customer', 'Requirements', 'Project Setup', 'Team', 'Project Documents']
 
 const INITIAL_FORM: WizardFormData = {
   customerId: '',
   customerName: '',
+  contactIds: [],
   requirementFile: null,
   requirementNotes: '',
   name: '',
   location: '',
-  projectType: '',
+  projectTypes: [],
+  sector: '',
   carpetArea: '',
+  buildValuePerSqft: '',
+  designFeePerSqft: '',
   headcount: '',
   projectManagerId: '',
   projectManagerName: '',
   startDate: '',
   expectedEndDate: '',
   teamMembers: [],
+  finalLayoutDescription: '',
+  finalLayoutLink: '',
+  finalRcpDescription: '',
+  finalRcpLink: '',
+  finalViewsDescription: '',
+  finalViewsLink: '',
+  finalPhotographsDescription: '',
+  finalPhotographsLink: '',
+  finalHandoverDescription: '',
+  finalHandoverLink: '',
+  finalLayoutFile: null,
+  finalRcpFile: null,
+  finalViewsFile: null,
+  finalPhotographsFile: null,
+  finalHandoverFiles: [],
 }
 
 interface CreateProjectModalProps {
@@ -145,13 +204,21 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
 
   function validateStep(step: number): boolean {
     const newErrors: StepErrors = {}
-    if (step === 0 && !formData.customerId) {
-      newErrors.customerId = 'Please select a customer'
+    if (step === 0) {
+      if (!formData.customerId) newErrors.customerId = 'Please select a customer'
+      if (formData.contactIds.length === 0) {
+        newErrors.contactId = 'Please select at least one contact person'
+      }
     }
     if (step === 2) {
       if (!formData.name.trim()) newErrors.name = 'Project name is required'
-      if (!formData.projectType) newErrors.projectType = 'Project type is required'
-      if (!formData.projectManagerId) newErrors.projectManagerId = 'Project manager is required'
+      if (formData.projectTypes.length === 0) {
+        newErrors.projectTypes = 'Select at least one project type'
+      }
+      if (!formData.sector) newErrors.sector = 'Sector is required'
+    }
+    if (step === 3 && !formData.projectManagerId) {
+      newErrors.projectManagerId = 'Project lead is required'
     }
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
@@ -177,14 +244,19 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
   async function handleSubmit() {
     if (!validateStep(activeStep)) return
 
+    const selectedContacts = findContactsByIds(selectedCustomer, formData.contactIds)
     const payload = {
       customerId: formData.customerId,
       customerName: formData.customerName,
       name: formData.name,
       location: formData.location,
-      type: formData.projectType as 'Design Only' | 'Design & Build',
+      projectTypes: formData.projectTypes,
+      sector: formData.sector,
       carpetArea: formData.carpetArea ? Number(formData.carpetArea) : null,
+      buildValuePerSqft: formData.buildValuePerSqft ? Number(formData.buildValuePerSqft) : null,
+      designFeePerSqft: formData.designFeePerSqft ? Number(formData.designFeePerSqft) : null,
       headcount: formData.headcount ? Number(formData.headcount) : null,
+      clientTeam: clientTeamFromContacts(selectedContacts, formData.customerName),
       projectManagerId: formData.projectManagerId,
       projectManager: formData.projectManagerName,
       startDate: formData.startDate || null,
@@ -196,6 +268,7 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
       totalVendorPOValue: 0,
       invoicedAmount: 0,
       paidVendorAmount: 0,
+      projectDocuments: buildProjectDocumentsFromForm(formData),
     }
 
     try {
@@ -235,10 +308,12 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
           totalReceivables: 0,
         })
       ).unwrap()
+      const contacts = getContactsForCustomer(result)
       setFormData((prev) => ({
         ...prev,
         customerId: result.id,
         customerName: result.name,
+        contactIds: getDefaultContactIds(contacts),
       }))
       setShowInlineCustomer(false)
       setNewCustomerData({ name: '', type: 'Company', contactPerson: '', phone: '', email: '', city: '', state: '' })
@@ -251,6 +326,70 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
   }
 
   const selectedCustomer = customers.find((c) => c.id === formData.customerId) ?? null
+  const customerContacts = useMemo(
+    () => getContactsForCustomer(selectedCustomer),
+    [selectedCustomer],
+  )
+
+  const selectedContacts = useMemo(
+    () => customerContacts.filter((c) => formData.contactIds.includes(c.id)),
+    [customerContacts, formData.contactIds],
+  )
+
+  function filterCustomers(options: Customer[], { inputValue }: { inputValue: string }) {
+    const q = inputValue.trim().toLowerCase()
+    if (!q) return options
+    return options.filter(
+      (c) =>
+        c.name.toLowerCase().includes(q) ||
+        c.contactPerson.toLowerCase().includes(q),
+    )
+  }
+
+  function renderContactOption(props: HTMLAttributes<HTMLLIElement>, option: Contact) {
+    return (
+      <Box component="li" {...props} sx={{ py: '8px !important' }}>
+        <Typography sx={{ fontSize: 13, lineHeight: 1.35 }}>{option.name}</Typography>
+        {option.designation ? (
+          <Typography sx={{ fontSize: 11, color: 'text.secondary', lineHeight: 1.35 }}>
+            {option.designation}
+          </Typography>
+        ) : null}
+      </Box>
+    )
+  }
+
+  function renderCustomerOption(props: HTMLAttributes<HTMLLIElement>, option: Customer) {
+    const colors = getAvatarColor(option.name)
+    return (
+      <Box component="li" {...props} sx={{ gap: 1, alignItems: 'flex-start !important', py: '8px !important' }}>
+        <Box
+          sx={{
+            width: 28,
+            height: 28,
+            borderRadius: '6px',
+            bgcolor: colors.bg,
+            color: colors.text,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '10px',
+            fontWeight: 700,
+            flexShrink: 0,
+            mt: '2px',
+          }}
+        >
+          {getInitials(option.name)}
+        </Box>
+        <Box sx={{ minWidth: 0 }}>
+          <Typography sx={{ fontSize: 13, fontWeight: 500, lineHeight: 1.35 }}>{option.name}</Typography>
+          <Typography sx={{ fontSize: 11, color: 'text.secondary', lineHeight: 1.35 }}>
+            {option.contactPerson}
+          </Typography>
+        </Box>
+      </Box>
+    )
+  }
 
   // ─── Step 1: Customer ──────────────────────────────────────────────────────
 
@@ -261,69 +400,92 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
           Select Customer
         </Typography>
 
-        <Box sx={{ mb: 1 }}>
-          <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
-            Customer <Box component="span" sx={{ color: 'error.main' }}>*</Box>
-          </Typography>
-          <Autocomplete
-            size="small"
-            loading={loadingCustomers}
-            options={customers}
-            getOptionLabel={(c) => c.name}
-            value={selectedCustomer}
-            onChange={(_, val) => {
-              setFormData((prev) => ({
-                ...prev,
-                customerId: val?.id ?? '',
-                customerName: val?.name ?? '',
-              }))
-              if (errors.customerId) setErrors((e) => ({ ...e, customerId: undefined }))
-            }}
-            renderOption={(props, option) => {
-              const colors = getAvatarColor(option.name)
-              return (
-                <Box component="li" {...props} sx={{ gap: 1 }}>
-                  <Box
-                    sx={{
-                      width: 28,
-                      height: 28,
-                      borderRadius: '6px',
-                      bgcolor: colors.bg,
-                      color: colors.text,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: '10px',
-                      fontWeight: 700,
-                      flexShrink: 0,
-                    }}
-                  >
-                    {getInitials(option.name)}
-                  </Box>
-                  <Box>
-                    <Typography sx={{ fontSize: 13 }}>{option.name}</Typography>
-                    <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>{option.city}</Typography>
-                  </Box>
-                </Box>
-              )
-            }}
-            renderInput={(params) => (
-              <TextField
-                {...params}
-                placeholder="Search by name…"
-                error={Boolean(errors.customerId)}
-                helperText={errors.customerId}
-                sx={{ '& input': { fontSize: 13 } }}
-              />
-            )}
-          />
+        <Box sx={{ ...CUSTOMER_STEP_GRID_SX, mb: 1 }}>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
+              Customer <Box component="span" sx={{ color: 'error.main' }}>*</Box>
+            </Typography>
+            <Autocomplete
+              fullWidth
+              size="small"
+              loading={loadingCustomers}
+              options={customers}
+              filterOptions={filterCustomers}
+              getOptionLabel={(c) => c.name}
+              isOptionEqualToValue={(a, b) => a.id === b.id}
+              value={selectedCustomer}
+              onChange={(_, val) => {
+                const contacts = getContactsForCustomer(val)
+                setFormData((prev) => ({
+                  ...prev,
+                  customerId: val?.id ?? '',
+                  customerName: val?.name ?? '',
+                  contactIds: getDefaultContactIds(contacts),
+                }))
+                if (errors.customerId) setErrors((e) => ({ ...e, customerId: undefined }))
+                if (errors.contactId) setErrors((e) => ({ ...e, contactId: undefined }))
+              }}
+              renderOption={renderCustomerOption}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  fullWidth
+                  placeholder="Search by name…"
+                  error={Boolean(errors.customerId)}
+                  helperText={errors.customerId}
+                  sx={FORM_CONTROL_INPUT_SX}
+                />
+              )}
+            />
+          </Box>
+
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
+              Contact Person <Box component="span" sx={{ color: 'error.main' }}>*</Box>
+            </Typography>
+            <Autocomplete
+              multiple
+              fullWidth
+              size="small"
+              disabled={!selectedCustomer}
+              options={customerContacts}
+              getOptionLabel={(c) => c.name}
+              isOptionEqualToValue={(a, b) => a.id === b.id}
+              value={selectedContacts}
+              onChange={(_, val) => {
+                setFormData((prev) => ({ ...prev, contactIds: val.map((c) => c.id) }))
+                if (errors.contactId) setErrors((er) => ({ ...er, contactId: undefined }))
+              }}
+              renderOption={renderContactOption}
+              limitTags={2}
+              renderTags={(value, getTagProps) =>
+                value.map((option, index) => (
+                  <MuiChip
+                    {...getTagProps({ index })}
+                    key={option.id}
+                    label={option.name}
+                    size="small"
+                    sx={{ height: 22, fontSize: 11 }}
+                  />
+                ))
+              }
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  fullWidth
+                  placeholder={
+                    selectedCustomer ? 'Select contact persons…' : 'Select a customer first…'
+                  }
+                  error={Boolean(errors.contactId)}
+                  helperText={errors.contactId}
+                  sx={FORM_CONTROL_INPUT_SX}
+                />
+              )}
+            />
+          </Box>
         </Box>
 
-        <Divider sx={{ my: 3 }}>
-          <Typography variant="caption" color="text.secondary" sx={{ px: 1, fontSize: 11 }}>
-            or
-          </Typography>
-        </Divider>
+        <Divider sx={{ my: 3 }} />
 
         <MuiButton
           variant="outlined"
@@ -516,16 +678,14 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
   // ─── Step 3: Project Setup ─────────────────────────────────────────────────
 
   function renderStep3() {
+    const totalDesignFee = calcTotalDesignFee(formData.carpetArea, formData.designFeePerSqft)
+    const totalBuildValue = calcTotalBuildValue(formData.carpetArea, formData.buildValuePerSqft)
+
     return (
-      <Box
-        sx={{
-          display: 'grid',
-          gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' },
-          gap: 2,
-        }}
-      >
-        {/* Project Name — full width */}
-        <Box sx={{ gridColumn: '1 / -1' }}>
+      <Box>
+      <Box sx={PROJECT_SETUP_GRID_SX}>
+        {/* Row 1: Project Name | Project Type */}
+        <Box sx={{ minWidth: 0 }}>
           <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
             Project Name <Box component="span" sx={{ color: 'error.main' }}>*</Box>
           </Typography>
@@ -537,36 +697,56 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
             placeholder="e.g. Acme Corp - HO Redesign"
             error={Boolean(errors.name)}
             helperText={errors.name}
-            sx={{ '& input': { fontSize: 13 } }}
+            sx={FORM_CONTROL_INPUT_SX}
           />
         </Box>
 
-        {/* Project Type */}
-        <Box>
+        <Box sx={{ minWidth: 0 }}>
           <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
             Project Type <Box component="span" sx={{ color: 'error.main' }}>*</Box>
           </Typography>
-          <FormControl fullWidth size="small" error={Boolean(errors.projectType)}>
+          <ProjectTypesField
+            value={formData.projectTypes}
+            onChange={(v) => setFormData((prev) => ({ ...prev, projectTypes: v }))}
+            error={Boolean(errors.projectTypes)}
+          />
+          {errors.projectTypes && (
+            <Typography variant="caption" color="error" sx={{ mt: '3px', display: 'block', fontSize: 11 }}>
+              {errors.projectTypes}
+            </Typography>
+          )}
+        </Box>
+
+        {/* Row 2: Sector | Location */}
+        <Box sx={{ minWidth: 0 }}>
+          <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
+            Sector <Box component="span" sx={{ color: 'error.main' }}>*</Box>
+          </Typography>
+          <FormControl fullWidth size="small" error={Boolean(errors.sector)}>
             <MuiSelect
-              value={formData.projectType}
-              onChange={(e) => setFormData((prev) => ({ ...prev, projectType: e.target.value as WizardFormData['projectType'] }))}
+              value={formData.sector}
+              onChange={(e) => setFormData((prev) => ({ ...prev, sector: e.target.value }))}
               displayEmpty
-              sx={{ fontSize: 13 }}
+              sx={{ fontSize: 13, '& .MuiOutlinedInput-root': { minHeight: 40 } }}
             >
-              <MenuItem value="" sx={{ fontSize: 13 }}>Select type…</MenuItem>
-              <MenuItem value="Design Only" sx={{ fontSize: 13 }}>Design Only</MenuItem>
-              <MenuItem value="Design & Build" sx={{ fontSize: 13 }}>Design & Build</MenuItem>
+              <MenuItem value="" disabled sx={{ fontSize: 13 }}>
+                Select sector…
+              </MenuItem>
+              {SECTOR_OPTIONS.map((s) => (
+                <MenuItem key={s} value={s} sx={{ fontSize: 13 }}>
+                  {s}
+                </MenuItem>
+              ))}
             </MuiSelect>
-            {errors.projectType && (
+            {errors.sector && (
               <Typography variant="caption" color="error" sx={{ mt: '3px', mx: '14px', fontSize: 11 }}>
-                {errors.projectType}
+                {errors.sector}
               </Typography>
             )}
           </FormControl>
         </Box>
 
-        {/* Location */}
-        <Box>
+        <Box sx={{ minWidth: 0 }}>
           <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
             Location
           </Typography>
@@ -576,12 +756,12 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
             value={formData.location}
             onChange={(e) => setFormData((prev) => ({ ...prev, location: e.target.value }))}
             placeholder="Building, City"
-            sx={{ '& input': { fontSize: 13 } }}
+            sx={FORM_CONTROL_INPUT_SX}
           />
         </Box>
 
-        {/* Carpet Area */}
-        <Box>
+        {/* Row 3: Carpet Area | Headcount */}
+        <Box sx={{ minWidth: 0 }}>
           <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
             Carpet Area (sq ft)
           </Typography>
@@ -592,12 +772,11 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
             value={formData.carpetArea}
             onChange={(e) => setFormData((prev) => ({ ...prev, carpetArea: e.target.value }))}
             placeholder="e.g. 4500"
-            sx={{ '& input': { fontSize: 13 } }}
+            sx={FORM_CONTROL_INPUT_SX}
           />
         </Box>
 
-        {/* Headcount */}
-        <Box>
+        <Box sx={{ minWidth: 0 }}>
           <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
             Headcount
           </Typography>
@@ -608,14 +787,121 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
             value={formData.headcount}
             onChange={(e) => setFormData((prev) => ({ ...prev, headcount: e.target.value }))}
             placeholder="e.g. 120"
-            sx={{ '& input': { fontSize: 13 } }}
+            sx={FORM_CONTROL_INPUT_SX}
           />
         </Box>
 
-        {/* Project Manager — full width */}
-        <Box sx={{ gridColumn: { xs: '1', sm: '1 / -1' } }}>
+        {/* Row 4: Expected Start Date | Expected End Date */}
+        <Box sx={{ minWidth: 0 }}>
           <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
-            Project Manager <Box component="span" sx={{ color: 'error.main' }}>*</Box>
+            Expected Start Date
+          </Typography>
+          <TextField
+            fullWidth
+            size="small"
+            type="date"
+            value={formData.startDate}
+            onChange={(e) => setFormData((prev) => ({ ...prev, startDate: e.target.value }))}
+            InputLabelProps={{ shrink: true }}
+            sx={FORM_CONTROL_INPUT_SX}
+          />
+        </Box>
+
+        <Box sx={{ minWidth: 0 }}>
+          <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
+            Expected End Date
+          </Typography>
+          <TextField
+            fullWidth
+            size="small"
+            type="date"
+            value={formData.expectedEndDate}
+            onChange={(e) => setFormData((prev) => ({ ...prev, expectedEndDate: e.target.value }))}
+            InputLabelProps={{ shrink: true }}
+            sx={FORM_CONTROL_INPUT_SX}
+          />
+        </Box>
+      </Box>
+
+      <Divider sx={{ my: 2 }} />
+
+      <Typography
+        variant="body2"
+        fontWeight={600}
+        sx={{ mb: 2, color: 'text.secondary', fontSize: 12 }}
+      >
+        Project Value Calculation
+      </Typography>
+
+      <Box sx={PROJECT_SETUP_GRID_SX}>
+        {/* Row 5: Design Fee per Sq Ft | Build Value per Sq Ft */}
+        <Box sx={{ minWidth: 0 }}>
+          <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
+            Design Fee per Sq Ft
+          </Typography>
+          <TextField
+            fullWidth
+            size="small"
+            type="number"
+            value={formData.designFeePerSqft}
+            onChange={(e) => setFormData((prev) => ({ ...prev, designFeePerSqft: e.target.value }))}
+            placeholder="e.g. 180"
+            sx={FORM_CONTROL_INPUT_SX}
+          />
+        </Box>
+
+        <Box sx={{ minWidth: 0 }}>
+          <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
+            Build Value per Sq Ft
+          </Typography>
+          <TextField
+            fullWidth
+            size="small"
+            type="number"
+            value={formData.buildValuePerSqft}
+            onChange={(e) => setFormData((prev) => ({ ...prev, buildValuePerSqft: e.target.value }))}
+            placeholder="e.g. 2500"
+            sx={FORM_CONTROL_INPUT_SX}
+          />
+        </Box>
+
+        {/* Row 6: calculated totals */}
+        <Box sx={{ minWidth: 0 }}>
+          <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
+            Total Design Fee
+          </Typography>
+          <Box sx={READONLY_CALC_VALUE_SX}>
+            <Typography sx={{ fontSize: 13, fontWeight: 600, color: 'text.primary' }}>
+              {formatProjectValueTotal(totalDesignFee)}
+            </Typography>
+          </Box>
+        </Box>
+
+        <Box sx={{ minWidth: 0 }}>
+          <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
+            Total Build Value
+          </Typography>
+          <Box sx={READONLY_CALC_VALUE_SX}>
+            <Typography sx={{ fontSize: 13, fontWeight: 600, color: 'text.primary' }}>
+              {formatProjectValueTotal(totalBuildValue)}
+            </Typography>
+          </Box>
+        </Box>
+      </Box>
+      </Box>
+    )
+  }
+
+  // ─── Step 4: Team ──────────────────────────────────────────────────────────
+
+  function renderStep4() {
+    const teamOptions = users.filter((u) => u.id !== formData.projectManagerId)
+
+    return (
+      <Box>
+        <Box sx={{ mb: 3 }}>
+          <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
+            Project Lead <Box component="span" sx={{ color: 'error.main' }}>*</Box>
           </Typography>
           <FormControl fullWidth size="small" error={Boolean(errors.projectManagerId)}>
             <MuiSelect
@@ -626,12 +912,22 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
                   ...prev,
                   projectManagerId: e.target.value,
                   projectManagerName: mgr?.name ?? '',
+                  teamMembers: prev.teamMembers.filter((m) => m.id !== e.target.value),
                 }))
+                if (errors.projectManagerId) {
+                  setErrors((er) => ({ ...er, projectManagerId: undefined }))
+                }
               }}
               displayEmpty
               sx={{ fontSize: 13 }}
               renderValue={(val) => {
-                if (!val) return <Typography sx={{ fontSize: 13, color: 'text.disabled' }}>Select manager…</Typography>
+                if (!val) {
+                  return (
+                    <Typography sx={{ fontSize: 13, color: 'text.disabled' }}>
+                      Select project lead…
+                    </Typography>
+                  )
+                }
                 const mgr = managers.find((m) => m.id === val)
                 if (!mgr) return val
                 return (
@@ -642,7 +938,9 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
                 )
               }}
             >
-              <MenuItem value="" sx={{ fontSize: 13 }}>Select manager…</MenuItem>
+              <MenuItem value="" sx={{ fontSize: 13 }}>
+                Select project lead…
+              </MenuItem>
               {managers.map((m) => (
                 <MenuItem key={m.id} value={m.id} sx={{ fontSize: 13, gap: 1 }}>
                   <PersonOutline sx={{ fontSize: 14 }} />
@@ -663,46 +961,6 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
           </FormControl>
         </Box>
 
-        {/* Start Date */}
-        <Box>
-          <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
-            Expected Start Date
-          </Typography>
-          <TextField
-            fullWidth
-            size="small"
-            type="date"
-            value={formData.startDate}
-            onChange={(e) => setFormData((prev) => ({ ...prev, startDate: e.target.value }))}
-            InputLabelProps={{ shrink: true }}
-            sx={{ '& input': { fontSize: 13 } }}
-          />
-        </Box>
-
-        {/* End Date */}
-        <Box>
-          <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
-            Expected End Date
-          </Typography>
-          <TextField
-            fullWidth
-            size="small"
-            type="date"
-            value={formData.expectedEndDate}
-            onChange={(e) => setFormData((prev) => ({ ...prev, expectedEndDate: e.target.value }))}
-            InputLabelProps={{ shrink: true }}
-            sx={{ '& input': { fontSize: 13 } }}
-          />
-        </Box>
-      </Box>
-    )
-  }
-
-  // ─── Step 4: Team ──────────────────────────────────────────────────────────
-
-  function renderStep4() {
-    return (
-      <Box>
         <Typography variant="body2" fontWeight={600} sx={{ mb: 2, color: 'text.secondary', fontSize: 12 }}>
           Assign Team Members
         </Typography>
@@ -710,10 +968,11 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
         <Autocomplete
           multiple
           size="small"
-          options={users}
+          options={teamOptions}
           getOptionLabel={(u) => u.name}
           value={formData.teamMembers}
           onChange={(_, val) => setFormData((prev) => ({ ...prev, teamMembers: val }))}
+          disabled={!formData.projectManagerId}
           renderOption={(props, option) => {
             const colors = getAvatarColor(option.name)
             return (
@@ -756,7 +1015,13 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
             ))
           }
           renderInput={(params) => (
-            <TextField {...params} placeholder="Search users…" sx={{ '& input': { fontSize: 13 } }} />
+            <TextField
+              {...params}
+              placeholder={
+                formData.projectManagerId ? 'Search users…' : 'Select a project lead first…'
+              }
+              sx={{ '& input': { fontSize: 13 } }}
+            />
           )}
         />
 
@@ -832,8 +1097,175 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
       case 1: return renderStep2()
       case 2: return renderStep3()
       case 3: return renderStep4()
+      case 4: return renderStep5()
       default: return null
     }
+  }
+
+  function renderStep5() {
+    function SingleUploadField({
+      label,
+      file,
+      onChange,
+    }: {
+      label: string
+      file: File | null
+      onChange: (next: File | null) => void
+    }) {
+      const inputRef = useRef<HTMLInputElement | null>(null)
+      const blobUrl = useMemo(() => (file ? URL.createObjectURL(file) : ''), [file])
+
+      return (
+        <Box>
+          <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 0.75 }}>
+            <Typography variant="caption" sx={{ fontWeight: 500, fontSize: 12 }}>
+              {label}
+            </Typography>
+            <MuiButton
+              variant="outlined"
+              component="label"
+              size="small"
+              startIcon={<Upload />}
+              sx={{ fontSize: 13 }}
+            >
+              Upload
+              <input
+                ref={inputRef}
+                type="file"
+                hidden
+                accept=".pdf,.doc,.docx,.xlsx,.jpg,.jpeg,.png,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,image/jpeg,image/png"
+                onChange={(e) => onChange(e.target.files?.[0] ?? null)}
+              />
+            </MuiButton>
+          </Stack>
+          <Stack alignItems="flex-start" gap={0.5}>
+            {file ? (
+              <Stack alignItems="flex-start" gap={0.5}>
+                <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
+                  {file.name}
+                </Typography>
+                <Stack direction="row" gap={1}>
+                  <MuiButton
+                    size="small"
+                    variant="text"
+                    sx={{ minWidth: 0, p: 0, fontSize: 11 }}
+                    onClick={() => window.open(blobUrl, '_blank', 'noopener,noreferrer')}
+                  >
+                    View
+                  </MuiButton>
+                  <MuiButton
+                    size="small"
+                    variant="text"
+                    sx={{ minWidth: 0, p: 0, fontSize: 11 }}
+                    startIcon={<Download sx={{ fontSize: 12 }} />}
+                    onClick={() => {
+                      const a = document.createElement('a')
+                      a.href = blobUrl
+                      a.download = file.name
+                      a.click()
+                    }}
+                  >
+                    Download
+                  </MuiButton>
+                  <MuiButton
+                    size="small"
+                    variant="text"
+                    sx={{ minWidth: 0, p: 0, fontSize: 11 }}
+                    onClick={() => inputRef.current?.click()}
+                  >
+                    Replace
+                  </MuiButton>
+                </Stack>
+              </Stack>
+            ) : null}
+          </Stack>
+        </Box>
+      )
+    }
+
+    return (
+      <Box>
+        <Typography variant="body2" fontWeight={600} sx={{ mb: 2, color: 'text.secondary', fontSize: 12 }}>
+          Project Documents
+        </Typography>
+        <Box display="grid" sx={{ gridTemplateColumns: '1fr 1fr', gap: 1.5 }}>
+          <SingleUploadField
+            label="Final Layout"
+            file={formData.finalLayoutFile}
+            onChange={(file) => setFormData((prev) => ({ ...prev, finalLayoutFile: file }))}
+          />
+          <SingleUploadField
+            label="Final RCP"
+            file={formData.finalRcpFile}
+            onChange={(file) => setFormData((prev) => ({ ...prev, finalRcpFile: file }))}
+          />
+          <Box>
+            <TextField
+              fullWidth
+              size="small"
+              value={formData.finalLayoutDescription}
+              onChange={(e) => setFormData((prev) => ({ ...prev, finalLayoutDescription: e.target.value }))}
+              placeholder="Add notes or paste URL"
+              sx={FORM_CONTROL_INPUT_SX}
+            />
+          </Box>
+          <Box>
+            <TextField
+              fullWidth
+              size="small"
+              value={formData.finalRcpDescription}
+              onChange={(e) => setFormData((prev) => ({ ...prev, finalRcpDescription: e.target.value }))}
+              placeholder="Add notes or paste URL"
+              sx={FORM_CONTROL_INPUT_SX}
+            />
+          </Box>
+          <SingleUploadField
+            label="Final Views"
+            file={formData.finalViewsFile}
+            onChange={(file) => setFormData((prev) => ({ ...prev, finalViewsFile: file }))}
+          />
+          <SingleUploadField
+            label="Final Photographs"
+            file={formData.finalPhotographsFile}
+            onChange={(file) => setFormData((prev) => ({ ...prev, finalPhotographsFile: file }))}
+          />
+          <Box>
+            <TextField
+              fullWidth
+              size="small"
+              value={formData.finalViewsDescription}
+              onChange={(e) => setFormData((prev) => ({ ...prev, finalViewsDescription: e.target.value }))}
+              placeholder="Add notes or paste URL"
+              sx={FORM_CONTROL_INPUT_SX}
+            />
+          </Box>
+          <Box>
+            <TextField
+              fullWidth
+              size="small"
+              value={formData.finalPhotographsDescription}
+              onChange={(e) => setFormData((prev) => ({ ...prev, finalPhotographsDescription: e.target.value }))}
+              placeholder="Add notes or paste URL"
+              sx={FORM_CONTROL_INPUT_SX}
+            />
+          </Box>
+          <Box sx={{ gridColumn: '1 / -1' }}>
+            <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
+              Final Handover Documents
+            </Typography>
+            <FileUpload
+              accept=".pdf,.doc,.docx,.xlsx,.jpg,.jpeg,.png,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,image/jpeg,image/png"
+              multiple
+              showAcceptText={false}
+              onUpload={(files) =>
+                setFormData((prev) => ({ ...prev, finalHandoverFiles: files }))
+              }
+              helperText="PDF, Word, Excel, JPG, PNG"
+            />
+          </Box>
+        </Box>
+      </Box>
+    )
   }
 
   const isLastStep = activeStep === STEPS.length - 1

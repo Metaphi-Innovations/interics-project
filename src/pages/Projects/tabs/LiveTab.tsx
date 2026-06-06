@@ -12,6 +12,7 @@ import {
 } from '../../../slices/live/thunk'
 import type { Project } from '../../../slices/projects/reducer'
 import BillingTab from './live/BillingTab'
+import VendorPOTab from './live/VendorPOTab'
 import PaymentsTab from './live/PaymentsTab'
 import ExpensesTab from './live/ExpensesTab'
 import ComplianceTab from './live/ComplianceTab'
@@ -29,7 +30,14 @@ export default function LiveTab({ project }: LiveTabProps) {
   useEffect(() => {
     const nav = location.state as { liveSubTab?: string } | null
     const v = nav?.liveSubTab
-    if (v === 'billing' || v === 'payments' || v === 'expenses' || v === 'reimbursement' || v === 'compliance') {
+    if (
+      v === 'vendor-po' ||
+      v === 'billing' ||
+      v === 'payments' ||
+      v === 'expenses' ||
+      v === 'reimbursement' ||
+      v === 'compliance'
+    ) {
       setActiveSubTab(v)
     }
   }, [project.id, location.key, location.state])
@@ -43,8 +51,9 @@ export default function LiveTab({ project }: LiveTabProps) {
   }, [dispatch, project.id])
 
   const subTabs = [
-    { label: 'Billing', value: 'billing' },
-    { label: 'Payments', value: 'payments' },
+    { label: 'Vendor PO', value: 'vendor-po' },
+    { label: 'Receivable', value: 'billing' },
+    { label: 'Payable', value: 'payments' },
     { label: 'Expenses', value: 'expenses' },
     { label: 'Reimbursement', value: 'reimbursement' },
     { label: 'Compliance', value: 'compliance' },
@@ -82,6 +91,7 @@ export default function LiveTab({ project }: LiveTabProps) {
         </Tabs>
       </Box>
 
+      {activeSubTab === 'vendor-po' && <VendorPOTab projectId={project.id} />}
       {activeSubTab === 'billing' && (
         <BillingTab
           projectId={project.id}

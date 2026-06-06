@@ -28,12 +28,14 @@ export function GlobalExpenseDrawer({ open, onClose, onSuccess }: GlobalExpenseD
   const formRef = useRef<ExpenseFormHandle>(null)
   const [formValid, setFormValid] = useState(false)
   const [selectedProjectId, setSelectedProjectId] = useState('')
+  const [submitLabel, setSubmitLabel] = useState('Save')
 
   useEffect(() => {
     if (open) {
       void dispatch(fetchProjects({}))
     } else {
       setSelectedProjectId('')
+      setSubmitLabel('Save')
     }
   }, [open, dispatch])
 
@@ -72,7 +74,7 @@ export function GlobalExpenseDrawer({ open, onClose, onSuccess }: GlobalExpenseD
       title="Add Expense"
       width={520}
       onSubmit={() => formRef.current?.submit()}
-      submitLabel="Add Expense"
+      submitLabel={submitLabel}
       submitLoading={saving}
       submitDisabled={!formValid || saving}
     >
@@ -88,6 +90,7 @@ export function GlobalExpenseDrawer({ open, onClose, onSuccess }: GlobalExpenseD
         onSubmit={handleSubmit}
         onCancel={onClose}
         onValidityChange={setFormValid}
+        onSubmitLabelChange={setSubmitLabel}
       />
     </DrawerForm>
   )

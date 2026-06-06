@@ -31,12 +31,38 @@ interface VendorFinancialDetails {
   gstStatus: string
 }
 
+type VendorDocumentType =
+  | 'Catalogue'
+  | 'Brochure'
+  | 'Certificate'
+  | 'Compliance'
+  | 'Product'
+
+interface VendorDocument {
+  id: string
+  name: string
+  type: VendorDocumentType
+  uploadedAt: string
+  expiryDate?: string | null
+  url: string
+}
+
+type ComplianceChipStatus = 'verified' | 'missing' | 'expired' | 'expiring_soon'
+
+interface VendorCompliance {
+  gst?: ComplianceChipStatus
+  pan?: ComplianceChipStatus
+  bankCheque?: ComplianceChipStatus
+  insurance?: { status: ComplianceChipStatus; expiryDate?: string | null }
+}
+
 interface Vendor {
   id: string
   name: string
   gstin: string | null
   pan: string | null
   gstStatus: 'Registered' | 'Unregistered'
+  website?: string | null
   contactPerson: string
   designation?: string | null
   phone: string
@@ -55,8 +81,13 @@ interface Vendor {
   contacts: Contact[]
   gstDocument: { name: string; url: string } | null
   panDocument: { name: string; url: string } | null
+  bankChequeDocument?: { name: string; url: string } | null
+  insuranceDocument?: { name: string; url: string } | null
   activityLog: ActivityEntry[]
   financialDetails: VendorFinancialDetails
+  documents?: VendorDocument[]
+  additionalComplianceDocuments?: { id: string; name: string; url: string; expiryDate?: string | null }[]
+  compliance?: VendorCompliance
 }
 
 function toSlug(name: string): string {
@@ -70,6 +101,7 @@ let vendors: Vendor[] = [
     gstin: '29BWCON1234A1Z7',
     pan: 'BWCON1234A',
     gstStatus: 'Registered',
+    website: 'https://buildwell.com',
     contactPerson: 'Ramesh Patil',
     designation: 'Managing Director',
     phone: '+91 9871234560',
@@ -105,6 +137,31 @@ let vendors: Vendor[] = [
     ],
     gstDocument: { name: 'GST_Certificate.pdf', url: '#' },
     panDocument: { name: 'PAN_Card.pdf', url: '#' },
+    bankChequeDocument: { name: 'buildwell_cancelled_cheque.pdf', url: '#' },
+    insuranceDocument: { name: 'general_liability_cover.pdf', url: '#' },
+    compliance: {
+      gst: 'verified',
+      pan: 'verified',
+      bankCheque: 'verified',
+      insurance: { status: 'expiring_soon', expiryDate: '2026-06-15' },
+    },
+    documents: [
+      {
+        id: 'vd-bw-1',
+        name: 'Materials Catalogue FY25.pdf',
+        type: 'Catalogue',
+        uploadedAt: '2025-03-01T10:00:00Z',
+        url: '#',
+      },
+      {
+        id: 'vd-bw-2',
+        name: 'ISO Certificate.pdf',
+        type: 'Certificate',
+        uploadedAt: '2024-11-20T09:00:00Z',
+        expiryDate: '2027-11-19',
+        url: '#',
+      },
+    ],
     activityLog: [
       {
         id: 'va-001',
@@ -155,6 +212,7 @@ let vendors: Vendor[] = [
     gstin: null,
     pan: 'SPINT5678B',
     gstStatus: 'Unregistered',
+    website: 'https://spectruminteriors.com',
     contactPerson: 'Kavita Mehta',
     designation: 'Principal Designer',
     phone: '+91 9871234561',
@@ -182,6 +240,7 @@ let vendors: Vendor[] = [
     ],
     gstDocument: null,
     panDocument: { name: 'PAN_Card.pdf', url: '#' },
+    documents: [{ id: 'vd-sp-1', name: 'FF&E Lookbook.pdf', type: 'Brochure', uploadedAt: '2025-02-01T12:00:00Z', url: '#' }],
     activityLog: [
       {
         id: 'va-010',
@@ -218,6 +277,7 @@ let vendors: Vendor[] = [
     gstin: '27LCSOL9012C1Z3',
     pan: 'LCSOL9012C',
     gstStatus: 'Registered',
+    website: 'lightcraft.example.com',
     contactPerson: 'Suresh Iyer',
     designation: 'Sales Manager',
     phone: '+91 9871234562',
@@ -253,6 +313,8 @@ let vendors: Vendor[] = [
     ],
     gstDocument: { name: 'GST_Certificate.pdf', url: '#' },
     panDocument: { name: 'PAN_Card.pdf', url: '#' },
+    bankChequeDocument: { name: 'lcs_cheque.pdf', url: '#' },
+    documents: [{ id: 'vd-lc-1', name: 'Product Matrix.xlsx', type: 'Product', uploadedAt: '2025-01-10T11:30:00Z', url: '#' }],
     activityLog: [
       {
         id: 'va-020',
@@ -400,6 +462,14 @@ let vendors: Vendor[] = [
     ],
     gstDocument: { name: 'GST_Certificate.pdf', url: '#' },
     panDocument: null,
+    bankChequeDocument: null,
+    insuranceDocument: { name: 'liability_policy_expired.pdf', url: '#' },
+    compliance: {
+      gst: 'verified',
+      pan: 'missing',
+      bankCheque: 'missing',
+      insurance: { status: 'expired', expiryDate: '2025-03-01' },
+    },
     activityLog: [
       {
         id: 'va-040',
@@ -516,19 +586,32 @@ export const vendorsHandlers = [
 
     let filtered = vendors
     if (search) {
-      filtered = filtered.filter(
-        (v) =>
-          v.name.toLowerCase().includes(search) ||
-          v.contactPerson.toLowerCase().includes(search) ||
-          v.email.toLowerCase().includes(search)
-      )
+      const q = search.trim().toLowerCase()
+      const tokens = q.split(/\s+/).filter(Boolean)
+      filtered = filtered.filter((v) => {
+        const stored = contactsStore[v.id] ?? v.contacts
+        const hay = [
+          v.name,
+          v.contactPerson,
+          v.email,
+          v.website ?? '',
+          ...v.tags,
+          ...stored.flatMap((c) => [c.name, c.email, c.phone, c.designation ?? '']),
+        ]
+          .join(' ')
+          .toLowerCase()
+        return tokens.every((t) => hay.includes(t))
+      })
     }
     if (status) filtered = filtered.filter((v) => v.status === status)
     if (gstStatus) filtered = filtered.filter((v) => v.gstStatus === gstStatus)
     if (state) filtered = filtered.filter((v) => v.state === state)
 
     const total = filtered.length
-    const items = filtered.slice((page - 1) * pageSize, page * pageSize)
+    const items = filtered.slice((page - 1) * pageSize, page * pageSize).map((v) => ({
+      ...v,
+      contacts: contactsStore[v.id] ?? v.contacts,
+    }))
     return HttpResponse.json({ items, total })
   }),
 
@@ -590,6 +673,17 @@ export const vendorsHandlers = [
       }
     }
     vendors[idx] = merged
+    if (data.contacts !== undefined) {
+      contactsStore[prev.id] = data.contacts
+      merged.contacts = data.contacts
+      const primary = data.contacts.find((c) => c.isPrimary) ?? data.contacts[0]
+      if (primary) {
+        merged.contactPerson = primary.name
+        merged.phone = primary.phone
+        merged.email = primary.email
+        merged.designation = primary.designation ?? null
+      }
+    }
     return HttpResponse.json(vendors[idx])
   }),
 

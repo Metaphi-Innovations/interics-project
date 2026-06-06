@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useRef, useState, useEffect, useMemo, type HTMLAttributes } from 'react'
 import {
   Box,
   Stack,
@@ -12,22 +12,35 @@ import {
   Button as MuiButton,
   Divider,
 } from '@mui/material'
-import { Add, Upload, PersonOutline } from '@mui/icons-material'
+import { Add, Upload, PersonOutline, Download } from '@mui/icons-material'
 import { useNavigate } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { fetchCustomers } from '../../slices/customers/thunk'
 import { fetchUsers } from '../../slices/users/thunk'
 import { fetchRoles } from '../../slices/roles/thunk'
 import { isProjectManagerRole } from './projectManagerRoles'
+import { ProjectTypesField } from './components/ProjectTypesField'
 import { createProject } from '../../slices/projects/thunk'
-import type { Customer } from '../../slices/customers/reducer'
+import type { Contact, Customer } from '../../slices/customers/reducer'
 import type { User } from '../../slices/users/reducer'
 import { FullPageForm, FullPageFormSection } from '../../components/templates/FullPageForm'
 import { FormField } from '../../components/templates/DrawerForm'
-import { Input, useToast } from '@/design-system/components'
+import { FileUpload, Input, useToast } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { toSlug, getInitials, getAvatarColor } from '../../utils/formatters'
 import { alpha } from '@mui/material/styles'
+import { SECTOR_OPTIONS } from '../../constants/sectors'
+import {
+  READONLY_CALC_VALUE_SX,
+  calcTotalDesignFee,
+  calcTotalBuildValue,
+  formatProjectValueTotal,
+  getContactsForCustomer,
+  getDefaultContactIds,
+  findContactsByIds,
+  clientTeamFromContacts,
+  buildProjectDocumentsFromForm,
+} from './projectCreateHelpers'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -35,14 +48,18 @@ interface WizardFormData {
   // Step 1
   customerId: string
   customerName: string
+  contactIds: string[]
   // Step 2
   requirementFile: File | null
   requirementNotes: string
   // Step 3
   name: string
   location: string
-  projectType: string
+  projectTypes: string[]
+  sector: string
   carpetArea: string
+  buildValuePerSqft: string
+  designFeePerSqft: string
   headcount: string
   projectManagerId: string
   projectManagerName: string
@@ -50,16 +67,89 @@ interface WizardFormData {
   expectedEndDate: string
   // Step 4
   teamMembers: User[]
+  // Step 5
+  finalLayoutDescription: string
+  finalLayoutLink: string
+  finalRcpDescription: string
+  finalRcpLink: string
+  finalViewsDescription: string
+  finalViewsLink: string
+  finalPhotographsDescription: string
+  finalPhotographsLink: string
+  finalHandoverDescription: string
+  finalHandoverLink: string
+  finalLayoutFile: File | null
+  finalRcpFile: File | null
+  finalViewsFile: File | null
+  finalPhotographsFile: File | null
+  finalHandoverFiles: File[]
 }
 
 interface StepErrors {
   customerId?: string
+  contactId?: string
   name?: string
-  projectType?: string
+  projectTypes?: string
+  sector?: string
   projectManagerId?: string
 }
 
 // ─── Step 1 — Customer Selection ─────────────────────────────────────────────
+
+function filterCustomers(options: Customer[], { inputValue }: { inputValue: string }) {
+  const q = inputValue.trim().toLowerCase()
+  if (!q) return options
+  return options.filter(
+    (c) =>
+      c.name.toLowerCase().includes(q) ||
+      c.contactPerson.toLowerCase().includes(q),
+  )
+}
+
+function renderContactOption(props: HTMLAttributes<HTMLLIElement>, option: Contact) {
+  return (
+    <Box component="li" {...props} sx={{ py: '8px !important' }}>
+      <Typography sx={{ fontSize: 13, lineHeight: 1.35 }}>{option.name}</Typography>
+      {option.designation ? (
+        <Typography sx={{ fontSize: 11, color: 'text.secondary', lineHeight: 1.35 }}>
+          {option.designation}
+        </Typography>
+      ) : null}
+    </Box>
+  )
+}
+
+function renderCustomerOption(props: HTMLAttributes<HTMLLIElement>, option: Customer) {
+  const colors = getAvatarColor(option.name)
+  return (
+    <Box component="li" {...props} sx={{ gap: 1, alignItems: 'flex-start !important', py: '8px !important' }}>
+      <Box
+        sx={{
+          width: 28,
+          height: 28,
+          borderRadius: '6px',
+          bgcolor: alpha(colors.bg, 0.15),
+          color: colors.text,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: '10px',
+          fontWeight: 700,
+          flexShrink: 0,
+          mt: '2px',
+        }}
+      >
+        {getInitials(option.name)}
+      </Box>
+      <Box sx={{ minWidth: 0 }}>
+        <Typography sx={{ fontSize: 13, fontWeight: 500, lineHeight: 1.35 }}>{option.name}</Typography>
+        <Typography sx={{ fontSize: 11, color: 'text.secondary', lineHeight: 1.35 }}>
+          {option.contactPerson}
+        </Typography>
+      </Box>
+    </Box>
+  )
+}
 
 function Step1Customer({
   formData,
@@ -76,71 +166,95 @@ function Step1Customer({
 }) {
   const selectedCustomer =
     customers.find((c) => c.id === formData.customerId) ?? null
+  const customerContacts = useMemo(
+    () => getContactsForCustomer(selectedCustomer),
+    [selectedCustomer],
+  )
+  const selectedContacts = useMemo(
+    () => customerContacts.filter((c) => formData.contactIds.includes(c.id)),
+    [customerContacts, formData.contactIds],
+  )
 
   return (
     <FullPageFormSection
       title="Select Customer"
-      subtitle="Choose an existing client or create a new one"
-      columns={1}
+      subtitle="Choose an existing client and contact persons"
+      columns={2}
     >
       <FormField label="Customer" required error={errors.customerId}>
         <Autocomplete
+          fullWidth
           size="small"
           loading={loadingCustomers}
           options={customers}
+          filterOptions={filterCustomers}
           getOptionLabel={(c) => c.name}
+          isOptionEqualToValue={(a, b) => a.id === b.id}
           value={selectedCustomer}
           onChange={(_, val) => {
+            const contacts = getContactsForCustomer(val)
             setFormData((prev) => ({
               ...prev,
               customerId: val?.id ?? '',
               customerName: val?.name ?? '',
+              contactIds: getDefaultContactIds(contacts),
             }))
           }}
-          renderOption={(props, option) => (
-            <Box component="li" {...props} sx={{ gap: 1 }}>
-              <Box
-                sx={{
-                  width: 28,
-                  height: 28,
-                  borderRadius: '6px',
-                  bgcolor: alpha(getAvatarColor(option.name).bg, 0.15),
-                  color: getAvatarColor(option.name).text,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: '10px',
-                  fontWeight: 700,
-                  flexShrink: 0,
-                }}
-              >
-                {getInitials(option.name)}
-              </Box>
-              <Box>
-                <Typography sx={{ fontSize: 13 }}>{option.name}</Typography>
-                <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>
-                  {option.city}
-                </Typography>
-              </Box>
-            </Box>
-          )}
+          renderOption={renderCustomerOption}
           renderInput={(params) => (
             <TextField
               {...params}
-              placeholder="Search by name or GSTIN…"
+              fullWidth
+              placeholder="Search by name…"
               error={Boolean(errors.customerId)}
-              sx={{ '& input': { fontSize: 13 } }}
+              sx={FORM_CONTROL_INPUT_SX}
             />
           )}
         />
       </FormField>
 
-      <Box>
-        <Divider sx={{ my: 2 }}>
-          <Typography variant="caption" color="text.secondary" sx={{ px: 1, fontSize: 11 }}>
-            or
-          </Typography>
-        </Divider>
+      <FormField label="Contact Person" required error={errors.contactId}>
+        <Autocomplete
+          multiple
+          fullWidth
+          size="small"
+          disabled={!selectedCustomer}
+          options={customerContacts}
+          getOptionLabel={(c) => c.name}
+          isOptionEqualToValue={(a, b) => a.id === b.id}
+          value={selectedContacts}
+          onChange={(_, val) =>
+            setFormData((prev) => ({ ...prev, contactIds: val.map((c) => c.id) }))
+          }
+          renderOption={renderContactOption}
+          limitTags={2}
+          renderTags={(value, getTagProps) =>
+            value.map((option, index) => (
+              <MuiChip
+                {...getTagProps({ index })}
+                key={option.id}
+                label={option.name}
+                size="small"
+                sx={{ height: 22, fontSize: 11 }}
+              />
+            ))
+          }
+          renderInput={(params) => (
+            <TextField
+              {...params}
+              fullWidth
+              placeholder={
+                selectedCustomer ? 'Select contact persons…' : 'Select a customer first…'
+              }
+              error={Boolean(errors.contactId)}
+              sx={FORM_CONTROL_INPUT_SX}
+            />
+          )}
+        />
+      </FormField>
+
+      <Box sx={{ gridColumn: '1 / -1' }}>
+        <Divider sx={{ my: 2 }} />
         <MuiButton
           variant="outlined"
           size="small"
@@ -223,46 +337,55 @@ function Step2Requirements({
 function Step3ProjectSetup({
   formData,
   setFormData,
-  managers,
-  getRoleLabel,
   errors,
 }: {
   formData: WizardFormData
   setFormData: React.Dispatch<React.SetStateAction<WizardFormData>>
-  managers: User[]
-  getRoleLabel: (roleId: string) => string
   errors: StepErrors
 }) {
   function set(key: keyof WizardFormData, value: string) {
     setFormData((prev) => ({ ...prev, [key]: value }))
   }
 
+  const totalDesignFee = calcTotalDesignFee(formData.carpetArea, formData.designFeePerSqft)
+  const totalBuildValue = calcTotalBuildValue(formData.carpetArea, formData.buildValuePerSqft)
+
   return (
     <FullPageFormSection title="Project Details" columns={2}>
-      {/* Project Name — spans 2 cols */}
-      <Box sx={{ gridColumn: '1 / -1' }}>
-        <FormField label="Project Name" required error={errors.name}>
-          <Input
-            value={formData.name}
-            onChange={(v) => set('name', v)}
-            placeholder="e.g. Acme Corp - Head Office Redesign"
-            size="sm"
-            error={Boolean(errors.name)}
-          />
-        </FormField>
-      </Box>
+      <FormField label="Project Name" required error={errors.name}>
+        <Input
+          value={formData.name}
+          onChange={(v) => set('name', v)}
+          placeholder="e.g. Acme Corp - Head Office Redesign"
+          size="sm"
+          error={Boolean(errors.name)}
+        />
+      </FormField>
 
-      <FormField label="Project Type" required error={errors.projectType}>
-        <FormControl fullWidth size="small" error={Boolean(errors.projectType)}>
+      <FormField label="Project Type" required error={errors.projectTypes}>
+        <ProjectTypesField
+          value={formData.projectTypes}
+          onChange={(v) => setFormData((prev) => ({ ...prev, projectTypes: v }))}
+          error={Boolean(errors.projectTypes)}
+        />
+      </FormField>
+
+      <FormField label="Sector" required error={errors.sector}>
+        <FormControl fullWidth size="small" error={Boolean(errors.sector)}>
           <MuiSelect
-            value={formData.projectType}
-            onChange={(e) => set('projectType', e.target.value)}
+            value={formData.sector}
+            onChange={(e) => setFormData((prev) => ({ ...prev, sector: e.target.value }))}
             displayEmpty
-            sx={{ fontSize: 13 }}
+            sx={{ fontSize: 13, '& .MuiOutlinedInput-root': { minHeight: 40 } }}
           >
-            <MenuItem value="" sx={{ fontSize: 13 }}>Select type…</MenuItem>
-            <MenuItem value="Design Only" sx={{ fontSize: 13 }}>Design Only</MenuItem>
-            <MenuItem value="Design & Build" sx={{ fontSize: 13 }}>Design & Build</MenuItem>
+            <MenuItem value="" disabled sx={{ fontSize: 13 }}>
+              Select sector…
+            </MenuItem>
+            {SECTOR_OPTIONS.map((s) => (
+              <MenuItem key={s} value={s} sx={{ fontSize: 13 }}>
+                {s}
+              </MenuItem>
+            ))}
           </MuiSelect>
         </FormControl>
       </FormField>
@@ -296,48 +419,6 @@ function Step3ProjectSetup({
         />
       </FormField>
 
-      <FormField label="Project Manager" required error={errors.projectManagerId}>
-        <FormControl fullWidth size="small" error={Boolean(errors.projectManagerId)}>
-          <MuiSelect
-            value={formData.projectManagerId}
-            onChange={(e) => {
-              const mgr = managers.find((m) => m.id === e.target.value)
-              setFormData((prev) => ({
-                ...prev,
-                projectManagerId: e.target.value,
-                projectManagerName: mgr?.name ?? '',
-              }))
-            }}
-            displayEmpty
-            sx={{ fontSize: 13 }}
-            renderValue={(val) => {
-              if (!val) return <Typography sx={{ fontSize: 13, color: 'text.disabled' }}>Select manager…</Typography>
-              const mgr = managers.find((m) => m.id === val)
-              if (!mgr) return val
-              return (
-                <Stack direction="row" alignItems="center" gap={1}>
-                  <PersonOutline sx={{ fontSize: 14 }} />
-                  <Typography sx={{ fontSize: 13 }}>{mgr.name}</Typography>
-                </Stack>
-              )
-            }}
-          >
-            <MenuItem value="" sx={{ fontSize: 13 }}>Select manager…</MenuItem>
-            {managers.map((m) => (
-              <MenuItem key={m.id} value={m.id} sx={{ fontSize: 13, gap: 1 }}>
-                <PersonOutline sx={{ fontSize: 14 }} />
-                {m.name}
-                <MuiChip
-                  label={getRoleLabel(m.role)}
-                  size="small"
-                  sx={{ height: 16, fontSize: 10, ml: 'auto', '& .MuiChip-label': { px: '6px' } }}
-                />
-              </MenuItem>
-            ))}
-          </MuiSelect>
-        </FormControl>
-      </FormField>
-
       <FormField label="Expected Start Date">
         <Input
           type="date"
@@ -355,6 +436,53 @@ function Step3ProjectSetup({
           size="sm"
         />
       </FormField>
+
+      <Box sx={{ gridColumn: '1 / -1' }}>
+        <Divider sx={{ my: 1 }} />
+        <Typography
+          variant="body2"
+          fontWeight={600}
+          sx={{ mt: 2, mb: 0, color: 'text.secondary', fontSize: 12 }}
+        >
+          Project Value Calculation
+        </Typography>
+      </Box>
+
+      <FormField label="Design Fee per Sq Ft">
+        <Input
+          type="number"
+          value={formData.designFeePerSqft}
+          onChange={(v) => set('designFeePerSqft', v)}
+          placeholder="e.g. 180"
+          size="sm"
+        />
+      </FormField>
+
+      <FormField label="Build Value per Sq Ft">
+        <Input
+          type="number"
+          value={formData.buildValuePerSqft}
+          onChange={(v) => set('buildValuePerSqft', v)}
+          placeholder="e.g. 2500"
+          size="sm"
+        />
+      </FormField>
+
+      <FormField label="Total Design Fee">
+        <Box sx={READONLY_CALC_VALUE_SX}>
+          <Typography sx={{ fontSize: 13, fontWeight: 600, color: 'text.primary' }}>
+            {formatProjectValueTotal(totalDesignFee)}
+          </Typography>
+        </Box>
+      </FormField>
+
+      <FormField label="Total Build Value">
+        <Box sx={READONLY_CALC_VALUE_SX}>
+          <Typography sx={{ fontSize: 13, fontWeight: 600, color: 'text.primary' }}>
+            {formatProjectValueTotal(totalBuildValue)}
+          </Typography>
+        </Box>
+      </FormField>
     </FullPageFormSection>
   )
 }
@@ -365,22 +493,82 @@ function Step4Team({
   formData,
   setFormData,
   allUsers,
+  managers,
+  getRoleLabel,
+  errors,
 }: {
   formData: WizardFormData
   setFormData: React.Dispatch<React.SetStateAction<WizardFormData>>
   allUsers: User[]
+  managers: User[]
+  getRoleLabel: (roleId: string) => string
+  errors: StepErrors
 }) {
+  const teamOptions = allUsers.filter((u) => u.id !== formData.projectManagerId)
+
   return (
     <FullPageFormSection
-      title="Team Members"
-      subtitle="Add team members who will work on this project"
+      title="Team"
+      subtitle="Select a project lead, then assign additional team members"
       columns={1}
     >
+      <FormField label="Project Lead" required error={errors.projectManagerId}>
+        <FormControl fullWidth size="small" error={Boolean(errors.projectManagerId)}>
+          <MuiSelect
+            value={formData.projectManagerId}
+            onChange={(e) => {
+              const mgr = managers.find((m) => m.id === e.target.value)
+              setFormData((prev) => ({
+                ...prev,
+                projectManagerId: e.target.value,
+                projectManagerName: mgr?.name ?? '',
+                teamMembers: prev.teamMembers.filter((m) => m.id !== e.target.value),
+              }))
+            }}
+            displayEmpty
+            sx={{ fontSize: 13 }}
+            renderValue={(val) => {
+              if (!val) {
+                return (
+                  <Typography sx={{ fontSize: 13, color: 'text.disabled' }}>
+                    Select project lead…
+                  </Typography>
+                )
+              }
+              const mgr = managers.find((m) => m.id === val)
+              if (!mgr) return val
+              return (
+                <Stack direction="row" alignItems="center" gap={1}>
+                  <PersonOutline sx={{ fontSize: 14 }} />
+                  <Typography sx={{ fontSize: 13 }}>{mgr.name}</Typography>
+                </Stack>
+              )
+            }}
+          >
+            <MenuItem value="" sx={{ fontSize: 13 }}>
+              Select project lead…
+            </MenuItem>
+            {managers.map((m) => (
+              <MenuItem key={m.id} value={m.id} sx={{ fontSize: 13, gap: 1 }}>
+                <PersonOutline sx={{ fontSize: 14 }} />
+                {m.name}
+                <MuiChip
+                  label={getRoleLabel(m.role)}
+                  size="small"
+                  sx={{ height: 16, fontSize: 10, ml: 'auto', '& .MuiChip-label': { px: '6px' } }}
+                />
+              </MenuItem>
+            ))}
+          </MuiSelect>
+        </FormControl>
+      </FormField>
+
       <FormField label="Add Team Members">
         <Autocomplete
           multiple
           size="small"
-          options={allUsers}
+          options={teamOptions}
+          disabled={!formData.projectManagerId}
           getOptionLabel={(u) => u.name}
           value={formData.teamMembers}
           onChange={(_, val) =>
@@ -447,7 +635,9 @@ function Step4Team({
           renderInput={(params) => (
             <TextField
               {...params}
-              placeholder="Search users…"
+              placeholder={
+                formData.projectManagerId ? 'Search users…' : 'Select a project lead first…'
+              }
               sx={{ '& input': { fontSize: 13 } }}
             />
           )}
@@ -522,6 +712,113 @@ function Step4Team({
   )
 }
 
+function Step5ProjectDocuments({
+  formData,
+  setFormData,
+}: {
+  formData: WizardFormData
+  setFormData: React.Dispatch<React.SetStateAction<WizardFormData>>
+}) {
+  function DocumentBlock({
+    title,
+    notesOrLink,
+    file,
+    onNotesOrLinkChange,
+    onFileChange,
+  }: {
+    title: string
+    notesOrLink: string
+    file: File | null
+    onNotesOrLinkChange: (v: string) => void
+    onFileChange: (next: File | null) => void
+  }) {
+    const inputRef = useRef<HTMLInputElement | null>(null)
+    const blobUrl = useMemo(() => (file ? URL.createObjectURL(file) : ''), [file])
+    return (
+      <Box>
+        <Stack gap={1.25}>
+          <Stack direction="row" justifyContent="space-between" alignItems="center">
+            <Typography variant="caption" sx={{ fontSize: 12, fontWeight: 500 }}>
+              {title}
+            </Typography>
+            <MuiButton variant="outlined" component="label" size="small" startIcon={<Upload />} sx={{ fontSize: 13 }}>
+              Upload
+              <input
+                ref={inputRef}
+                type="file"
+                hidden
+                accept=".pdf,.doc,.docx,.xlsx,.jpg,.jpeg,.png,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,image/jpeg,image/png"
+                onChange={(e) => onFileChange(e.target.files?.[0] ?? null)}
+              />
+            </MuiButton>
+          </Stack>
+          <Input value={notesOrLink} onChange={onNotesOrLinkChange} placeholder="Add notes or paste URL" size="sm" />
+          {file ? (
+            <Stack alignItems="flex-start" gap={0.5}>
+              <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
+                {file.name}
+              </Typography>
+              <Stack direction="row" gap={1}>
+                <MuiButton size="small" variant="text" sx={{ minWidth: 0, p: 0, fontSize: 11 }} onClick={() => window.open(blobUrl, '_blank', 'noopener,noreferrer')}>View</MuiButton>
+                <MuiButton size="small" variant="text" sx={{ minWidth: 0, p: 0, fontSize: 11 }} startIcon={<Download sx={{ fontSize: 12 }} />} onClick={() => { const a = document.createElement('a'); a.href = blobUrl; a.download = file.name; a.click() }}>Download</MuiButton>
+                <MuiButton size="small" variant="text" sx={{ minWidth: 0, p: 0, fontSize: 11 }} onClick={() => inputRef.current?.click()}>Replace</MuiButton>
+              </Stack>
+            </Stack>
+          ) : null}
+        </Stack>
+      </Box>
+    )
+  }
+
+  return (
+    <FullPageFormSection
+      title="Project Documents"
+      subtitle="Capture final handover links and document files"
+      columns={2}
+    >
+      <DocumentBlock
+        title="Final Layout"
+        notesOrLink={formData.finalLayoutDescription}
+        file={formData.finalLayoutFile}
+        onNotesOrLinkChange={(v) => setFormData((prev) => ({ ...prev, finalLayoutDescription: v }))}
+        onFileChange={(file) => setFormData((prev) => ({ ...prev, finalLayoutFile: file }))}
+      />
+      <DocumentBlock
+        title="Final RCP"
+        notesOrLink={formData.finalRcpDescription}
+        file={formData.finalRcpFile}
+        onNotesOrLinkChange={(v) => setFormData((prev) => ({ ...prev, finalRcpDescription: v }))}
+        onFileChange={(file) => setFormData((prev) => ({ ...prev, finalRcpFile: file }))}
+      />
+      <DocumentBlock
+        title="Final Views"
+        notesOrLink={formData.finalViewsDescription}
+        file={formData.finalViewsFile}
+        onNotesOrLinkChange={(v) => setFormData((prev) => ({ ...prev, finalViewsDescription: v }))}
+        onFileChange={(file) => setFormData((prev) => ({ ...prev, finalViewsFile: file }))}
+      />
+      <DocumentBlock
+        title="Final Photographs"
+        notesOrLink={formData.finalPhotographsDescription}
+        file={formData.finalPhotographsFile}
+        onNotesOrLinkChange={(v) => setFormData((prev) => ({ ...prev, finalPhotographsDescription: v }))}
+        onFileChange={(file) => setFormData((prev) => ({ ...prev, finalPhotographsFile: file }))}
+      />
+      <Box sx={{ gridColumn: '1 / -1' }}>
+        <FormField label="Final Handover Documents" hint="Upload one or more final handover files">
+          <FileUpload
+            accept=".pdf,.doc,.docx,.xlsx,.jpg,.jpeg,.png,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,image/jpeg,image/png"
+            multiple
+            showAcceptText={false}
+            onUpload={(files) => setFormData((prev) => ({ ...prev, finalHandoverFiles: files }))}
+            helperText="PDF, Word, Excel, JPG, PNG"
+          />
+        </FormField>
+      </Box>
+    </FullPageFormSection>
+  )
+}
+
 // ─── CreateProjectPage ────────────────────────────────────────────────────────
 
 const STEPS = [
@@ -529,23 +826,43 @@ const STEPS = [
   { label: 'Requirements', description: 'Capture brief' },
   { label: 'Project Setup', description: 'Basic details' },
   { label: 'Team', description: 'Assign users' },
+  { label: 'Project Documents', description: 'Docs' },
 ]
 
 const INITIAL_FORM: WizardFormData = {
   customerId: '',
   customerName: '',
+  contactIds: [],
   requirementFile: null,
   requirementNotes: '',
   name: '',
   location: '',
-  projectType: '',
+  projectTypes: [],
+  sector: '',
   carpetArea: '',
+  buildValuePerSqft: '',
+  designFeePerSqft: '',
   headcount: '',
   projectManagerId: '',
   projectManagerName: '',
   startDate: '',
   expectedEndDate: '',
   teamMembers: [],
+  finalLayoutDescription: '',
+  finalLayoutLink: '',
+  finalRcpDescription: '',
+  finalRcpLink: '',
+  finalViewsDescription: '',
+  finalViewsLink: '',
+  finalPhotographsDescription: '',
+  finalPhotographsLink: '',
+  finalHandoverDescription: '',
+  finalHandoverLink: '',
+  finalLayoutFile: null,
+  finalRcpFile: null,
+  finalViewsFile: null,
+  finalPhotographsFile: null,
+  finalHandoverFiles: [],
 }
 
 export default function CreateProjectPage() {
@@ -582,11 +899,19 @@ export default function CreateProjectPage() {
 
     if (step === 0) {
       if (!formData.customerId) newErrors.customerId = 'Please select a customer'
+      if (formData.contactIds.length === 0) {
+        newErrors.contactId = 'Please select at least one contact person'
+      }
     }
     if (step === 2) {
       if (!formData.name.trim()) newErrors.name = 'Project name is required'
-      if (!formData.projectType) newErrors.projectType = 'Project type is required'
-      if (!formData.projectManagerId) newErrors.projectManagerId = 'Project manager is required'
+      if (formData.projectTypes.length === 0) {
+        newErrors.projectTypes = 'Select at least one project type'
+      }
+      if (!formData.sector) newErrors.sector = 'Sector is required'
+    }
+    if (step === 3 && !formData.projectManagerId) {
+      newErrors.projectManagerId = 'Project lead is required'
     }
 
     setErrors(newErrors)
@@ -607,14 +932,20 @@ export default function CreateProjectPage() {
   async function handleSubmit() {
     if (!validateStep(activeStep)) return
 
+    const customer = customers.find((c) => c.id === formData.customerId) ?? null
+    const selectedContacts = findContactsByIds(customer, formData.contactIds)
     const payload = {
       customerId: formData.customerId,
       customerName: formData.customerName,
       name: formData.name,
       location: formData.location,
-      type: formData.projectType as 'Design Only' | 'Design & Build',
+      projectTypes: formData.projectTypes,
+      sector: formData.sector,
       carpetArea: formData.carpetArea ? Number(formData.carpetArea) : null,
+      buildValuePerSqft: formData.buildValuePerSqft ? Number(formData.buildValuePerSqft) : null,
+      designFeePerSqft: formData.designFeePerSqft ? Number(formData.designFeePerSqft) : null,
       headcount: formData.headcount ? Number(formData.headcount) : null,
+      clientTeam: clientTeamFromContacts(selectedContacts, formData.customerName),
       projectManagerId: formData.projectManagerId,
       projectManager: formData.projectManagerName,
       startDate: formData.startDate || null,
@@ -626,6 +957,7 @@ export default function CreateProjectPage() {
       totalVendorPOValue: 0,
       invoicedAmount: 0,
       paidVendorAmount: 0,
+      projectDocuments: buildProjectDocumentsFromForm(formData),
     }
 
     try {
@@ -658,13 +990,22 @@ export default function CreateProjectPage() {
           <Step3ProjectSetup
             formData={formData}
             setFormData={setFormData}
+            errors={errors}
+          />
+        )
+      case 3:
+        return (
+          <Step4Team
+            formData={formData}
+            setFormData={setFormData}
+            allUsers={users}
             managers={managers}
             getRoleLabel={getRoleLabel}
             errors={errors}
           />
         )
-      case 3:
-        return <Step4Team formData={formData} setFormData={setFormData} allUsers={users} />
+      case 4:
+        return <Step5ProjectDocuments formData={formData} setFormData={setFormData} />
       default:
         return null
     }
@@ -675,13 +1016,15 @@ export default function CreateProjectPage() {
     'What are the requirements?',
     'Set up the project',
     'Build the team',
+    'Project documents',
   ]
 
   const stepSubtitles = [
-    'Select the customer this project is for.',
+    'Select the customer and one or more contact persons for this project.',
     'Upload any briefing documents or add notes.',
     'Fill in the core project details.',
-    'Assign team members who will work on this project.',
+    'Choose a project lead, then add team members who will work on this project.',
+    'Add document descriptions, links, and uploads.',
   ]
 
   return (

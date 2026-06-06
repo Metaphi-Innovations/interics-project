@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react'
-import { Box, Divider, Stack, Typography } from '@mui/material'
+import {
+  Box,
+  Divider,
+  FormControl,
+  Grid,
+  MenuItem,
+  Select,
+  Stack,
+  Typography,
+} from '@mui/material'
 import { FormField } from '@/components/templates/DrawerForm'
 import { Badge, Button, Checkbox, Input, useToast } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
@@ -10,6 +19,7 @@ import {
   fetchPayments,
   fetchReimbursements,
   fetchVendorInvoices,
+  updateVendorPayableControl,
 } from '@/slices/live/thunk'
 import type { ExpenseType, VendorInvoice } from '@/slices/live/reducer'
 import type { Baseline } from '@/slices/baseline/reducer'
@@ -17,12 +27,18 @@ import { formatCurrency, formatDate } from '@/utils/formatters'
 import { AddVendorInvoiceDrawer } from './AddVendorInvoiceDrawer'
 import { VendorInvoiceDetailModal } from './SettlementModals'
 import {
+  computePayablePaymentStatus,
   computeVendorCardCounts,
+  deriveVendorComplianceStatus,
   expenseRowsForVendor,
   findInvoiceForMilestone,
   findVendorMapping,
+  getPayableControl,
   invoiceMatchesRow,
+  isPayableReleaseAllowed,
   milestoneRowState,
+  payableStatusBadgeColor,
+  payableStatusLabel,
   reimbMatchesRow,
   type VendorServiceRow,
 } from './utils'
@@ -55,7 +71,8 @@ export function SettlementRightPanel({
 }) {
   const dispatch = useAppDispatch()
   const toast = useToast()
-  const { vendorInvoices, expenses, reimbursements, saving } = useAppSelector((s) => s.live)
+  const { vendorInvoices, expenses, reimbursements, vendorPayableControls, saving } =
+    useAppSelector((s) => s.live)
 
   const [addOpen, setAddOpen] = useState(false)
   const [addDrawerPresetMilestoneId, setAddDrawerPresetMilestoneId] = useState<string | undefined>(
@@ -120,10 +137,49 @@ export function SettlementRightPanel({
         pendingRmbAmount: 0,
         outstanding: 0,
         allSettled: true,
+        milestoneCount: 0,
+        uninvoicedMilestones: 0,
+        billSubmitted: false,
       }
     }
     return computeVendorCardCounts(baseline, projectInvoices, projectExpenses, projectReimb, selectedRow)
   }, [baseline, projectInvoices, projectExpenses, projectReimb, selectedRow])
+
+  const payableControl = useMemo(() => {
+    if (!selectedRow) return null
+    return getPayableControl(vendorPayableControls, projectId, selectedRow)
+  }, [vendorPayableControls, projectId, selectedRow])
+
+  const payableStatus = useMemo(() => {
+    if (!payableControl) return 'pending_compliance' as const
+    return computePayablePaymentStatus(countsForSelected, payableControl)
+  }, [countsForSelected, payableControl])
+
+  const releaseAllowed = payableControl ? isPayableReleaseAllowed(payableControl) : false
+
+  async function persistPayableControl(
+    patch: Partial<{
+      clientPaymentReceived: boolean
+      complianceChecks: typeof payableControl extends null ? never : NonNullable<typeof payableControl>['complianceChecks']
+    }>,
+  ) {
+    if (!selectedRow || !payableControl) return
+    const complianceChecks = patch.complianceChecks ?? payableControl.complianceChecks
+    const next = {
+      projectId,
+      vendorId: selectedRow.vendorId,
+      serviceId: selectedRow.serviceId,
+      clientPaymentReceived:
+        patch.clientPaymentReceived ?? payableControl.clientPaymentReceived,
+      complianceChecks,
+      vendorComplianceStatus: deriveVendorComplianceStatus(complianceChecks),
+    }
+    try {
+      await dispatch(updateVendorPayableControl({ projectId, data: next })).unwrap()
+    } catch {
+      toast.error('Failed to save payable checks')
+    }
+  }
 
   const netCalc = useMemo(() => {
     const invObjs = projectInvoices.filter((i) => selInv.has(i.id))
@@ -155,6 +211,8 @@ export function SettlementRightPanel({
     netCalc.netPaid > 0 &&
     paymentDate.trim() !== '' &&
     referenceNumber.trim() !== '' &&
+    releaseAllowed &&
+    !countsForSelected.allSettled &&
     !saving
 
   const toggle = (set: Dispatch<SetStateAction<Set<string>>>, id: string, on: boolean) => {
@@ -251,6 +309,14 @@ export function SettlementRightPanel({
                     Total outstanding: ₹
                     {formatCurrency(countsForSelected.outstanding)}
                   </Typography>
+                  <Box sx={{ mt: 1 }}>
+                    <Badge
+                      label={payableStatusLabel(payableStatus)}
+                      variant="soft"
+                      color={payableStatusBadgeColor(payableStatus)}
+                      size="sm"
+                    />
+                  </Box>
                 </Box>
                 <Button
                   size="sm"
@@ -264,127 +330,265 @@ export function SettlementRightPanel({
               </Stack>
             </Box>
 
+            <Box sx={{ px: 2, py: 2, borderBottom: `1px solid ${tokens.color.neutral[100]}`, bgcolor: tokens.color.neutral[50] }}>
+              <Typography variant="overline" sx={{ fontSize: 10, letterSpacing: 0.6, display: 'block', mb: 1.5 }}>
+                Payable release checks
+              </Typography>
+              <Stack gap={1.5}>
+                <FormField label="Client payment received">
+                  <FormControl size="small" fullWidth>
+                    <Select
+                      value={payableControl?.clientPaymentReceived ? 'yes' : 'no'}
+                      onChange={(e) =>
+                        void persistPayableControl({
+                          clientPaymentReceived: e.target.value === 'yes',
+                        })
+                      }
+                      sx={{ fontSize: 12 }}
+                    >
+                      <MenuItem value="yes" sx={{ fontSize: 12 }}>
+                        Yes
+                      </MenuItem>
+                      <MenuItem value="no" sx={{ fontSize: 12 }}>
+                        No
+                      </MenuItem>
+                    </Select>
+                  </FormControl>
+                </FormField>
+                <Box>
+                  <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11, display: 'block', mb: 0.75 }}>
+                    Vendor compliance (all required before release)
+                  </Typography>
+                  <Grid container spacing={2} alignItems="center">
+                    {(
+                      [
+                        ['insurance', 'Insurance'],
+                        ['contractSigned', 'Contract Signed'],
+                        ['documentsSubmitted', 'Required Documents Submitted'],
+                      ] as const
+                    ).map(([key, label]) => (
+                      <Grid key={key} size={{ xs: 12, sm: 4 }}>
+                        <Checkbox
+                          size="sm"
+                          label={label}
+                          checked={payableControl?.complianceChecks[key] ?? false}
+                          onChange={(checked) => {
+                            if (!payableControl) return
+                            void persistPayableControl({
+                              complianceChecks: {
+                                ...payableControl.complianceChecks,
+                                [key]: checked,
+                              },
+                            })
+                          }}
+                          sx={{ m: 0 }}
+                        />
+                      </Grid>
+                    ))}
+                  </Grid>
+                  <Typography variant="caption" sx={{ fontSize: 11, mt: 1, display: 'block' }}>
+                    Compliance status:{' '}
+                    <strong>
+                      {payableControl?.vendorComplianceStatus === 'complete' ? 'Complete' : 'Pending'}
+                    </strong>
+                  </Typography>
+                </Box>
+                {!releaseAllowed && !countsForSelected.allSettled && (
+                  <Typography variant="caption" color="warning.main" sx={{ fontSize: 11 }}>
+                    {payableStatus === 'waiting_for_client_payment'
+                      ? 'Waiting for client payment before vendor release.'
+                      : payableStatus === 'pending_compliance'
+                        ? 'Complete compliance checks before vendor release.'
+                        : 'Payment release is blocked.'}
+                  </Typography>
+                )}
+              </Stack>
+            </Box>
+
             <Box sx={{ flex: 1, overflow: 'auto', px: 2, py: 2 }}>
               <Typography variant="overline" sx={{ fontSize: 10, letterSpacing: 0.6 }}>
-                Select items to include
+                Milestone invoices & settlement
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1, fontSize: 11 }}>
+                Upload vendor invoices against each project milestone / payment sheet.
               </Typography>
 
               <Typography variant="subtitle2" sx={{ mt: 2, mb: 1, fontSize: 12 }}>
                 Invoices
               </Typography>
-              <Stack gap={1}>
-                {vendorMilestonesForPanel.length === 0 && (
-                  <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12 }}>
-                    No milestones for this vendor mapping in baseline.
-                  </Typography>
-                )}
-                {vendorMilestonesForPanel.map((vm, idx) => {
-                  const inv = findInvoiceForMilestone(invoicesForRow, vm)
-                  const st = milestoneRowState(inv)
-                  const state1 = st === 1
-                  const state2 = st === 2
-                  const state3 = st === 3
-                  const rowBg =
-                    state3 || state1 ? tokens.color.neutral[50] : 'transparent'
-                  const rowOp = state3 || state1 ? 0.85 : 1
-                  return (
-                    <Stack
-                      key={vm.id}
-                      sx={{
-                        p: 1.5,
-                        borderRadius: 1,
-                        bgcolor: rowBg,
-                        opacity: rowOp,
-                        border: `1px solid ${tokens.color.neutral[100]}`,
-                      }}
-                    >
-                      <Stack direction="row" alignItems="flex-start" gap={1}>
-                        <Box
+              {vendorMilestonesForPanel.length === 0 ? (
+                <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12 }}>
+                  No milestones for this vendor mapping in baseline.
+                </Typography>
+              ) : (
+                <Grid container spacing={1.5} sx={{ mt: 0.5, alignItems: 'stretch' }}>
+                  {vendorMilestonesForPanel.map((vm, idx) => {
+                    const inv = findInvoiceForMilestone(invoicesForRow, vm)
+                    const st = milestoneRowState(inv)
+                    const state1 = st === 1
+                    const state2 = st === 2
+                    const state3 = st === 3
+                    const rowBg =
+                      state3 || state1 ? tokens.color.neutral[50] : 'transparent'
+                    const rowOp = state3 || state1 ? 0.85 : 1
+                    return (
+                      <Grid key={vm.id} size={{ xs: 12, sm: 6 }} sx={{ display: 'flex', alignSelf: 'stretch' }}>
+                        <Stack
                           sx={{
-                            width: 40,
-                            flexShrink: 0,
+                            p: 1,
+                            borderRadius: 1,
+                            bgcolor: rowBg,
+                            opacity: rowOp,
+                            border: `1px solid ${tokens.color.neutral[100]}`,
+                            width: '100%',
+                            height: '100%',
+                            flex: 1,
                             display: 'flex',
-                            alignItems: 'flex-start',
-                            justifyContent: 'center',
+                            flexDirection: 'column',
+                            boxSizing: 'border-box',
                           }}
                         >
-                          {state2 && inv && (
-                            <Checkbox
-                              size="sm"
-                              checked={selInv.has(inv.id)}
-                              onChange={(checked) => toggle(setSelInv, inv.id, checked)}
-                            />
-                          )}
-                          {state1 && <Checkbox size="sm" checked={false} disabled />}
-                          {state3 && <Checkbox size="sm" checked disabled />}
-                        </Box>
-                        <Box sx={{ flex: 1, minWidth: 0 }}>
-                          <Stack direction="row" justifyContent="space-between" alignItems="baseline" gap={1}>
-                            <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 700 }}>
-                              M{idx + 1} — {vm.name}
-                            </Typography>
-                            <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 700 }}>
-                              ₹{formatCurrency(vm.value)}
-                            </Typography>
+                          <Stack
+                            direction="row"
+                            alignItems="stretch"
+                            gap={0.75}
+                            sx={{ flex: 1, minHeight: 0 }}
+                          >
+                            <Box
+                              sx={{
+                                width: 32,
+                                flexShrink: 0,
+                                display: 'flex',
+                                alignItems: 'flex-start',
+                                justifyContent: 'center',
+                                pt: 0.25,
+                              }}
+                            >
+                              {state2 && inv && (
+                                <Checkbox
+                                  size="sm"
+                                  checked={selInv.has(inv.id)}
+                                  onChange={(checked) => toggle(setSelInv, inv.id, checked)}
+                                />
+                              )}
+                              {state1 && <Checkbox size="sm" checked={false} disabled />}
+                              {state3 && <Checkbox size="sm" checked disabled />}
+                            </Box>
+                            <Box
+                              sx={{
+                                flex: 1,
+                                minWidth: 0,
+                                display: 'flex',
+                                flexDirection: 'column',
+                                height: '100%',
+                              }}
+                            >
+                              <Stack
+                                direction="row"
+                                justifyContent="space-between"
+                                alignItems="baseline"
+                                gap={0.75}
+                              >
+                                <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 700, lineHeight: 1.3 }}>
+                                  M{idx + 1} — {vm.name}
+                                </Typography>
+                                <Typography
+                                  variant="body2"
+                                  sx={{ fontSize: 12, fontWeight: 700, flexShrink: 0, lineHeight: 1.3 }}
+                                >
+                                  ₹{formatCurrency(vm.value)}
+                                </Typography>
+                              </Stack>
+                              {state1 && (
+                                <Stack
+                                  direction="row"
+                                  alignItems="center"
+                                  justifyContent="space-between"
+                                  gap={0.5}
+                                  sx={{ mt: 'auto', pt: 0.5, width: '100%' }}
+                                >
+                                  <Typography
+                                    variant="caption"
+                                    color="text.secondary"
+                                    sx={{ fontSize: 11, lineHeight: 1.3 }}
+                                  >
+                                    No invoice uploaded
+                                  </Typography>
+                                  {selectedRow && (
+                                    <Button
+                                      size="sm"
+                                      variant="outlined"
+                                      color="primary"
+                                      label="+ Upload Invoice"
+                                      sx={{ flexShrink: 0 }}
+                                      onClick={() => {
+                                        setAddDrawerPresetMilestoneId(vm.id)
+                                        setAddOpen(true)
+                                      }}
+                                    />
+                                  )}
+                                </Stack>
+                              )}
+                              {(state2 || state3) && inv && (
+                                <Typography
+                                  variant="caption"
+                                  sx={{
+                                    fontSize: 11,
+                                    color: 'text.secondary',
+                                    mt: 0.25,
+                                    lineHeight: 1.3,
+                                    display: 'block',
+                                  }}
+                                >
+                                  Invoice: {inv.invoiceNumber} · {formatDate(inv.invoiceDate)}
+                                </Typography>
+                              )}
+                              {(state2 || state3) && (
+                                <Stack
+                                  direction="row"
+                                  alignItems="center"
+                                  gap={0.5}
+                                  flexWrap="wrap"
+                                  sx={{ mt: 'auto', pt: 0.5 }}
+                                >
+                                  {state2 && inv && (
+                                    <>
+                                      <Badge label="Pending" variant="soft" color="warning" size="sm" />
+                                      <Button
+                                        size="sm"
+                                        variant="text"
+                                        label="View"
+                                        onClick={() => setViewInvoice(inv)}
+                                      />
+                                      <Button
+                                        size="sm"
+                                        variant="text"
+                                        label="Pay Now"
+                                        onClick={() => toggle(setSelInv, inv.id, true)}
+                                      />
+                                    </>
+                                  )}
+                                  {state3 && inv && (
+                                    <>
+                                      <Badge label="Paid" variant="soft" color="success" size="sm" />
+                                      <Button
+                                        size="sm"
+                                        variant="text"
+                                        label="View"
+                                        onClick={() => setViewInvoice(inv)}
+                                      />
+                                    </>
+                                  )}
+                                </Stack>
+                              )}
+                            </Box>
                           </Stack>
-                          {state1 && (
-                            <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11, mt: 0.5 }}>
-                              No invoice uploaded
-                            </Typography>
-                          )}
-                          {(state2 || state3) && inv && (
-                            <Typography variant="caption" sx={{ fontSize: 11, color: 'text.secondary', mt: 0.5 }}>
-                              Invoice: {inv.invoiceNumber} · {formatDate(inv.invoiceDate)}
-                            </Typography>
-                          )}
-                          <Stack direction="row" alignItems="center" gap={0.75} flexWrap="wrap" sx={{ mt: 1 }}>
-                            {state2 && inv && (
-                              <>
-                                <Badge label="Pending" variant="soft" color="warning" size="sm" />
-                                <Button
-                                  size="sm"
-                                  variant="text"
-                                  label="View"
-                                  onClick={() => setViewInvoice(inv)}
-                                />
-                                <Button
-                                  size="sm"
-                                  variant="text"
-                                  label="Pay Now"
-                                  onClick={() => toggle(setSelInv, inv.id, true)}
-                                />
-                              </>
-                            )}
-                            {state3 && inv && (
-                              <>
-                                <Badge label="Paid" variant="soft" color="success" size="sm" />
-                                <Button
-                                  size="sm"
-                                  variant="text"
-                                  label="View"
-                                  onClick={() => setViewInvoice(inv)}
-                                />
-                              </>
-                            )}
-                            {state1 && selectedRow && (
-                              <Button
-                                size="sm"
-                                variant="outlined"
-                                color="primary"
-                                label="+ Upload Invoice"
-                                onClick={() => {
-                                  setAddDrawerPresetMilestoneId(vm.id)
-                                  setAddOpen(true)
-                                }}
-                              />
-                            )}
-                          </Stack>
-                        </Box>
-                      </Stack>
-                    </Stack>
-                  )
-                })}
-              </Stack>
+                        </Stack>
+                      </Grid>
+                    )
+                  })}
+                </Grid>
+              )}
 
               <Divider sx={{ my: 2 }} />
 
@@ -394,50 +598,74 @@ export function SettlementRightPanel({
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
                 Vendor-linked and this vendor&apos;s share of common expenses (deduct from payment).
               </Typography>
-              <Stack gap={1}>
-                {expensesForRow.length === 0 && (
-                  <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12 }}>
-                    No expenses
-                  </Typography>
-                )}
-                {expensesForRow.map(({ expense: e, amount, kind }) => {
-                  const locked = e.status === 'included_in_payment'
-                  return (
-                    <Stack
-                      key={`${e.id}-${kind}`}
-                      direction="row"
-                      alignItems="center"
-                      gap={1}
-                      sx={{
-                        p: 1.5,
-                        borderRadius: 1,
-                        bgcolor: locked ? tokens.color.neutral[50] : 'transparent',
-                        opacity: locked ? 0.72 : 1,
-                        border: `1px solid ${tokens.color.neutral[100]}`,
-                      }}
-                    >
-                      {!locked && (
-                        <Checkbox
-                          size="sm"
-                          checked={selExp.has(e.id)}
-                          onChange={(checked) => toggle(setSelExp, e.id, checked)}
-                        />
-                      )}
-                      {locked && <Box sx={{ width: 40 }} />}
-                      <Box sx={{ flex: 1 }}>
-                        <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 500 }}>
-                          {e.description}
-                        </Typography>
-                        <TypeBadge type={e.type} />
-                      </Box>
-                      <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600 }}>
-                        ₹{formatCurrency(amount)}
-                      </Typography>
-                      {locked && <Badge label="Included" variant="soft" color="neutral" size="sm" />}
-                    </Stack>
-                  )
-                })}
-              </Stack>
+              {expensesForRow.length === 0 ? (
+                <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12 }}>
+                  No expenses
+                </Typography>
+              ) : (
+                <Grid container spacing={1.5}>
+                  {expensesForRow.map(({ expense: e, amount, kind }) => {
+                    const locked = e.status === 'included_in_payment'
+                    return (
+                      <Grid key={`${e.id}-${kind}`} size={{ xs: 12, sm: 6, md: 4 }}>
+                        <Stack
+                          sx={{
+                            p: 1,
+                            borderRadius: 1,
+                            bgcolor: locked ? tokens.color.neutral[50] : 'transparent',
+                            opacity: locked ? 0.72 : 1,
+                            border: `1px solid ${tokens.color.neutral[100]}`,
+                            width: '100%',
+                            boxSizing: 'border-box',
+                          }}
+                        >
+                          <Stack
+                            direction="row"
+                            alignItems="flex-start"
+                            justifyContent="space-between"
+                            gap={0.75}
+                          >
+                            <Stack direction="row" alignItems="flex-start" gap={0.75} sx={{ flex: 1, minWidth: 0 }}>
+                              <Box
+                                sx={{
+                                  width: 32,
+                                  flexShrink: 0,
+                                  display: 'flex',
+                                  justifyContent: 'center',
+                                  pt: 0.25,
+                                }}
+                              >
+                                <Checkbox
+                                  size="sm"
+                                  checked={locked ? false : selExp.has(e.id)}
+                                  disabled={locked}
+                                  onChange={(checked) => toggle(setSelExp, e.id, checked)}
+                                />
+                              </Box>
+                              <Box sx={{ flex: 1, minWidth: 0 }}>
+                                <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 500, lineHeight: 1.3 }}>
+                                  {e.description}
+                                </Typography>
+                                <Box sx={{ mt: 0.5 }}>
+                                  <TypeBadge type={e.type} />
+                                </Box>
+                              </Box>
+                            </Stack>
+                            <Stack alignItems="flex-end" gap={0.5} sx={{ flexShrink: 0 }}>
+                              <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600, lineHeight: 1.3 }}>
+                                ₹{formatCurrency(amount)}
+                              </Typography>
+                              {locked && (
+                                <Badge label="Included" variant="soft" color="neutral" size="sm" />
+                              )}
+                            </Stack>
+                          </Stack>
+                        </Stack>
+                      </Grid>
+                    )
+                  })}
+                </Grid>
+              )}
 
               <Divider sx={{ my: 2 }} />
 
@@ -547,16 +775,20 @@ export function SettlementRightPanel({
                 </Stack>
               </Stack>
 
-              <Stack gap={1.5} sx={{ mt: 2 }}>
-                <FormField label="Payment Reference" required>
-                  <Input value={referenceNumber} onChange={setReferenceNumber} size="sm" />
-                </FormField>
-                <FormField label="Payment Date" required>
-                  <Input type="date" value={paymentDate} onChange={setPaymentDate} size="sm" />
-                </FormField>
-              </Stack>
+              <Grid container spacing={1.5} sx={{ mt: 2 }}>
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <FormField label="Payment Reference" required>
+                    <Input value={referenceNumber} onChange={setReferenceNumber} size="sm" />
+                  </FormField>
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <FormField label="Payment Date" required>
+                    <Input type="date" value={paymentDate} onChange={setPaymentDate} size="sm" />
+                  </FormField>
+                </Grid>
+              </Grid>
 
-              <Box sx={{ mt: 2 }}>
+              <Box sx={{ mt: 1.5 }}>
                 <Button
                   size="sm"
                   variant="contained"

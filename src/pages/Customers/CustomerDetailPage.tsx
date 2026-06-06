@@ -12,10 +12,6 @@ import {
   TableHead,
   TableRow,
   IconButton as MuiIconButton,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
   Grid,
   Link,
 } from '@mui/material'
@@ -30,11 +26,12 @@ import {
   FolderOpen,
   Add,
   Delete,
+  Star,
   StarBorder,
   Person,
 } from '@mui/icons-material'
 import { ChevronRight, History, Plus } from 'lucide-react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { fetchCustomerById, updateCustomer } from '../../slices/customers/thunk'
 import { clearSelected } from '../../slices/customers/reducer'
@@ -49,6 +46,12 @@ import {
   getAvatarColor,
   formatCurrency,
 } from '../../utils/formatters'
+import {
+  getPrimaryContact,
+  legacyContactsFromCustomer,
+  normalizeContacts,
+  primaryFieldsFromContact,
+} from '../../utils/customerContacts'
 import { tokens } from '@/design-system/tokens'
 import { useTheme, alpha } from '@mui/material/styles'
 import {
@@ -145,8 +148,11 @@ const ACTIVITY_FILTER_OPTIONS: { id: ActivityFilterCategory; label: string }[] =
 
 // ─── CustomerDetailPage ───────────────────────────────────────────────────────
 
+const CUSTOMER_DETAIL_TABS = ['overview', 'docs-tax', 'contacts', 'projects', 'billing', 'financial', 'activity'] as const
+
 export default function CustomerDetailPage() {
   const { id: slug } = useParams<{ id: string }>()
+  const [searchParams] = useSearchParams()
   const dispatch = useAppDispatch()
   const customer = useAppSelector((s) => s.customers.selectedItem)
   const { showToast } = useToast()
@@ -161,7 +167,6 @@ export default function CustomerDetailPage() {
   const [contacts, setContacts] = useState<Contact[]>([])
   const [contactDrawerOpen, setContactDrawerOpen] = useState(false)
   const [editingContact, setEditingContact] = useState<Contact | null>(null)
-  const [deleteConfirmContact, setDeleteConfirmContact] = useState<Contact | null>(null)
   const [activityFilter, setActivityFilter] = useState<ActivityFilterCategory>('all')
 
   useEffect(() => {
@@ -179,10 +184,19 @@ export default function CustomerDetailPage() {
   }, [slug, dispatch])
 
   useEffect(() => {
-    if (customer) {
-      setContacts(customer.contacts ?? [])
-    }
+    if (!customer) return
+    const seed = customer.contacts?.length
+      ? customer.contacts
+      : legacyContactsFromCustomer(customer)
+    setContacts(normalizeContacts(seed))
   }, [customer])
+
+  useEffect(() => {
+    const tab = searchParams.get('tab')
+    if (tab && (CUSTOMER_DETAIL_TABS as readonly string[]).includes(tab)) {
+      setActiveTab(tab)
+    }
+  }, [searchParams])
 
   async function handleToggleStatus() {
     if (!customer) return
@@ -202,46 +216,69 @@ export default function CustomerDetailPage() {
   // ── Contact actions ─────────────────────────────────────────────────────────
 
   function primaryContact(): Contact | undefined {
-    return contacts.find((c) => c.isPrimary)
+    if (!customer) return undefined
+    return getPrimaryContact({ ...customer, contacts })
   }
 
-  function handleSaveContact(data: Omit<Contact, 'id'> & { id?: string }) {
+  async function persistContacts(nextContacts: Contact[]) {
+    if (!customer) return
+    const normalized = normalizeContacts(nextContacts)
+    const primary = getPrimaryContact({ ...customer, contacts: normalized })
+    try {
+      await dispatch(
+        updateCustomer({
+          id: customer.id,
+          data: {
+            contacts: normalized,
+            ...primaryFieldsFromContact(primary),
+          },
+        }),
+      ).unwrap()
+      setContacts(normalized)
+    } catch {
+      showToast({ title: 'Failed to save contacts', variant: 'error' })
+    }
+  }
+
+  async function handleSaveContact(data: Omit<Contact, 'id'> & { id?: string }) {
+    let next: Contact[]
     if (data.id) {
-      // Edit
-      setContacts((prev) => {
-        const updated = prev.map((c) => {
-          if (data.isPrimary) return { ...c, isPrimary: c.id === data.id }
-          return c.id === data.id ? { ...c, ...data, id: c.id } : c
-        })
-        return updated
+      next = contacts.map((c) => {
+        if (c.id === data.id) {
+          return { ...c, ...data, id: c.id, isPrimary: data.isPrimary ?? c.isPrimary }
+        }
+        return data.isPrimary ? { ...c, isPrimary: false } : c
       })
+      if (data.isPrimary) {
+        next = next.map((c) => ({ ...c, isPrimary: c.id === data.id }))
+      }
       showToast({ title: 'Contact updated', variant: 'success' })
     } else {
-      // Add
       const newId = `cc-local-${Date.now()}`
-      setContacts((prev) => {
-        let next = [...prev]
-        if (data.isPrimary) next = next.map((c) => ({ ...c, isPrimary: false }))
-        next.push({ ...data, id: newId })
-        return next
-      })
+      const isFirst = contacts.length === 0
+      const makePrimary = data.isPrimary || isFirst
+      let list = makePrimary ? contacts.map((c) => ({ ...c, isPrimary: false })) : [...contacts]
+      list.push({ ...data, id: newId, isPrimary: makePrimary })
+      next = list
       showToast({ title: 'Contact added', variant: 'success' })
     }
     setContactDrawerOpen(false)
     setEditingContact(null)
+    await persistContacts(next)
   }
 
-  function handleSetPrimary(contactId: string) {
-    setContacts((prev) => prev.map((c) => ({ ...c, isPrimary: c.id === contactId })))
+  async function handleSetPrimary(contactId: string) {
+    const next = contacts.map((c) => ({ ...c, isPrimary: c.id === contactId }))
+    await persistContacts(next)
     showToast({ title: 'Primary contact updated', variant: 'success' })
   }
 
-  function handleDeleteContact(contact: Contact) {
-    if (contact.isPrimary) {
-      setDeleteConfirmContact(contact)
-      return
+  async function handleDeleteContact(contact: Contact) {
+    let next = contacts.filter((c) => c.id !== contact.id)
+    if (next.length > 0) {
+      next = normalizeContacts(next)
     }
-    setContacts((prev) => prev.filter((c) => c.id !== contact.id))
+    await persistContacts(next)
     showToast({ title: 'Contact removed', variant: 'success' })
   }
 
@@ -643,7 +680,17 @@ export default function CustomerDetailPage() {
                     {getInitials(contact.name)}
                   </Box>
                   <Box sx={{ flex: 1, minWidth: 0 }}>
-                    <Typography variant="body2" fontWeight={600}>{contact.name}</Typography>
+                    <Stack direction="row" alignItems="center" gap={1} flexWrap="wrap">
+                      <Typography variant="body2" fontWeight={600}>{contact.name}</Typography>
+                      {contact.isPrimary ? (
+                        <Typography
+                          variant="caption"
+                          sx={{ fontSize: 10, fontWeight: 600, color: 'primary.main', letterSpacing: 0.3 }}
+                        >
+                          Primary Contact
+                        </Typography>
+                      ) : null}
+                    </Stack>
                     {contact.designation && (
                       <Typography variant="caption" color="text.secondary">{contact.designation}</Typography>
                     )}
@@ -667,20 +714,27 @@ export default function CustomerDetailPage() {
                     >
                       <Edit sx={{ fontSize: 15 }} />
                     </MuiIconButton>
-                    {!contact.isPrimary && (
-                      <MuiIconButton
-                        size="small"
-                        title="Set as primary"
-                        onClick={() => handleSetPrimary(contact.id)}
-                        sx={{ color: 'text.secondary', '&:hover': { color: 'warning.main' } }}
-                      >
+                    <MuiIconButton
+                      size="small"
+                      title={contact.isPrimary ? 'Primary contact' : 'Set as primary'}
+                      onClick={() => {
+                        if (!contact.isPrimary) void handleSetPrimary(contact.id)
+                      }}
+                      sx={{
+                        color: contact.isPrimary ? 'warning.main' : 'text.secondary',
+                        '&:hover': { color: 'warning.main' },
+                      }}
+                    >
+                      {contact.isPrimary ? (
+                        <Star sx={{ fontSize: 15 }} />
+                      ) : (
                         <StarBorder sx={{ fontSize: 15 }} />
-                      </MuiIconButton>
-                    )}
+                      )}
+                    </MuiIconButton>
                     <MuiIconButton
                       size="small"
                       title="Delete contact"
-                      onClick={() => handleDeleteContact(contact)}
+                      onClick={() => { void handleDeleteContact(contact) }}
                       sx={{ color: 'text.secondary', '&:hover': { color: 'error.main' } }}
                     >
                       <Delete sx={{ fontSize: 15 }} />
@@ -968,21 +1022,6 @@ export default function CustomerDetailPage() {
         onSave={handleSaveContact}
       />
 
-      {/* Delete primary contact warning dialog */}
-      <Dialog open={!!deleteConfirmContact} onClose={() => setDeleteConfirmContact(null)} maxWidth="xs">
-        <DialogTitle sx={{ fontSize: 15, fontWeight: 600 }}>Cannot Delete Primary Contact</DialogTitle>
-        <DialogContent>
-          <Typography variant="body2" color="text.secondary">
-            <strong>{deleteConfirmContact?.name}</strong> is the primary contact. Please set another
-            contact as primary before deleting this one.
-          </Typography>
-        </DialogContent>
-        <DialogActions sx={{ px: 2.5, pb: 2 }}>
-          <Button variant="outlined" color="secondary" size="sm" onClick={() => setDeleteConfirmContact(null)}>
-            OK, got it
-          </Button>
-        </DialogActions>
-      </Dialog>
     </>
   )
 }
