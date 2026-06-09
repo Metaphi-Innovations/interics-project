@@ -19,8 +19,18 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
-      - name: Build interics.dev.metaphi.in
-        working-directory: ./interics.dev.metaphi.in
+      - name: Create temp workspace
+        run: |
+          rm -rf /var/www/.interics-work
+          mkdir -p /var/www/.interics-work
+
+      - name: Copy project to temp workspace
+        run: |
+          cp -r "$GITHUB_WORKSPACE/interics.dev.metaphi.in" /var/www/.interics-work/
+          cp -r "$GITHUB_WORKSPACE/interics.metaphi.in" /var/www/.interics-work/
+
+      - name: Build dev site
+        working-directory: /var/www/.interics-work/interics.dev.metaphi.in
         run: |
           npm ci
           npm run build
@@ -33,8 +43,8 @@ jobs:
           RewriteRule . /index.html [L]
           EOF
 
-      - name: Build interics.metaphi.in
-        working-directory: ./interics.metaphi.in
+      - name: Build prod site
+        working-directory: /var/www/.interics-work/interics.metaphi.in
         run: |
           npm ci
           npm run build
@@ -49,10 +59,12 @@ jobs:
 
       - name: Deploy dev site
         run: |
-          rsync -av --delete ./interics.dev.metaphi.in/dist/ /var/www/interics.dev.metaphi.in/
+          rsync -av --delete /var/www/.interics-work/interics.dev.metaphi.in/dist/ /var/www/interics.dev.metaphi.in/
 
       - name: Deploy prod site
         run: |
-          rsync -av --delete ./interics.metaphi.in/dist/ /var/www/interics.metaphi.in/
-      - name: apache reload
-        run: systemctl reload apache2
+          rsync -av --delete /var/www/.interics-work/interics.metaphi.in/dist/ /var/www/interics.metaphi.in/
+
+      - name: Cleanup temp workspace
+        if: always()
+        run: rm -rf /var/www/.interics-work
