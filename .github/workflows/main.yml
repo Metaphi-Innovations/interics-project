@@ -24,11 +24,6 @@ jobs:
           rm -rf /var/www/.interics-work
           mkdir -p /var/www/.interics-work
 
-      - name: Copy project to temp workspace
-        run: |
-          cp -r "$GITHUB_WORKSPACE/interics.dev.metaphi.in" /var/www/.interics-work/
-          cp -r "$GITHUB_WORKSPACE/interics.metaphi.in" /var/www/.interics-work/
-
       - name: Build dev site
         working-directory: /var/www/.interics-work/interics.dev.metaphi.in
         run: |
