@@ -1,4 +1,4 @@
-name: Frontend Deploy - glts.dev.metaphi.in
+name: Deploy Frontend
 
 on:
   push:
@@ -9,49 +9,50 @@ jobs:
   deploy:
     runs-on: self-hosted
 
-    env:
-      PATH: /home/runner/.nvm/versions/node/v22.21.1/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-      PM2_HOME: /home/runner/.pm2
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Verify runner user
-        run: |
-          whoami
-          id
-          echo "HOME=$HOME"
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
 
-      - name: Verify node, npm and pm2
+      - name: Build interics.dev.metaphi.in
+        working-directory: ./interics.dev.metaphi.in
         run: |
-          node -v
-          npm -v
-          pm2 -v
+          npm ci
+          npm run build
+          cat > dist/.htaccess <<'EOF'
+          RewriteEngine On
+          RewriteBase /
+          RewriteRule ^index\.html$ - [L]
+          RewriteCond %{REQUEST_FILENAME} !-f
+          RewriteCond %{REQUEST_FILENAME} !-d
+          RewriteRule . /index.html [L]
+          EOF
 
-      - name: Ensure deployment directory exists
+      - name: Build interics.metaphi.in
+        working-directory: ./interics.metaphi.in
         run: |
-          mkdir -p /var/www/glts
+          npm ci
+          npm run build
+          cat > dist/.htaccess <<'EOF'
+          RewriteEngine On
+          RewriteBase /
+          RewriteRule ^index\.html$ - [L]
+          RewriteCond %{REQUEST_FILENAME} !-f
+          RewriteCond %{REQUEST_FILENAME} !-d
+          RewriteRule . /index.html [L]
+          EOF
 
-      - name: Copy files to deployment directory
+      - name: Deploy dev site
         run: |
-          rsync -av --delete \
-            --exclude='.git' \
-            --exclude='node_modules' \
-            --exclude='.env' \
-            ./ /var/www/bisc.metaphi.in/
+          rsync -av --delete ./interics.dev.metaphi.in/dist/ /var/www/interics.dev.metaphi.in/
 
-      - name: Install dependencies
-        working-directory: /var/www/glts
+      - name: Deploy prod site
         run: |
-          npm install
-
-      - name: Stop existing PM2 process
-        working-directory: /var/www/glts
-        run: |
-          pm2 restart 11
-          sleep 2
-  
-      - name: Show PM2 logs
-        run: |
-          pm2 logs glts --lines 30 --nostream
+          rsync -av --delete ./interics.metaphi.in/dist/ /var/www/interics.metaphi.in/
+      - name: apache reload
+        run: systemctl reload apache2
