@@ -32,7 +32,7 @@ const rolesSlice = createSlice({
       .addCase(fetchRoles.pending, (state) => { state.loading = true })
       .addCase(fetchRoles.fulfilled, (state, action) => {
         state.loading = false
-        state.items = action.payload
+        state.items = action.payload ?? []
       })
       .addCase(fetchRoles.rejected, (state) => { state.loading = false })
 

@@ -5,7 +5,7 @@ import {
   createBaseline,
   fetchBaselineHistory,
 } from '@/slices/baseline/thunk'
-import { fetchVersions } from '@/slices/pitch/thunk'
+import { fetchVersionById, fetchVersions } from '@/slices/pitch/thunk'
 import { fetchTransition, saveTransition } from '@/slices/transition/thunk'
 import { hydrateDraft, setSelectedSourceVersionId } from '@/slices/transition/reducer'
 import { changeProjectStatus, fetchProjectById } from '@/slices/projects/thunk'
@@ -14,16 +14,30 @@ import {
   selectTransitionDraft,
   selectTransitionSourceVersionId,
 } from '@/store/selectors/transitionSelectors'
+import { selectPitchVersionForProject } from '@/store/selectors/pitchSelectors'
 import {
   hydrateDraftFromPitchVersion,
   recalcTransitionDraft,
   type TransitionDraft,
 } from '@/utils/transitionDraft'
-import { validateTransitionForFinalize } from '@/utils/transitionFinalize'
+import {
+  formatGoLiveBlockMessage,
+  validateGoLiveMinimum,
+} from '@/utils/transitionFinalize'
 
 export type ConvertProjectToLiveResult =
   | { ok: true }
   | { ok: false; message: string }
+
+const PITCH_SAVE_POLL_MS = 50
+const PITCH_SAVE_TIMEOUT_MS = 5000
+
+async function waitForPitchSaveIdle(getState: () => RootState): Promise<void> {
+  const start = Date.now()
+  while (getState().pitch.saving && Date.now() - start < PITCH_SAVE_TIMEOUT_MS) {
+    await new Promise((resolve) => setTimeout(resolve, PITCH_SAVE_POLL_MS))
+  }
+}
 
 async function runFinalizeFromDraft(
   dispatch: AppDispatch,
@@ -82,7 +96,8 @@ async function runFinalizeFromDraft(
 }
 
 /**
- * Converts a Pitch project to Live: creates baseline when needed, then sets status to Live.
+ * Converts a Pitch project to Live: requires a baseline (existing or newly created).
+ * Never sets Live without a successful baseline for this project.
  */
 export async function convertProjectToLive(
   dispatch: AppDispatch,
@@ -95,11 +110,25 @@ export async function convertProjectToLive(
 
   await dispatch(fetchClientPO(project.id)).unwrap()
   await dispatch(fetchBaseline(project.id)).unwrap()
+
+  const preFetchState = getState()
+  const editingVersionId =
+    preFetchState.pitch.activeVersion?.projectId === project.id
+      ? preFetchState.pitch.activeVersionId
+      : null
+
+  await waitForPitchSaveIdle(getState)
   await dispatch(fetchVersions(project.id)).unwrap()
+  if (editingVersionId) {
+    await dispatch(
+      fetchVersionById({ projectId: project.id, versionId: editingVersionId }),
+    ).unwrap()
+  }
   await dispatch(fetchTransition(project.id)).unwrap()
 
   let state = getState()
-  const existingBaseline = state.baseline.baseline
+  const existingBaseline =
+    state.baseline.baseline?.projectId === project.id ? state.baseline.baseline : null
 
   if (existingBaseline) {
     await dispatch(changeProjectStatus({ id: project.id, status: 'Live' })).unwrap()
@@ -107,16 +136,14 @@ export async function convertProjectToLive(
     return { ok: true }
   }
 
-  let draft = selectTransitionDraft(state, project.id) ?? null
-  let selectedVersionId = selectTransitionSourceVersionId(state, project.id)
   const clientPOs = state.baseline.clientPOs.filter((po) => po.projectId === project.id)
-  const activePitchVersion =
-    state.pitch.activeVersion ??
-    state.pitch.versions.find((v) => v.isActive) ??
-    state.pitch.versions[0] ??
-    null
+  const activePitchVersion = selectPitchVersionForProject(state, project.id)
 
-  if (!draft && activePitchVersion) {
+  // Always sync from the latest pitch version so Pitch-tab edits are not blocked by a
+  // stale or empty transition draft cached from an earlier Convert Live attempt.
+  let draft: TransitionDraft | null = null
+  let selectedVersionId: string | null = null
+  if (activePitchVersion) {
     const hydrated = hydrateDraftFromPitchVersion(project.id, activePitchVersion)
     dispatch(
       setSelectedSourceVersionId({
@@ -127,30 +154,27 @@ export async function convertProjectToLive(
     dispatch(hydrateDraft({ projectId: project.id, draft: hydrated }))
     draft = hydrated
     selectedVersionId = activePitchVersion.id
-    state = getState()
+  } else {
+    draft = selectTransitionDraft(state, project.id) ?? null
+    selectedVersionId = selectTransitionSourceVersionId(state, project.id)
   }
 
-  const validation = validateTransitionForFinalize({
+  const validation = validateGoLiveMinimum({
+    projectId: project.id,
     clientPOs,
     selectedVersionId,
     draft,
   })
   const referenceClientPoId = clientPOs[0]?.id ?? ''
 
-  if (validation.ok && draft && referenceClientPoId) {
-    try {
-      await runFinalizeFromDraft(dispatch, project, draft, referenceClientPoId)
-      return { ok: true }
-    } catch {
-      return { ok: false, message: 'Failed to convert project to Live.' }
-    }
+  if (!validation.ok || !draft) {
+    return { ok: false, message: formatGoLiveBlockMessage(validation.messages) }
   }
 
   try {
-    await dispatch(changeProjectStatus({ id: project.id, status: 'Live' })).unwrap()
-    await dispatch(fetchProjectById(project.id)).unwrap()
+    await runFinalizeFromDraft(dispatch, project, draft, referenceClientPoId)
     return { ok: true }
   } catch {
-    return { ok: false, message: 'Failed to convert project to Live.' }
+    return { ok: false, message: 'Failed to create baseline and convert project to Live.' }
   }
 }

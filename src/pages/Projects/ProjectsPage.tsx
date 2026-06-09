@@ -52,8 +52,7 @@ import type { Project } from '../../slices/projects/reducer'
 import { ListingTemplate } from '../../components/templates/ListingTemplate'
 import CreateProjectModal from './CreateProjectModal'
 import { DrawerForm, FormField, FormSection } from '../../components/templates/DrawerForm'
-import { StatusBadge, useToast, Input } from '@/design-system/components'
-import type { StatusType } from '@/design-system/components'
+import { useToast, Input } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { useTheme, alpha } from '@mui/material/styles'
 import {
@@ -387,12 +386,7 @@ function ProjectsTable({
                 {/* Status */}
                 {columns.status && (
                   <TableCell sx={cellSx}>
-                    <Stack gap="4px" alignItems="flex-start">
-                      <StatusBadge
-                        status={project.status.toLowerCase().replace(/\s+/g, '_') as StatusType}
-                      />
-                      <ProgressBadge label={project.progress} />
-                    </Stack>
+                    <ProgressBadge label={project.progress} />
                   </TableCell>
                 )}
 
@@ -563,7 +557,6 @@ function ProjectGridCard({ project, onView, onEdit, onChangeStatus }: ProjectGri
 
       {/* Status row */}
       <Stack direction="row" alignItems="center" gap="6px" sx={{ mt: 1 }}>
-        <StatusBadge status={project.status.toLowerCase().replace(/\s+/g, '_') as StatusType} />
         <ProgressBadge label={project.progress} />
       </Stack>
 
@@ -958,10 +951,11 @@ export default function ProjectsPage() {
   const navigate = useNavigate()
   const toast = useToast()
 
-  const { items, loading, saving, filters, pagination, sortConfig } = useAppSelector(
+  const { items: rawItems, loading, saving, filters, pagination, sortConfig } = useAppSelector(
     (s) => s.projects
   )
-  const users = useAppSelector((s) => s.users.items)
+  const items = rawItems ?? []
+  const users = useAppSelector((s) => s.users.items ?? [])
 
   const [createModalOpen, setCreateModalOpen] = useState(false)
 

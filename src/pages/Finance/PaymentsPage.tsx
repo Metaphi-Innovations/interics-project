@@ -35,13 +35,14 @@ import {
   fetchVendorInvoices,
   fetchVendorPayableControls,
 } from '@/slices/live/thunk'
-import type { Baseline } from '@/slices/baseline/reducer'
+import type { Baseline, VendorPO } from '@/slices/baseline/reducer'
 import { formatCurrency } from '@/utils/formatters'
 import {
   baselineVendorMilestoneEntries,
   baselineVendorServiceRows,
-  mergeMilestoneEntries,
+  mergeMilestoneEntriesWithVendorPO,
   vendorInvoiceMilestoneEntries,
+  vendorPOVendorMilestoneEntries,
   clientPaymentLabel,
   complianceDisplayLabel,
   computeMilestonePayableStatus,
@@ -224,15 +225,29 @@ async function fetchBaselineForProject(projectId: string): Promise<Baseline | nu
   }
 }
 
+async function fetchVendorPOsForProject(projectId: string): Promise<VendorPO[]> {
+  try {
+    const res = await client.get<VendorPO[]>(`/projects/${projectId}/vendor-pos`)
+    return res.data
+  } catch {
+    return []
+  }
+}
+
 export default function PaymentsPage() {
   const dispatch = useAppDispatch()
   const theme = useTheme()
   const { showToast } = useToast()
-  const { items: projects, loading: projectsLoading } = useAppSelector((s) => s.projects)
-  const { vendorInvoices, payments, expenses, reimbursements, vendorPayableControls } =
-    useAppSelector((s) => s.live)
+  const { items: rawProjects, loading: projectsLoading } = useAppSelector((s) => s.projects)
+  const projects = rawProjects ?? []
+  const vendorInvoices = useAppSelector((s) => s.live.vendorInvoices ?? [])
+  const payments = useAppSelector((s) => s.live.payments ?? [])
+  const expenses = useAppSelector((s) => s.live.expenses ?? [])
+  const reimbursements = useAppSelector((s) => s.live.reimbursements ?? [])
+  const vendorPayableControls = useAppSelector((s) => s.live.vendorPayableControls ?? [])
 
   const [baselinesByProject, setBaselinesByProject] = useState<Record<string, Baseline | null>>({})
+  const [vendorPOsByProject, setVendorPOsByProject] = useState<Record<string, VendorPO[]>>({})
   const [financeLoaded, setFinanceLoaded] = useState(false)
 
   const projectIdsKey = useMemo(
@@ -266,15 +281,20 @@ export default function PaymentsPage() {
   useEffect(() => {
     if (projects.length === 0) {
       setBaselinesByProject({})
+      setVendorPOsByProject({})
       return
     }
     let cancelled = false
     void (async () => {
-      const entries = await Promise.all(
+      const baselineEntries = await Promise.all(
         projects.map(async (p) => [p.id, await fetchBaselineForProject(p.id)] as const),
       )
+      const vendorPOEntries = await Promise.all(
+        projects.map(async (p) => [p.id, await fetchVendorPOsForProject(p.id)] as const),
+      )
       if (!cancelled) {
-        setBaselinesByProject(Object.fromEntries(entries))
+        setBaselinesByProject(Object.fromEntries(baselineEntries))
+        setVendorPOsByProject(Object.fromEntries(vendorPOEntries))
       }
     })()
     return () => {
@@ -327,20 +347,15 @@ export default function PaymentsPage() {
   const allMilestones = useMemo((): VendorMilestoneEntry[] => {
     const out: VendorMilestoneEntry[] = []
     for (const p of projects) {
-      const fromBaseline = baselineVendorMilestoneEntries(
-        p.id,
-        p.name,
-        baselinesByProject[p.id] ?? null,
-      )
-      const fromInvoices = vendorInvoiceMilestoneEntries(
-        p.id,
-        p.name,
-        vendorInvoices,
-      )
-      out.push(...mergeMilestoneEntries(fromBaseline, fromInvoices))
+      const bl = baselinesByProject[p.id] ?? null
+      const vpos = vendorPOsByProject[p.id] ?? []
+      const fromVendorPO = vendorPOVendorMilestoneEntries(p.id, p.name, vpos, bl)
+      const fromBaseline = baselineVendorMilestoneEntries(p.id, p.name, bl)
+      const fromInvoices = vendorInvoiceMilestoneEntries(p.id, p.name, vendorInvoices)
+      out.push(...mergeMilestoneEntriesWithVendorPO(fromVendorPO, fromBaseline, fromInvoices))
     }
     return out
-  }, [projects, baselinesByProject, vendorInvoices])
+  }, [projects, baselinesByProject, vendorPOsByProject, vendorInvoices])
 
   const milestonesAfterProjectVendor = useMemo(() => {
     return allMilestones.filter((m) => {
@@ -896,7 +911,14 @@ export default function PaymentsPage() {
                           const inv = vendorInvoices.filter((v) => v.projectId === c.projectId)
                           const ex = expenses.filter((e) => e.projectId === c.projectId)
                           const rb = reimbursements.filter((r) => r.projectId === c.projectId)
-                          const counts = computeVendorCardCounts(bl, inv, ex, rb, c.row)
+                          const counts = computeVendorCardCounts(
+                            bl,
+                            inv,
+                            ex,
+                            rb,
+                            c.row,
+                            vendorPOsByProject[c.projectId] ?? [],
+                          )
                           const controlRail = getPayableControl(vendorPayableControls, c.projectId, c.row)
                           const railPayableSt = computePayablePaymentStatus(counts, controlRail)
                           return (

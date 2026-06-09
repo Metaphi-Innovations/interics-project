@@ -71,7 +71,7 @@ export default function UserViewPage() {
   const navigate = useNavigate()
   const { id: userId } = useParams<{ id: string }>()
   const dispatch = useAppDispatch()
-  const roles = useAppSelector((s) => s.roles.items)
+  const roles = useAppSelector((s) => s.roles.items ?? [])
   const canEdit = usePermission('userManagement', 'edit')
 
   const [user, setUser] = useState<User | null>(null)

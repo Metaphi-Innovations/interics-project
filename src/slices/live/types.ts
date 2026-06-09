@@ -156,6 +156,8 @@ export interface Expense {
   }[]
   status: 'pending' | 'included_in_payment'
   linkedPaymentId?: string
+  /** Set when a reimbursable expense auto-syncs to payables. */
+  linkedReimbursementId?: string
 }
 
 export interface Reimbursement {
@@ -174,6 +176,10 @@ export interface Reimbursement {
   documentUrl?: string
   status: 'pending' | 'included_in_payment'
   linkedPaymentId?: string
+  /** Live expense that spawned this reimbursement (reimbursable sync). */
+  sourceExpenseId?: string
+  /** Pitch planned expense that spawned this reimbursement. */
+  sourcePlannedExpenseId?: string
 }
 
 export interface ComplianceData {

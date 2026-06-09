@@ -418,7 +418,8 @@ function AddedTeamTable({
 export default function AddedTeamPage() {
   const dispatch = useAppDispatch()
   const navigate = useNavigate()
-  const { items, loading, error } = useAppSelector((s) => s.projects)
+  const { items: rawItems, loading, error } = useAppSelector((s) => s.projects)
+  const items = rawItems ?? []
 
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')

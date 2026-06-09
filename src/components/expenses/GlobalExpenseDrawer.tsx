@@ -8,7 +8,8 @@ import {
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { fetchProjects } from '@/slices/projects/thunk'
 import { fetchBaseline, fetchVendorPOs } from '@/slices/baseline/thunk'
-import { createExpense, fetchExpenses } from '@/slices/live/thunk'
+import { createExpense, fetchExpenses, fetchReimbursements } from '@/slices/live/thunk'
+import { isReimbursableExpenseType } from '@/utils/reimbursableSync'
 import { useToast } from '@/design-system/components'
 
 export interface GlobalExpenseDrawerProps {
@@ -21,7 +22,7 @@ export interface GlobalExpenseDrawerProps {
 export function GlobalExpenseDrawer({ open, onClose, onSuccess }: GlobalExpenseDrawerProps) {
   const dispatch = useAppDispatch()
   const toast = useToast()
-  const projects = useAppSelector((s) => s.projects.items)
+  const projects = useAppSelector((s) => s.projects.items ?? [])
   const { baseline, vendorPOs } = useAppSelector((s) => s.baseline)
   const { saving } = useAppSelector((s) => s.live)
 
@@ -57,7 +58,12 @@ export function GlobalExpenseDrawer({ open, onClose, onSuccess }: GlobalExpenseD
       try {
         await dispatch(createExpense({ projectId, data: body })).unwrap()
         await dispatch(fetchExpenses(projectId)).unwrap()
-        toast.success('Expense added')
+        if (isReimbursableExpenseType(body.type)) {
+          await dispatch(fetchReimbursements(projectId)).unwrap()
+        }
+        toast.success(
+          isReimbursableExpenseType(body.type) ? 'Reimbursement added for payables' : 'Expense added',
+        )
         onSuccess?.()
         onClose()
       } catch {

@@ -53,6 +53,7 @@ import {
   createVersion,
   deleteCategory,
   deleteService,
+  fetchVersionById,
   fetchVersions,
   updateService,
   updateVersion,
@@ -64,7 +65,6 @@ import { formatCurrency } from '../../../utils/formatters'
 import type { Project } from '../../../slices/projects/reducer'
 import { registerVendorQuotationUpload } from '../projectDocumentUploads'
 import { deleteExpense, fetchExpenses } from '@/slices/live/thunk'
-
 const SECTION_NAMES = ['Design & Diligence', 'Build Services', 'Consultancy'] as const
 const CLIENT_OFFER_DRAFT_SERVICE_ID = '__client-offer-draft-service__'
 const FINANCIAL_SIDEBAR_WIDTH = 280
@@ -177,7 +177,6 @@ export default function PitchTab({ project }: { project: Project }) {
 
   const [uploadQuotationOpen, setUploadQuotationOpen] = useState(false)
   const [quotationFile, setQuotationFile] = useState<File | null>(null)
-  const [offerNotes, setOfferNotes] = useState<Record<string, string>>({})
   const [vendorOfferDrawerOpen, setVendorOfferDrawerOpen] = useState(false)
   const [expenseDrawerOpen, setExpenseDrawerOpen] = useState(false)
   const [expenseEditing, setExpenseEditing] = useState<PlannedExpense | null>(null)
@@ -396,6 +395,10 @@ export default function PitchTab({ project }: { project: Project }) {
     }
   }
 
+  async function refreshPitchVersion(versionId: string): Promise<void> {
+    await dispatch(fetchVersionById({ projectId: project.id, versionId })).unwrap()
+  }
+
   async function persistDraftServiceRow(
     category: PitchCategory,
     patch: Partial<PitchService>,
@@ -422,6 +425,7 @@ export default function PitchTab({ project }: { project: Project }) {
           },
         }),
       ).unwrap()
+      await refreshPitchVersion(activeVersion.id)
     } catch {
       showToast({ title: 'Failed to add service', variant: 'error' })
     } finally {
@@ -484,14 +488,37 @@ export default function PitchTab({ project }: { project: Project }) {
     }
   }
 
-  function saveService(categoryId: string, serviceId: string, data: Partial<PitchService>): void {
+  async function saveService(
+    categoryId: string,
+    serviceId: string,
+    data: Partial<PitchService>,
+  ): Promise<void> {
     if (!activeVersion) return
-    void dispatch(updateService({ projectId: project.id, versionId: activeVersion.id, categoryId, serviceId, data }))
+    await dispatch(
+      updateService({
+        projectId: project.id,
+        versionId: activeVersion.id,
+        categoryId,
+        serviceId,
+        data,
+      }),
+    ).unwrap()
   }
 
-  function saveMappingsForService(serviceId: string, mappings: VendorMapping[]): void {
+  async function saveMappingsForService(
+    serviceId: string,
+    mappings: VendorMapping[],
+  ): Promise<void> {
     if (!activeVersion) return
-    void dispatch(updateVendorMapping({ projectId: project.id, versionId: activeVersion.id, serviceId, mappings }))
+    await dispatch(
+      updateVendorMapping({
+        projectId: project.id,
+        versionId: activeVersion.id,
+        serviceId,
+        mappings,
+      }),
+    ).unwrap()
+    await refreshPitchVersion(activeVersion.id)
   }
 
   function syncVendorQuotationToDocuments(
@@ -549,6 +576,19 @@ export default function PitchTab({ project }: { project: Project }) {
     [activeVersion],
   )
 
+  const getNotesForService = useCallback(
+    (categoryId: string, serviceKey: string): string => {
+      const category = activeVersion?.categories.find((c) => c.id === categoryId)
+      if (!category) return ''
+      const service =
+        category.services.find((s) => (s.subcategoryId ?? s.id) === serviceKey) ??
+        category.services.find((s) => s.id === serviceKey)
+      if (!service) return ''
+      return (service.vendorMappings ?? []).find((m) => m.notes?.trim())?.notes?.trim() ?? ''
+    },
+    [activeVersion],
+  )
+
   async function saveVendorOfferFromDrawer(draft: VendorOfferDraft): Promise<void> {
     if (!activeVersion || !draft.serviceId || !draft.categoryId || draft.rows.length === 0) return
 
@@ -597,6 +637,7 @@ export default function PitchTab({ project }: { project: Project }) {
         service =
           updatedCategory?.services.find((s) => s.id === serviceOpt.pitchServiceId) ??
           updatedCategory?.services.find((s) => s.subcategoryId === draft.serviceId)
+        await refreshPitchVersion(activeVersion.id)
       } catch {
         showToast({ title: 'Failed to add service for vendor offer', variant: 'error' })
         return
@@ -606,6 +647,8 @@ export default function PitchTab({ project }: { project: Project }) {
 
     const existingById = new Map((service.vendorMappings ?? []).map((m) => [m.id, m]))
     const existingByVendor = new Map((service.vendorMappings ?? []).map((m) => [m.vendorId, m]))
+
+    const notesValue = draft.notesTags.trim() || undefined
 
     const next: VendorMapping[] = draft.rows.map((row, index) => {
       const amount = Number(row.amount)
@@ -633,15 +676,16 @@ export default function PitchTab({ project }: { project: Project }) {
         retention: prev?.retention,
         isMeasurable: row.isMeasurable,
         ...(quotation ? { quotation } : {}),
+        notes: draft.notesTags.trim() || undefined,
       }
     }).filter((m): m is VendorMapping => m != null)
 
-    saveMappingsForService(service.id, next)
+    await saveMappingsForService(service.id, next)
 
     for (const row of draft.rows) {
       if (!row.file || !row.vendorId) continue
       const vendor = vendorOptions.find((v) => v.id === row.vendorId)
-      syncVendorQuotationToDocuments(row.file, vendor?.label ?? '', serviceOpt.label)
+      syncVendorQuotationToDocuments(row.file, vendor?.label ?? '', serviceOpt.label, notesValue)
     }
   }
 
@@ -911,7 +955,7 @@ export default function PitchTab({ project }: { project: Project }) {
                         </TableCell>
                         <TableCell align="left">
                           <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary' }}>
-                            {offerNotes[k] || '—'}
+                            {row.mapping.notes?.trim() || '—'}
                           </Typography>
                         </TableCell>
                         <TableCell align="center">
@@ -956,7 +1000,7 @@ export default function PitchTab({ project }: { project: Project }) {
                                     f,
                                     row.mapping.vendorName,
                                     row.serviceName,
-                                    offerNotes[k],
+                                    row.mapping.notes,
                                   )
                                   e.target.value = ''
                                 }}
@@ -1194,6 +1238,7 @@ export default function PitchTab({ project }: { project: Project }) {
         categoryOptions={vendorCategoryOptions}
         getServiceOptions={getClientOfferServiceOptions}
         existingRowsForService={getExistingVendorAllocationRows}
+        getNotesForService={getNotesForService}
         onSave={saveVendorOfferFromDrawer}
       />
 

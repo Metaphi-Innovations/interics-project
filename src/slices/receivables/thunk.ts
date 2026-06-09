@@ -1,5 +1,6 @@
 import { createAsyncThunk } from '@reduxjs/toolkit'
 import { receivablesApi } from '../../api/receivablesApi'
+import { normalizeListResponse } from '@/utils/normalizeListResponse'
 import type { Invoice } from './reducer'
 import type { RecordPaymentPayload } from './paymentTypes'
 
@@ -21,7 +22,7 @@ export const fetchInvoices = createAsyncThunk(
   async (params: FetchInvoicesParams = {}, { rejectWithValue }) => {
     try {
       const response = await receivablesApi.getAll(params as Record<string, unknown>)
-      return response.data as { items: Invoice[]; total: number }
+      return normalizeListResponse<Invoice>(response.data)
     } catch (err: unknown) {
       const error = err as { response?: { data?: { message?: string } } }
       return rejectWithValue(error.response?.data?.message ?? 'Failed to fetch invoices')

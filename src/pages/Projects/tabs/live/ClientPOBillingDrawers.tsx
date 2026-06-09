@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
+  Alert,
   Box,
   Dialog,
   DialogActions,
@@ -7,6 +8,8 @@ import {
   DialogTitle,
   Divider,
   IconButton as MuiIconButton,
+  MenuItem,
+  Select,
   Stack,
   Table,
   TableBody,
@@ -28,9 +31,14 @@ import {
   updateClientPO,
   uploadClientPO,
 } from '../../../../slices/baseline/thunk'
+import { fetchVersions } from '../../../../slices/pitch/thunk'
 import type { ClientPO, ClientPOMilestone } from '../../../../slices/baseline/reducer'
-import type { ClientMilestone } from '@/slices/pitch/reducer'
 import { formatCurrency } from '../../../../utils/formatters'
+import {
+  flattenClientOfferServices,
+  serviceNameForOption,
+  type ClientPOServiceOption,
+} from './clientPOServiceOptions'
 
 const PO_SECTION_TITLE_SX = {
   fontSize: '10px',
@@ -55,14 +63,70 @@ const TABLE_CELL_SX = {
   px: 1.5,
 } as const
 
-/** Grid columns: Name | % | Value | Action — aligned with milestone input rows */
-const MILESTONE_GRID_COLUMNS = 'minmax(0, 1fr) 88px 112px 36px'
+/** Grid columns: Service | Name | % | Value | Action */
+const MILESTONE_GRID_COLUMNS = 'minmax(120px, 1fr) minmax(0, 1fr) 72px 96px 36px'
 
-const MILESTONE_HEADER_LABELS = ['Name', 'Percentage (%)', 'Value (₹)', 'Action'] as const
+const MILESTONE_HEADER_LABELS = ['Service', 'Name', 'Percentage (%)', 'Value (₹)', 'Action'] as const
 
 function calcMilestoneAmount(poValue: number, percentage: number): number {
   if (!poValue || !percentage) return 0
   return Math.round((percentage / 100) * poValue)
+}
+
+function emptyMilestoneRow(): ClientPOMilestone {
+  return {
+    id: `cpm-${Date.now()}`,
+    serviceId: '',
+    serviceName: '',
+    name: '',
+    percentage: 0,
+    value: 0,
+  }
+}
+
+function milestonePayloadFromEditor(milestones: ClientPOMilestone[]): ClientPOMilestone[] {
+  return milestones
+    .filter((m) => m.name.trim())
+    .map((m) => ({
+      id: m.id,
+      serviceId: m.serviceId,
+      serviceName: m.serviceName,
+      name: m.name,
+      percentage: m.percentage,
+      value: m.value,
+    }))
+}
+
+function validateNamedMilestones(
+  milestones: ClientPOMilestone[],
+  showError: (message: string) => void,
+): boolean {
+  const named = milestones.filter((m) => m.name.trim())
+  if (named.some((m) => !m.serviceId)) {
+    showError('Select a service for each milestone')
+    return false
+  }
+  return true
+}
+
+function useClientPOServiceOptions(projectId: string, open: boolean): ClientPOServiceOption[] {
+  const dispatch = useAppDispatch()
+  const { activeVersion } = useAppSelector((s) => s.pitch)
+  const { baseline } = useAppSelector((s) => s.baseline)
+
+  useEffect(() => {
+    if (open) void dispatch(fetchVersions(projectId))
+  }, [dispatch, projectId, open])
+
+  return useMemo(
+    () =>
+      flattenClientOfferServices(
+        activeVersion,
+        baseline?.projectId === projectId ? baseline : null,
+        projectId,
+      ),
+    [activeVersion, baseline, projectId],
+  )
 }
 
 function MilestoneEditorHeader() {
@@ -88,8 +152,8 @@ function MilestoneEditorHeader() {
             fontWeight: 700,
             color: tokens.color.neutral[500],
             letterSpacing: 0.5,
-            textAlign: i === 1 || i === 2 ? 'right' : 'left',
-            ...(i === 3 ? { textAlign: 'center' } : {}),
+            textAlign: i === 2 || i === 3 ? 'right' : 'left',
+            ...(i === 4 ? { textAlign: 'center' } : {}),
           }}
         >
           {label}
@@ -100,12 +164,18 @@ function MilestoneEditorHeader() {
 }
 
 interface MilestoneEditorRowsProps {
-  milestones: ClientMilestone[]
-  onUpdate: (idx: number, field: keyof ClientMilestone, val: string | number) => void
+  milestones: ClientPOMilestone[]
+  serviceOptions: ClientPOServiceOption[]
+  onUpdate: (idx: number, patch: Partial<ClientPOMilestone>) => void
   onRemove: (idx: number) => void
 }
 
-function MilestoneEditorRows({ milestones, onUpdate, onRemove }: MilestoneEditorRowsProps) {
+function MilestoneEditorRows({
+  milestones,
+  serviceOptions,
+  onUpdate,
+  onRemove,
+}: MilestoneEditorRowsProps) {
   if (milestones.length === 0) {
     return (
       <Typography
@@ -136,11 +206,28 @@ function MilestoneEditorRows({ milestones, onUpdate, onRemove }: MilestoneEditor
                 : 'none',
           }}
         >
+          <Select
+            size="small"
+            fullWidth
+            displayEmpty
+            value={m.serviceId}
+            onChange={(e) => onUpdate(idx, { serviceId: e.target.value })}
+            sx={{ fontSize: 12 }}
+          >
+            <MenuItem value="" sx={{ fontSize: 12 }}>
+              Select service
+            </MenuItem>
+            {serviceOptions.map((opt) => (
+              <MenuItem key={opt.id} value={opt.id} sx={{ fontSize: 12 }}>
+                {opt.label}
+              </MenuItem>
+            ))}
+          </Select>
           <TextField
             size="small"
             fullWidth
             value={m.name}
-            onChange={(e) => onUpdate(idx, 'name', e.target.value)}
+            onChange={(e) => onUpdate(idx, { name: e.target.value })}
             placeholder="Milestone name"
             inputProps={{ style: { fontSize: 12 } }}
           />
@@ -148,7 +235,7 @@ function MilestoneEditorRows({ milestones, onUpdate, onRemove }: MilestoneEditor
             size="small"
             type="number"
             value={m.percentage}
-            onChange={(e) => onUpdate(idx, 'percentage', Number(e.target.value))}
+            onChange={(e) => onUpdate(idx, { percentage: Number(e.target.value) })}
             inputProps={{ style: { fontSize: 12, textAlign: 'right' } }}
             placeholder="%"
           />
@@ -156,7 +243,7 @@ function MilestoneEditorRows({ milestones, onUpdate, onRemove }: MilestoneEditor
             size="small"
             type="number"
             value={m.value}
-            onChange={(e) => onUpdate(idx, 'value', Number(e.target.value))}
+            onChange={(e) => onUpdate(idx, { value: Number(e.target.value) })}
             inputProps={{ style: { fontSize: 12, textAlign: 'right' } }}
             placeholder="₹"
           />
@@ -195,11 +282,12 @@ function ClientPOMilestonesTable({ milestones }: { milestones: ClientPOMilestone
       <Table size="small" sx={{ width: '100%', tableLayout: 'fixed' }}>
         <TableHead>
           <TableRow sx={{ bgcolor: tokens.color.neutral[50] }}>
-            <TableCell sx={{ ...TABLE_HEADER_SX, width: '44%' }}>Name</TableCell>
-            <TableCell align="right" sx={{ ...TABLE_HEADER_SX, width: '22%' }}>
+            <TableCell sx={{ ...TABLE_HEADER_SX, width: '28%' }}>Service</TableCell>
+            <TableCell sx={{ ...TABLE_HEADER_SX, width: '28%' }}>Name</TableCell>
+            <TableCell align="right" sx={{ ...TABLE_HEADER_SX, width: '18%' }}>
               Percentage (%)
             </TableCell>
-            <TableCell align="right" sx={{ ...TABLE_HEADER_SX, width: '34%' }}>
+            <TableCell align="right" sx={{ ...TABLE_HEADER_SX, width: '26%' }}>
               Value (₹)
             </TableCell>
           </TableRow>
@@ -207,6 +295,11 @@ function ClientPOMilestonesTable({ milestones }: { milestones: ClientPOMilestone
         <TableBody>
           {milestones.map((m) => (
             <TableRow key={m.id} hover>
+              <TableCell sx={TABLE_CELL_SX}>
+                <Typography variant="body2" sx={{ fontSize: 12 }}>
+                  {m.serviceName || '—'}
+                </Typography>
+              </TableCell>
               <TableCell sx={TABLE_CELL_SX}>
                 <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 500 }}>
                   {m.name || '—'}
@@ -236,12 +329,13 @@ export function AddClientPODrawer({ open, onClose, projectId }: AddClientPODrawe
   const dispatch = useAppDispatch()
   const { saving } = useAppSelector((s) => s.baseline)
   const toast = useToast((s) => s.showToast)
+  const serviceOptions = useClientPOServiceOptions(projectId, open)
   const [poFormData, setPoFormData] = useState({
     poNumber: '',
     poValue: '',
     file: null as File | null,
   })
-  const [milestones, setMilestones] = useState<ClientMilestone[]>([])
+  const [milestones, setMilestones] = useState<ClientPOMilestone[]>([])
 
   useEffect(() => {
     if (!open) {
@@ -267,21 +361,21 @@ export function AddClientPODrawer({ open, onClose, projectId }: AddClientPODrawe
   }
 
   function addMilestoneRow(): void {
-    setMilestones((prev) => [
-      ...prev,
-      { id: `cpm-${Date.now()}`, name: '', percentage: 0, value: 0 },
-    ])
+    setMilestones((prev) => [...prev, emptyMilestoneRow()])
   }
 
-  function updateMilestone(idx: number, field: keyof ClientMilestone, val: string | number): void {
+  function updateMilestone(idx: number, patch: Partial<ClientPOMilestone>): void {
     setMilestones((prev) => {
       const updated = [...prev]
-      updated[idx] = { ...updated[idx], [field]: val }
-      if (field === 'percentage') {
-        updated[idx].value = calcMilestoneAmount(poValueNumber, Number(val))
-      } else if (field === 'value') {
+      updated[idx] = { ...updated[idx], ...patch }
+      if (patch.serviceId !== undefined) {
+        updated[idx].serviceName = serviceNameForOption(serviceOptions, patch.serviceId)
+      }
+      if (patch.percentage !== undefined) {
+        updated[idx].value = calcMilestoneAmount(poValueNumber, Number(patch.percentage))
+      } else if (patch.value !== undefined) {
         updated[idx].percentage =
-          poValueNumber > 0 ? Math.round((Number(val) / poValueNumber) * 100) : 0
+          poValueNumber > 0 ? Math.round((Number(patch.value) / poValueNumber) * 100) : 0
       }
       return updated
     })
@@ -291,22 +385,26 @@ export function AddClientPODrawer({ open, onClose, projectId }: AddClientPODrawe
     setMilestones((prev) => prev.filter((_, i) => i !== idx))
   }
 
+  const hasNamedMilestoneWithoutService = milestones.some(
+    (m) => m.name.trim() && !m.serviceId,
+  )
+  const submitDisabled =
+    saving || serviceOptions.length === 0 || hasNamedMilestoneWithoutService
+
   async function handleSubmit() {
     if (!poFormData.poNumber || !poFormData.poValue) {
       toast({ title: 'Please fill in all required fields', variant: 'error' })
       return
     }
+    if (
+      !validateNamedMilestones(milestones, (message) =>
+        toast({ title: message, variant: 'error' }),
+      )
+    ) {
+      return
+    }
 
-    const milestonePayload = milestones
-      .filter((m) => m.name.trim())
-      .map((m) => ({
-        id: m.id,
-        serviceId: '',
-        serviceName: '',
-        name: m.name,
-        percentage: m.percentage,
-        value: m.value,
-      }))
+    const milestonePayload = milestonePayloadFromEditor(milestones)
 
     try {
       await dispatch(
@@ -340,7 +438,13 @@ export function AddClientPODrawer({ open, onClose, projectId }: AddClientPODrawe
       onSubmit={handleSubmit}
       submitLoading={saving}
       submitLabel="Save PO"
+      submitDisabled={submitDisabled}
     >
+      {serviceOptions.length === 0 ? (
+        <Alert severity="warning" sx={{ mb: 2, fontSize: 12 }}>
+          Add client offer services on the Pitch tab before adding PO milestones.
+        </Alert>
+      ) : null}
       <Box sx={{ mb: 3 }}>
         <Stack
           direction="row"
@@ -415,6 +519,7 @@ export function AddClientPODrawer({ open, onClose, projectId }: AddClientPODrawe
           variant="outlined"
           startIcon={<Add sx={{ fontSize: 14 }} />}
           onClick={addMilestoneRow}
+          disabled={serviceOptions.length === 0}
           sx={{ fontSize: 11, alignSelf: 'flex-start' }}
         >
           Add Milestone
@@ -430,6 +535,7 @@ export function AddClientPODrawer({ open, onClose, projectId }: AddClientPODrawe
           <MilestoneEditorHeader />
           <MilestoneEditorRows
             milestones={milestones}
+            serviceOptions={serviceOptions}
             onUpdate={updateMilestone}
             onRemove={removeMilestone}
           />
@@ -463,10 +569,11 @@ export function ViewClientPODrawer({ open, onClose, projectId, po }: ViewClientP
   const dispatch = useAppDispatch()
   const { saving } = useAppSelector((s) => s.baseline)
   const toast = useToast((s) => s.showToast)
+  const serviceOptions = useClientPOServiceOptions(projectId, open)
   const [editing, setEditing] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [poFormData, setPoFormData] = useState({ poNumber: '', poValue: '' })
-  const [milestones, setMilestones] = useState<ClientMilestone[]>([])
+  const [milestones, setMilestones] = useState<ClientPOMilestone[]>([])
   const [newFile, setNewFile] = useState<File | null>(null)
 
   const poValueNumber = Number(poFormData.poValue) || 0
@@ -482,6 +589,8 @@ export function ViewClientPODrawer({ open, onClose, projectId, po }: ViewClientP
     setMilestones(
       (po.milestones ?? []).map((m) => ({
         id: m.id,
+        serviceId: m.serviceId ?? '',
+        serviceName: m.serviceName ?? '',
         name: m.name,
         percentage: m.percentage,
         value: m.value,
@@ -502,21 +611,21 @@ export function ViewClientPODrawer({ open, onClose, projectId, po }: ViewClientP
   }, [editing, poValueNumber])
 
   function addMilestoneRow(): void {
-    setMilestones((prev) => [
-      ...prev,
-      { id: `cpm-${Date.now()}`, name: '', percentage: 0, value: 0 },
-    ])
+    setMilestones((prev) => [...prev, emptyMilestoneRow()])
   }
 
-  function updateMilestone(idx: number, field: keyof ClientMilestone, val: string | number): void {
+  function updateMilestone(idx: number, patch: Partial<ClientPOMilestone>): void {
     setMilestones((prev) => {
       const updated = [...prev]
-      updated[idx] = { ...updated[idx], [field]: val }
-      if (field === 'percentage') {
-        updated[idx].value = calcMilestoneAmount(poValueNumber, Number(val))
-      } else if (field === 'value') {
+      updated[idx] = { ...updated[idx], ...patch }
+      if (patch.serviceId !== undefined) {
+        updated[idx].serviceName = serviceNameForOption(serviceOptions, patch.serviceId)
+      }
+      if (patch.percentage !== undefined) {
+        updated[idx].value = calcMilestoneAmount(poValueNumber, Number(patch.percentage))
+      } else if (patch.value !== undefined) {
         updated[idx].percentage =
-          poValueNumber > 0 ? Math.round((Number(val) / poValueNumber) * 100) : 0
+          poValueNumber > 0 ? Math.round((Number(patch.value) / poValueNumber) * 100) : 0
       }
       return updated
     })
@@ -530,22 +639,24 @@ export function ViewClientPODrawer({ open, onClose, projectId, po }: ViewClientP
     setPoFormData((prev) => ({ ...prev, [field]: e.target.value }))
   }
 
+  const hasNamedMilestoneWithoutService = milestones.some(
+    (m) => m.name.trim() && !m.serviceId,
+  )
+
   async function handleSave() {
     if (!po || !poFormData.poNumber || !poFormData.poValue) {
       toast({ title: 'Please fill in all required fields', variant: 'error' })
       return
     }
+    if (
+      !validateNamedMilestones(milestones, (message) =>
+        toast({ title: message, variant: 'error' }),
+      )
+    ) {
+      return
+    }
 
-    const milestonePayload = milestones
-      .filter((m) => m.name.trim())
-      .map((m) => ({
-        id: m.id,
-        serviceId: '',
-        serviceName: '',
-        name: m.name,
-        percentage: m.percentage,
-        value: m.value,
-      }))
+    const milestonePayload = milestonePayloadFromEditor(milestones)
 
     const documentUrl = newFile
       ? URL.createObjectURL(newFile)
@@ -617,6 +728,8 @@ export function ViewClientPODrawer({ open, onClose, projectId, po }: ViewClientP
                       setMilestones(
                         (po.milestones ?? []).map((m) => ({
                           id: m.id,
+                          serviceId: m.serviceId ?? '',
+                          serviceName: m.serviceName ?? '',
                           name: m.name,
                           percentage: m.percentage,
                           value: m.value,
@@ -633,7 +746,11 @@ export function ViewClientPODrawer({ open, onClose, projectId, po }: ViewClientP
                   color="primary"
                   label={saving ? 'Saving…' : 'Save'}
                   onClick={() => void handleSave()}
-                  disabled={saving}
+                  disabled={
+                    saving ||
+                    serviceOptions.length === 0 ||
+                    hasNamedMilestoneWithoutService
+                  }
                 />
               </>
             ) : (
@@ -777,11 +894,17 @@ export function ViewClientPODrawer({ open, onClose, projectId, po }: ViewClientP
               </Typography>
               {editing ? (
                 <Stack gap={1.5}>
+                  {serviceOptions.length === 0 ? (
+                    <Alert severity="warning" sx={{ fontSize: 12 }}>
+                      Add client offer services on the Pitch tab before adding PO milestones.
+                    </Alert>
+                  ) : null}
                   <MuiButton
                     size="small"
                     variant="outlined"
                     startIcon={<Add sx={{ fontSize: 14 }} />}
                     onClick={addMilestoneRow}
+                    disabled={serviceOptions.length === 0}
                     sx={{ fontSize: 11, alignSelf: 'flex-start' }}
                   >
                     Add Milestone
@@ -796,6 +919,7 @@ export function ViewClientPODrawer({ open, onClose, projectId, po }: ViewClientP
                     <MilestoneEditorHeader />
                     <MilestoneEditorRows
                       milestones={milestones}
+                      serviceOptions={serviceOptions}
                       onUpdate={updateMilestone}
                       onRemove={removeMilestone}
                     />

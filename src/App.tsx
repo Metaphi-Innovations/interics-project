@@ -57,7 +57,8 @@ import ComplianceFilingSummaryPage from '@/pages/Finance/Compliance/FilingSummar
 import FilingChecklistPage from '@/pages/Compliance/FilingChecklistPage'
 import GSTPage from '@/pages/Finance/Compliance/GSTPage'
 import TDSPage from '@/pages/Finance/Compliance/TDSPage'
-import ReportsPage from '@/pages/Reports/ReportsPage'
+import ReportsLayout from '@/pages/Reports/ReportsLayout'
+import ReportSubModulePage from '@/pages/Reports/ReportSubModulePage'
 import DocumentsPage from '@/pages/Documents/DocumentsPage'
 import AuditLogsPage from '@/pages/AuditLogs/AuditLogsPage'
 import UsersPage from '@/pages/UserManagement/UsersPage'
@@ -150,10 +151,17 @@ const navConfig: NavConfig[] = [
     label: 'SYSTEM',
     children: [
       {
-        type: 'item',
+        type: 'group',
         label: 'Reports',
         icon: <BarChart3 size={16} strokeWidth={1.75} />,
-        href: '/reports',
+        expandWhenPathPrefix: '/reports',
+        children: [
+          { type: 'item', label: 'Profitability Reports', href: '/reports/profitability' },
+          { type: 'item', label: 'Cash Flow Reports', href: '/reports/cash-flow' },
+          { type: 'item', label: 'Receivables Reports', href: '/reports/receivables' },
+          { type: 'item', label: 'Payables Reports', href: '/reports/payables' },
+          { type: 'item', label: 'Vendor Analysis', href: '/reports/vendor-analysis' },
+        ],
       },
       /* Hidden from sidebar for now — restore by uncommenting this block and the FileStack / ClipboardList imports above.
       {
@@ -321,7 +329,10 @@ function AppInner() {
             <Route path="gst" element={<GSTPage />} />
             <Route path="tds" element={<TDSPage />} />
           </Route>
-          <Route path="reports" element={<ReportsPage />} />
+          <Route path="reports" element={<ReportsLayout />}>
+            <Route index element={<Navigate to="profitability" replace />} />
+            <Route path=":reportSlug" element={<ReportSubModulePage />} />
+          </Route>
           <Route path="documents" element={<DocumentsPage />} />
           <Route path="audit-logs" element={<AuditLogsPage />} />
           <Route path="user-management" element={<Navigate to="/user-management/users" replace />} />

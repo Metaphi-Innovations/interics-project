@@ -156,6 +156,10 @@ export const liveHandlers = [
     const idx = expenses.findIndex((e) => e.id === expenseId && e.projectId === projectId)
     if (idx === -1) return new HttpResponse(null, { status: 404 })
     expenses.splice(idx, 1)
+    const rIdx = reimbursements.findIndex(
+      (r) => r.projectId === projectId && r.sourceExpenseId === expenseId,
+    )
+    if (rIdx !== -1) reimbursements.splice(rIdx, 1)
     return new HttpResponse(null, { status: 204 })
   }),
 
@@ -173,7 +177,29 @@ export const liveHandlers = [
       ...body,
     }
     reimbursements.push(newR)
+    if (body.sourceExpenseId) {
+      const exp = expenses.find((e) => e.id === body.sourceExpenseId && e.projectId === id)
+      if (exp) exp.linkedReimbursementId = newR.id
+    }
     return HttpResponse.json(newR, { status: 201 })
+  }),
+
+  http.delete('/api/projects/:id/reimbursements/:reimbursementId', ({ params }) => {
+    const projectId = params.id as string
+    const reimbursementId = params.reimbursementId as string
+    const idx = reimbursements.findIndex(
+      (r) => r.id === reimbursementId && r.projectId === projectId,
+    )
+    if (idx === -1) return new HttpResponse(null, { status: 404 })
+    const removed = reimbursements[idx]
+    reimbursements.splice(idx, 1)
+    if (removed.sourceExpenseId) {
+      const exp = expenses.find(
+        (e) => e.id === removed.sourceExpenseId && e.projectId === projectId,
+      )
+      if (exp) delete exp.linkedReimbursementId
+    }
+    return new HttpResponse(null, { status: 204 })
   }),
 
   http.get('/api/projects/:id/compliance', () => {

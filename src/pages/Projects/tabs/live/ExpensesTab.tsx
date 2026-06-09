@@ -16,7 +16,8 @@ import { DrawerForm } from '../../../../components/templates/DrawerForm'
 import { Button, StatusBadge, useToast } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { useAppDispatch, useAppSelector } from '../../../../store/hooks'
-import { createExpense, fetchExpenses } from '../../../../slices/live/thunk'
+import { createExpense, fetchExpenses, fetchReimbursements } from '../../../../slices/live/thunk'
+import { isReimbursableExpenseType } from '@/utils/reimbursableSync'
 import { fetchBaseline, fetchVendorPOs } from '../../../../slices/baseline/thunk'
 import type { Expense, ExpenseType } from '../../../../slices/live/reducer'
 import { formatCurrency, formatDate } from '../../../../utils/formatters'
@@ -86,8 +87,13 @@ function AddExpenseDrawer({
             data: body,
           }),
         ).unwrap()
-        toast.success('Expense added')
+        toast.success(
+          isReimbursableExpenseType(body.type) ? 'Reimbursement added for payables' : 'Expense added',
+        )
         await dispatch(fetchExpenses(pid)).unwrap()
+        if (isReimbursableExpenseType(body.type)) {
+          await dispatch(fetchReimbursements(pid)).unwrap()
+        }
         onClose()
       } catch {
         toast.error('Failed to add expense')

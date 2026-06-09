@@ -22,7 +22,8 @@ interface RoleDrawerProps {
 
 export function RoleDrawer({ open, mode, roleId, onClose }: RoleDrawerProps) {
   const dispatch = useAppDispatch()
-  const { items: roles, saving } = useAppSelector((s) => s.roles)
+  const { items: rawRoles, saving } = useAppSelector((s) => s.roles)
+  const roles = rawRoles ?? []
   const { showToast } = useToast()
 
   const existing = mode === 'edit' && roleId ? roles.find((r) => r.id === roleId) : undefined

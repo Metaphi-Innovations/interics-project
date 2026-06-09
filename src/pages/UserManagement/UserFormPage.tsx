@@ -70,8 +70,8 @@ export default function UserFormPage() {
 
   const dispatch = useAppDispatch()
   const saving = useAppSelector((s) => s.users.saving)
-  const allUsers = useAppSelector((s) => s.users.items)
-  const roles = useAppSelector((s) => s.roles.items)
+  const allUsers = useAppSelector((s) => s.users.items ?? [])
+  const roles = useAppSelector((s) => s.roles.items ?? [])
   const { showToast } = useToast()
 
   const [form, setForm] = useState<FormState>(defaultForm)
@@ -168,7 +168,7 @@ export default function UserFormPage() {
     if (Object.keys(errs).length > 0) return
 
     const projectAccess = isCreate ? 'all' : loadedUser!.projectAccess
-    const assignedProjects = isCreate ? [] : [...loadedUser!.assignedProjects]
+    const assignedProjects = isCreate ? [] : [...(loadedUser!.assignedProjects ?? [])]
 
     const payload: Omit<User, 'id' | 'createdAt' | 'lastLogin'> = {
       name: form.name.trim(),

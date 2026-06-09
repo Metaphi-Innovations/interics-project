@@ -31,11 +31,7 @@ import { useAppDispatch, useAppSelector } from '../../../../store/hooks'
 import { createInvoice, fetchInvoices } from '../../../../slices/live/thunk'
 import type { ClientInvoice, ClientInvoiceLineItem } from '../../../../slices/live/types'
 import { formatDate, formatInr } from '../../../../utils/formatters'
-import {
-  BILLABLE_BY_PROJECT,
-  buildBillableFromClientPOs,
-  type BillableMilestone,
-} from './billableMilestones'
+import { buildBillableFromClientPOs, type BillableMilestone } from './billableMilestones'
 import { fetchClientPO } from '../../../../slices/baseline/thunk'
 import {
   InvoiceLineItems,
@@ -783,11 +779,10 @@ export default function BillingTab({ projectId, projectName, clientId, clientNam
     [invoices, projectId],
   )
 
-  const billableTemplates = useMemo(() => {
-    const fromPOs = buildBillableFromClientPOs(clientPOs, projectId)
-    if (fromPOs.length > 0) return fromPOs
-    return BILLABLE_BY_PROJECT[projectId] ?? []
-  }, [clientPOs, projectId])
+  const billableTemplates = useMemo(
+    () => buildBillableFromClientPOs(clientPOs, projectId),
+    [clientPOs, projectId],
+  )
 
   function openGenerate(row: BillableMilestone) {
     if (hasInvoiceForMilestone(projectInvoices, row)) return

@@ -96,7 +96,8 @@ export default function RolesPage() {
   const dispatch = useAppDispatch()
   const navigate = useNavigate()
   const { pathname } = useLocation()
-  const { items: roles, loading, saving } = useAppSelector((s) => s.roles)
+  const { items: rawRoles, loading, saving } = useAppSelector((s) => s.roles)
+  const roles = rawRoles ?? []
   const { showToast } = useToast()
   const theme = useTheme()
   const hoverBg = alpha(theme.palette.primary.main, 0.04)

@@ -56,6 +56,9 @@ interface AddVendorPODrawerProps {
   projectId: string
   vendors: VendorOption[]
   initialVendorId?: string
+  initialServiceId?: string
+  /** Vendor offer amount — pre-fills PO value when adding from an offer row. */
+  initialPoValue?: number
 }
 
 export function AddVendorPODrawer({
@@ -64,6 +67,8 @@ export function AddVendorPODrawer({
   projectId,
   vendors,
   initialVendorId,
+  initialServiceId,
+  initialPoValue,
 }: AddVendorPODrawerProps) {
   const dispatch = useAppDispatch()
   const { saving } = useAppSelector((s) => s.baseline)
@@ -87,10 +92,14 @@ export function AddVendorPODrawer({
     if (initialVendorId) {
       setForm((prev) => ({ ...prev, vendorId: initialVendorId }))
     }
-  }, [open, initialVendorId])
+    if (initialPoValue && initialPoValue > 0) {
+      setForm((prev) => ({ ...prev, poValue: String(initialPoValue) }))
+    }
+  }, [open, initialVendorId, initialPoValue])
 
   const poValueNumber = Number(form.poValue) || 0
   const selectedVendor = vendors.find((v) => v.vendorId === form.vendorId)
+  const fromOfferRow = Boolean(initialVendorId && initialServiceId)
 
   const milestonesValid = useMemo(
     () => isVendorPOMilestoneBreakdownValid(poValueNumber, milestones, retention),
@@ -144,6 +153,7 @@ export function AddVendorPODrawer({
             poDate: form.poDate,
             poValue: poValueNumber,
             milestones: milestonePayload,
+            linkedBaselineServiceIds: initialServiceId ? [initialServiceId] : undefined,
             status: 'Draft',
             documentUrl,
             fileName: form.file?.name ?? null,
@@ -210,27 +220,29 @@ export function AddVendorPODrawer({
             gap: 1.5,
           }}
         >
-          <Box sx={{ gridColumn: '1 / -1' }}>
-            <FormField label="Vendor" required>
-              <MuiSelect
-                value={form.vendorId}
-                onChange={(e) => setField('vendorId', e.target.value)}
-                size="small"
-                fullWidth
-                displayEmpty
-                sx={{ fontSize: 12 }}
-              >
-                <MenuItem value="" disabled sx={{ fontSize: 12 }}>
-                  Select vendor…
-                </MenuItem>
-                {vendors.map((v) => (
-                  <MenuItem key={v.vendorId} value={v.vendorId} sx={{ fontSize: 12 }}>
-                    {v.vendorName}
+          {!fromOfferRow ? (
+            <Box sx={{ gridColumn: '1 / -1' }}>
+              <FormField label="Vendor" required>
+                <MuiSelect
+                  value={form.vendorId}
+                  onChange={(e) => setField('vendorId', e.target.value)}
+                  size="small"
+                  fullWidth
+                  displayEmpty
+                  sx={{ fontSize: 12 }}
+                >
+                  <MenuItem value="" disabled sx={{ fontSize: 12 }}>
+                    Select vendor…
                   </MenuItem>
-                ))}
-              </MuiSelect>
-            </FormField>
-          </Box>
+                  {vendors.map((v) => (
+                    <MenuItem key={v.vendorId} value={v.vendorId} sx={{ fontSize: 12 }}>
+                      {v.vendorName}
+                    </MenuItem>
+                  ))}
+                </MuiSelect>
+              </FormField>
+            </Box>
+          ) : null}
           <FormField label="PO Date" required>
             <TextField
               fullWidth

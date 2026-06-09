@@ -1356,7 +1356,7 @@ function TransitionExpensePlanningBlock({
   sectionTopMargin = 3,
 }: TransitionExpensePlanningBlockProps) {
   const dispatch = useAppDispatch()
-  const vendorItems = useAppSelector((s) => s.vendors.items)
+  const vendorItems = useAppSelector((s) => s.vendors.items ?? [])
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [editing, setEditing] = useState<PlannedExpense | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<PlannedExpense | null>(null)

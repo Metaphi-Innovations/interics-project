@@ -81,6 +81,9 @@ export const liveApi = {
   createReimbursement: (projectId: string, data: CreateReimbursementBody) =>
     client.post<Reimbursement>(`${root(projectId)}/reimbursements`, data),
 
+  deleteReimbursement: (projectId: string, reimbursementId: string) =>
+    client.delete<void>(`${root(projectId)}/reimbursements/${reimbursementId}`),
+
   getCompliance: (projectId: string) =>
     client.get<ComplianceData>(`${root(projectId)}/compliance`),
 }

@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react'
-import { useLocation } from 'react-router-dom'
 import { Box, Tabs, Tab } from '@mui/material'
 import { tokens } from '@/design-system/tokens'
 import { useAppDispatch } from '../../../store/hooks'
@@ -24,23 +23,11 @@ interface LiveTabProps {
 
 export default function LiveTab({ project }: LiveTabProps) {
   const dispatch = useAppDispatch()
-  const location = useLocation()
-  const [activeSubTab, setActiveSubTab] = useState('billing')
+  const [activeSubTab, setActiveSubTab] = useState('vendor-po')
 
   useEffect(() => {
-    const nav = location.state as { liveSubTab?: string } | null
-    const v = nav?.liveSubTab
-    if (
-      v === 'vendor-po' ||
-      v === 'billing' ||
-      v === 'payments' ||
-      v === 'expenses' ||
-      v === 'reimbursement' ||
-      v === 'compliance'
-    ) {
-      setActiveSubTab(v)
-    }
-  }, [project.id, location.key, location.state])
+    setActiveSubTab('vendor-po')
+  }, [project.id])
 
   useEffect(() => {
     dispatch(fetchInvoices(project.id))

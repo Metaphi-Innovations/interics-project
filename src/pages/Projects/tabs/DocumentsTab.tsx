@@ -329,7 +329,7 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
   const navigate = useNavigate()
   const authUser = useAppSelector((s) => s.auth.user)
   const { invoices, vendorInvoices } = useAppSelector((s) => s.live)
-  const listProjects = useAppSelector((s) => s.projects.items)
+  const listProjects = useAppSelector((s) => s.projects.items ?? [])
 
   const projectForDocuments = useMemo(
     () => resolveProjectForDocuments(project, listProjects),

@@ -801,10 +801,11 @@ export default function ProjectDetailPage() {
   const dispatch = useAppDispatch()
   const toast = useToast()
 
-  const { items, selectedItem: project, loading, saving } = useAppSelector(
+  const { items: rawItems, selectedItem: project, loading, saving } = useAppSelector(
     (s) => s.projects
   )
-  const users = useAppSelector((s) => s.users.items)
+  const items = rawItems ?? []
+  const users = useAppSelector((s) => s.users.items ?? [])
 
   const [activeTab, setActiveTab] = useState('overview')
   const [editDrawerOpen, setEditDrawerOpen] = useState(false)

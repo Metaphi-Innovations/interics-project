@@ -1,3 +1,4 @@
+import type { Baseline, VendorPO, VendorPOMilestone } from '@/slices/baseline/reducer'
 import type { PitchService, PitchVersion, VendorMapping } from '@/slices/pitch/reducer'
 import {
   normalizeVendorMapping,
@@ -36,6 +37,66 @@ export interface VendorMilestoneOverviewRow {
   allocationStatus: string
 }
 
+export interface VendorPOMilestoneOverviewRow {
+  key: string
+  poId: string
+  poNumber: string
+  vendor: string
+  service: string
+  name: string
+  pct: number
+  amount: number
+  isRetention: boolean
+  status: VendorPOMilestone['status']
+}
+
+function findServiceInBaseline(baseline: Baseline | null, serviceId: string): PitchService | undefined {
+  if (!baseline) return undefined
+  for (const cat of baseline.categories) {
+    const svc = cat.services.find((s) => s.id === serviceId)
+    if (svc) return svc
+  }
+  return undefined
+}
+
+function linkedServiceLabels(po: VendorPO, baseline: Baseline | null): string {
+  const ids = po.linkedBaselineServiceIds ?? []
+  if (ids.length === 0) return '—'
+  return ids
+    .map((id) => {
+      const svc = findServiceInBaseline(baseline, id)
+      return svc?.subcategoryName ?? svc?.name ?? id
+    })
+    .join(', ')
+}
+
+export function buildVendorPOMilestoneOverviewRows(
+  vendorPOs: VendorPO[],
+  projectId: string,
+  baseline: Baseline | null,
+): VendorPOMilestoneOverviewRow[] {
+  const rows: VendorPOMilestoneOverviewRow[] = []
+  for (const po of vendorPOs.filter((p) => p.projectId === projectId)) {
+    const serviceLabel = linkedServiceLabels(po, baseline)
+    for (const m of po.milestones) {
+      const isRetention = m.name.trim().toLowerCase() === 'retention'
+      rows.push({
+        key: `${po.id}-${m.id}`,
+        poId: po.id,
+        poNumber: po.poNumber,
+        vendor: po.vendorName,
+        service: serviceLabel,
+        name: m.name,
+        pct: m.percentage,
+        amount: m.value,
+        isRetention,
+        status: m.status,
+      })
+    }
+  }
+  return rows
+}
+
 export function buildVendorOfferRows(version: PitchVersion | null): VendorOfferRow[] {
   if (!version) return []
   const rows: VendorOfferRow[] = []
@@ -56,19 +117,7 @@ export function buildVendorOfferRows(version: PitchVersion | null): VendorOfferR
   return rows
 }
 
-/** Resolve active pitch version for a project from store state. */
-export function resolvePitchVersionForProject(
-  projectId: string,
-  activeVersion: PitchVersion | null,
-  versions: PitchVersion[],
-): PitchVersion | null {
-  if (activeVersion?.projectId === projectId) return activeVersion
-  return (
-    versions.find((v) => v.projectId === projectId && v.isActive) ??
-    versions.find((v) => v.projectId === projectId) ??
-    null
-  )
-}
+export { resolvePitchVersionForProject } from '@/store/selectors/pitchSelectors'
 
 export function deriveVendorOptions(version: PitchVersion | null): VendorOption[] {
   const map = new Map<string, VendorOption>()

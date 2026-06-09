@@ -46,6 +46,6 @@ export function resolveDataAccess(user: User): ResolvedDataAccess {
 
   return {
     ...defaultScopes(),
-    effectiveProjectIds: [...user.assignedProjects],
+    effectiveProjectIds: [...(user.assignedProjects ?? [])],
   }
 }

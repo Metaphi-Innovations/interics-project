@@ -13,7 +13,7 @@ import { WorkspaceSection } from '../../../../components/templates'
 import { Avatar, Badge, Button } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { useAppDispatch, useAppSelector } from '../../../../store/hooks'
-import { fetchBaseline } from '../../../../slices/baseline/thunk'
+import { fetchBaseline, fetchVendorPOs } from '../../../../slices/baseline/thunk'
 import { formatCurrency, formatDate } from '../../../../utils/formatters'
 import {
   baselineVendorServiceRows,
@@ -34,16 +34,21 @@ interface PaymentsTabProps {
 export default function PaymentsTab({ projectId }: PaymentsTabProps) {
   const dispatch = useAppDispatch()
   const { vendorInvoices, payments, expenses, reimbursements } = useAppSelector((s) => s.live)
-  const { baseline } = useAppSelector((s) => s.baseline)
+  const { baseline, vendorPOs } = useAppSelector((s) => s.baseline)
 
   const [viewPayment, setViewPayment] = useState<(typeof payments)[0] | null>(null)
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
 
   useEffect(() => {
     void dispatch(fetchBaseline(projectId))
+    void dispatch(fetchVendorPOs(projectId))
   }, [dispatch, projectId])
 
   const baselineForProject = baseline?.projectId === projectId ? baseline : null
+  const projectVendorPOs = useMemo(
+    () => vendorPOs.filter((po) => po.projectId === projectId),
+    [vendorPOs, projectId],
+  )
   const vendorRows = useMemo(() => baselineVendorServiceRows(baselineForProject), [baselineForProject])
 
   useEffect(() => {
@@ -79,8 +84,15 @@ export default function PaymentsTab({ projectId }: PaymentsTabProps) {
 
   const countsForCard = useCallback(
     (row: VendorServiceRow) =>
-      computeVendorCardCounts(baselineForProject, projectInvoices, projectExpenses, projectReimb, row),
-    [baselineForProject, projectInvoices, projectExpenses, projectReimb],
+      computeVendorCardCounts(
+        baselineForProject,
+        projectInvoices,
+        projectExpenses,
+        projectReimb,
+        row,
+        projectVendorPOs,
+      ),
+    [baselineForProject, projectInvoices, projectExpenses, projectReimb, projectVendorPOs],
   )
 
   return (

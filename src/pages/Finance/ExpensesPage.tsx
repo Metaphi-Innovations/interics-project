@@ -123,8 +123,9 @@ export default function ExpensesPage() {
   const { showToast } = useToast()
   const hoverBg = alpha(theme.palette.primary.main, 0.04)
 
-  const projects = useAppSelector((s) => s.projects.items)
-  const { expenses, saving } = useAppSelector((s) => s.live)
+  const projects = useAppSelector((s) => s.projects.items ?? [])
+  const expenses = useAppSelector((s) => s.live.expenses ?? [])
+  const saving = useAppSelector((s) => s.live.saving)
 
   const [financeLoaded, setFinanceLoaded] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)

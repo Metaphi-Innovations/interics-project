@@ -6,8 +6,9 @@ import type {
   VendorPayableControl,
   VendorPayment,
 } from '@/slices/live/types'
-import type { Baseline } from '@/slices/baseline/reducer'
+import type { Baseline, VendorPO } from '@/slices/baseline/reducer'
 import type { PitchService, VendorMilestone } from '@/slices/pitch/reducer'
+import { mappingMilestonesWithRetention } from '@/utils/vendorMilestones'
 
 export interface VendorServiceRow {
   vendorId: string
@@ -83,6 +84,39 @@ export function findVendorMapping(baseline: Baseline | null, vendorId: string, s
   return svc?.vendorMappings.find((m) => m.vendorId === vendorId)
 }
 
+export function vendorPOAppliesToServiceRow(po: VendorPO, row: VendorServiceRow): boolean {
+  if (po.vendorId !== row.vendorId) return false
+  const linked = po.linkedBaselineServiceIds
+  if (!linked?.length) return false
+  return linked.includes(row.serviceId)
+}
+
+function vendorPOMilestonesFromPOs(vendorPOs: VendorPO[], row: VendorServiceRow): VendorMilestone[] {
+  return vendorPOs
+    .filter((po) => vendorPOAppliesToServiceRow(po, row))
+    .flatMap((po) =>
+      po.milestones.map((m) => ({
+        id: m.id,
+        name: m.name,
+        percentage: m.percentage,
+        value: m.value,
+      })),
+    )
+}
+
+/** Vendor PO milestones take precedence; baseline mapping is the fallback. */
+export function resolveVendorMilestonesForRow(
+  vendorPOs: VendorPO[],
+  baseline: Baseline | null,
+  row: VendorServiceRow,
+): VendorMilestone[] {
+  const fromPO = vendorPOMilestonesFromPOs(vendorPOs, row)
+  if (fromPO.length > 0) return fromPO
+  const mapping = findVendorMapping(baseline, row.vendorId, row.serviceId)
+  if (!mapping) return []
+  return mappingMilestonesWithRetention(mapping, row.serviceId)
+}
+
 export function findInvoiceForMilestone(
   scopedInvoices: VendorInvoice[],
   vm: VendorMilestone,
@@ -124,6 +158,8 @@ export function expenseRowsForVendor(
   const out: { expense: Expense; amount: number; kind: 'vendor_linked' | 'common' }[] = []
   for (const e of expenses) {
     if (e.status !== 'pending') continue
+    // Reimbursable expenses sync to Reimbursement and settle as payment additions, not deductions.
+    if (e.type === 'reimbursable_expenses') continue
     if (e.type === 'vendor_linked' && vendorLinkedExpenseMatchesRow(e, row)) {
       out.push({ expense: e, amount: e.amount, kind: 'vendor_linked' })
     }
@@ -293,7 +329,24 @@ export function baselineVendorMilestoneEntries(
   const out: VendorMilestoneEntry[] = []
   for (const row of baselineVendorServiceRows(baseline)) {
     const mapping = findVendorMapping(baseline, row.vendorId, row.serviceId)
-    for (const milestone of mapping?.milestones ?? []) {
+    if (!mapping) continue
+    for (const milestone of mappingMilestonesWithRetention(mapping, row.serviceId)) {
+      out.push({ projectId, projectName, row, milestone })
+    }
+  }
+  return sortMilestoneEntries(out)
+}
+
+export function vendorPOVendorMilestoneEntries(
+  projectId: string,
+  projectName: string,
+  vendorPOs: VendorPO[],
+  baseline: Baseline | null,
+): VendorMilestoneEntry[] {
+  const out: VendorMilestoneEntry[] = []
+  const projectPOs = vendorPOs.filter((po) => po.projectId === projectId)
+  for (const row of baselineVendorServiceRows(baseline)) {
+    for (const milestone of vendorPOMilestonesFromPOs(projectPOs, row)) {
       out.push({ projectId, projectName, row, milestone })
     }
   }
@@ -338,6 +391,22 @@ export function mergeMilestoneEntries(
 ): VendorMilestoneEntry[] {
   const map = new Map<string, VendorMilestoneEntry>()
   for (const e of baselineEntries) map.set(milestoneEntryKey(e), e)
+  for (const e of invoiceEntries) {
+    if (!map.has(milestoneEntryKey(e))) map.set(milestoneEntryKey(e), e)
+  }
+  return sortMilestoneEntries([...map.values()])
+}
+
+export function mergeMilestoneEntriesWithVendorPO(
+  vendorPOEntries: VendorMilestoneEntry[],
+  baselineEntries: VendorMilestoneEntry[],
+  invoiceEntries: VendorMilestoneEntry[],
+): VendorMilestoneEntry[] {
+  const map = new Map<string, VendorMilestoneEntry>()
+  for (const e of vendorPOEntries) map.set(milestoneEntryKey(e), e)
+  for (const e of baselineEntries) {
+    if (!map.has(milestoneEntryKey(e))) map.set(milestoneEntryKey(e), e)
+  }
   for (const e of invoiceEntries) {
     if (!map.has(milestoneEntryKey(e))) map.set(milestoneEntryKey(e), e)
   }
@@ -412,9 +481,9 @@ export function computeVendorCardCounts(
   projectExpenses: Expense[],
   projectReimb: Reimbursement[],
   row: VendorServiceRow,
+  vendorPOs: VendorPO[] = [],
 ): CardCounts {
-  const mapping = findVendorMapping(baselineForProject, row.vendorId, row.serviceId)
-  const milestones = mapping?.milestones ?? []
+  const milestones = resolveVendorMilestonesForRow(vendorPOs, baselineForProject, row)
   const scoped = projectInvoices.filter((inv) => invoiceMatchesRow(inv, row))
   let uninvoicedM = 0
   let pendingInv = 0

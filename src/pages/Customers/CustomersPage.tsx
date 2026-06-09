@@ -43,6 +43,7 @@ import type { StatusType } from '@/design-system/components'
 import { getInitials, getAvatarColor, formatCurrency, toSlug } from '../../utils/formatters'
 import { getPrimaryContact } from '../../utils/customerContacts'
 import { tokens } from '@/design-system/tokens'
+import { getSectorTagSx } from '../../utils/sectorTagStyles'
 
 const TABLE_CELL_SX = {
   py: '8px',
@@ -197,6 +198,7 @@ function ContactPersonCell({ customer }: { customer: Customer }) {
 }
 
 function SectorCell({ customer }: { customer: Customer }) {
+  const theme = useTheme()
   const sector = getSectorLabel(customer)
   if (sector === '—') {
     return (
@@ -205,18 +207,19 @@ function SectorCell({ customer }: { customer: Customer }) {
       </Typography>
     )
   }
+  const tagMode = theme.palette.mode === 'dark' ? 'dark' : 'light'
+  const colors = getSectorTagSx(sector, tagMode)
   return (
     <MuiChip
       label={sector}
       size="small"
-      variant="outlined"
       sx={{
         height: 20,
         fontSize: 10,
         borderRadius: '4px',
-        color: tokens.color.neutral[600],
-        borderColor: tokens.color.neutral[200],
-        bgcolor: tokens.color.neutral[100],
+        bgcolor: colors.bg,
+        color: colors.color,
+        border: 'none',
         '& .MuiChip-label': { px: '6px' },
       }}
     />
@@ -722,7 +725,8 @@ function ConfirmArchiveDialog({ customer, onConfirm, onClose }: ConfirmArchivePr
 
 export default function CustomersPage() {
   const dispatch = useAppDispatch()
-  const { items, loading, pagination, filters, sortConfig } = useAppSelector((s) => s.customers)
+  const { items: rawItems, loading, pagination, filters, sortConfig } = useAppSelector((s) => s.customers)
+  const items = rawItems ?? []
   const { showToast } = useToast()
   const navigate = useNavigate()
 

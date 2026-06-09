@@ -23,7 +23,9 @@ import {
 } from '@/slices/live/thunk'
 import type { ExpenseType, VendorInvoice } from '@/slices/live/reducer'
 import type { Baseline } from '@/slices/baseline/reducer'
+import { fetchVendorPOs } from '@/slices/baseline/thunk'
 import { formatCurrency, formatDate } from '@/utils/formatters'
+import { isVendorRetentionMilestone } from '@/utils/vendorMilestones'
 import { AddVendorInvoiceDrawer } from './AddVendorInvoiceDrawer'
 import { VendorInvoiceDetailModal } from './SettlementModals'
 import {
@@ -32,8 +34,8 @@ import {
   deriveVendorComplianceStatus,
   expenseRowsForVendor,
   findInvoiceForMilestone,
-  findVendorMapping,
   getPayableControl,
+  resolveVendorMilestonesForRow,
   invoiceMatchesRow,
   isPayableReleaseAllowed,
   milestoneRowState,
@@ -73,6 +75,16 @@ export function SettlementRightPanel({
   const toast = useToast()
   const { vendorInvoices, expenses, reimbursements, vendorPayableControls, saving } =
     useAppSelector((s) => s.live)
+  const { vendorPOs } = useAppSelector((s) => s.baseline)
+
+  useEffect(() => {
+    void dispatch(fetchVendorPOs(projectId))
+  }, [dispatch, projectId])
+
+  const projectVendorPOs = useMemo(
+    () => vendorPOs.filter((po) => po.projectId === projectId),
+    [vendorPOs, projectId],
+  )
 
   const [addOpen, setAddOpen] = useState(false)
   const [addDrawerPresetMilestoneId, setAddDrawerPresetMilestoneId] = useState<string | undefined>(
@@ -114,10 +126,9 @@ export function SettlementRightPanel({
   }, [projectReimb, selectedRow])
 
   const vendorMilestonesForPanel = useMemo(() => {
-    if (!selectedRow || !baseline) return []
-    const m = findVendorMapping(baseline, selectedRow.vendorId, selectedRow.serviceId)
-    return m?.milestones ?? []
-  }, [baseline, selectedRow])
+    if (!selectedRow) return []
+    return resolveVendorMilestonesForRow(projectVendorPOs, baseline, selectedRow)
+  }, [projectVendorPOs, baseline, selectedRow])
 
   useEffect(() => {
     setSelInv(new Set())
@@ -142,8 +153,15 @@ export function SettlementRightPanel({
         billSubmitted: false,
       }
     }
-    return computeVendorCardCounts(baseline, projectInvoices, projectExpenses, projectReimb, selectedRow)
-  }, [baseline, projectInvoices, projectExpenses, projectReimb, selectedRow])
+    return computeVendorCardCounts(
+      baseline,
+      projectInvoices,
+      projectExpenses,
+      projectReimb,
+      selectedRow,
+      projectVendorPOs,
+    )
+  }, [baseline, projectInvoices, projectExpenses, projectReimb, selectedRow, projectVendorPOs])
 
   const payableControl = useMemo(() => {
     if (!selectedRow) return null
@@ -490,7 +508,9 @@ export function SettlementRightPanel({
                                 gap={0.75}
                               >
                                 <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 700, lineHeight: 1.3 }}>
-                                  M{idx + 1} — {vm.name}
+                                  {isVendorRetentionMilestone(vm.name)
+                                    ? 'Retention'
+                                    : `M${idx + 1} — ${vm.name}`}
                                 </Typography>
                                 <Typography
                                   variant="body2"
@@ -810,6 +830,7 @@ export function SettlementRightPanel({
         context={selectedRow}
         presetMilestoneId={addDrawerPresetMilestoneId}
         baseline={baseline}
+        vendorPOs={projectVendorPOs}
         onClose={closeAddDrawer}
       />
       <VendorInvoiceDetailModal

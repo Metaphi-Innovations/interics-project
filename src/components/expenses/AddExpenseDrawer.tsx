@@ -3,7 +3,14 @@ import { Box, Stack, Typography, IconButton as MuiIconButton } from '@mui/materi
 import Close from '@mui/icons-material/Close'
 import { useAppDispatch } from '@/store/hooks'
 import { updatePlannedExpenses } from '@/slices/pitch/thunk'
-import { createExpense, deleteExpense, fetchExpenses } from '@/slices/live/thunk'
+import {
+  createExpense,
+  deleteExpense,
+  deleteReimbursementForPlannedExpense,
+  fetchExpenses,
+  fetchReimbursements,
+} from '@/slices/live/thunk'
+import { isReimbursableExpenseType } from '@/utils/reimbursableSync'
 import type { PitchVersion, PlannedExpense } from '@/slices/pitch/reducer'
 import { tokens } from '@/design-system/tokens'
 import { Drawer } from '@mui/material'
@@ -57,11 +64,15 @@ export function AddExpenseDrawer({
           }),
         ).unwrap()
 
-        const existingLive = (await dispatch(fetchExpenses(projectId)).unwrap()).find(
-          (e) => e.sourcePlannedExpenseId === payload.id,
-        )
+        const expenseList = await dispatch(fetchExpenses(projectId)).unwrap()
+        await dispatch(fetchReimbursements(projectId)).unwrap()
+        const existingLive = expenseList.find((e) => e.sourcePlannedExpenseId === payload.id)
         if (existingLive) {
           await dispatch(deleteExpense({ projectId, expenseId: existingLive.id })).unwrap()
+        } else if (isReimbursableExpenseType(payload.type)) {
+          await dispatch(
+            deleteReimbursementForPlannedExpense({ projectId, plannedExpenseId: payload.id }),
+          ).unwrap()
         }
         await dispatch(
           createExpense({
@@ -70,6 +81,9 @@ export function AddExpenseDrawer({
           }),
         ).unwrap()
         await dispatch(fetchExpenses(projectId)).unwrap()
+        if (isReimbursableExpenseType(payload.type)) {
+          await dispatch(fetchReimbursements(projectId)).unwrap()
+        }
       }
       onClose()
     },

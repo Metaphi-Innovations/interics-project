@@ -42,12 +42,14 @@ export interface VendorOfferDraft {
   categoryId: string
   serviceId: string
   rows: VendorAllocationRow[]
+  notesTags: string
 }
 
 const EMPTY_DRAFT: VendorOfferDraft = {
   categoryId: '',
   serviceId: '',
   rows: [],
+  notesTags: '',
 }
 
 const ALLOCATION_COL_WIDTH = {
@@ -81,8 +83,17 @@ const ALLOCATION_TABLE_SX = {
   overflow: 'hidden',
 } as const
 
-function newAllocationRow(): VendorAllocationRow {
-  return { id: `new-${Date.now()}`, vendorId: '', amount: '', file: null, isMeasurable: false }
+function newAllocationRow(amount = ''): VendorAllocationRow {
+  return { id: `new-${Date.now()}`, vendorId: '', amount, file: null, isMeasurable: false }
+}
+
+function suggestedAllocationAmount(
+  rows: VendorAllocationRow[],
+  serviceAmount: number,
+): string {
+  const total = rows.reduce((sum, row) => sum + (Number(row.amount) || 0), 0)
+  const remaining = Math.max(0, serviceAmount - total)
+  return remaining > 0 ? String(remaining) : ''
 }
 
 function hasDuplicateVendorIds(rows: VendorAllocationRow[]): boolean {
@@ -102,6 +113,7 @@ export interface VendorOfferDrawerProps {
   categoryOptions: { id: string; label: string }[]
   getServiceOptions: (categoryId: string) => VendorOfferServiceOption[]
   existingRowsForService?: (categoryId: string, serviceId: string) => VendorAllocationRow[]
+  getNotesForService?: (categoryId: string, serviceId: string) => string
   onSave: (draft: VendorOfferDraft) => void
 }
 
@@ -112,6 +124,7 @@ export function VendorOfferDrawer({
   categoryOptions,
   getServiceOptions,
   existingRowsForService,
+  getNotesForService,
   onSave,
 }: VendorOfferDrawerProps) {
   const [draft, setDraft] = useState<VendorOfferDraft>(EMPTY_DRAFT)
@@ -149,10 +162,13 @@ export function VendorOfferDrawer({
   useEffect(() => {
     if (!open || !draft.categoryId || !draft.serviceId || !existingRowsForService) return
     const existing = existingRowsForService(draft.categoryId, draft.serviceId)
+    const notesTags = getNotesForService?.(draft.categoryId, draft.serviceId) ?? ''
     if (existing.length > 0) {
-      setDraft((prev) => ({ ...prev, rows: existing }))
+      setDraft((prev) => ({ ...prev, rows: existing, notesTags }))
+    } else if (notesTags) {
+      setDraft((prev) => ({ ...prev, notesTags }))
     }
-  }, [open, draft.categoryId, draft.serviceId, existingRowsForService])
+  }, [open, draft.categoryId, draft.serviceId, existingRowsForService, getNotesForService])
 
   useEffect(() => {
     if (!duplicateVendors) {
@@ -176,19 +192,22 @@ export function VendorOfferDrawer({
   }
 
   function handleCategoryChange(categoryId: string) {
-    setDraft({ categoryId, serviceId: '', rows: [] })
+    setDraft({ categoryId, serviceId: '', rows: [], notesTags: '' })
     setDuplicateVendorMessage('')
   }
 
   function handleServiceChange(serviceId: string) {
-    setDraft((prev) => ({ ...prev, serviceId, rows: [] }))
+    setDraft((prev) => ({ ...prev, serviceId, rows: [], notesTags: '' }))
     setDuplicateVendorMessage('')
   }
 
   function handleAddVendor() {
     setDraft((prev) => ({
       ...prev,
-      rows: prev.rows.length > 0 ? prev.rows : [newAllocationRow()],
+      rows:
+        prev.rows.length > 0
+          ? prev.rows
+          : [newAllocationRow(serviceAmount > 0 ? String(serviceAmount) : '')],
     }))
   }
 
@@ -227,7 +246,10 @@ export function VendorOfferDrawer({
   }
 
   function addRow() {
-    setDraft((prev) => ({ ...prev, rows: [...prev.rows, newAllocationRow()] }))
+    setDraft((prev) => ({
+      ...prev,
+      rows: [...prev.rows, newAllocationRow(suggestedAllocationAmount(prev.rows, serviceAmount))],
+    }))
   }
 
   return (
@@ -510,6 +532,19 @@ export function VendorOfferDrawer({
             </Box>
           </Box>
         ) : null}
+
+        <FormField label="Notes / Tags">
+          <TextField
+            fullWidth
+            size="small"
+            multiline
+            minRows={3}
+            value={draft.notesTags}
+            onChange={(e) => setDraft((prev) => ({ ...prev, notesTags: e.target.value }))}
+            placeholder="Notes, remarks, tags, or references"
+            sx={{ '& textarea': { fontSize: 12 } }}
+          />
+        </FormField>
       </Stack>
     </DrawerForm>
   )

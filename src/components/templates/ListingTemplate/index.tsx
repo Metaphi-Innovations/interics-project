@@ -612,35 +612,37 @@ export function ListingTemplate({
             {/* Right actions */}
             <Stack direction="row" alignItems="center" gap="6px">
               {/* Filters button */}
-              <Badge
-                badgeContent={activeFilterCount > 0 ? activeFilterCount : undefined}
-                color="primary"
-              >
-                {isDesktop ? (
-                  <Button
-                    variant="outlined"
-                    size="small"
-                    startIcon={<FilterListIcon fontSize="small" />}
-                    onClick={handleFilterButtonClick}
-                    sx={{ height: '32px', fontSize: '12px' }}
-                  >
-                    Filters
-                  </Button>
-                ) : (
-                  <IconButton
-                    size="small"
-                    onClick={handleFilterButtonClick}
-                    sx={{
-                      height: '32px',
-                      width: '32px',
-                      border: `1px solid ${tokens.color.neutral[200]}`,
-                      borderRadius: '6px',
-                    }}
-                  >
-                    <FilterListIcon fontSize="small" />
-                  </IconButton>
-                )}
-              </Badge>
+              {(filterConfig || onFilterClick) && (
+                <Badge
+                  badgeContent={activeFilterCount > 0 ? activeFilterCount : undefined}
+                  color="primary"
+                >
+                  {isDesktop ? (
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      startIcon={<FilterListIcon fontSize="small" />}
+                      onClick={handleFilterButtonClick}
+                      sx={{ height: '32px', fontSize: '12px' }}
+                    >
+                      Filters
+                    </Button>
+                  ) : (
+                    <IconButton
+                      size="small"
+                      onClick={handleFilterButtonClick}
+                      sx={{
+                        height: '32px',
+                        width: '32px',
+                        border: `1px solid ${tokens.color.neutral[200]}`,
+                        borderRadius: '6px',
+                      }}
+                    >
+                      <FilterListIcon fontSize="small" />
+                    </IconButton>
+                  )}
+                </Badge>
+              )}
 
               {/* Columns button */}
               {columns && onColumnVisibilityChange && (

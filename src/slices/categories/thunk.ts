@@ -1,5 +1,6 @@
 import { createAsyncThunk } from '@reduxjs/toolkit'
 import { categoriesApi } from '../../api/categoriesApi'
+import { normalizeArrayResponse } from '@/utils/normalizeListResponse'
 import type { Category } from '../../config/categories'
 
 export const fetchCategories = createAsyncThunk(
@@ -7,7 +8,7 @@ export const fetchCategories = createAsyncThunk(
   async (_, { rejectWithValue }) => {
     try {
       const response = await categoriesApi.getAll()
-      return response.data as Category[]
+      return normalizeArrayResponse<Category>(response.data)
     } catch (err: unknown) {
       const error = err as { response?: { data?: { message?: string } } }
       return rejectWithValue(error.response?.data?.message ?? 'Failed to fetch categories')

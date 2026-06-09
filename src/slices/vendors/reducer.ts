@@ -160,8 +160,8 @@ const vendorsSlice = createSlice({
       })
       .addCase(fetchVendors.fulfilled, (state, action) => {
         state.loading = false
-        state.items = action.payload.items
-        state.pagination.total = action.payload.total
+        state.items = action.payload.items ?? []
+        state.pagination.total = action.payload.total ?? 0
       })
       .addCase(fetchVendors.rejected, (state, action) => {
         state.loading = false

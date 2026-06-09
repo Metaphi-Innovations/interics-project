@@ -18,6 +18,7 @@ import type { PitchCategory, PitchVersion } from '../../../../slices/pitch/reduc
 import { fetchClientPO } from '../../../../slices/baseline/thunk'
 import type { ClientPO } from '../../../../slices/baseline/reducer'
 import { formatCurrency, formatDate } from '../../../../utils/formatters'
+import { ClientPOSection } from '../../components/ClientPOSection'
 import { AddClientPODrawer, ViewClientPODrawer } from './ClientPOBillingDrawers'
 
 const SUBSECTION_SX = {
@@ -79,17 +80,10 @@ function ClientOfferSection({ version }: { version: PitchVersion | null }) {
     return sections
   }, [version])
 
-  const versionSubtitle = version
-    ? `${version.label} · ${version.isActive ? 'Active pitch version' : 'Pitch version'}`
-    : 'No pitch version'
-
   return (
     <Box sx={SUBSECTION_SX}>
       <Stack sx={{ mb: 1.5 }}>
         <SubsectionTitle>Client Offer</SubsectionTitle>
-        <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
-          {versionSubtitle}
-        </Typography>
       </Stack>
 
       {!version ? (
@@ -170,99 +164,6 @@ function ClientOfferSection({ version }: { version: PitchVersion | null }) {
             )
           })}
         </>
-      )}
-    </Box>
-  )
-}
-
-function ClientPOSection({
-  clientPOs,
-  onAddPO,
-  onViewPO,
-}: {
-  clientPOs: ClientPO[]
-  onAddPO: () => void
-  onViewPO: (po: ClientPO) => void
-}) {
-  const totalPOValue = clientPOs.reduce((sum, po) => sum + po.poValue, 0)
-
-  return (
-    <Box sx={SUBSECTION_SX}>
-      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1.5 }}>
-        <SubsectionTitle>Client PO</SubsectionTitle>
-        <Button size="sm" variant="outlined" color="primary" label="Add PO" onClick={onAddPO} />
-      </Stack>
-      {clientPOs.length > 0 ? (
-        <>
-          <Box
-            sx={{
-              display: 'flex',
-              gap: 2,
-              mb: 2,
-              p: 1.5,
-              bgcolor: 'background.default',
-              borderRadius: 1,
-              border: '1px solid',
-              borderColor: 'divider',
-              alignItems: 'center',
-              flexWrap: 'wrap',
-            }}
-          >
-            <Box>
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: 10, letterSpacing: 0.5 }}>
-                TOTAL PO VALUE
-              </Typography>
-              <Typography variant="body2" sx={{ fontWeight: 700, color: 'primary.main', fontSize: 13 }}>
-                ₹{formatCurrency(totalPOValue)}
-              </Typography>
-            </Box>
-            <Divider orientation="vertical" flexItem sx={{ display: { xs: 'none', sm: 'block' } }} />
-            <Box>
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: 10, letterSpacing: 0.5 }}>
-                NO. OF POs
-              </Typography>
-              <Typography variant="body2" sx={{ fontWeight: 700, fontSize: 13 }}>
-                {clientPOs.length}
-              </Typography>
-            </Box>
-          </Box>
-          <Stack gap={1}>
-            {clientPOs.map((po) => (
-              <Box
-                key={po.id}
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  flexWrap: 'wrap',
-                  gap: 1,
-                  p: 1.5,
-                  border: '1px solid',
-                  borderColor: 'divider',
-                  borderRadius: 1,
-                  bgcolor: 'background.paper',
-                }}
-              >
-                <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <Typography variant="body2" sx={{ fontWeight: 600, fontFamily: 'monospace', fontSize: 12 }}>
-                    {po.poNumber}
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
-                    {po.startDate === po.endDate
-                      ? formatDate(po.startDate)
-                      : `${formatDate(po.startDate)} – ${formatDate(po.endDate)}`}
-                    {po.fileName ? ` · ${po.fileName}` : null}
-                  </Typography>
-                </Box>
-                <Typography variant="body2" sx={{ fontWeight: 700, color: 'primary.main', fontSize: 13 }}>
-                  ₹{formatCurrency(po.poValue)}
-                </Typography>
-                <Button size="sm" variant="outlined" color="primary" label="View" onClick={() => onViewPO(po)} />
-              </Box>
-            ))}
-          </Stack>
-        </>
-      ) : (
-        <EmptyHint>No client purchase orders on file.</EmptyHint>
       )}
     </Box>
   )

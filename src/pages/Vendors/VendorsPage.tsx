@@ -774,7 +774,8 @@ function ConfirmDeleteDialog({ vendor, onConfirm, onClose }: ConfirmDeleteProps)
 
 export default function VendorsPage() {
   const dispatch = useAppDispatch()
-  const { items, loading, pagination, filters, sortConfig } = useAppSelector((s) => s.vendors)
+  const { items: rawItems, loading, pagination, filters, sortConfig } = useAppSelector((s) => s.vendors)
+  const items = rawItems ?? []
   const { showToast } = useToast()
   const navigate = useNavigate()
 

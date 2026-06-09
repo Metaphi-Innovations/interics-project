@@ -173,7 +173,7 @@ function axisTickInr(v: number) {
 export default function FilingSummaryPage() {
   const dispatch = useAppDispatch()
   const navigate = useNavigate()
-  const projects = useAppSelector((s) => s.projects.items)
+  const projects = useAppSelector((s) => s.projects.items ?? [])
 
   const [filterProjectId, setFilterProjectId] = useState('')
   const [gstData, setGstData] = useState<GlobalGstResponse | null>(null)

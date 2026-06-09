@@ -234,9 +234,12 @@ export default function BillingsPage() {
   const hoverBg = alpha(theme.palette.primary.main, 0.04)
 
   const { items: rawItems, loading, filters, sortConfig, pagination, saving } = useAppSelector((s) => s.receivables)
-  const items = useMemo(() => rawItems.map((inv) => ({ ...inv, status: mapInvoiceStatus(inv) as Invoice['status'] })), [rawItems])
-  const customers = useAppSelector((s) => s.customers.items)
-  const projects = useAppSelector((s) => s.projects.items)
+  const items = useMemo(
+    () => (rawItems ?? []).map((inv) => ({ ...inv, status: mapInvoiceStatus(inv) as Invoice['status'] })),
+    [rawItems],
+  )
+  const customers = useAppSelector((s) => s.customers.items ?? [])
+  const projects = useAppSelector((s) => s.projects.items ?? [])
 
   const [drawerCreate, setDrawerCreate] = useState(false)
   const [drawerEdit, setDrawerEdit] = useState<Invoice | null>(null)

@@ -135,7 +135,7 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved }: C
   const dispatch = useAppDispatch()
   const { showToast } = useToast()
   const saving = useAppSelector((s) => s.receivables.saving)
-  const projects = useAppSelector((s) => s.projects.items)
+  const projects = useAppSelector((s) => s.projects.items ?? [])
   const { services, sacCodes } = useAppSelector((s) => s.settings)
   const clientPOs = useAppSelector((s) => s.baseline.clientPOs)
   const baseline = useAppSelector((s) => s.baseline.baseline)

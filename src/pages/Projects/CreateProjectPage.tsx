@@ -870,10 +870,10 @@ export default function CreateProjectPage() {
   const dispatch = useAppDispatch()
   const toast = useToast()
 
-  const customers = useAppSelector((s) => s.customers.items)
+  const customers = useAppSelector((s) => s.customers.items ?? [])
   const loadingCustomers = useAppSelector((s) => s.customers.loading)
-  const users = useAppSelector((s) => s.users.items)
-  const roles = useAppSelector((s) => s.roles.items)
+  const users = useAppSelector((s) => s.users.items ?? [])
+  const roles = useAppSelector((s) => s.roles.items ?? [])
   const saving = useAppSelector((s) => s.projects.saving)
 
   const [activeStep, setActiveStep] = useState(0)
