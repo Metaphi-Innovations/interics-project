@@ -104,7 +104,7 @@ function RateField({ label, value }: { label: string; value: number | null | und
       >
         {label}
       </Typography>
-      <Typography variant="body2" sx={{ mt: '4px', fontSize: 13, fontWeight: 600, ...METADATA_BODY_SX }}>
+      <Typography variant="body2" sx={{ mt: '4px', ...METADATA_BODY_SX, fontWeight: 600 }}>
         {formatSqftRate(value)}
       </Typography>
     </Box>

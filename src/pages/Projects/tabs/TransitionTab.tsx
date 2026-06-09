@@ -605,6 +605,7 @@ function IssueVendorPODrawer({
             poDate: form.poDate,
             poValue: Number(form.poValue),
             status: 'Draft',
+            milestones: [],
           },
         })
       ).unwrap()

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Box,
   Divider,
@@ -13,8 +13,6 @@ import {
   TableRow,
   IconButton as MuiIconButton,
   Link,
-  TextField,
-  MenuItem,
 } from '@mui/material'
 import {
   VerifiedUser,

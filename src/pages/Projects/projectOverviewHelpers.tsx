@@ -141,7 +141,7 @@ export function formatContactTeamDetail(members?: ContactInfo[]): ReactNode {
               {member.company}
             </Typography>
           )}
-          <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 500, ...METADATA_PREWRAP_SX }}>
+          <Typography variant="body2" sx={{ ...METADATA_PREWRAP_SX, fontWeight: 500 }}>
             {member.name || '—'}
           </Typography>
           {member.designation != null && member.designation !== '' && (

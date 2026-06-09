@@ -45,7 +45,7 @@ export function ProjectDetailsSections({ project }: ProjectDetailsSectionsProps)
           <RecordDetailSectionTitle>Project Profile</RecordDetailSectionTitle>
           <Box sx={PROJECT_DETAILS_GRID_SX}>
             <LabelValue label="Project Name">
-              <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 500, ...METADATA_BODY_SX }}>
+              <Typography variant="body2" sx={{ ...METADATA_BODY_SX, fontWeight: 500 }}>
                 {project.name}
               </Typography>
             </LabelValue>

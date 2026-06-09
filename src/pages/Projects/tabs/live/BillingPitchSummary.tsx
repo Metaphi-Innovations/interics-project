@@ -5,19 +5,17 @@ import {
   AccordionSummary,
   Box,
   Chip,
-  Divider,
   Stack,
   Typography,
 } from '@mui/material'
 import { ExpandMore } from '@mui/icons-material'
-import { Button } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { useAppDispatch, useAppSelector } from '../../../../store/hooks'
 import { fetchVersions } from '../../../../slices/pitch/thunk'
 import type { PitchCategory, PitchVersion } from '../../../../slices/pitch/reducer'
 import { fetchClientPO } from '../../../../slices/baseline/thunk'
 import type { ClientPO } from '../../../../slices/baseline/reducer'
-import { formatCurrency, formatDate } from '../../../../utils/formatters'
+import { formatCurrency } from '../../../../utils/formatters'
 import { ClientPOSection } from '../../components/ClientPOSection'
 import { AddClientPODrawer, ViewClientPODrawer } from './ClientPOBillingDrawers'
 
