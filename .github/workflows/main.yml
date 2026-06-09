@@ -25,7 +25,7 @@ jobs:
           mkdir -p /var/www/.interics-work
 
       - name: Build dev site
-        working-directory: /var/www/.interics-work/interics.dev.metaphi.in
+        working-directory: /var/www/.interics-work
         run: |
           npm ci
           npm run build
