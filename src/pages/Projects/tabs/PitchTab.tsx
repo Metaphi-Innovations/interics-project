@@ -650,10 +650,10 @@ export default function PitchTab({ project }: { project: Project }) {
 
     const notesValue = draft.notesTags.trim() || undefined
 
-    const next: VendorMapping[] = draft.rows.map((row, index) => {
+    const next: VendorMapping[] = draft.rows.flatMap((row, index) => {
       const amount = Number(row.amount)
       if (!Number.isFinite(amount) || amount <= 0 || !row.vendorId) {
-        return null
+        return []
       }
       const vendor = vendorOptions.find((v) => v.id === row.vendorId)
       const prev = existingById.get(row.id) ?? existingByVendor.get(row.vendorId)
@@ -665,20 +665,23 @@ export default function PitchTab({ project }: { project: Project }) {
             uploadedAt: new Date().toISOString(),
           }
         : prev?.quotation
+      const notes = draft.notesTags.trim()
 
-      return {
-        id: mappingId,
-        vendorId: row.vendorId,
-        vendorName: vendor?.label ?? prev?.vendorName ?? '',
-        value: amount,
-        percentage: pct(amount, service.value),
-        milestones: prev?.milestones ?? [],
-        retention: prev?.retention,
-        isMeasurable: row.isMeasurable,
-        ...(quotation ? { quotation } : {}),
-        notes: draft.notesTags.trim() || undefined,
-      }
-    }).filter((m): m is VendorMapping => m != null)
+      return [
+        {
+          id: mappingId,
+          vendorId: row.vendorId,
+          vendorName: vendor?.label ?? prev?.vendorName ?? '',
+          value: amount,
+          percentage: pct(amount, service.value),
+          milestones: prev?.milestones ?? [],
+          retention: prev?.retention,
+          isMeasurable: row.isMeasurable,
+          ...(quotation ? { quotation } : {}),
+          ...(notes ? { notes } : {}),
+        },
+      ]
+    })
 
     await saveMappingsForService(service.id, next)
 

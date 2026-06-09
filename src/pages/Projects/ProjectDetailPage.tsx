@@ -1,5 +1,5 @@
 // ProjectDetailPage
-import { useState, useEffect, type ReactNode } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Box,
   Stack,
@@ -14,7 +14,6 @@ import {
   MenuItem,
   FormControl,
   Skeleton,
-  Tooltip,
 } from '@mui/material'
 import {
   GridView,
@@ -24,8 +23,6 @@ import {
   FilePresent,
   History,
   Edit,
-  SwapHoriz,
-  Archive,
   Lock,
   TrendingUp,
   TrendingDown,
@@ -60,7 +57,6 @@ import { DrawerForm, FormField, FormSection } from '../../components/templates/D
 import { StatusBadge, useToast, Input, Button, Toggle } from '@/design-system/components'
 import type { StatusType } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
-import { usePermission } from '@/hooks/usePermission'
 import { useTheme, alpha } from '@mui/material/styles'
 import {
   getInitials,
@@ -876,13 +872,6 @@ export default function ProjectDetailPage() {
       setStatusDialogOpen(false)
     } catch {
       toast.error('Failed to change status')
-    }
-  }
-
-  async function handleArchive() {
-    if (!project) return
-    if (project.status === 'Completed' || project.status === 'Cancelled') {
-      await handleStatusConfirm('Archived')
     }
   }
 

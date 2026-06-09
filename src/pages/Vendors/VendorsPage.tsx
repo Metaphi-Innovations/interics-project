@@ -304,7 +304,7 @@ function SortHeader({ label, field, sortField, sortDirection, onSort, sx }: Sort
 interface VendorTableProps {
   items: Vendor[]
   loading: boolean
-  visibleColumns: Record<string, boolean>
+  visibleColumns: VendorTableVisibleColumns
   sortField: string | null
   sortDirection: 'asc' | 'desc'
   onSort: (field: string, direction: 'asc' | 'desc') => void
@@ -322,7 +322,7 @@ function VendorTable({
   sortDirection,
   onSort,
   onView,
-  onProjects,
+  onProjects: _onProjects,
   onEdit,
   onDelete,
 }: VendorTableProps) {
@@ -533,7 +533,7 @@ interface VendorGridCardProps {
   onDelete: (vendor: Vendor) => void
 }
 
-function VendorGridCard({ vendor, onView, onProjects, onEdit, onDelete }: VendorGridCardProps) {
+function VendorGridCard({ vendor, onView, onProjects: _onProjects, onEdit, onDelete }: VendorGridCardProps) {
   const theme = useTheme()
   const tagMode = theme.palette.mode === 'dark' ? 'dark' : 'light'
   const [anchor, setAnchor] = useState<null | HTMLElement>(null)
