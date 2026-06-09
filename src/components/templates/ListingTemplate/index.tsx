@@ -163,11 +163,13 @@ export interface ListingTemplateProps {
   hideToolbar?: boolean
   /** Extra node in page header row (e.g. period selector), right side */
   headerRight?: ReactNode
+  /** When false, listing card does not clip table overflow (e.g. fixed Action column). Default true. */
+  clipCardContent?: boolean
 }
 
 // ─── Filters Popover ──────────────────────────────────────────────────────────
 
-interface FiltersPopoverProps {
+export interface FiltersPopoverProps {
   anchor: HTMLElement | null
   onClose: () => void
   filterConfig: FilterField[]
@@ -176,7 +178,7 @@ interface FiltersPopoverProps {
   onFilterReset: () => void
 }
 
-function FiltersPopover({
+export function FiltersPopover({
   anchor,
   onClose,
   filterConfig,
@@ -371,6 +373,7 @@ export function ListingTemplate({
   onViewModeChange,
   hideToolbar = false,
   headerRight,
+  clipCardContent = true,
 }: ListingTemplateProps) {
   const theme = useTheme()
   const isDesktop = useMediaQuery(theme.breakpoints.up('lg'))
@@ -468,7 +471,10 @@ export function ListingTemplate({
           container
           sx={{
             display: 'grid',
-            gridTemplateColumns: { xs: 'repeat(2, 1fr)', lg: 'repeat(4, 1fr)' },
+            gridTemplateColumns: {
+              xs: 'repeat(2, 1fr)',
+              lg: `repeat(${Math.min(statCards.length, 4)}, 1fr)`,
+            },
             gap: '12px',
             mb: 2,
           }}
@@ -488,7 +494,7 @@ export function ListingTemplate({
       {/* ── Toolbar + Content Card (tabs inside) ────────────────────────── */}
       <Card
         elevation={0}
-        sx={{ borderRadius: '12px', overflow: 'hidden' }}
+        sx={{ borderRadius: '12px', overflow: clipCardContent ? 'hidden' : 'visible' }}
       >
         {/* Tabs inside card top */}
         {tabs && tabs.length > 0 && (
@@ -606,35 +612,37 @@ export function ListingTemplate({
             {/* Right actions */}
             <Stack direction="row" alignItems="center" gap="6px">
               {/* Filters button */}
-              <Badge
-                badgeContent={activeFilterCount > 0 ? activeFilterCount : undefined}
-                color="primary"
-              >
-                {isDesktop ? (
-                  <Button
-                    variant="outlined"
-                    size="small"
-                    startIcon={<FilterListIcon fontSize="small" />}
-                    onClick={handleFilterButtonClick}
-                    sx={{ height: '32px', fontSize: '12px' }}
-                  >
-                    Filters
-                  </Button>
-                ) : (
-                  <IconButton
-                    size="small"
-                    onClick={handleFilterButtonClick}
-                    sx={{
-                      height: '32px',
-                      width: '32px',
-                      border: `1px solid ${tokens.color.neutral[200]}`,
-                      borderRadius: '6px',
-                    }}
-                  >
-                    <FilterListIcon fontSize="small" />
-                  </IconButton>
-                )}
-              </Badge>
+              {(filterConfig || onFilterClick) && (
+                <Badge
+                  badgeContent={activeFilterCount > 0 ? activeFilterCount : undefined}
+                  color="primary"
+                >
+                  {isDesktop ? (
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      startIcon={<FilterListIcon fontSize="small" />}
+                      onClick={handleFilterButtonClick}
+                      sx={{ height: '32px', fontSize: '12px' }}
+                    >
+                      Filters
+                    </Button>
+                  ) : (
+                    <IconButton
+                      size="small"
+                      onClick={handleFilterButtonClick}
+                      sx={{
+                        height: '32px',
+                        width: '32px',
+                        border: `1px solid ${tokens.color.neutral[200]}`,
+                        borderRadius: '6px',
+                      }}
+                    >
+                      <FilterListIcon fontSize="small" />
+                    </IconButton>
+                  )}
+                </Badge>
+              )}
 
               {/* Columns button */}
               {columns && onColumnVisibilityChange && (

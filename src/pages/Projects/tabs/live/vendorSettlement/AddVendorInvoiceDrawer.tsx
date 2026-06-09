@@ -4,14 +4,14 @@ import { DrawerForm, FormField, FormSection } from '@/components/templates/Drawe
 import { FileUpload, Input, useToast } from '@/design-system/components'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { fetchVendorInvoices, uploadVendorInvoice } from '@/slices/live/thunk'
-import type { Baseline } from '@/slices/baseline/reducer'
+import type { Baseline, VendorPO } from '@/slices/baseline/reducer'
 import type { VendorMilestone } from '@/slices/pitch/reducer'
 import { formatCurrency } from '@/utils/formatters'
 import {
   DEFAULT_TDS_PERCENT,
   findInvoiceForMilestone,
-  findVendorMapping,
   invoiceMatchesRow,
+  resolveVendorMilestonesForRow,
   type VendorServiceRow,
 } from './utils'
 
@@ -21,6 +21,7 @@ export function AddVendorInvoiceDrawer({
   context,
   presetMilestoneId,
   baseline,
+  vendorPOs = [],
   onClose,
 }: {
   open: boolean
@@ -28,6 +29,7 @@ export function AddVendorInvoiceDrawer({
   context: VendorServiceRow | null
   presetMilestoneId?: string
   baseline: Baseline | null
+  vendorPOs?: VendorPO[]
   onClose: () => void
 }) {
   const dispatch = useAppDispatch()
@@ -45,21 +47,21 @@ export function AddVendorInvoiceDrawer({
     [vendorInvoices, projectId],
   )
 
-  const mapping = useMemo(() => {
-    if (!context || !baseline) return undefined
-    return findVendorMapping(baseline, context.vendorId, context.serviceId)
-  }, [baseline, context])
+  const milestones = useMemo((): VendorMilestone[] => {
+    if (!context) return []
+    return resolveVendorMilestonesForRow(vendorPOs, baseline, context)
+  }, [vendorPOs, baseline, context])
 
   const uninvoicedMilestones = useMemo((): VendorMilestone[] => {
-    if (!context || !mapping) return []
+    if (!context || milestones.length === 0) return []
     const scoped = projectScopedInvoices.filter((inv) => invoiceMatchesRow(inv, context))
-    return mapping.milestones.filter((vm) => !findInvoiceForMilestone(scoped, vm))
-  }, [context, mapping, projectScopedInvoices])
+    return milestones.filter((vm) => !findInvoiceForMilestone(scoped, vm))
+  }, [context, milestones, projectScopedInvoices])
 
   const lockedMilestone = useMemo(() => {
-    if (!presetMilestoneId || !mapping) return undefined
-    return mapping.milestones.find((m) => m.id === presetMilestoneId)
-  }, [presetMilestoneId, mapping])
+    if (!presetMilestoneId || milestones.length === 0) return undefined
+    return milestones.find((m) => m.id === presetMilestoneId)
+  }, [presetMilestoneId, milestones])
 
   useEffect(() => {
     if (!open) {
@@ -77,14 +79,23 @@ export function AddVendorInvoiceDrawer({
     }
   }, [open, presetMilestoneId])
 
+  useEffect(() => {
+    if (!open) return
+    const vm =
+      lockedMilestone ?? milestones.find((m) => m.id === selectedMilestoneId)
+    if (vm && vm.value > 0) {
+      setBaseAmount(String(vm.value))
+    }
+  }, [open, lockedMilestone, selectedMilestoneId, milestones])
+
   async function handleSubmit() {
-    if (!context || !mapping) {
+    if (!context || milestones.length === 0) {
       toast.error('Missing vendor context')
       return
     }
     const vm =
       lockedMilestone ??
-      mapping.milestones.find((m) => m.id === selectedMilestoneId)
+      milestones.find((m) => m.id === selectedMilestoneId)
     if (!vm) {
       toast.error('Select a milestone')
       return
@@ -132,8 +143,8 @@ export function AddVendorInvoiceDrawer({
   }
 
   const resolvedVm =
-    lockedMilestone ?? mapping?.milestones.find((m) => m.id === selectedMilestoneId)
-  const submitDisabled = saving || !context || !mapping || !resolvedVm
+    lockedMilestone ?? milestones.find((m) => m.id === selectedMilestoneId)
+  const submitDisabled = saving || !context || milestones.length === 0 || !resolvedVm
 
   return (
     <DrawerForm

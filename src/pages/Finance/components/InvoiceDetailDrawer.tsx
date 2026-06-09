@@ -21,6 +21,7 @@ import { fetchInvoiceById } from '@/slices/receivables/thunk'
 import type { Invoice } from '@/slices/receivables/reducer'
 import { InvoiceLineItems } from './InvoiceLineItems'
 import { tokens } from '@/design-system/tokens'
+import { mapInvoiceStatus } from '../BillingsPage'
 
 export function invoiceStatusToBadgeType(status: Invoice['status']): StatusType {
   if (status === 'draft') return 'invoice_draft'
@@ -48,7 +49,8 @@ export function InvoiceDetailDrawer({
 }: InvoiceDetailDrawerProps) {
   const dispatch = useAppDispatch()
   const { showToast } = useToast()
-  const invoice = useAppSelector((s) => s.receivables.selectedItem)
+  const rawInvoice = useAppSelector((s) => s.receivables.selectedItem)
+  const invoice = rawInvoice ? { ...rawInvoice, status: mapInvoiceStatus(rawInvoice) as Invoice['status'] } : null
   const detailLoading = useAppSelector((s) => s.receivables.detailLoading)
   const { services, sacCodes } = useAppSelector((s) => s.settings)
 

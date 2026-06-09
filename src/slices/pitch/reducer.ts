@@ -55,6 +55,13 @@ export interface VendorMapping {
   retention?: VendorRetention
   isMeasurable: boolean
   quotation?: VendorQuotation
+  gstRate?: number
+  /** GST amount borne by Interics (pitch / billing display). */
+  gstByUs?: number
+  /** GST amount borne by the client (pitch / billing display). */
+  gstByClient?: number
+  /** Free-text notes, remarks, tags, or references for this vendor offer. */
+  notes?: string
 }
 
 export interface PlannedExpenseSplit {
@@ -65,7 +72,7 @@ export interface PlannedExpenseSplit {
 
 export interface PlannedExpense {
   id: string
-  type: 'additional' | 'vendor' | 'common'
+  type: 'additional' | 'vendor' | 'common' | 'office_expenses' | 'reimbursable_expenses'
   name: string
   amount: number
   vendorId?: string
@@ -75,6 +82,8 @@ export interface PlannedExpense {
   serviceName?: string
   milestoneId?: string
   milestoneName?: string
+  date?: string
+  documentUrl?: string
 }
 
 export interface PitchService {
@@ -86,6 +95,10 @@ export interface PitchService {
   value: number
   sacCode?: string
   gstRate?: number
+  /** GST amount borne by Interics (pitch / billing display). */
+  gstByUs?: number
+  /** GST amount borne by the client (pitch / billing display). */
+  gstByClient?: number
   clientMilestones: ClientMilestone[]
   vendorMappings: VendorMapping[]
   milestonesTotal: number
@@ -175,6 +188,7 @@ const pitchSlice = createSlice({
       // fetchVersionById
       .addCase(fetchVersionById.fulfilled, (state, action) => {
         state.activeVersion = action.payload
+        state.activeVersionId = action.payload.id
         const idx = state.versions.findIndex((v) => v.id === action.payload.id)
         if (idx !== -1) state.versions[idx] = action.payload
         else state.versions.push(action.payload)
@@ -214,61 +228,125 @@ const pitchSlice = createSlice({
 
       // addCategory, addService, updateService, deleteService, updateMilestones, updateVendorMapping
       // All return the updated version
+      .addCase(addCategory.pending, (state) => {
+        state.saving = true
+      })
       .addCase(addCategory.fulfilled, (state, action) => {
+        state.saving = false
         const idx = state.versions.findIndex((v) => v.id === action.payload.id)
         if (idx !== -1) state.versions[idx] = action.payload
         if (state.activeVersionId === action.payload.id) {
           state.activeVersion = action.payload
         }
+      })
+      .addCase(addCategory.rejected, (state, action) => {
+        state.saving = false
+        state.error = action.payload as string
+      })
+      .addCase(deleteCategory.pending, (state) => {
+        state.saving = true
       })
       .addCase(deleteCategory.fulfilled, (state, action) => {
+        state.saving = false
         const idx = state.versions.findIndex((v) => v.id === action.payload.id)
         if (idx !== -1) state.versions[idx] = action.payload
         if (state.activeVersionId === action.payload.id) {
           state.activeVersion = action.payload
         }
+      })
+      .addCase(deleteCategory.rejected, (state, action) => {
+        state.saving = false
+        state.error = action.payload as string
+      })
+      .addCase(addService.pending, (state) => {
+        state.saving = true
       })
       .addCase(addService.fulfilled, (state, action) => {
+        state.saving = false
         const idx = state.versions.findIndex((v) => v.id === action.payload.id)
         if (idx !== -1) state.versions[idx] = action.payload
         if (state.activeVersionId === action.payload.id) {
           state.activeVersion = action.payload
         }
+      })
+      .addCase(addService.rejected, (state, action) => {
+        state.saving = false
+        state.error = action.payload as string
+      })
+      .addCase(updateService.pending, (state) => {
+        state.saving = true
       })
       .addCase(updateService.fulfilled, (state, action) => {
+        state.saving = false
         const idx = state.versions.findIndex((v) => v.id === action.payload.id)
         if (idx !== -1) state.versions[idx] = action.payload
         if (state.activeVersionId === action.payload.id) {
           state.activeVersion = action.payload
         }
+      })
+      .addCase(updateService.rejected, (state, action) => {
+        state.saving = false
+        state.error = action.payload as string
+      })
+      .addCase(deleteService.pending, (state) => {
+        state.saving = true
       })
       .addCase(deleteService.fulfilled, (state, action) => {
+        state.saving = false
         const idx = state.versions.findIndex((v) => v.id === action.payload.id)
         if (idx !== -1) state.versions[idx] = action.payload
         if (state.activeVersionId === action.payload.id) {
           state.activeVersion = action.payload
         }
+      })
+      .addCase(deleteService.rejected, (state, action) => {
+        state.saving = false
+        state.error = action.payload as string
+      })
+      .addCase(updateMilestones.pending, (state) => {
+        state.saving = true
       })
       .addCase(updateMilestones.fulfilled, (state, action) => {
+        state.saving = false
         const idx = state.versions.findIndex((v) => v.id === action.payload.id)
         if (idx !== -1) state.versions[idx] = action.payload
         if (state.activeVersionId === action.payload.id) {
           state.activeVersion = action.payload
         }
+      })
+      .addCase(updateMilestones.rejected, (state, action) => {
+        state.saving = false
+        state.error = action.payload as string
+      })
+      .addCase(updateVendorMapping.pending, (state) => {
+        state.saving = true
       })
       .addCase(updateVendorMapping.fulfilled, (state, action) => {
+        state.saving = false
         const idx = state.versions.findIndex((v) => v.id === action.payload.id)
         if (idx !== -1) state.versions[idx] = action.payload
         if (state.activeVersionId === action.payload.id) {
           state.activeVersion = action.payload
         }
       })
+      .addCase(updateVendorMapping.rejected, (state, action) => {
+        state.saving = false
+        state.error = action.payload as string
+      })
+      .addCase(updatePlannedExpenses.pending, (state) => {
+        state.saving = true
+      })
       .addCase(updatePlannedExpenses.fulfilled, (state, action) => {
+        state.saving = false
         const idx = state.versions.findIndex((v) => v.id === action.payload.id)
         if (idx !== -1) state.versions[idx] = action.payload
         if (state.activeVersionId === action.payload.id) {
           state.activeVersion = action.payload
         }
+      })
+      .addCase(updatePlannedExpenses.rejected, (state, action) => {
+        state.saving = false
+        state.error = action.payload as string
       })
   },
 })

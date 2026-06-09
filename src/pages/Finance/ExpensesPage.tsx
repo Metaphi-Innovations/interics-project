@@ -53,21 +53,51 @@ type VisibleCols = {
   status: boolean
 }
 
+/** Mirrors VendorsPage TABLE_HEADER_CELL_SX / TABLE_CELL_SX. */
+const EXP_ACTION_WIDTH_PX = 56
+const EXP_CELL_PAD_X = '14px'
+
 const HEADER_SX = {
   fontSize: 11,
   fontWeight: 600,
   color: 'text.secondary',
-  textTransform: 'uppercase' as const,
-  letterSpacing: '0.5px',
-  py: 1,
-  px: 1.75,
+  py: '8px',
+  px: EXP_CELL_PAD_X,
   borderBottom: `2px solid ${tokens.color.neutral[100]}`,
+  verticalAlign: 'bottom' as const,
+  boxSizing: 'border-box' as const,
+}
+
+const HEADER_ACTION_SX = {
+  ...HEADER_SX,
+  width: EXP_ACTION_WIDTH_PX,
+  minWidth: EXP_ACTION_WIDTH_PX,
+  maxWidth: EXP_ACTION_WIDTH_PX,
+  whiteSpace: 'nowrap' as const,
 }
 
 const CELL_SX = {
   fontSize: 12,
-  py: 1,
-  px: 1.75,
+  py: '7px',
+  px: EXP_CELL_PAD_X,
+  verticalAlign: 'top' as const,
+  boxSizing: 'border-box' as const,
+}
+
+const CELL_STATUS_SX = {
+  ...CELL_SX,
+  verticalAlign: 'middle' as const,
+}
+
+const CELL_ACTION_SX = {
+  py: '7px',
+  px: EXP_CELL_PAD_X,
+  width: EXP_ACTION_WIDTH_PX,
+  minWidth: EXP_ACTION_WIDTH_PX,
+  maxWidth: EXP_ACTION_WIDTH_PX,
+  verticalAlign: 'middle' as const,
+  textAlign: 'center' as const,
+  boxSizing: 'border-box' as const,
 }
 
 const menuItemSx = { fontSize: 12, minHeight: 32, py: 0.5 }
@@ -93,8 +123,9 @@ export default function ExpensesPage() {
   const { showToast } = useToast()
   const hoverBg = alpha(theme.palette.primary.main, 0.04)
 
-  const projects = useAppSelector((s) => s.projects.items)
-  const { expenses, saving } = useAppSelector((s) => s.live)
+  const projects = useAppSelector((s) => s.projects.items ?? [])
+  const expenses = useAppSelector((s) => s.live.expenses ?? [])
+  const saving = useAppSelector((s) => s.live.saving)
 
   const [financeLoaded, setFinanceLoaded] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -126,32 +157,40 @@ export default function ExpensesPage() {
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null)
   const [menuExpense, setMenuExpense] = useState<Expense | null>(null)
 
+  const projectIdsKey = useMemo(
+    () => projects.map((p) => p.id).sort().join(','),
+    [projects],
+  )
+
   useEffect(() => {
-    void dispatch(fetchProjects({}))
+    void dispatch(fetchProjects({ pageSize: 100 }))
   }, [dispatch])
 
   const refetchAllExpenses = useCallback(async () => {
     if (projects.length === 0) return
-    for (const p of projects) {
-      await dispatch(fetchExpenses(p.id)).unwrap()
-    }
+    await Promise.all(projects.map((p) => dispatch(fetchExpenses(p.id)).unwrap()))
   }, [dispatch, projects])
 
   useEffect(() => {
-    if (projects.length === 0) return
+    if (projects.length === 0) {
+      setFinanceLoaded(true)
+      return
+    }
+    const hadStoreData = expenses.length > 0
     let cancelled = false
-    setFinanceLoaded(false)
+    if (!hadStoreData) setFinanceLoaded(false)
+
     void (async () => {
-      for (const p of projects) {
-        await dispatch(fetchExpenses(p.id)).unwrap()
-        if (cancelled) return
+      try {
+        await Promise.all(projects.map((p) => dispatch(fetchExpenses(p.id)).unwrap()))
+      } finally {
+        if (!cancelled) setFinanceLoaded(true)
       }
-      if (!cancelled) setFinanceLoaded(true)
     })()
     return () => {
       cancelled = true
     }
-  }, [dispatch, projects])
+  }, [dispatch, projectIdsKey, projects])
 
   const projectNameById = useMemo(() => {
     const m: Record<string, string> = {}
@@ -277,7 +316,17 @@ export default function ExpensesPage() {
 
   const mainColCount = useMemo(() => visibleColCount(visibleColumns), [visibleColumns])
 
-  const loading = !financeLoaded && projects.length > 0
+  const visibleDataColCount = useMemo(
+    () => Object.values(visibleColumns).filter(Boolean).length,
+    [visibleColumns],
+  )
+
+  const dataColWidth = useMemo(
+    () => `calc((100% - ${EXP_ACTION_WIDTH_PX}px) / ${Math.max(visibleDataColCount, 1)})`,
+    [visibleDataColCount],
+  )
+
+  const loading = !financeLoaded && projects.length > 0 && expenses.length === 0
 
   function handleTabChange(v: string) {
     setTypeTab(v as TypeTab)
@@ -414,8 +463,19 @@ export default function ExpensesPage() {
           setPage(0)
         }}
       >
-        <TableContainer sx={{ overflowX: 'auto' }}>
-          <Table size="small">
+        <TableContainer sx={{ overflow: 'visible', width: '100%' }}>
+          <Table size="small" sx={{ tableLayout: 'fixed', width: '100%', minWidth: 0 }}>
+            <colgroup>
+              {visibleColumns.type && <col style={{ width: dataColWidth }} />}
+              {visibleColumns.description && <col style={{ width: dataColWidth }} />}
+              {visibleColumns.project && <col style={{ width: dataColWidth }} />}
+              {visibleColumns.vendor && <col style={{ width: dataColWidth }} />}
+              {visibleColumns.service && <col style={{ width: dataColWidth }} />}
+              {visibleColumns.amount && <col style={{ width: dataColWidth }} />}
+              {visibleColumns.date && <col style={{ width: dataColWidth }} />}
+              {visibleColumns.status && <col style={{ width: dataColWidth }} />}
+              <col style={{ width: EXP_ACTION_WIDTH_PX }} />
+            </colgroup>
             <TableHead>
               <TableRow sx={{ bgcolor: alpha(theme.palette.text.primary, 0.02) }}>
                 {visibleColumns.type && <TableCell sx={HEADER_SX}>Type</TableCell>}
@@ -423,16 +483,10 @@ export default function ExpensesPage() {
                 {visibleColumns.project && <TableCell sx={HEADER_SX}>Project</TableCell>}
                 {visibleColumns.vendor && <TableCell sx={HEADER_SX}>Vendor</TableCell>}
                 {visibleColumns.service && <TableCell sx={HEADER_SX}>Service</TableCell>}
-                {visibleColumns.amount && (
-                  <TableCell sx={{ ...HEADER_SX }} align="right">
-                    Amount
-                  </TableCell>
-                )}
+                {visibleColumns.amount && <TableCell sx={HEADER_SX}>Amount</TableCell>}
                 {visibleColumns.date && <TableCell sx={HEADER_SX}>Date</TableCell>}
                 {visibleColumns.status && <TableCell sx={HEADER_SX}>Status</TableCell>}
-                <TableCell sx={{ ...HEADER_SX, width: 120 }} align="right">
-                  Actions
-                </TableCell>
+                <TableCell sx={HEADER_ACTION_SX}>Action</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -506,24 +560,20 @@ export default function ExpensesPage() {
                         <TableCell sx={CELL_SX}>{expenseServiceCell(exp)}</TableCell>
                       )}
                       {visibleColumns.amount && (
-                        <TableCell sx={CELL_SX} align="right">
-                          ₹{formatCurrency(exp.amount)}
-                        </TableCell>
+                        <TableCell sx={CELL_SX}>₹{formatCurrency(exp.amount)}</TableCell>
                       )}
                       {visibleColumns.date && (
                         <TableCell sx={CELL_SX}>{formatDate(exp.date)}</TableCell>
                       )}
                       {visibleColumns.status && (
-                        <TableCell sx={CELL_SX}>
+                        <TableCell sx={CELL_STATUS_SX}>
                           <StatusBadge status={st.status} label={st.label} size="small" />
                         </TableCell>
                       )}
-                      <TableCell align="right" sx={CELL_SX}>
-                        <Stack direction="row" alignItems="center" justifyContent="flex-end">
-                          <MuiIconButton size="small" aria-label="More" onClick={(e) => openMenu(e, exp)}>
-                            <MoreVertIcon sx={{ fontSize: 16 }} />
-                          </MuiIconButton>
-                        </Stack>
+                      <TableCell sx={CELL_ACTION_SX}>
+                        <MuiIconButton size="small" aria-label="More" onClick={(e) => openMenu(e, exp)}>
+                          <MoreVertIcon sx={{ fontSize: 16 }} />
+                        </MuiIconButton>
                       </TableCell>
                     </TableRow>
                   )

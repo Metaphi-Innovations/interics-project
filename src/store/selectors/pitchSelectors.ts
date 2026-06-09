@@ -56,3 +56,21 @@ export const selectPitchFinancials = createSelector(
   [(state: RootState, versionId: string | null) => selectPitchVersionById(state, versionId)],
   (version) => computePitchFinancialMetrics(version),
 )
+
+/** Resolve the pitch version in use for a project (active version or first match). */
+export function resolvePitchVersionForProject(
+  projectId: string,
+  activeVersion: PitchVersion | null,
+  versions: PitchVersion[],
+): PitchVersion | null {
+  if (activeVersion?.projectId === projectId) return activeVersion
+  return (
+    versions.find((v) => v.projectId === projectId && v.isActive) ??
+    versions.find((v) => v.projectId === projectId) ??
+    null
+  )
+}
+
+export function selectPitchVersionForProject(state: RootState, projectId: string): PitchVersion | null {
+  return resolvePitchVersionForProject(projectId, state.pitch.activeVersion, state.pitch.versions)
+}

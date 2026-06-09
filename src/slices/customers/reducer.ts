@@ -64,6 +64,8 @@ export interface Customer {
   address: string | null
   pincode?: string | null
   tags: string[]
+  sector?: string
+  msmeRegistered?: boolean
   notes: string | null
   status: 'Active' | 'Inactive'
   activeProjects: number
@@ -148,8 +150,8 @@ const customersSlice = createSlice({
       })
       .addCase(fetchCustomers.fulfilled, (state, action) => {
         state.loading = false
-        state.items = action.payload.items
-        state.pagination.total = action.payload.total
+        state.items = action.payload.items ?? []
+        state.pagination.total = action.payload.total ?? 0
       })
       .addCase(fetchCustomers.rejected, (state, action) => {
         state.loading = false

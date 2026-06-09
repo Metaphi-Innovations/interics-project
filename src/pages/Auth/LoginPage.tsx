@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react'
-import { useNavigate, useLocation } from 'react-router-dom'
-import { Box, Typography, Alert } from '@mui/material'
+import { Link as RouterLink, useNavigate, useLocation } from 'react-router-dom'
+import { Box, Stack, Typography, Alert } from '@mui/material'
 import { alpha, useTheme } from '@mui/material/styles'
 import { Eye, EyeOff } from 'lucide-react'
 import { Input, Button, IconButton, Checkbox } from '@/design-system/components'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { loginThunk } from '@/slices/auth/thunk'
 import AuthSplitLayout from '@/pages/Auth/components/AuthSplitLayout'
-import { AUTH_SUPPORT_MAILTO, REMEMBER_EMAIL_KEY, SAVED_EMAIL_KEY } from '@/pages/Auth/authConstants'
+import { REMEMBER_EMAIL_KEY, SAVED_EMAIL_KEY } from '@/pages/Auth/authConstants'
 
 function validateEmail(value: string): string {
   if (!value) return 'Email is required'
@@ -77,20 +77,32 @@ export default function LoginPage() {
 
   return (
     <AuthSplitLayout>
-      <Typography variant="h5" sx={{ fontWeight: 700, mb: 0.5 }}>
-        Welcome back
-      </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        Sign in to your account to continue
-      </Typography>
+      <Box sx={{ mb: 4 }}>
+        <Typography
+          variant="h4"
+          component="h1"
+          sx={{
+            fontWeight: 700,
+            fontSize: { xs: '1.375rem', sm: '1.5rem' },
+            lineHeight: 1.25,
+            letterSpacing: -0.25,
+            mb: 1,
+          }}
+        >
+          Welcome back
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ fontSize: 14, lineHeight: 1.5 }}>
+          Sign in to your account to continue
+        </Typography>
+      </Box>
 
       {authError && (
-        <Alert severity="error" sx={{ mb: 2, fontSize: 12 }}>
+        <Alert severity="error" sx={{ mb: 3, fontSize: 12 }}>
           Invalid email or password. Please try again.
         </Alert>
       )}
 
-      <Box sx={{ mb: 2 }}>
+      <Stack spacing={2.5}>
         <Input
           label="Email address"
           type="email"
@@ -103,76 +115,76 @@ export default function LoginPage() {
           error={!!emailError}
           helperText={emailError}
         />
-      </Box>
 
-      <Input
-        label="Password"
-        type={showPassword ? 'text' : 'password'}
-        size="sm"
-        fullWidth
-        placeholder="Enter your password"
-        value={password}
-        onChange={val => setPassword(val)}
-        onBlur={() => setPasswordError(validatePassword(password))}
-        error={!!passwordError}
-        helperText={passwordError}
-        endAdornment={
-          <IconButton
-            size="sm"
-            onClick={() => setShowPassword(v => !v)}
-            aria-label={showPassword ? 'Hide password' : 'Show password'}
-            sx={{ color: eyeColor }}
-            icon={
-              showPassword ? <EyeOff size={16} strokeWidth={1.75} /> : <Eye size={16} strokeWidth={1.75} />
-            }
-          />
-        }
-      />
-
-      <Box
-        sx={{
-          display: 'flex',
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 2,
-          flexWrap: 'wrap',
-          mt: 1.5,
-          mb: 2.5,
-        }}
-      >
-        <Checkbox
-          label="Remember me"
+        <Input
+          label="Password"
+          type={showPassword ? 'text' : 'password'}
           size="sm"
-          checked={rememberMe}
-          onChange={setRememberMe}
+          fullWidth
+          placeholder="Enter your password"
+          value={password}
+          onChange={val => setPassword(val)}
+          onBlur={() => setPasswordError(validatePassword(password))}
+          error={!!passwordError}
+          helperText={passwordError}
+          endAdornment={
+            <IconButton
+              size="sm"
+              onClick={() => setShowPassword(v => !v)}
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
+              sx={{ color: eyeColor }}
+              icon={
+                showPassword ? <EyeOff size={16} strokeWidth={1.75} /> : <Eye size={16} strokeWidth={1.75} />
+              }
+            />
+          }
         />
-        <Typography
-          component="a"
-          href={AUTH_SUPPORT_MAILTO}
-          variant="body2"
+
+        <Box
           sx={{
-            color: 'primary.main',
-            fontWeight: 600,
-            textDecoration: 'none',
-            '&:hover': { textDecoration: 'underline' },
+            display: 'flex',
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 2,
+            flexWrap: 'wrap',
+            pt: 0.5,
           }}
         >
-          Need help?
-        </Typography>
-      </Box>
+          <Checkbox
+            label="Remember me"
+            size="sm"
+            checked={rememberMe}
+            onChange={setRememberMe}
+          />
+          <Typography
+            component={RouterLink}
+            to="/forgot-password"
+            variant="body2"
+            sx={{
+              color: 'primary.main',
+              fontWeight: 600,
+              fontSize: 13,
+              textDecoration: 'none',
+              '&:hover': { textDecoration: 'underline' },
+            }}
+          >
+            Forgot Password?
+          </Typography>
+        </Box>
 
-      <Button
-        variant="contained"
-        color="primary"
-        fullWidth
-        loading={loading}
-        disabled={loading || !email || !password}
-        onClick={handleLogin}
-        sx={{ height: 40, fontSize: 14, fontWeight: 600 }}
-      >
-        Sign In
-      </Button>
+        <Button
+          variant="contained"
+          color="primary"
+          fullWidth
+          loading={loading}
+          disabled={loading || !email || !password}
+          onClick={handleLogin}
+          sx={{ height: 40, fontSize: 14, fontWeight: 600, mt: 0.5 }}
+        >
+          Sign In
+        </Button>
+      </Stack>
     </AuthSplitLayout>
   )
 }

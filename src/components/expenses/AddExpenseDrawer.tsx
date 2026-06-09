@@ -3,10 +3,19 @@ import { Box, Stack, Typography, IconButton as MuiIconButton } from '@mui/materi
 import Close from '@mui/icons-material/Close'
 import { useAppDispatch } from '@/store/hooks'
 import { updatePlannedExpenses } from '@/slices/pitch/thunk'
+import {
+  createExpense,
+  deleteExpense,
+  deleteReimbursementForPlannedExpense,
+  fetchExpenses,
+  fetchReimbursements,
+} from '@/slices/live/thunk'
+import { isReimbursableExpenseType } from '@/utils/reimbursableSync'
 import type { PitchVersion, PlannedExpense } from '@/slices/pitch/reducer'
 import { tokens } from '@/design-system/tokens'
 import { Drawer } from '@mui/material'
 import { Button as MuiButton } from '@mui/material'
+import { plannedExpenseToLiveCreateBody } from '@/utils/pitchExpenseSync'
 import {
   ExpenseForm,
   type ExpenseFormData,
@@ -34,9 +43,10 @@ export function AddExpenseDrawer({
   const dispatch = useAppDispatch()
   const formRef = useRef<ExpenseFormHandle>(null)
   const [formValid, setFormValid] = useState(false)
+  const [submitLabel, setSubmitLabel] = useState('Save')
 
   const handleSubmit = useCallback(
-    (data: ExpenseFormData) => {
+    async (data: ExpenseFormData) => {
       if (data.mode !== 'planned_expense' || !version) return
       const payload = data.expense
       const list = version.plannedExpenses ?? []
@@ -46,13 +56,34 @@ export function AddExpenseDrawer({
       if (onCommit) {
         onCommit(next)
       } else {
-        void dispatch(
+        await dispatch(
           updatePlannedExpenses({
             projectId,
             versionId: version.id,
             expenses: next,
           }),
-        )
+        ).unwrap()
+
+        const expenseList = await dispatch(fetchExpenses(projectId)).unwrap()
+        await dispatch(fetchReimbursements(projectId)).unwrap()
+        const existingLive = expenseList.find((e) => e.sourcePlannedExpenseId === payload.id)
+        if (existingLive) {
+          await dispatch(deleteExpense({ projectId, expenseId: existingLive.id })).unwrap()
+        } else if (isReimbursableExpenseType(payload.type)) {
+          await dispatch(
+            deleteReimbursementForPlannedExpense({ projectId, plannedExpenseId: payload.id }),
+          ).unwrap()
+        }
+        await dispatch(
+          createExpense({
+            projectId,
+            data: plannedExpenseToLiveCreateBody(payload, version),
+          }),
+        ).unwrap()
+        await dispatch(fetchExpenses(projectId)).unwrap()
+        if (isReimbursableExpenseType(payload.type)) {
+          await dispatch(fetchReimbursements(projectId)).unwrap()
+        }
       }
       onClose()
     },
@@ -103,6 +134,7 @@ export function AddExpenseDrawer({
             onSubmit={handleSubmit}
             onCancel={onClose}
             onValidityChange={setFormValid}
+            onSubmitLabelChange={setSubmitLabel}
           />
         ) : (
           <Typography variant="body2" color="text.secondary">
@@ -127,7 +159,7 @@ export function AddExpenseDrawer({
           onClick={() => formRef.current?.submit()}
           sx={{ height: 32, minWidth: 90 }}
         >
-          Save
+          {submitLabel}
         </MuiButton>
       </Stack>
     </Drawer>

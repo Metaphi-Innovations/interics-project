@@ -45,9 +45,24 @@ const PAIRS: { test: (s: string) => boolean; light: SpecializationTagColors; dar
       dark: { bg: '#0C4A6E', color: '#7DD3FC' },
     },
     {
-      test: (x) => /\bcontractor\b/.test(x),
-      light: OTHER_LIGHT,
-      dark: OTHER_DARK,
+      test: (x) => /\bcontractor\b/.test(x) || /\bbuild\b/.test(x),
+      light: { bg: '#FFEDD5', color: '#C2410C' },
+      dark: { bg: '#7C2D12', color: '#FDBA74' },
+    },
+    {
+      test: (x) => /\btdd\b/.test(x) || /\bid\b/.test(x),
+      light: { bg: '#E0E7FF', color: '#4338CA' },
+      dark: { bg: '#312E81', color: '#A5B4FC' },
+    },
+    {
+      test: (x) => /\bleed\b/.test(x) || /\bapprovals?\b/.test(x),
+      light: { bg: '#DCFCE7', color: '#15803D' },
+      dark: { bg: '#14532D', color: '#86EFAC' },
+    },
+    {
+      test: (x) => /\b(acoustic|kitchen|branding|styling|security|av|it)\b/.test(x),
+      light: { bg: '#FCE7F3', color: '#BE185D' },
+      dark: { bg: '#831843', color: '#F9A8D4' },
     },
   ]
 

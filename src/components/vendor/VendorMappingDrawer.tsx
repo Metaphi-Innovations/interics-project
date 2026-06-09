@@ -65,7 +65,7 @@ export function VendorMappingDrawer({
   const quoteFileInputRef = useRef<HTMLInputElement>(null)
   const [quotePickMappingId, setQuotePickMappingId] = useState<string | null>(null)
   const dispatch = useAppDispatch()
-  const vendorItems = useAppSelector((s) => s.vendors.items)
+  const vendorItems = useAppSelector((s) => s.vendors.items ?? [])
 
   useEffect(() => {
     if (!vendorItems || vendorItems.length === 0) {

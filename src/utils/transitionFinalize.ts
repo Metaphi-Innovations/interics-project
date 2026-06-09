@@ -1,5 +1,5 @@
 import type { ClientPO } from '@/slices/baseline/reducer'
-import type { PitchService } from '@/slices/pitch/reducer'
+import type { PitchCategory, PitchService } from '@/slices/pitch/reducer'
 import type { TransitionDraft } from '@/utils/transitionDraft'
 import { validateTransitionDraftForSave } from '@/utils/transitionDraft'
 
@@ -145,6 +145,64 @@ export function validateTransitionForFinalize(input: TransitionFinalizeInput): {
 
 export function canFinalizeTransition(input: TransitionFinalizeInput): boolean {
   return validateTransitionForFinalize(input).ok
+}
+
+export type GoLiveMinimumInput = TransitionFinalizeInput & {
+  projectId: string
+}
+
+/** At least one saved client-offer service with a positive value. */
+export function pitchHasClientOfferService(categories: PitchCategory[]): boolean {
+  return categories
+    .flatMap((c) => c.services)
+    .some((s) => s.value > 0)
+}
+
+/** At least one saved vendor row under any service/category. */
+export function pitchHasVendorOffer(categories: PitchCategory[]): boolean {
+  return categories
+    .flatMap((c) => c.services)
+    .some((s) => (s.vendorMappings ?? []).some((vm) => Boolean(vm.vendorId)))
+}
+
+function hasClientOfferService(draft: TransitionDraft): boolean {
+  return pitchHasClientOfferService(draft.categories)
+}
+
+function hasVendorOffer(draft: TransitionDraft): boolean {
+  return pitchHasVendorOffer(draft.categories)
+}
+
+/**
+ * Minimum requirements to create a baseline and convert Pitch → Live.
+ * Client PO is added after conversion on Live → Receivables (not required here).
+ */
+export function validateGoLiveMinimum(input: GoLiveMinimumInput): { ok: boolean; messages: string[] } {
+  const messages: string[] = []
+  const { selectedVersionId, draft } = input
+
+  if (!selectedVersionId || !draft) {
+    messages.push('An active pitch version is required.')
+    return { ok: false, messages }
+  }
+
+  if (!hasClientOfferService(draft)) {
+    messages.push('Add at least one client offer service on the Pitch tab.')
+  }
+
+  if (!hasVendorOffer(draft)) {
+    messages.push('Add at least one vendor offer on the Pitch tab.')
+  }
+
+  return { ok: messages.length === 0, messages }
+}
+
+export function formatGoLiveBlockMessage(messages: string[]): string {
+  if (messages.length === 0) {
+    return 'Cannot convert to Live until a baseline is created.'
+  }
+  if (messages.length === 1) return messages[0]!
+  return `Cannot convert to Live: ${messages.join(' ')}`
 }
 
 export type ServiceQuoteStatus = 'Uploaded' | 'Partial' | 'Missing'

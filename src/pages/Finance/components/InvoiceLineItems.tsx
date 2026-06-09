@@ -54,6 +54,8 @@ export interface InvoiceLineItemsProps {
   allowEmpty?: boolean
   /** Collapsed "Add manual line" until expanded */
   manualAddCollapsed?: boolean
+  /** Hide SAC Code column (project generate-invoice flow) */
+  hideSacColumn?: boolean
 }
 
 export function emptyDraftLine(): DraftLineItem {
@@ -79,6 +81,7 @@ export function InvoiceLineItems({
   projectSourced = false,
   allowEmpty = false,
   manualAddCollapsed = false,
+  hideSacColumn = false,
 }: InvoiceLineItemsProps) {
   const activeServices = services.filter((s) => s.status === 'active')
   const [manualOpen, setManualOpen] = useState(!manualAddCollapsed)
@@ -137,9 +140,11 @@ export function InvoiceLineItems({
               <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary' }}>
                 {descLabel}
               </TableCell>
-              <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', width: 100 }}>
-                SAC Code
-              </TableCell>
+              {!hideSacColumn ? (
+                <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', width: 100 }}>
+                  SAC Code
+                </TableCell>
+              ) : null}
               <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', width: 120 }}>
                 Amount
               </TableCell>
@@ -155,7 +160,7 @@ export function InvoiceLineItems({
           <TableBody>
             {lines.length === 0 && mode === 'edit' ? (
               <TableRow>
-                <TableCell colSpan={6}>
+                <TableCell colSpan={hideSacColumn ? 5 : 6}>
                   <Typography variant="body2" color="text.secondary">
                     No lines yet — select milestones or services above, or add a manual line.
                   </Typography>
@@ -168,7 +173,9 @@ export function InvoiceLineItems({
               return mode === 'read' ? (
                 <TableRow key={row.id}>
                   <TableCell sx={{ fontSize: 12 }}>{row.serviceName}</TableCell>
-                  <TableCell sx={{ fontSize: 12, fontFamily: 'monospace' }}>{row.sacCode}</TableCell>
+                  {!hideSacColumn ? (
+                    <TableCell sx={{ fontSize: 12, fontFamily: 'monospace' }}>{row.sacCode}</TableCell>
+                  ) : null}
                   <TableCell sx={{ fontSize: 12 }}>₹{formatInr(row.amount)}</TableCell>
                   <TableCell sx={{ fontSize: 12 }}>{row.gstRate}%</TableCell>
                   <TableCell sx={{ fontSize: 12 }}>₹{formatInr(row.gstAmount)}</TableCell>
@@ -191,9 +198,11 @@ export function InvoiceLineItems({
                       </Typography>
                     )}
                   </TableCell>
-                  <TableCell sx={{ fontSize: 12, fontFamily: 'monospace', verticalAlign: 'middle' }}>
-                    {draft.sacCode || '—'}
-                  </TableCell>
+                  {!hideSacColumn ? (
+                    <TableCell sx={{ fontSize: 12, fontFamily: 'monospace', verticalAlign: 'middle' }}>
+                      {draft.sacCode || '—'}
+                    </TableCell>
+                  ) : null}
                   <TableCell sx={{ py: 1.5, verticalAlign: 'top' }}>
                     <Input
                       size="sm"
@@ -233,7 +242,7 @@ export function InvoiceLineItems({
             {mode === 'read' && lines.length > 0 && (
               <TableRow sx={{ bgcolor: tokens.color.neutral[50] }}>
                 <TableCell sx={{ fontSize: 12, fontWeight: 700 }}>Subtotal</TableCell>
-                <TableCell>—</TableCell>
+                {!hideSacColumn ? <TableCell>—</TableCell> : null}
                 <TableCell sx={{ fontSize: 12, fontWeight: 700 }}>₹{formatInr(baseTotal)}</TableCell>
                 <TableCell>—</TableCell>
                 <TableCell sx={{ fontSize: 12, fontWeight: 700 }}>₹{formatInr(gstTotal)}</TableCell>

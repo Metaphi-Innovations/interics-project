@@ -5,6 +5,7 @@ import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { createCustomer, updateCustomer } from '../../slices/customers/thunk'
 import { useToast, Button } from '@/design-system/components'
 import type { Customer } from '../../slices/customers/reducer'
+import { SECTOR_OPTIONS } from '../../constants/sectors'
 
 type GstStatus = Customer['gstStatus']
 
@@ -38,6 +39,7 @@ function gstinRequired(status: GstStatus): boolean {
 interface FormState {
   name: string
   type: 'Company' | 'Individual' | ''
+  sector: string
   gstStatus: GstStatus
   gstin: string
   pan: string
@@ -56,6 +58,7 @@ interface FormState {
 const defaultForm: FormState = {
   name: '',
   type: '',
+  sector: '',
   gstStatus: 'Unregistered',
   gstin: '',
   pan: '',
@@ -85,6 +88,7 @@ function validate(form: FormState): Record<string, string> {
   const errors: Record<string, string> = {}
   if (!form.name.trim()) errors.name = 'Name is required'
   if (!form.type) errors.type = 'Type is required'
+  if (!form.sector) errors.sector = 'Sector is required'
   if (!form.contactPerson.trim()) errors.contactPerson = 'Contact person is required'
   if (!form.phone.trim()) errors.phone = 'Phone is required'
   if (!form.email.trim()) {
@@ -126,6 +130,7 @@ export function CustomerDrawer({ open, onClose, mode, customer, onSuccess }: Cus
         setForm({
           name: customer.name,
           type: customer.type,
+          sector: customer.sector ?? '',
           gstStatus: customer.gstStatus,
           gstin: customer.gstin ?? '',
           pan: customer.pan ?? '',
@@ -173,6 +178,7 @@ export function CustomerDrawer({ open, onClose, mode, customer, onSuccess }: Cus
     const payload = {
       name: form.name.trim(),
       type: form.type as 'Company' | 'Individual',
+      sector: form.sector,
       gstStatus: form.gstStatus,
       gstin: gstinRequired(form.gstStatus) ? form.gstin.trim() : null,
       pan: form.pan.trim() || null,
@@ -250,6 +256,26 @@ export function CustomerDrawer({ open, onClose, mode, customer, onSuccess }: Cus
           >
             <MenuItem value="Company">Company</MenuItem>
             <MenuItem value="Individual">Individual</MenuItem>
+          </TextField>
+        </FormField>
+
+        <FormField label="Sector" required error={errors.sector}>
+          <TextField
+            fullWidth
+            size="small"
+            select
+            value={form.sector}
+            onChange={(e) => update('sector', e.target.value)}
+            error={!!errors.sector}
+          >
+            <MenuItem value="" disabled>
+              Select sector…
+            </MenuItem>
+            {SECTOR_OPTIONS.map((s) => (
+              <MenuItem key={s} value={s}>
+                {s}
+              </MenuItem>
+            ))}
           </TextField>
         </FormField>
       </FormSection>

@@ -79,8 +79,8 @@ const usersSlice = createSlice({
       })
       .addCase(fetchUsers.fulfilled, (state, action) => {
         state.loading = false
-        state.items = action.payload
-        state.pagination.total = action.payload.length
+        state.items = action.payload ?? []
+        state.pagination.total = action.payload?.length ?? 0
       })
       .addCase(fetchUsers.rejected, (state, action) => {
         state.loading = false

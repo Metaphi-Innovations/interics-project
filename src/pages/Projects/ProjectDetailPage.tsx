@@ -1,5 +1,5 @@
 // ProjectDetailPage
-import { useState, useEffect } from 'react'
+import { useState, useEffect, type ReactNode } from 'react'
 import {
   Box,
   Stack,
@@ -19,7 +19,6 @@ import {
 import {
   GridView,
   Analytics,
-  Assignment,
   PlayCircle as PlayCircleIcon,
   BarChart as BarChartIcon,
   FilePresent,
@@ -27,27 +26,30 @@ import {
   Edit,
   SwapHoriz,
   Archive,
-  Tag as TagIcon,
-  Person,
-  LocationOn,
-  CalendarToday,
   Lock,
   TrendingUp,
   TrendingDown,
   AttachMoney,
+  Email,
+  Phone,
+  Star,
 } from '@mui/icons-material'
 import LinearProgress from '@mui/material/LinearProgress'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import PitchTab from './tabs/PitchTab'
-import TransitionTab from './tabs/TransitionTab'
 import LiveTab from './tabs/LiveTab'
+import { convertProjectToLive } from './convertProjectToLive'
 import FinancialsTab from './tabs/FinancialsTab'
 import DocumentsTab from './tabs/DocumentsTab'
 import ActivityTab from './tabs/ActivityTab'
+import { store } from '@/store'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { fetchProjects, fetchProjectById, updateProject, changeProjectStatus } from '../../slices/projects/thunk'
 import { fetchUsers } from '../../slices/users/thunk'
 import { isProjectManagerRole } from './projectManagerRoles'
+import { ProjectTypesField } from './components/ProjectTypesField'
+import { ProjectDetailsSections } from './components/ProjectDetailsSections'
+import { getProgressStyle } from './projectOverviewHelpers'
 import { clearSelected } from '../../slices/projects/reducer'
 import type { Project } from '../../slices/projects/reducer'
 import {
@@ -55,11 +57,11 @@ import {
   WorkspaceSection,
 } from '../../components/templates'
 import { DrawerForm, FormField, FormSection } from '../../components/templates/DrawerForm'
-import { StatusBadge, useToast, Input } from '@/design-system/components'
+import { StatusBadge, useToast, Input, Button, Toggle } from '@/design-system/components'
 import type { StatusType } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
+import { usePermission } from '@/hooks/usePermission'
 import { useTheme, alpha } from '@mui/material/styles'
-import type { Theme } from '@mui/material/styles'
 import {
   getInitials,
   getAvatarColor,
@@ -67,26 +69,6 @@ import {
   formatDate,
   fromSlug,
 } from '../../utils/formatters'
-
-// ─── Progress badge colours ───────────────────────────────────────────────────
-
-function getProgressStyle(
-  label: string,
-  palette: Theme['palette'],
-): { bg: string; color: string } {
-  const lower = label.toLowerCase()
-  if (lower.includes('risk') || lower.includes('cancel'))
-    return { bg: alpha(palette.error.main, 0.12), color: palette.error.main }
-  if (lower.includes('complete'))
-    return { bg: alpha(palette.info.main, 0.12), color: palette.info.main }
-  if (lower.includes('ongoing') || lower.includes('execution'))
-    return { bg: alpha(palette.info.main, 0.12), color: palette.info.main }
-  if (lower.includes('quotation') || lower.includes('pitch'))
-    return { bg: alpha(palette.warning.main, 0.12), color: palette.warning.main }
-  if (lower.includes('archive'))
-    return { bg: palette.action.hover as string, color: palette.text.secondary }
-  return { bg: palette.action.hover as string, color: palette.text.secondary }
-}
 
 // ─── Loading skeleton ─────────────────────────────────────────────────────────
 
@@ -152,18 +134,11 @@ function getTabConfig(status: string): TabConfig[] {
       lockReason: null,
     },
     {
-      label: 'PO Transition',
-      value: 'transition',
-      icon: <Assignment sx={{ fontSize: 14 }} />,
-      locked: false,
-      lockReason: null,
-    },
-    {
       label: 'Live',
       value: 'live',
       icon: <PlayCircleIcon sx={{ fontSize: 14 }} />,
       locked: !isLiveProject,
-      lockReason: 'Available when project status is Live',
+      lockReason: 'Use Convert Live on the Pitch tab to unlock',
     },
     {
       label: 'Financials',
@@ -216,28 +191,6 @@ function EmptyState({
   )
 }
 
-// ─── Label/Value pair ─────────────────────────────────────────────────────────
-
-function LabelValue({
-  label,
-  children,
-}: {
-  label: string
-  children: React.ReactNode
-}) {
-  return (
-    <Box>
-      <Typography
-        variant="overline"
-        sx={{ fontSize: 10, color: 'text.secondary', letterSpacing: 0.6, display: 'block' }}
-      >
-        {label}
-      </Typography>
-      <Box sx={{ mt: '2px' }}>{children}</Box>
-    </Box>
-  )
-}
-
 // ─── Tab content ──────────────────────────────────────────────────────────────
 
 const OVERVIEW_CARD_SX = {
@@ -268,6 +221,220 @@ function OverviewTab({ project }: { project: Project }) {
     project.status === 'Pitch' ? 15 : 30
 
   const teamMembers = [project.projectManager]
+  const clientTeamMembers = project.clientTeam ?? []
+  const docs = project.projectDocuments
+  const projectDocumentItems = [
+    {
+      name: 'Final Layout',
+      description: docs?.finalLayoutDescription,
+      link: docs?.finalLayoutLink,
+      file: docs?.finalLayoutFile,
+    },
+    {
+      name: 'Final RCP',
+      description: docs?.finalRcpDescription,
+      link: docs?.finalRcpLink,
+      file: docs?.finalRcpFile,
+    },
+    {
+      name: 'Final Views',
+      description: docs?.finalViewsDescription,
+      link: docs?.finalViewsLink,
+      file: docs?.finalViewsFile,
+    },
+    {
+      name: 'Final Photographs',
+      description: docs?.finalPhotographsDescription,
+      link: docs?.finalPhotographsLink,
+      file: docs?.finalPhotographsFile,
+    },
+    {
+      name: 'Final Handover Documents',
+      description: docs?.finalHandoverDescription,
+      link: docs?.finalHandoverLink,
+      file: docs?.finalHandoverFile ?? docs?.finalHandoverDocuments?.[0],
+    },
+  ]
+  const hasProjectDocuments = projectDocumentItems.some((d) => d.description || d.link || d.file)
+
+  const TeamCard = (
+    <Box sx={OVERVIEW_CARD_SX}>
+      <Typography variant="overline" sx={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.6, color: 'text.secondary', display: 'block', mb: 1.5 }}>
+        Team
+      </Typography>
+      <Stack gap={1.5}>
+        <Box>
+          <Typography variant="caption" sx={{ fontSize: 10, color: 'text.secondary', letterSpacing: 0.5, display: 'block', mb: 0.75 }}>
+            PROJECT LEAD
+          </Typography>
+          <Stack direction="row" alignItems="center" gap={1}>
+            <Box
+              sx={{
+                width: 28, height: 28, borderRadius: '50%',
+                bgcolor: alpha(getAvatarColor(project.projectManager).bg, 0.15),
+                color: getAvatarColor(project.projectManager).text,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 10, fontWeight: 700,
+              }}
+            >
+              {getInitials(project.projectManager)}
+            </Box>
+            <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 500 }}>{project.projectManager}</Typography>
+          </Stack>
+        </Box>
+        <Box>
+          <Typography variant="caption" sx={{ fontSize: 10, color: 'text.secondary', letterSpacing: 0.5, display: 'block', mb: 0.75 }}>
+            TEAM MEMBERS
+          </Typography>
+          <Stack direction="row" alignItems="center" gap={0.75}>
+            {teamMembers.slice(0, 5).map((name) => (
+              <Box
+                key={name}
+                title={name}
+                sx={{
+                  width: 28, height: 28, borderRadius: '50%',
+                  bgcolor: alpha(getAvatarColor(name).bg, 0.15),
+                  color: getAvatarColor(name).text,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 9, fontWeight: 700, border: '1px solid white',
+                }}
+              >
+                {getInitials(name)}
+              </Box>
+            ))}
+            {teamMembers.length > 5 && (
+              <Typography variant="caption" sx={{ fontSize: 11, color: 'text.secondary' }}>
+                +{teamMembers.length - 5} more
+              </Typography>
+            )}
+          </Stack>
+        </Box>
+      </Stack>
+    </Box>
+  )
+
+  const ClientTeamCard = (
+    <Box sx={{ ...OVERVIEW_CARD_SX, mt: 2 }}>
+      <Typography variant="overline" sx={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.6, color: 'text.secondary', display: 'block', mb: 1.5 }}>
+        Client Team
+      </Typography>
+      {clientTeamMembers.length === 0 ? (
+        <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary' }}>
+          No client team contacts added.
+        </Typography>
+      ) : (
+        <Stack gap={1.25}>
+          {clientTeamMembers.map((member, idx) => (
+            <Box
+              key={`${member.name ?? 'client'}-${idx}`}
+              sx={{
+                border: '1px solid',
+                borderColor: idx === 0 ? 'primary.light' : 'divider',
+                borderRadius: 2,
+                px: 1.5,
+                py: 1.25,
+                bgcolor: idx === 0 ? alpha(theme.palette.primary.main, 0.03) : 'transparent',
+              }}
+            >
+              <Stack direction="row" alignItems="flex-start" justifyContent="space-between" gap={1.5}>
+                <Stack direction="row" alignItems="flex-start" gap={1.5} sx={{ minWidth: 0, flex: 1 }}>
+                  <Box
+                    sx={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: '50%',
+                      bgcolor: alpha(getAvatarColor(member.name || 'Client').bg, 0.15),
+                      color: getAvatarColor(member.name || 'Client').text,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: 12,
+                      fontWeight: 700,
+                      flexShrink: 0,
+                    }}
+                  >
+                    {getInitials(member.name || 'Client')}
+                  </Box>
+                  <Box sx={{ minWidth: 0, flex: 1 }}>
+                    <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 600 }}>
+                      {member.name || '—'}
+                    </Typography>
+                    <Typography variant="caption" sx={{ fontSize: 11, color: 'text.secondary', display: 'block', mb: 0.75 }}>
+                      {member.designation || '—'}
+                    </Typography>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} gap={1.5}>
+                      <Stack direction="row" alignItems="center" gap={0.5} sx={{ minWidth: 0 }}>
+                        <Phone sx={{ fontSize: 12, color: 'text.secondary' }} />
+                        <Typography variant="caption" sx={{ fontSize: 11, color: 'text.secondary' }}>
+                          {member.phone || member.contact || '—'}
+                        </Typography>
+                      </Stack>
+                      <Stack direction="row" alignItems="center" gap={0.5} sx={{ minWidth: 0 }}>
+                        <Email sx={{ fontSize: 12, color: 'text.secondary' }} />
+                        <Typography variant="caption" sx={{ fontSize: 11, color: 'primary.main', wordBreak: 'break-word' }}>
+                          {member.email || '—'}
+                        </Typography>
+                      </Stack>
+                    </Stack>
+                  </Box>
+                </Stack>
+                {idx === 0 ? (
+                  <MuiChip
+                    size="small"
+                    icon={<Star sx={{ fontSize: '12px !important' }} />}
+                    label="Primary"
+                    sx={{
+                      height: 20,
+                      fontSize: 10,
+                      borderRadius: '6px',
+                      bgcolor: alpha(theme.palette.primary.main, 0.12),
+                      color: 'primary.main',
+                      '& .MuiChip-label': { px: 1 },
+                      '& .MuiChip-icon': { color: 'primary.main', ml: '4px' },
+                    }}
+                  />
+                ) : null}
+              </Stack>
+            </Box>
+          ))}
+        </Stack>
+      )}
+    </Box>
+  )
+
+  const ProjectDocumentsCard = (
+    <Box sx={OVERVIEW_CARD_SX}>
+      <Typography variant="overline" sx={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.6, color: 'text.secondary', display: 'block', mb: 1.5 }}>
+        Project Documents
+      </Typography>
+      {!hasProjectDocuments ? (
+        <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary' }}>
+          No project documents added yet.
+        </Typography>
+      ) : (
+        <Stack gap={1}>
+          {projectDocumentItems.map((doc) => (
+            <Box key={doc.name} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1.5, p: 1.25 }}>
+              <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600 }}>
+                {doc.name}
+              </Typography>
+              <Typography variant="caption" sx={{ fontSize: 11, color: 'text.secondary', display: 'block', mt: 0.25 }}>
+                {doc.description?.trim() || '—'}
+              </Typography>
+              <Stack direction="row" gap={1} sx={{ mt: 0.75 }}>
+                {doc.link ? (
+                  <Button size="sm" variant="outlined" color="primary" label="Open Link" onClick={() => window.open(doc.link!, '_blank', 'noopener,noreferrer')} />
+                ) : null}
+                {doc.file ? (
+                  <Button size="sm" variant="outlined" color="primary" label="Open File" onClick={() => window.open(doc.file!.blobUrl, '_blank', 'noopener,noreferrer')} />
+                ) : null}
+              </Stack>
+            </Box>
+          ))}
+        </Stack>
+      )}
+    </Box>
+  )
 
   return (
     <Box
@@ -275,83 +442,32 @@ function OverviewTab({ project }: { project: Project }) {
         display: 'grid',
         gridTemplateColumns: { xs: '1fr', md: '1fr 340px' },
         gap: '24px',
-        alignItems: 'start',
+        alignItems: { xs: 'start', md: 'stretch' },
       }}
     >
-      <Box>
-        <WorkspaceSection title="Project Details">
-          <Box
-            sx={{
-              display: 'grid',
-              gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)' },
-              gap: '16px',
-            }}
-          >
-            <LabelValue label="Project Name">
-              <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 500 }}>
-                {project.name}
-              </Typography>
-            </LabelValue>
-            <LabelValue label="Project Code">
-              <Typography variant="body2" sx={{ fontSize: 13 }}>
-                {project.projectCode}
-              </Typography>
-            </LabelValue>
-            <LabelValue label="Client">
-              <Typography variant="body2" sx={{ fontSize: 13, color: 'primary.main', cursor: 'pointer' }}>
-                {project.customerName}
-              </Typography>
-            </LabelValue>
-            <LabelValue label="Project Type">
-              <MuiChip
-                label={project.type}
-                size="small"
-                variant="outlined"
-                sx={{
-                  height: 20, fontSize: 11, borderRadius: '4px',
-                  color: tokens.color.neutral[600], borderColor: tokens.color.neutral[300],
-                  '& .MuiChip-label': { px: '6px' },
-                }}
-              />
-            </LabelValue>
-            <LabelValue label="Location">
-              <Typography variant="body2" sx={{ fontSize: 13 }}>{project.location || '—'}</Typography>
-            </LabelValue>
-            <LabelValue label="Carpet Area">
-              <Typography variant="body2" sx={{ fontSize: 13 }}>
-                {project.carpetArea ? `${project.carpetArea.toLocaleString()} sq ft` : '—'}
-              </Typography>
-            </LabelValue>
-            <LabelValue label="Headcount">
-              <Typography variant="body2" sx={{ fontSize: 13 }}>{project.headcount ?? '—'}</Typography>
-            </LabelValue>
-            <LabelValue label="Project Manager">
-              <Stack direction="row" alignItems="center" gap={1}>
-                <Box
-                  sx={{
-                    width: 24, height: 24, borderRadius: '50%',
-                    bgcolor: alpha(getAvatarColor(project.projectManager).bg, 0.15),
-                    color: getAvatarColor(project.projectManager).text,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 9, fontWeight: 700,
-                  }}
-                >
-                  {getInitials(project.projectManager)}
-                </Box>
-                <Typography variant="body2" sx={{ fontSize: 13 }}>{project.projectManager}</Typography>
-              </Stack>
-            </LabelValue>
-            <LabelValue label="Start Date">
-              <Typography variant="body2" sx={{ fontSize: 13 }}>{formatDate(project.startDate)}</Typography>
-            </LabelValue>
-            <LabelValue label="Expected End Date">
-              <Typography variant="body2" sx={{ fontSize: 13 }}>{formatDate(project.expectedEndDate)}</Typography>
-            </LabelValue>
-          </Box>
-        </WorkspaceSection>
-      </Box>
+      <Stack
+        sx={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignSelf: 'stretch',
+          '& > .MuiCard-root': {
+            display: 'flex',
+            flexDirection: 'column',
+            mb: 2,
+          },
+          '& > .MuiCard-root > :last-child': {
+            flex: 1,
+            display: 'flex',
+            flexDirection: 'column',
+          },
+        }}
+      >
+        <ProjectDetailsSections project={project} />
+        {ProjectDocumentsCard}
+        {ClientTeamCard}
+      </Stack>
 
-      <Box sx={{ position: 'sticky', top: 80, display: 'flex', flexDirection: 'column', gap: 2 }}>
+      <Box sx={{ position: 'sticky', top: 80, display: 'flex', flexDirection: 'column', gap: 2, alignSelf: 'stretch' }}>
 
         <Box sx={OVERVIEW_CARD_SX}>
           <Typography variant="overline" sx={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.6, color: 'text.secondary', display: 'block', mb: 1.5 }}>
@@ -463,59 +579,8 @@ function OverviewTab({ project }: { project: Project }) {
           </Stack>
         </Box>
 
-        <Box sx={OVERVIEW_CARD_SX}>
-          <Typography variant="overline" sx={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.6, color: 'text.secondary', display: 'block', mb: 1.5 }}>
-            Team
-          </Typography>
-          <Stack gap={1.5}>
-            <Box>
-              <Typography variant="caption" sx={{ fontSize: 10, color: 'text.secondary', letterSpacing: 0.5, display: 'block', mb: 0.75 }}>
-                PROJECT MANAGER
-              </Typography>
-              <Stack direction="row" alignItems="center" gap={1}>
-                <Box
-                  sx={{
-                    width: 28, height: 28, borderRadius: '50%',
-                    bgcolor: alpha(getAvatarColor(project.projectManager).bg, 0.15),
-                    color: getAvatarColor(project.projectManager).text,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 10, fontWeight: 700,
-                  }}
-                >
-                  {getInitials(project.projectManager)}
-                </Box>
-                <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 500 }}>{project.projectManager}</Typography>
-              </Stack>
-            </Box>
-            <Box>
-              <Typography variant="caption" sx={{ fontSize: 10, color: 'text.secondary', letterSpacing: 0.5, display: 'block', mb: 0.75 }}>
-                TEAM MEMBERS
-              </Typography>
-              <Stack direction="row" alignItems="center" gap={0.75}>
-                {teamMembers.slice(0, 5).map((name) => (
-                  <Box
-                    key={name}
-                    title={name}
-                    sx={{
-                      width: 28, height: 28, borderRadius: '50%',
-                      bgcolor: alpha(getAvatarColor(name).bg, 0.15),
-                      color: getAvatarColor(name).text,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: 9, fontWeight: 700, border: '1px solid white',
-                    }}
-                  >
-                    {getInitials(name)}
-                  </Box>
-                ))}
-                {teamMembers.length > 5 && (
-                  <Typography variant="caption" sx={{ fontSize: 11, color: 'text.secondary' }}>
-                    +{teamMembers.length - 5} more
-                  </Typography>
-                )}
-              </Stack>
-            </Box>
-          </Stack>
-        </Box>
+        {TeamCard}
+
       </Box>
     </Box>
   )
@@ -569,18 +634,14 @@ function EditProjectDrawer({
             />
           </FormField>
         </Box>
-        <FormField label="Project Type">
-          <MuiSelect
-            value={form.type ?? ''}
-            onChange={(e) => set('type', e.target.value)}
-            size="small"
-            fullWidth
-            sx={{ fontSize: 12 }}
-          >
-            <MenuItem value="Design Only" sx={{ fontSize: 12 }}>Design Only</MenuItem>
-            <MenuItem value="Design & Build" sx={{ fontSize: 12 }}>Design & Build</MenuItem>
-          </MuiSelect>
-        </FormField>
+        <Box sx={{ gridColumn: '1 / -1' }}>
+          <FormField label="Project Type">
+            <ProjectTypesField
+              value={form.projectTypes ?? []}
+              onChange={(v) => set('projectTypes', v)}
+            />
+          </FormField>
+        </Box>
         <FormField label="Location">
           <Input
             value={form.location ?? ''}
@@ -608,7 +669,7 @@ function EditProjectDrawer({
             size="sm"
           />
         </FormField>
-        <FormField label="Project Manager">
+        <FormField label="Project Lead">
           <MuiSelect
             value={form.projectManagerId ?? ''}
             onChange={(e) => {
@@ -689,7 +750,7 @@ function ChangeStatusDialog({ open, project, onClose, onConfirm }: StatusDialogP
         </Typography>
         {project.status === 'Pitch' ? (
           <Typography variant="body2" color="warning.main" sx={{ fontSize: 12 }}>
-            Status changes to Live automatically when baseline is created.
+            Use Convert Live on the Pitch tab to change status to Live.
           </Typography>
         ) : available.length === 0 ? (
           <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12 }}>
@@ -735,26 +796,44 @@ function ChangeStatusDialog({ open, project, onClose, onConfirm }: StatusDialogP
 // ─── ProjectDetailPage ────────────────────────────────────────────────────────
 
 export default function ProjectDetailPage() {
-  const theme = useTheme() as Theme
   const { id: slug } = useParams<{ id: string }>()
   const location = useLocation()
   const dispatch = useAppDispatch()
   const toast = useToast()
 
-  const { items, selectedItem: project, loading, saving } = useAppSelector(
+  const { items: rawItems, selectedItem: project, loading, saving } = useAppSelector(
     (s) => s.projects
   )
-  const users = useAppSelector((s) => s.users.items)
+  const items = rawItems ?? []
+  const users = useAppSelector((s) => s.users.items ?? [])
 
   const [activeTab, setActiveTab] = useState('overview')
   const [editDrawerOpen, setEditDrawerOpen] = useState(false)
   const [statusDialogOpen, setStatusDialogOpen] = useState(false)
+  const [convertingToLive, setConvertingToLive] = useState(false)
 
-  // Derive tab from hash
+  function isTabAccessible(tabValue: string, status: string): boolean {
+    const tab = getTabConfig(status).find((t) => t.value === tabValue)
+    return Boolean(tab && !tab.locked)
+  }
+
+  // Derive tab from hash (block hidden / locked tabs)
   useEffect(() => {
+    if (!project) return
     const hash = location.hash.replace('#', '')
-    if (hash) setActiveTab(hash)
-  }, [location.hash])
+    if (!hash || hash === 'transition') return
+    if (isTabAccessible(hash, project.status)) {
+      setActiveTab(hash)
+    }
+  }, [location.hash, project?.status, project?.id])
+
+  // Reset active tab when it becomes hidden or locked
+  useEffect(() => {
+    if (!project) return
+    if (activeTab === 'transition' || !isTabAccessible(activeTab, project.status)) {
+      setActiveTab('overview')
+    }
+  }, [project?.status, activeTab, project?.id])
 
   useEffect(() => {
     dispatch(fetchUsers({}))
@@ -807,6 +886,29 @@ export default function ProjectDetailPage() {
     }
   }
 
+  async function handleConvertLive() {
+    if (!project) return
+    if (project.status === 'Live') {
+      setActiveTab('live')
+      return
+    }
+    setConvertingToLive(true)
+    try {
+      const result = await convertProjectToLive(dispatch, () => store.getState(), project)
+      if (!result.ok) {
+        toast.error(result.message)
+        return
+      }
+      await dispatch(fetchProjectById(project.id)).unwrap()
+      toast.success('Project converted to Live')
+      setActiveTab('live')
+    } catch {
+      toast.error('Failed to convert project to Live')
+    } finally {
+      setConvertingToLive(false)
+    }
+  }
+
   // ── Loading / not found ───────────────────────────────────────────────────
 
   if (loading && !project) return <DetailSkeleton />
@@ -822,19 +924,11 @@ export default function ProjectDetailPage() {
   // ── Tab config ────────────────────────────────────────────────────────────
 
   const tabConfig = getTabConfig(project.status)
-  const progressStyle = getProgressStyle(project.progress, theme.palette)
-
-  // Build WorkspaceDetail tabs (with Tooltip for locked ones)
   const workspaceTabs = tabConfig.map((t) => ({
-    label: t.locked ? `${t.label} 🔒` : t.label,
+    label: t.label,
     value: t.value,
-    icon: t.locked ? (
-      <Tooltip title={t.lockReason ?? ''} placement="top">
-        <Box component="span" sx={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
-          {t.icon}
-        </Box>
-      </Tooltip>
-    ) : t.icon,
+    icon: t.icon,
+    disabled: t.locked,
   }))
 
   // ── Tab content ───────────────────────────────────────────────────────────
@@ -858,8 +952,6 @@ export default function ProjectDetailPage() {
         return <OverviewTab project={proj} />
       case 'pitch':
         return <PitchTab project={proj} />
-      case 'transition':
-        return <TransitionTab project={proj} />
       case 'live':
         return <LiveTab project={proj} />
       case 'financials':
@@ -887,31 +979,9 @@ export default function ProjectDetailPage() {
         titleMeta={
           <Stack direction="row" alignItems="center" gap={1} sx={{ ml: 1 }}>
             <StatusBadge status={project.status.toLowerCase() as StatusType} />
-            <MuiChip
-              label={project.progress}
-              size="small"
-              sx={{
-                height: 18,
-                fontSize: 10,
-                bgcolor: progressStyle.bg,
-                color: progressStyle.color,
-                borderRadius: '4px',
-                '& .MuiChip-label': { px: '6px' },
-              }}
-            />
           </Stack>
         }
-        metaItems={[
-          { icon: <TagIcon sx={{ fontSize: 12 }} />, label: project.projectCode },
-          { icon: <Person sx={{ fontSize: 12 }} />, label: project.projectManager },
-          ...(project.location
-            ? [{ icon: <LocationOn sx={{ fontSize: 12 }} />, label: project.location }]
-            : []),
-          {
-            icon: <CalendarToday sx={{ fontSize: 12 }} />,
-            label: `${formatDate(project.startDate)} → ${formatDate(project.expectedEndDate)}`,
-          },
-        ]}
+        metaItems={[]}
         heroExtra={
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             {[
@@ -972,48 +1042,30 @@ export default function ProjectDetailPage() {
           icon: <Edit sx={{ fontSize: 14 }} />,
           onClick: () => setEditDrawerOpen(true),
         }}
-        secondaryActions={[
-          {
-            label: 'Change Status',
-            icon: <SwapHoriz sx={{ fontSize: 14 }} />,
-            onClick: () => setStatusDialogOpen(true),
-          },
-          {
-            label: 'Archive Project',
-            icon: <Archive sx={{ fontSize: 14 }} />,
-            onClick: handleArchive,
-            destructive: true,
-          },
-        ]}
-        metrics={[
-          {
-            label: 'CLIENT PO VALUE',
-            value: formatCurrency(project.totalClientPOValue),
-            prefix: '₹',
-          },
-          {
-            label: 'VENDOR PO VALUE',
-            value: formatCurrency(project.totalVendorPOValue),
-            prefix: '₹',
-          },
-          {
-            label: 'INVOICED AMOUNT',
-            value: formatCurrency(project.invoicedAmount),
-            prefix: '₹',
-            highlight: project.invoicedAmount > 0,
-          },
-          {
-            label: 'PAID TO VENDORS',
-            value: formatCurrency(project.paidVendorAmount),
-            prefix: '₹',
-          },
-        ]}
+        secondaryActions={[]}
+        metrics={[]}
         tabs={workspaceTabs}
         activeTab={activeTab}
         onTabChange={(val) => {
           const tab = tabConfig.find((t) => t.value === val)
-          if (!tab?.locked) setActiveTab(val)
+          if (!tab || tab.locked) return
+          setActiveTab(val)
         }}
+        tabsEnd={
+          activeTab === 'pitch' ? (
+            <Toggle
+              label="Convert Live"
+              size="sm"
+              checked={project.status === 'Live'}
+              disabled={convertingToLive || project.status === 'Live'}
+              onChange={(checked) => {
+                if (checked && project.status !== 'Live') {
+                  void handleConvertLive()
+                }
+              }}
+            />
+          ) : null
+        }
       >
         {renderTabContent()}
       </WorkspaceDetail>

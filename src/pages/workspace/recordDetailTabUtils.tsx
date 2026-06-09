@@ -249,7 +249,7 @@ export function RecordDetailCopyIconButton({
 }
 
 export interface RecordDetailTaxDocCardProps {
-  variant: 'gst' | 'pan'
+  variant: 'gst' | 'pan' | 'cheque' | 'insurance'
   title: string
   statusChip?: { label: string; isRegistered: boolean }
   fieldLabel: string
@@ -280,8 +280,23 @@ export function RecordDetailTaxDocCard({
   const mono =
     (theme.typography as { fontFamilyMonospace?: string }).fontFamilyMonospace ?? `'Courier New', monospace`
 
-  const headerIconBg = variant === 'gst' ? theme.palette.success.light : theme.palette.secondary.light
-  const headerIconColor = variant === 'gst' ? theme.palette.success.dark : theme.palette.secondary.dark
+  const headerIconBg =
+    variant === 'gst'
+      ? theme.palette.success.light
+      : variant === 'pan'
+        ? theme.palette.warning.light
+        : variant === 'cheque'
+          ? theme.palette.info.light
+          : theme.palette.secondary.light
+
+  const headerIconColor =
+    variant === 'gst'
+      ? theme.palette.success.dark
+      : variant === 'pan'
+        ? theme.palette.warning.dark
+        : variant === 'cheque'
+          ? theme.palette.info.dark
+          : theme.palette.secondary.dark
 
   return (
     <Box sx={cardSx}>
@@ -311,7 +326,9 @@ export function RecordDetailTaxDocCard({
               color: headerIconColor,
             }}
           >
-            {variant === 'gst' ? (
+            {variant === 'cheque' ? (
+              <IndianRupee size={18} strokeWidth={2} color={headerIconColor} />
+            ) : variant === 'gst' || variant === 'insurance' ? (
               <ShieldCheck size={18} strokeWidth={2} color={headerIconColor} />
             ) : (
               <FileText size={18} strokeWidth={2} color={headerIconColor} />
@@ -388,7 +405,13 @@ export function RecordDetailTaxDocCard({
           }}
         >
           <Box sx={{ color: 'primary.main', display: 'flex' }}>
-            <FileText size={18} strokeWidth={1.75} />
+            {variant === 'cheque' ? (
+              <IndianRupee size={18} strokeWidth={1.75} />
+            ) : variant === 'gst' || variant === 'insurance' ? (
+              <ShieldCheck size={18} strokeWidth={1.75} />
+            ) : (
+              <FileText size={18} strokeWidth={1.75} />
+            )}
           </Box>
           <MuiLink
             component="button"

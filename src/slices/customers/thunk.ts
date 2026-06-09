@@ -1,5 +1,6 @@
 import { createAsyncThunk } from '@reduxjs/toolkit'
 import { customersApi } from '../../api/customersApi'
+import { normalizeListResponse } from '@/utils/normalizeListResponse'
 import type { Customer } from './reducer'
 
 interface FetchCustomersParams {
@@ -16,7 +17,7 @@ export const fetchCustomers = createAsyncThunk(
       const response = await customersApi.getAll(
         params as Record<string, unknown>
       )
-      return response.data as { items: Customer[]; total: number }
+      return normalizeListResponse<Customer>(response.data)
     } catch (err: unknown) {
       const error = err as { response?: { data?: { message?: string } } }
       return rejectWithValue(error.response?.data?.message ?? 'Failed to fetch customers')

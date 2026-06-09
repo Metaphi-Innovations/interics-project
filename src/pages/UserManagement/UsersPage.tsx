@@ -481,8 +481,9 @@ const ROLE_FILTER_OPTIONS = [
 export default function UsersPage() {
   const navigate = useNavigate()
   const dispatch = useAppDispatch()
-  const { items, loading, filters, sortConfig } = useAppSelector((s) => s.users)
-  const roles = useAppSelector((s) => s.roles.items)
+  const { items: rawItems, loading, filters, sortConfig } = useAppSelector((s) => s.users)
+  const items = rawItems ?? []
+  const roles = useAppSelector((s) => s.roles.items ?? [])
   const { showToast } = useToast()
   const canCreate = usePermission('userManagement', 'create')
   const canView = usePermission('userManagement', 'view')

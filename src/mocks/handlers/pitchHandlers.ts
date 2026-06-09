@@ -1,5 +1,4 @@
 import { http, HttpResponse } from 'msw'
-import { DEFAULT_CATEGORIES } from '../../config/categories'
 import type {
   PitchVersion,
   PitchCategory,
@@ -9,19 +8,6 @@ import type {
   PlannedExpense,
 } from '../../slices/pitch/reducer'
 import { normalizeVendorMapping } from '../../utils/vendorMilestones'
-
-let pitchCategoryInstanceCounter = 100
-
-/** Empty category rows for a new pitch version (matches Settings / config masters). */
-function buildDefaultEmptyPitchCategories(): PitchCategory[] {
-  return DEFAULT_CATEGORIES.map((c) => ({
-    id: `pc-${String(++pitchCategoryInstanceCounter).padStart(3, '0')}`,
-    categoryId: c.id,
-    categoryName: c.name,
-    services: [],
-    totalValue: 0,
-  }))
-}
 
 // ─── Seed data ────────────────────────────────────────────────────────────────
 
@@ -236,7 +222,7 @@ export const pitchHandlers = [
         label: body.label,
         isActive: false,
         createdAt: new Date().toISOString().split('T')[0],
-        categories: buildDefaultEmptyPitchCategories(),
+        categories: [],
         plannedExpenses: [],
         totalRevenue: 0,
         totalCost: 0,

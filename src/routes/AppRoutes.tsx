@@ -14,6 +14,7 @@ import CustomersPage from '@/pages/Customers/CustomersPage'
 import CustomerDetailPage from '@/pages/Customers/CustomerDetailPage'
 import VendorsPage from '@/pages/Vendors/VendorsPage'
 import VendorDetailPage from '@/pages/Vendors/VendorDetailPage'
+import AddedTeamPage from '@/pages/AddedTeam/AddedTeamPage'
 import BillingsPage from '@/pages/Finance/BillingsPage'
 import PaymentsPage from '@/pages/Finance/PaymentsPage'
 import ExpensesPage from '@/pages/Finance/ExpensesPage'
@@ -22,7 +23,8 @@ import ComplianceFilingSummaryPage from '@/pages/Finance/Compliance/FilingSummar
 import FilingChecklistPage from '@/pages/Compliance/FilingChecklistPage'
 import GSTPage from '@/pages/Finance/Compliance/GSTPage'
 import TDSPage from '@/pages/Finance/Compliance/TDSPage'
-import ReportsPage from '@/pages/Reports/ReportsPage'
+import ReportsLayout from '@/pages/Reports/ReportsLayout'
+import ReportSubModulePage from '@/pages/Reports/ReportSubModulePage'
 import DocumentsPage from '@/pages/Documents/DocumentsPage'
 import AuditLogsPage from '@/pages/AuditLogs/AuditLogsPage'
 import UsersPage from '@/pages/UserManagement/UsersPage'
@@ -67,6 +69,7 @@ export default function AppRoutes({ navConfig, user, onSignOut, onProfileClick, 
                 <Route path="/customers/:id" element={<CustomerDetailPage />} />
                 <Route path="/vendors" element={<VendorsPage />} />
                 <Route path="/vendors/:id" element={<VendorDetailPage />} />
+                <Route path="/added-team" element={<AddedTeamPage />} />
                 <Route path="/finance/receivables" element={<BillingsPage />} />
                 <Route path="/finance/payables" element={<PaymentsPage />} />
                 <Route path="/finance/expenses" element={<ExpensesPage />} />
@@ -78,7 +81,10 @@ export default function AppRoutes({ navConfig, user, onSignOut, onProfileClick, 
                   <Route path="gst" element={<GSTPage />} />
                   <Route path="tds" element={<TDSPage />} />
                 </Route>
-                <Route path="/reports" element={<ReportsPage />} />
+                <Route path="/reports" element={<ReportsLayout />}>
+                  <Route index element={<Navigate to="profitability" replace />} />
+                  <Route path=":reportSlug" element={<ReportSubModulePage />} />
+                </Route>
                 <Route path="/documents" element={<DocumentsPage />} />
                 <Route path="/audit-logs" element={<AuditLogsPage />} />
                 <Route path="/user-management" element={<Navigate to="/user-management/users" replace />} />

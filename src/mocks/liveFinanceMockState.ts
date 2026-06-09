@@ -4,6 +4,7 @@ import type {
   Expense,
   Reimbursement,
   VendorInvoice,
+  VendorPayableControl,
   VendorPayment,
 } from '@/slices/live/types'
 import { DEFAULT_GST_RATE } from '@/config/billingRates'
@@ -313,6 +314,41 @@ export let vendorInvoices: VendorInvoice[] = [
   },
 ]
 
+export let vendorPayableControls: VendorPayableControl[] = [
+  {
+    projectId: 'p-001',
+    vendorId: 'v-001',
+    serviceId: 'ps-002',
+    clientPaymentReceived: true,
+    vendorComplianceStatus: 'complete',
+    complianceChecks: { insurance: true, contractSigned: true, documentsSubmitted: true },
+  },
+  {
+    projectId: 'p-001',
+    vendorId: 'v-002',
+    serviceId: 'interior-design',
+    clientPaymentReceived: false,
+    vendorComplianceStatus: 'complete',
+    complianceChecks: { insurance: true, contractSigned: true, documentsSubmitted: true },
+  },
+  {
+    projectId: 'p-002',
+    vendorId: 'v-001',
+    serviceId: 'ps-002',
+    clientPaymentReceived: true,
+    vendorComplianceStatus: 'pending',
+    complianceChecks: { insurance: true, contractSigned: false, documentsSubmitted: false },
+  },
+  {
+    projectId: 'p-002',
+    vendorId: 'v-002',
+    serviceId: 'ps-001',
+    clientPaymentReceived: true,
+    vendorComplianceStatus: 'complete',
+    complianceChecks: { insurance: true, contractSigned: true, documentsSubmitted: true },
+  },
+]
+
 export let payments: VendorPayment[] = [
   {
     id: 'PAY-001',
@@ -429,6 +465,21 @@ export let expenses: Expense[] = [
     date: '2026-04-07',
     status: 'pending',
   },
+  {
+    id: 'exp-rmb-demo',
+    projectId: 'p-001',
+    projectName: P001_NAME,
+    type: 'reimbursable_expenses',
+    description: 'Safety equipment paid by vendor',
+    amount: 9500,
+    date: '2024-02-09',
+    vendorId: 'v-001',
+    vendorName: 'BuildWell Constructions',
+    serviceId: 'ps-001',
+    serviceName: 'Architecture / Design Services',
+    status: 'pending',
+    linkedReimbursementId: 'rmb-005',
+  },
 ]
 
 export let reimbursements: Reimbursement[] = [
@@ -491,6 +542,20 @@ export let reimbursements: Reimbursement[] = [
     status: 'included_in_payment',
     linkedPaymentId: 'PAY-001',
   },
+  {
+    id: 'rmb-005',
+    projectId: 'p-001',
+    projectName: P001_NAME,
+    vendorId: 'v-001',
+    vendorName: 'BuildWell Constructions',
+    serviceId: 'ps-001',
+    serviceName: 'Architecture / Design Services',
+    description: 'Safety equipment paid by vendor',
+    amount: 9500,
+    date: '2024-02-09',
+    status: 'pending',
+    sourceExpenseId: 'exp-rmb-demo',
+  },
 ]
 
 export let invCounter = 7
@@ -499,7 +564,7 @@ export let invPaymentCounter = 7
 let viCounter = 6
 let payCounter = 2
 let expCounter = 8
-let rmbCounter = 4
+let rmbCounter = 5
 
 export function nextVendorInvoiceId(): string {
   viCounter += 1

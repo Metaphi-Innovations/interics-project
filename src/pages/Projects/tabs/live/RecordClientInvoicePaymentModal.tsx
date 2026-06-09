@@ -72,7 +72,8 @@ export function RecordClientInvoicePaymentModal({
 
   useEffect(() => {
     if (open && invoice) {
-      setAmountReceived('')
+      const pending = balancePending(invoice)
+      setAmountReceived(pending > MONEY_EPS ? String(pending) : '')
       setTdsDeducted('0')
       setPaymentDate(new Date())
       setPaymentMode('bank_transfer')
@@ -81,16 +82,21 @@ export function RecordClientInvoicePaymentModal({
     }
   }, [open, invoice])
 
+  useEffect(() => {
+    if (!open || !invoice) return
+    const pending = balancePending(invoice)
+    const tds = tdsRaw === '' ? 0 : Number(tdsDeducted)
+    if (!Number.isFinite(tds) || tds < 0) return
+    const bank = Math.max(0, roundMoney(pending - tds))
+    setAmountReceived(String(bank))
+  }, [open, invoice, tdsDeducted])
+
   async function handleSubmit() {
     if (!invoice) return
 
     const a = Number(amountReceived)
     if (!amountReceived.trim() || Number.isNaN(a) || a <= 0) {
       setError('Enter amount received (bank) greater than zero')
-      return
-    }
-    if (a > bal + MONEY_EPS) {
-      setError(`Amount cannot exceed balance pending (₹${formatInr(bal)})`)
       return
     }
 
@@ -101,6 +107,13 @@ export function RecordClientInvoicePaymentModal({
     }
     if (tdsParsed < 0) {
       setError('TDS cannot be negative')
+      return
+    }
+
+    if (Math.abs(a + tdsParsed - bal) > MONEY_EPS) {
+      setError(
+        `Full payment required: amount received plus TDS must equal outstanding (₹${formatInr(bal)})`,
+      )
       return
     }
 
@@ -227,7 +240,7 @@ export function RecordClientInvoicePaymentModal({
           size="sm"
           value={amountReceived}
           onChange={setAmountReceived}
-          helperText="Enter the bank credit amount. Do not reduce by TDS here."
+          helperText="Bank credit only. With TDS, amounts auto-adjust to settle the full outstanding balance."
         />
 
         <Input

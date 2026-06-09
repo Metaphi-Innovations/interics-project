@@ -28,6 +28,7 @@ import {
   // ClipboardList,
   Settings2,
   Users,
+  UserPlus,
 } from 'lucide-react'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { logout } from '@/slices/auth/reducer'
@@ -47,6 +48,7 @@ import CustomersPage from '@/pages/Customers/CustomersPage'
 import CustomerDetailPage from '@/pages/Customers/CustomerDetailPage'
 import VendorsPage from '@/pages/Vendors/VendorsPage'
 import VendorDetailPage from '@/pages/Vendors/VendorDetailPage'
+import AddedTeamPage from '@/pages/AddedTeam/AddedTeamPage'
 import BillingsPage from '@/pages/Finance/BillingsPage'
 import PaymentsPage from '@/pages/Finance/PaymentsPage'
 import ExpensesPage from '@/pages/Finance/ExpensesPage'
@@ -55,7 +57,8 @@ import ComplianceFilingSummaryPage from '@/pages/Finance/Compliance/FilingSummar
 import FilingChecklistPage from '@/pages/Compliance/FilingChecklistPage'
 import GSTPage from '@/pages/Finance/Compliance/GSTPage'
 import TDSPage from '@/pages/Finance/Compliance/TDSPage'
-import ReportsPage from '@/pages/Reports/ReportsPage'
+import ReportsLayout from '@/pages/Reports/ReportsLayout'
+import ReportSubModulePage from '@/pages/Reports/ReportSubModulePage'
 import DocumentsPage from '@/pages/Documents/DocumentsPage'
 import AuditLogsPage from '@/pages/AuditLogs/AuditLogsPage'
 import UsersPage from '@/pages/UserManagement/UsersPage'
@@ -100,6 +103,12 @@ const navConfig: NavConfig[] = [
         icon: <Truck size={16} strokeWidth={1.75} />,
         href: '/vendors',
       },
+      {
+        type: 'item',
+        label: 'Added Team',
+        icon: <UserPlus size={16} strokeWidth={1.75} />,
+        href: '/added-team',
+      },
     ],
   },
   {
@@ -108,13 +117,13 @@ const navConfig: NavConfig[] = [
     children: [
       {
         type: 'item',
-        label: 'Billings',
+        label: 'Receivable',
         icon: <TrendingUp size={16} strokeWidth={1.75} />,
         href: '/finance/receivables',
       },
       {
         type: 'item',
-        label: 'Payments',
+        label: 'Payable',
         icon: <TrendingDown size={16} strokeWidth={1.75} />,
         href: '/finance/payables',
       },
@@ -142,10 +151,17 @@ const navConfig: NavConfig[] = [
     label: 'SYSTEM',
     children: [
       {
-        type: 'item',
+        type: 'group',
         label: 'Reports',
         icon: <BarChart3 size={16} strokeWidth={1.75} />,
-        href: '/reports',
+        expandWhenPathPrefix: '/reports',
+        children: [
+          { type: 'item', label: 'Profitability Reports', href: '/reports/profitability' },
+          { type: 'item', label: 'Cash Flow Reports', href: '/reports/cash-flow' },
+          { type: 'item', label: 'Receivables Reports', href: '/reports/receivables' },
+          { type: 'item', label: 'Payables Reports', href: '/reports/payables' },
+          { type: 'item', label: 'Vendor Analysis', href: '/reports/vendor-analysis' },
+        ],
       },
       /* Hidden from sidebar for now — restore by uncommenting this block and the FileStack / ClipboardList imports above.
       {
@@ -301,6 +317,7 @@ function AppInner() {
           <Route path="customers/:id" element={<CustomerDetailPage />} />
           <Route path="vendors" element={<VendorsPage />} />
           <Route path="vendors/:id" element={<VendorDetailPage />} />
+          <Route path="added-team" element={<AddedTeamPage />} />
           <Route path="finance/receivables" element={<BillingsPage />} />
           <Route path="finance/payables" element={<PaymentsPage />} />
           <Route path="finance/expenses" element={<ExpensesPage />} />
@@ -312,7 +329,10 @@ function AppInner() {
             <Route path="gst" element={<GSTPage />} />
             <Route path="tds" element={<TDSPage />} />
           </Route>
-          <Route path="reports" element={<ReportsPage />} />
+          <Route path="reports" element={<ReportsLayout />}>
+            <Route index element={<Navigate to="profitability" replace />} />
+            <Route path=":reportSlug" element={<ReportSubModulePage />} />
+          </Route>
           <Route path="documents" element={<DocumentsPage />} />
           <Route path="audit-logs" element={<AuditLogsPage />} />
           <Route path="user-management" element={<Navigate to="/user-management/users" replace />} />

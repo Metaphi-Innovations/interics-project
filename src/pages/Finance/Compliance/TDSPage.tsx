@@ -176,7 +176,7 @@ function entryStatusToBadge(status: string): StatusType {
 
 export default function TDSPage() {
   const dispatch = useAppDispatch()
-  const projects = useAppSelector((s) => s.projects.items)
+  const projects = useAppSelector((s) => s.projects.items ?? [])
 
   const [filterProjectId, setFilterProjectId] = useState('')
   const [tdsData, setTdsData] = useState<GlobalTdsResponse | null>(null)

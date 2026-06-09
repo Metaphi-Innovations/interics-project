@@ -153,7 +153,7 @@ export function ContactDrawer({ open, onClose, mode, contact, onSave }: ContactD
               Set as Primary Contact
             </Box>
             <Box sx={{ fontSize: 11, color: 'text.secondary', mt: '2px' }}>
-              The primary contact appears on the Overview tab
+              Shown on Overview and the Customers listing
             </Box>
           </Box>
           <FormControlLabel

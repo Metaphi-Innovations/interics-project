@@ -287,6 +287,40 @@ let clientPOs: ClientPO[] = [
     documentUrl: 'https://example.com/client-po/po-001.pdf',
     fileName: 'PO-CLI-2024-001.pdf',
     uploadedAt: '2024-01-20',
+    milestones: [
+      {
+        id: 'cm-001',
+        serviceId: 'ps-001',
+        serviceName: 'Interior Design',
+        name: 'Mobilization',
+        percentage: 15,
+        value: 300_000,
+      },
+      {
+        id: 'cm-002',
+        serviceId: 'ps-001',
+        serviceName: 'Interior Design',
+        name: 'Design Draft',
+        percentage: 30,
+        value: 600_000,
+      },
+      {
+        id: 'cm-004',
+        serviceId: 'ps-002',
+        serviceName: 'Construction / Build Services',
+        name: 'Mobilization',
+        percentage: 25,
+        value: 500_000,
+      },
+      {
+        id: 'cm-005',
+        serviceId: 'ps-001',
+        serviceName: 'Interior Design',
+        name: 'Final Handover',
+        percentage: 22,
+        value: 450_000,
+      },
+    ],
   },
   {
     id: 'po-002',
@@ -308,6 +342,32 @@ let clientPOs: ClientPO[] = [
     poValue: 1_200_000,
     documentUrl: null,
     uploadedAt: '2026-01-05',
+    milestones: [
+      {
+        id: 'cm-101',
+        serviceId: 'ps-001',
+        serviceName: 'Interior Design',
+        name: 'Design phase',
+        percentage: 35,
+        value: 420_000,
+      },
+      {
+        id: 'cm-102',
+        serviceId: 'ps-001',
+        serviceName: 'Interior Design',
+        name: 'Site execution',
+        percentage: 23,
+        value: 280_000,
+      },
+      {
+        id: 'cm-103',
+        serviceId: 'ps-001',
+        serviceName: 'Interior Design',
+        name: 'Snagging',
+        percentage: 12,
+        value: 150_000,
+      },
+    ],
   },
 ]
 

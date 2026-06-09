@@ -45,6 +45,8 @@ interface Customer {
   state: string
   address: string | null
   tags: string[]
+  sector: string
+  msmeRegistered: boolean
   notes: string | null
   status: 'Active' | 'Inactive'
   activeProjects: number
@@ -72,6 +74,8 @@ let customers: Customer[] = [
     state: 'Karnataka',
     address: 'Unit 401, Tech Park, Whitefield',
     tags: ['Enterprise', 'Repeat Client'],
+    sector: 'Commercial',
+    msmeRegistered: false,
     notes: null,
     status: 'Active',
     activeProjects: 2,
@@ -89,7 +93,7 @@ let customers: Customer[] = [
       {
         id: 'cc-002',
         name: 'Preethi Rao',
-        designation: 'Finance Manager',
+        designation: 'Accounts',
         phone: '+91 9876543219',
         email: 'preethi@techhub.com',
         isPrimary: false,
@@ -155,6 +159,8 @@ let customers: Customer[] = [
     state: 'Maharashtra',
     address: 'Flat 12B, Sea View Apartments',
     tags: ['Residential'],
+    sector: 'Residential',
+    msmeRegistered: false,
     notes: null,
     status: 'Active',
     activeProjects: 1,
@@ -216,6 +222,8 @@ let customers: Customer[] = [
     state: 'Maharashtra',
     address: '5th Floor, Green Tower, Baner',
     tags: ['Real Estate', 'High Value'],
+    sector: 'Hospitality',
+    msmeRegistered: true,
     notes: null,
     status: 'Inactive',
     activeProjects: 0,
@@ -277,6 +285,8 @@ let customers: Customer[] = [
     state: 'Delhi',
     address: 'Plot 22, Connaught Place',
     tags: ['Enterprise', 'Corporate'],
+    sector: 'Retail',
+    msmeRegistered: false,
     notes: 'Key account — priority client',
     status: 'Active',
     activeProjects: 3,
@@ -375,6 +385,8 @@ let customers: Customer[] = [
     state: 'Telangana',
     address: 'HITEC City, Tower B',
     tags: ['Tech', 'Startup'],
+    sector: 'Commercial',
+    msmeRegistered: true,
     notes: null,
     status: 'Active',
     activeProjects: 1,
@@ -436,6 +448,8 @@ let customers: Customer[] = [
     state: 'Tamil Nadu',
     address: 'Anna Salai, Office Block C',
     tags: ['Enterprise'],
+    sector: 'Industrial',
+    msmeRegistered: false,
     notes: null,
     status: 'Active',
     activeProjects: 1,
@@ -535,7 +549,10 @@ export const customersHandlers = [
     if (state) filtered = filtered.filter((c) => c.state === state)
 
     const total = filtered.length
-    const items = filtered.slice((page - 1) * pageSize, page * pageSize)
+    const items = filtered.slice((page - 1) * pageSize, page * pageSize).map((c) => ({
+      ...c,
+      contacts: contactsStore[c.id] ?? c.contacts,
+    }))
     return HttpResponse.json({ items, total })
   }),
 
@@ -570,6 +587,8 @@ export const customersHandlers = [
     }
     const newCustomer: Customer = {
       ...data,
+      sector: data.sector ?? '',
+      msmeRegistered: data.msmeRegistered ?? false,
       id: `c-${String(idCounter++).padStart(3, '0')}`,
       createdAt: new Date().toISOString().split('T')[0],
       contacts: data.contacts ?? [],
@@ -593,6 +612,16 @@ export const customersHandlers = [
     const data = await request.json() as Partial<Customer>
     const prev = customers[idx]
     const merged: Customer = { ...prev, ...data }
+    if (data.contacts !== undefined) {
+      contactsStore[prev.id] = data.contacts
+      merged.contacts = data.contacts
+      const primary = data.contacts.find((c) => c.isPrimary) ?? data.contacts[0]
+      if (primary) {
+        merged.contactPerson = primary.name
+        merged.phone = primary.phone
+        merged.email = primary.email
+      }
+    }
     if (data.gstStatus !== undefined && prev.financialDetails) {
       merged.financialDetails = {
         ...prev.financialDetails,

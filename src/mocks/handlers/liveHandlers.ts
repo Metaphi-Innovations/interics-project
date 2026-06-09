@@ -1,5 +1,11 @@
 import { http, HttpResponse } from 'msw'
-import type { Expense, Reimbursement, VendorInvoice, VendorPayment } from '../../slices/live/types'
+import type {
+  Expense,
+  Reimbursement,
+  VendorInvoice,
+  VendorPayableControl,
+  VendorPayment,
+} from '../../slices/live/types'
 import {
   expenses,
   nextExpenseId,
@@ -9,7 +15,24 @@ import {
   payments,
   reimbursements,
   vendorInvoices,
+  vendorPayableControls,
 } from '@/mocks/liveFinanceMockState'
+
+function findPayableControl(
+  projectId: string,
+  vendorId: string,
+  serviceId: string,
+): VendorPayableControl | undefined {
+  return vendorPayableControls.find(
+    (c) => c.projectId === projectId && c.vendorId === vendorId && c.serviceId === serviceId,
+  )
+}
+
+function isPayableReleaseAllowed(projectId: string, vendorId: string, serviceId: string): boolean {
+  const ctrl = findPayableControl(projectId, vendorId, serviceId)
+  if (!ctrl) return false
+  return ctrl.clientPaymentReceived && ctrl.vendorComplianceStatus === 'complete'
+}
 
 // ─── Handlers ─────────────────────────────────────────────────────────────────
 // Client invoices: use global GET/POST /api/invoices (receivablesHandlers).
@@ -37,9 +60,52 @@ export const liveHandlers = [
     return HttpResponse.json(payments.filter((p) => p.projectId === id))
   }),
 
+  http.get('/api/projects/:id/vendor-payable-controls', ({ params }) => {
+    const id = params.id as string
+    return HttpResponse.json(vendorPayableControls.filter((c) => c.projectId === id))
+  }),
+
+  http.put('/api/projects/:id/vendor-payable-controls', async ({ params, request }) => {
+    const projectId = params.id as string
+    const body = await request.json() as VendorPayableControl
+    const idx = vendorPayableControls.findIndex(
+      (c) =>
+        c.projectId === projectId &&
+        c.vendorId === body.vendorId &&
+        c.serviceId === body.serviceId,
+    )
+    const merged: VendorPayableControl = {
+      projectId,
+      vendorId: body.vendorId,
+      serviceId: body.serviceId,
+      clientPaymentReceived: body.clientPaymentReceived,
+      complianceChecks: body.complianceChecks,
+      vendorComplianceStatus:
+        body.complianceChecks.insurance &&
+        body.complianceChecks.contractSigned &&
+        body.complianceChecks.documentsSubmitted
+          ? 'complete'
+          : 'pending',
+    }
+    if (idx === -1) vendorPayableControls.push(merged)
+    else vendorPayableControls[idx] = merged
+    return HttpResponse.json(merged)
+  }),
+
   http.post('/api/projects/:id/payments', async ({ params, request }) => {
     const id = params.id as string
     const body = await request.json() as Omit<VendorPayment, 'id' | 'projectId'>
+    const firstInv = body.linkedInvoiceIds.length
+      ? vendorInvoices.find((v) => v.id === body.linkedInvoiceIds[0])
+      : undefined
+    if (firstInv) {
+      if (!isPayableReleaseAllowed(firstInv.projectId, firstInv.vendorId, firstInv.serviceId)) {
+        return HttpResponse.json(
+          { message: 'Payment blocked until client payment is received and vendor compliance is complete.' },
+          { status: 400 },
+        )
+      }
+    }
     const newP: VendorPayment = {
       id: nextPaymentId(),
       projectId: id,
@@ -90,6 +156,10 @@ export const liveHandlers = [
     const idx = expenses.findIndex((e) => e.id === expenseId && e.projectId === projectId)
     if (idx === -1) return new HttpResponse(null, { status: 404 })
     expenses.splice(idx, 1)
+    const rIdx = reimbursements.findIndex(
+      (r) => r.projectId === projectId && r.sourceExpenseId === expenseId,
+    )
+    if (rIdx !== -1) reimbursements.splice(rIdx, 1)
     return new HttpResponse(null, { status: 204 })
   }),
 
@@ -107,7 +177,29 @@ export const liveHandlers = [
       ...body,
     }
     reimbursements.push(newR)
+    if (body.sourceExpenseId) {
+      const exp = expenses.find((e) => e.id === body.sourceExpenseId && e.projectId === id)
+      if (exp) exp.linkedReimbursementId = newR.id
+    }
     return HttpResponse.json(newR, { status: 201 })
+  }),
+
+  http.delete('/api/projects/:id/reimbursements/:reimbursementId', ({ params }) => {
+    const projectId = params.id as string
+    const reimbursementId = params.reimbursementId as string
+    const idx = reimbursements.findIndex(
+      (r) => r.id === reimbursementId && r.projectId === projectId,
+    )
+    if (idx === -1) return new HttpResponse(null, { status: 404 })
+    const removed = reimbursements[idx]
+    reimbursements.splice(idx, 1)
+    if (removed.sourceExpenseId) {
+      const exp = expenses.find(
+        (e) => e.id === removed.sourceExpenseId && e.projectId === projectId,
+      )
+      if (exp) delete exp.linkedReimbursementId
+    }
+    return new HttpResponse(null, { status: 204 })
   }),
 
   http.get('/api/projects/:id/compliance', () => {

@@ -144,7 +144,7 @@ function gstEntryStatusToBadge(status: string): StatusType {
 
 export default function GSTPage() {
   const dispatch = useAppDispatch()
-  const projects = useAppSelector((s) => s.projects.items)
+  const projects = useAppSelector((s) => s.projects.items ?? [])
 
   const [filterProjectId, setFilterProjectId] = useState('')
   const [gstData, setGstData] = useState<GlobalGstResponse | null>(null)

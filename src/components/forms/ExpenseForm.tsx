@@ -78,23 +78,14 @@ export interface ExpenseFormProps {
   onSubmit: (data: ExpenseFormData) => void
   onCancel: () => void
   onValidityChange?: (valid: boolean) => void
+  onSubmitLabelChange?: (label: string) => void
 }
 
 export type ExpenseFormHandle = {
   submit: () => void
 }
 
-const typeCardSx = (active: boolean) => ({
-  p: 2,
-  borderRadius: 2,
-  border: '2px solid',
-  borderColor: active ? tokens.color.primary[500] : tokens.color.neutral[200],
-  bgcolor: active ? tokens.color.primary[50] : 'background.paper',
-  cursor: 'pointer',
-  transition: 'border-color 0.15s, background-color 0.15s',
-  flex: 1,
-  minWidth: 0,
-})
+type PitchExpenseType = PlannedExpense['type']
 
 export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(function ExpenseForm(
   {
@@ -110,6 +101,7 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
     open = true,
     onSubmit,
     onValidityChange,
+    onSubmitLabelChange,
   },
   ref,
 ) {
@@ -119,8 +111,8 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
   const effectiveProjectId =
     context === 'global' ? (selectedProjectId ?? '') : (projectId ?? '')
 
-  const [liveType, setLiveType] = useState<ExpenseType>('additional')
-  const [pitchType, setPitchType] = useState<PlannedExpense['type']>('additional')
+  const [liveType, setLiveType] = useState<ExpenseType>('common')
+  const [pitchType, setPitchType] = useState<PitchExpenseType>('common')
 
   const [description, setDescription] = useState('')
   const [amount, setAmount] = useState('')
@@ -133,6 +125,21 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
 
   const [commonSelectedIds, setCommonSelectedIds] = useState<string[]>([])
   const [commonPercents, setCommonPercents] = useState<Record<string, number>>({})
+
+  const liveTypeOptions: { value: ExpenseType; label: string }[] = [
+    { value: 'common', label: 'Common - Split across all vendors' },
+    { value: 'vendor_linked', label: 'Vendor Linked - Linked to a vendor' },
+    { value: 'additional', label: 'Additional - Project cost, no vendor' },
+    { value: 'office_expenses', label: 'Office Expenses - Internal office cost, not billable to client/vendor' },
+    { value: 'reimbursable_expenses', label: 'Reimbursable Expenses - Vendor paid amount to be reimbursed' },
+  ]
+  const pitchTypeOptions: { value: PitchExpenseType; label: string }[] = [
+    { value: 'common', label: 'Common - Split across all vendors' },
+    { value: 'vendor', label: 'Vendor Linked - Linked to a vendor' },
+    { value: 'additional', label: 'Additional - Project cost, no vendor' },
+    { value: 'office_expenses', label: 'Office Expenses - Internal office cost, not billable to client/vendor' },
+    { value: 'reimbursable_expenses', label: 'Reimbursable Expenses - Vendor paid amount to be reimbursed' },
+  ]
 
   const baselineServices = useMemo(() => flattenBaselineServices(baseline ?? null), [baseline])
   const milestonesForService = useMemo(() => {
@@ -178,10 +185,6 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
     return vendorMappingOptionsPitch.find((m) => m.id === mappingId)
   }, [vendorMappingOptionsPitch, mappingId])
 
-  const milestonesForPitchService = useMemo(() => {
-    return selectedPitchService?.clientMilestones ?? []
-  }, [selectedPitchService])
-
   const projectVendorPOs = useMemo(
     () => vendorPOs.filter((p) => p.projectId === effectiveProjectId),
     [vendorPOs, effectiveProjectId],
@@ -221,13 +224,13 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
     if (next !== 'additional') return
   }, [])
 
-  const resetPitchDependent = useCallback((next: PlannedExpense['type']) => {
+  const resetPitchDependent = useCallback((next: PitchExpenseType) => {
     setServiceId('')
     setMappingId('')
     setMilestoneId('')
     setCommonSelectedIds([])
     setCommonPercents({})
-    if (next !== 'additional') return
+    if (next !== 'additional' && next !== 'office_expenses') return
   }, [])
 
   useEffect(() => {
@@ -239,7 +242,6 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
       setPitchType(ed.type)
       setDescription(ed.name)
       setAmount(String(ed.amount))
-      setMilestoneId(ed.milestoneId ?? '')
       if (ed.type === 'vendor' && ed.vendorId) {
         const vm = findVendorMappingForPlannedEdit(v, ed)
         if (vm) {
@@ -265,9 +267,11 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
         setCommonPercents({})
       }
     } else {
-      setPitchType('additional')
+      setPitchType('common')
       setDescription('')
       setAmount('')
+      setDate('')
+      setDocumentUrl(undefined)
       setServiceId('')
       setMappingId('')
       setMilestoneId('')
@@ -278,7 +282,7 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
 
   useEffect(() => {
     if (!open || isPitch) return
-    setLiveType('additional')
+    setLiveType('common')
     setDescription('')
     setAmount('')
     setDate('')
@@ -288,12 +292,21 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
     setMilestoneId('')
   }, [open, isPitch, effectiveProjectId])
 
+  useEffect(() => {
+    if (isPitch) {
+      onSubmitLabelChange?.(pitchType === 'reimbursable_expenses' ? 'Add Reimbursement' : 'Save')
+      return
+    }
+    if (!isLiveOrGlobal) return
+    onSubmitLabelChange?.(liveType === 'reimbursable_expenses' ? 'Add Reimbursement' : 'Save')
+  }, [isPitch, pitchType, isLiveOrGlobal, liveType, onSubmitLabelChange])
+
   function handleLiveTypeChange(next: ExpenseType) {
     setLiveType(next)
     resetLiveDependent(next)
   }
 
-  function handlePitchTypeChange(next: PlannedExpense['type']) {
+  function handlePitchTypeChange(next: PitchExpenseType) {
     setPitchType(next)
     resetPitchDependent(next)
   }
@@ -314,13 +327,19 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
       const nameOk = description.trim().length > 0
       const amtOk = amountNum > 0
       if (!nameOk || !amtOk) return false
-      if (pitchType === 'additional') return true
+      if (pitchType === 'additional' || pitchType === 'office_expenses') {
+        if (pitchType === 'office_expenses') return Boolean(date)
+        return true
+      }
       if (pitchType === 'vendor') return Boolean(serviceId && selectedMappingPitch)
+      if (pitchType === 'reimbursable_expenses') return Boolean(serviceId && selectedMappingPitch && date)
       return commonSelectedIds.length > 0 && commonPctOk
     }
 
     if (!description.trim() || !date || amountNum <= 0) return false
-    if (liveType === 'vendor_linked') return Boolean(serviceId && selectedMappingLive)
+    if (liveType === 'vendor_linked' || liveType === 'reimbursable_expenses') {
+      return Boolean(serviceId && selectedMappingLive)
+    }
     if (liveType === 'common') return totalPoWeight > 0
     return true
   }, [
@@ -353,23 +372,32 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
     if (isPitch && pitchVersion) {
       const baseId = editingPlannedExpense?.id ?? `pe-${Date.now()}`
       let expense: PlannedExpense
-      if (pitchType === 'additional') {
-        expense = { id: baseId, type: 'additional', name: description.trim(), amount: amountNum }
-      } else if (pitchType === 'vendor') {
+      if (pitchType === 'additional' || pitchType === 'office_expenses') {
+        expense = {
+          id: baseId,
+          type: pitchType,
+          name: description.trim(),
+          amount: amountNum,
+          date: date || undefined,
+          documentUrl,
+        }
+      } else if (pitchType === 'vendor' || pitchType === 'reimbursable_expenses') {
         const map = selectedMappingPitch
         const svc = selectedPitchService
-        const ms = milestonesForPitchService.find((m) => m.id === milestoneId)
         if (!map || !svc) return
         expense = {
           id: baseId,
-          type: 'vendor',
+          type: pitchType,
           name: description.trim(),
           amount: amountNum,
           vendorId: map.vendorId,
           serviceId: svc.id,
           serviceName: svc.name,
-          milestoneId: ms?.id,
-          milestoneName: ms?.name,
+          milestoneId: milestoneId || undefined,
+          milestoneName:
+            milestonesForService.find((m) => m.milestoneId === milestoneId)?.milestoneName ?? undefined,
+          date: date || undefined,
+          documentUrl,
         }
       } else {
         const vendorSplits = commonSelectedIds.map((vid) => {
@@ -395,12 +423,12 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
     const pid = effectiveProjectId
     if (!pid) return
 
-    if (liveType === 'vendor_linked') {
+    if (liveType === 'vendor_linked' || liveType === 'reimbursable_expenses') {
       const svc = findServiceInBaseline(baseline ?? null, serviceId)
       const ms = milestonesForService.find((m) => m.milestoneId === milestoneId)
       if (!selectedMappingLive) return
       const data: CreateExpenseBody = {
-        type: 'vendor_linked',
+        type: liveType,
         description: description.trim(),
         amount: amountNum,
         date,
@@ -434,7 +462,7 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
     }
 
     const data: CreateExpenseBody = {
-      type: 'additional',
+      type: liveType === 'office_expenses' ? 'office_expenses' : 'additional',
       description: description.trim(),
       amount: amountNum,
       date,
@@ -452,8 +480,6 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
     amountNum,
     selectedMappingPitch,
     selectedPitchService,
-    milestonesForPitchService,
-    milestoneId,
     commonSelectedIds,
     commonPercents,
     liveType,
@@ -470,12 +496,52 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
 
   useImperativeHandle(ref, () => ({ submit }), [submit])
 
-  const showDateDoc = isLiveOrGlobal
+  const showDateDoc =
+    isLiveOrGlobal || (isPitch && (pitchType === 'office_expenses' || pitchType === 'reimbursable_expenses'))
+  const isReimbursable = !isPitch && liveType === 'reimbursable_expenses'
+  const isPitchReimbursable = isPitch && pitchType === 'reimbursable_expenses'
 
   return (
     <Stack gap={0}>
-      {context === 'global' && (
-        <FormSection title="Project" columns={1}>
+      <Stack direction={{ xs: 'column', sm: 'row' }} gap={1.5} sx={{ mb: 2 }}>
+        <FormField label="Type" required>
+          {isPitch ? (
+            <Select
+              size="small"
+              value={pitchType}
+              onChange={(e) => handlePitchTypeChange(e.target.value as PitchExpenseType)}
+              fullWidth
+              sx={{ fontSize: 12 }}
+            >
+              {pitchTypeOptions.map((opt) => (
+                <MenuItem key={opt.value} value={opt.value} sx={{ fontSize: 12 }}>
+                  {opt.label}
+                </MenuItem>
+              ))}
+            </Select>
+          ) : (
+            <Select
+              size="small"
+              value={liveType}
+              onChange={(e) => handleLiveTypeChange(e.target.value as ExpenseType)}
+              fullWidth
+              sx={{ fontSize: 12 }}
+            >
+              {liveTypeOptions.map((opt) => (
+                <MenuItem key={opt.value} value={opt.value} sx={{ fontSize: 12 }}>
+                  {opt.label}
+                </MenuItem>
+              ))}
+            </Select>
+          )}
+        </FormField>
+      </Stack>
+
+      <FormSection title="Details" columns={2}>
+        <FormField label={isPitch ? 'Expense name' : 'Description'} required>
+          <Input value={description} onChange={setDescription} size="sm" />
+        </FormField>
+        {context === 'global' && (
           <FormField label="Project" required>
             <Select
               size="small"
@@ -495,119 +561,27 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
               ))}
             </Select>
           </FormField>
-        </FormSection>
-      )}
-
-      <Typography variant="subtitle2" sx={{ fontSize: 12, fontWeight: 600, mb: 1 }}>
-        Type
-      </Typography>
-      <Stack direction={{ xs: 'column', sm: 'row' }} gap={1.5} sx={{ mb: 2 }}>
-        {isPitch ? (
-          <>
-            <Box
-              role="button"
-              tabIndex={0}
-              onClick={() => handlePitchTypeChange('additional')}
-              onKeyDown={(e) => e.key === 'Enter' && handlePitchTypeChange('additional')}
-              sx={typeCardSx(pitchType === 'additional')}
-            >
-              <Typography variant="body2" sx={{ fontWeight: 600, fontSize: 12 }}>
-                Additional
-              </Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                Project cost
-                <br />
-                no vendor
-              </Typography>
-            </Box>
-            <Box
-              role="button"
-              tabIndex={0}
-              onClick={() => handlePitchTypeChange('vendor')}
-              onKeyDown={(e) => e.key === 'Enter' && handlePitchTypeChange('vendor')}
-              sx={typeCardSx(pitchType === 'vendor')}
-            >
-              <Typography variant="body2" sx={{ fontWeight: 600, fontSize: 12 }}>
-                Vendor Linked
-              </Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                Linked to a
-                <br />
-                vendor
-              </Typography>
-            </Box>
-            <Box
-              role="button"
-              tabIndex={0}
-              onClick={() => handlePitchTypeChange('common')}
-              onKeyDown={(e) => e.key === 'Enter' && handlePitchTypeChange('common')}
-              sx={typeCardSx(pitchType === 'common')}
-            >
-              <Typography variant="body2" sx={{ fontWeight: 600, fontSize: 12 }}>
-                Common
-              </Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                Split across
-                <br />
-                vendors
-              </Typography>
-            </Box>
-          </>
-        ) : (
-          <>
-            <Box
-              role="button"
-              tabIndex={0}
-              onClick={() => handleLiveTypeChange('additional')}
-              onKeyDown={(e) => e.key === 'Enter' && handleLiveTypeChange('additional')}
-              sx={typeCardSx(liveType === 'additional')}
-            >
-              <Typography variant="body2" sx={{ fontWeight: 600, fontSize: 12 }}>
-                Additional
-              </Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                Project cost
-                <br />
-                no vendor
-              </Typography>
-            </Box>
-            <Box
-              role="button"
-              tabIndex={0}
-              onClick={() => handleLiveTypeChange('vendor_linked')}
-              onKeyDown={(e) => e.key === 'Enter' && handleLiveTypeChange('vendor_linked')}
-              sx={typeCardSx(liveType === 'vendor_linked')}
-            >
-              <Typography variant="body2" sx={{ fontWeight: 600, fontSize: 12 }}>
-                Vendor Linked
-              </Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                Linked to a
-                <br />
-                vendor
-              </Typography>
-            </Box>
-            <Box
-              role="button"
-              tabIndex={0}
-              onClick={() => handleLiveTypeChange('common')}
-              onKeyDown={(e) => e.key === 'Enter' && handleLiveTypeChange('common')}
-              sx={typeCardSx(liveType === 'common')}
-            >
-              <Typography variant="body2" sx={{ fontWeight: 600, fontSize: 12 }}>
-                Common
-              </Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                Split across
-                <br />
-                all vendors
-              </Typography>
-            </Box>
-          </>
         )}
-      </Stack>
+        <FormField label="Amount ₹" required>
+          <Input
+            type="number"
+            value={amount}
+            onChange={setAmount}
+            size="sm"
+            startAdornment={<Typography sx={{ fontSize: 12 }}>₹</Typography>}
+          />
+        </FormField>
+        {showDateDoc && (
+          <FormField
+            label={isReimbursable || isPitchReimbursable ? 'Date vendor made the payment' : 'Date'}
+            required
+          >
+            <Input type="date" value={date} onChange={setDate} size="sm" />
+          </FormField>
+        )}
+      </FormSection>
 
-      {isPitch && pitchType === 'vendor' && pitchVersion && (
+      {isPitch && (pitchType === 'vendor' || pitchType === 'reimbursable_expenses') && pitchVersion && (
         <FormSection title="Scope" columns={1}>
           <FormField label="Service" required>
             <Select
@@ -652,7 +626,14 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
               ))}
             </Select>
           </FormField>
-          <FormField label="Milestone (reference only)" hint="Optional tracking">
+          <FormField
+            label={isPitchReimbursable ? 'Milestone Reference' : 'Milestone (reference only)'}
+            hint={
+              isPitchReimbursable
+                ? 'For reference only — does not affect payment grouping'
+                : 'This is for tracking only, not payment grouping'
+            }
+          >
             <Select
               size="small"
               displayEmpty
@@ -665,9 +646,9 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
               <MenuItem value="" sx={{ fontSize: 12 }}>
                 None
               </MenuItem>
-              {milestonesForPitchService.map((m) => (
-                <MenuItem key={m.id} value={m.id} sx={{ fontSize: 12 }}>
-                  {m.name}
+              {milestonesForService.map((m) => (
+                <MenuItem key={m.milestoneId} value={m.milestoneId} sx={{ fontSize: 12 }}>
+                  {m.milestoneName}
                 </MenuItem>
               ))}
             </Select>
@@ -675,7 +656,7 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
         </FormSection>
       )}
 
-      {!isPitch && liveType === 'vendor_linked' && (
+      {!isPitch && (liveType === 'vendor_linked' || liveType === 'reimbursable_expenses') && (
         <FormSection title="Scope" columns={1}>
           <FormField label="Service" required>
             <Select
@@ -721,8 +702,12 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
             </Select>
           </FormField>
           <FormField
-            label="Milestone (reference only)"
-            hint="This is for tracking only, not payment grouping"
+            label={isReimbursable ? 'Milestone Reference' : 'Milestone (reference only)'}
+            hint={
+              isReimbursable
+                ? 'For reference only — does not affect payment grouping'
+                : 'This is for tracking only, not payment grouping'
+            }
           >
             <Select
               size="small"
@@ -745,28 +730,6 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
           </FormField>
         </FormSection>
       )}
-
-      <FormSection title="Details" columns={2}>
-        <Box sx={{ gridColumn: '1 / -1' }}>
-          <FormField label={isPitch ? 'Expense name' : 'Description'} required>
-            <Input value={description} onChange={setDescription} size="sm" />
-          </FormField>
-        </Box>
-        <FormField label="Amount ₹" required>
-          <Input
-            type="number"
-            value={amount}
-            onChange={setAmount}
-            size="sm"
-            startAdornment={<Typography sx={{ fontSize: 12 }}>₹</Typography>}
-          />
-        </FormField>
-        {showDateDoc && (
-          <FormField label="Date" required>
-            <Input type="date" value={date} onChange={setDate} size="sm" />
-          </FormField>
-        )}
-      </FormSection>
 
       {isPitch && pitchType === 'common' && pitchVersion && (
         <Stack gap={1.5} sx={{ mb: 2 }}>
@@ -878,7 +841,7 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
         <FormSection title="Document" columns={1}>
           <FileUpload
             accept="image/*,.pdf"
-            label="Attach document (optional)"
+            label={isReimbursable || isPitchReimbursable ? 'Supporting receipt / proof' : 'Attach document (optional)'}
             onUpload={(files) => {
               const f = files[0]
               setDocumentUrl(f ? `local://${f.name}` : undefined)

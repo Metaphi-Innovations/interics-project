@@ -1,5 +1,6 @@
 import { createAsyncThunk } from '@reduxjs/toolkit'
 import { rolesApi } from '../../api/rolesApi'
+import { normalizeArrayResponse } from '@/utils/normalizeListResponse'
 import type { Role } from '../../types/permissions'
 
 export const fetchRoles = createAsyncThunk(
@@ -7,7 +8,7 @@ export const fetchRoles = createAsyncThunk(
   async (_, { rejectWithValue }) => {
     try {
       const response = await rolesApi.getAll()
-      return response.data as Role[]
+      return normalizeArrayResponse<Role>(response.data)
     } catch (err: unknown) {
       const error = err as { response?: { data?: { message?: string } } }
       return rejectWithValue(error.response?.data?.message ?? 'Failed to fetch roles')

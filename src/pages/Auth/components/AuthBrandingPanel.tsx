@@ -1,12 +1,12 @@
-import { Box, Typography } from '@mui/material'
+import { Box, Stack, Typography } from '@mui/material'
 import { alpha, useTheme } from '@mui/material/styles'
 import { tokens } from '@/design-system/tokens'
 import {
+  AUTH_FEATURE_HIGHLIGHTS,
   AUTH_HEADLINE,
   AUTH_LOGO_IS_FULL_LOCKUP,
   AUTH_LOGO_SRC,
   AUTH_PRODUCT_NAME,
-  AUTH_TAGLINE_PILLARS,
 } from '@/pages/Auth/authConstants'
 
 export default function AuthBrandingPanel() {
@@ -23,28 +23,22 @@ export default function AuthBrandingPanel() {
         minHeight: { lg: '100vh' },
         flexDirection: 'column',
         overflow: 'hidden',
-        background: `linear-gradient(165deg, ${theme.palette.primary.dark} 0%, ${theme.palette.primary.main} 45%, ${alpha(theme.palette.primary.dark, 0.95)} 100%)`,
+        background: `linear-gradient(165deg, ${theme.palette.primary.dark} 0%, ${theme.palette.primary.main} 48%, ${alpha(theme.palette.primary.dark, 0.96)} 100%)`,
       }}
     >
-      {/* Subtle geometric overlay */}
       <Box
         aria-hidden
         sx={{
           position: 'absolute',
           inset: 0,
-          opacity: 0.12,
-          backgroundImage: `
-            radial-gradient(ellipse 80% 50% at 20% 30%, ${alpha(white, 0.45)} 0%, transparent 50%),
-            radial-gradient(ellipse 60% 40% at 80% 70%, ${alpha(white, 0.2)} 0%, transparent 45%),
-            repeating-linear-gradient(
-              -18deg,
-              transparent,
-              transparent 40px,
-              ${alpha(white, 0.04)} 40px,
-              ${alpha(white, 0.04)} 41px
-            )
-          `,
           pointerEvents: 'none',
+          backgroundImage: `
+            linear-gradient(${alpha(white, 0.07)} 1px, transparent 1px),
+            linear-gradient(90deg, ${alpha(white, 0.07)} 1px, transparent 1px),
+            radial-gradient(ellipse 70% 45% at 15% 20%, ${alpha(white, 0.14)} 0%, transparent 55%),
+            radial-gradient(ellipse 50% 35% at 85% 80%, ${alpha(white, 0.08)} 0%, transparent 50%)
+          `,
+          backgroundSize: '40px 40px, 40px 40px, auto, auto',
         }}
       />
 
@@ -55,8 +49,7 @@ export default function AuthBrandingPanel() {
           display: 'flex',
           flexDirection: 'column',
           flex: 1,
-          p: { lg: 6 },
-          justifyContent: 'space-between',
+          p: { lg: 6, xl: 7 },
         }}
       >
         <Box
@@ -98,22 +91,76 @@ export default function AuthBrandingPanel() {
           )}
         </Box>
 
-        <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', py: 4 }}>
+        <Box
+          sx={{
+            flex: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'center',
+            maxWidth: 400,
+            py: { lg: 4, xl: 6 },
+          }}
+        >
           <Typography
             variant="h4"
             component="h1"
             sx={{
               fontWeight: 700,
               color: white,
-              lineHeight: 1.2,
-              fontSize: { lg: '1.75rem' },
+              lineHeight: 1.25,
+              fontSize: { lg: '1.875rem', xl: '2rem' },
+              letterSpacing: -0.25,
             }}
           >
             {AUTH_HEADLINE}
           </Typography>
-          <Typography variant="body2" sx={{ mt: 2, color: alpha(white, 0.82), fontSize: tokens.fontSize.lg }}>
-            {`· ${AUTH_TAGLINE_PILLARS.join(' · ')} ·`}
-          </Typography>
+
+          <Box
+            sx={{
+              mt: 3,
+              mb: 1,
+              width: 40,
+              height: 3,
+              borderRadius: tokens.borderRadius.full,
+              bgcolor: alpha(white, 0.35),
+            }}
+          />
+
+          <Stack
+            component="ul"
+            spacing={2}
+            sx={{ mt: 3, p: 0, m: 0, listStyle: 'none' }}
+          >
+            {AUTH_FEATURE_HIGHLIGHTS.map((feature) => (
+              <Box
+                key={feature}
+                component="li"
+                sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5 }}
+              >
+                <Box
+                  sx={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: tokens.borderRadius.full,
+                    bgcolor: alpha(white, 0.85),
+                    mt: 0.875,
+                    flexShrink: 0,
+                  }}
+                />
+                <Typography
+                  variant="body2"
+                  sx={{
+                    color: alpha(white, 0.92),
+                    fontSize: tokens.fontSize.base,
+                    lineHeight: tokens.lineHeight.relaxed,
+                    fontWeight: 500,
+                  }}
+                >
+                  {feature}
+                </Typography>
+              </Box>
+            ))}
+          </Stack>
         </Box>
       </Box>
     </Box>

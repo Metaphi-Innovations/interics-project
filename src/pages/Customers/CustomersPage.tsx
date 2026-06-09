@@ -19,10 +19,6 @@ import {
   Divider,
 } from '@mui/material'
 import {
-  People,
-  FolderOpen,
-  TrendingUp,
-  AccountBalance,
   Business,
   Circle,
   VerifiedUser,
@@ -32,10 +28,10 @@ import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore'
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp'
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'
 import { useTheme, alpha } from '@mui/material/styles'
-import { Building2, Plus, MoreHorizontal, Eye, Pencil, Trash2, Phone, Mail, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Building2, Plus, MoreHorizontal, Eye, Pencil, FolderPlus, Receipt, Archive, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
-import { fetchCustomers, deleteCustomer } from '../../slices/customers/thunk'
+import { fetchCustomers, updateCustomer } from '../../slices/customers/thunk'
 import { setFilters, resetFilters, setPage, setSortConfig } from '../../slices/customers/reducer'
 import type { Customer } from '../../slices/customers/reducer'
 import { customersApi } from '../../api/customersApi'
@@ -45,7 +41,47 @@ import { CustomerDrawer } from './CustomerDrawer'
 import { StatusBadge, useToast, Modal, Button } from '@/design-system/components'
 import type { StatusType } from '@/design-system/components'
 import { getInitials, getAvatarColor, formatCurrency, toSlug } from '../../utils/formatters'
+import { getPrimaryContact } from '../../utils/customerContacts'
 import { tokens } from '@/design-system/tokens'
+import { getSectorTagSx } from '../../utils/sectorTagStyles'
+
+const TABLE_CELL_SX = {
+  py: '8px',
+  px: '14px',
+  verticalAlign: 'top',
+} as const
+
+const TABLE_CELL_COMPACT_SX = {
+  py: '7px',
+  px: '14px',
+  verticalAlign: 'top',
+} as const
+
+// ─── Listing helpers ──────────────────────────────────────────────────────────
+
+function getTotalProjectCount(customer: Customer): number {
+  const fd = customer.financialDetails
+  if (fd) return fd.activeProjects + fd.completedProjects
+  return customer.activeProjects
+}
+
+function getTotalBillAmount(customer: Customer): number {
+  return customer.financialDetails?.totalBilled ?? 0
+}
+
+function getComplianceLabels(customer: Customer): string[] {
+  const labels: string[] = []
+  if (customer.msmeRegistered) labels.push('MSME')
+  if (customer.gstStatus === 'Registered' || customer.gstin) labels.push('GST')
+  if (customer.pan) labels.push('PAN')
+  if (customer.gstStatus === 'Composition') labels.push('Composition')
+  if (customer.gstStatus === 'SEZ') labels.push('SEZ')
+  return labels
+}
+
+function getSectorLabel(customer: Customer): string {
+  return customer.sector ?? '—'
+}
 
 // ─── Avatar Cell ──────────────────────────────────────────────────────────────
 
@@ -77,10 +113,12 @@ interface RowActionsProps {
   customer: Customer
   onView: () => void
   onEdit: () => void
-  onDelete: () => void
+  onAddProject: () => void
+  onBillingSummary: () => void
+  onArchive: () => void
 }
 
-function RowActions({ customer, onView, onEdit, onDelete }: RowActionsProps) {
+function RowActions({ customer, onView, onEdit, onAddProject, onBillingSummary, onArchive }: RowActionsProps) {
   const [anchor, setAnchor] = useState<null | HTMLElement>(null)
 
   function open(e: React.MouseEvent<HTMLElement>) {
@@ -101,22 +139,121 @@ function RowActions({ customer, onView, onEdit, onDelete }: RowActionsProps) {
         <MenuItem onClick={() => { onEdit(); close() }} sx={{ fontSize: 13, gap: 1 }}>
           <Pencil size={14} /> Edit
         </MenuItem>
+        <MenuItem onClick={() => { onAddProject(); close() }} sx={{ fontSize: 13, gap: 1 }}>
+          <FolderPlus size={14} /> Add Project
+        </MenuItem>
+        <MenuItem onClick={() => { onBillingSummary(); close() }} sx={{ fontSize: 13, gap: 1 }}>
+          <Receipt size={14} /> Billing Summary
+        </MenuItem>
         <Divider />
-        {customer.activeProjects > 0 ? (
-          <Tooltip title="Cannot delete customer with active projects" placement="left">
+        {customer.status === 'Inactive' ? (
+          <Tooltip title="Customer is already archived" placement="left">
             <span>
-              <MenuItem disabled sx={{ fontSize: 13, gap: 1, color: 'error.main' }}>
-                <Trash2 size={14} /> Delete
+              <MenuItem disabled sx={{ fontSize: 13, gap: 1 }}>
+                <Archive size={14} /> Archive
               </MenuItem>
             </span>
           </Tooltip>
         ) : (
-          <MenuItem onClick={() => { onDelete(); close() }} sx={{ fontSize: 13, gap: 1, color: 'error.main' }}>
-            <Trash2 size={14} /> Delete
+          <MenuItem onClick={() => { onArchive(); close() }} sx={{ fontSize: 13, gap: 1 }}>
+            <Archive size={14} /> Archive
           </MenuItem>
         )}
       </Menu>
     </>
+  )
+}
+
+function ContactPersonCell({ customer }: { customer: Customer }) {
+  const primary = getPrimaryContact(customer)
+  if (!primary) {
+    return (
+      <Typography variant="body2" sx={{ fontSize: 12, color: 'text.disabled' }}>
+        —
+      </Typography>
+    )
+  }
+  return (
+    <Box sx={{ minWidth: 0 }}>
+      <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 500, lineHeight: 1.35, wordBreak: 'break-word' }}>
+        {primary.name}
+        {primary.designation ? (
+          <Typography component="span" sx={{ fontSize: 12, fontWeight: 400, color: 'text.secondary' }}>
+            {' — '}{primary.designation}
+          </Typography>
+        ) : null}
+      </Typography>
+      {primary.phone ? (
+        <Typography variant="caption" sx={{ fontSize: 11, color: 'text.secondary', display: 'block', lineHeight: 1.35 }}>
+          {primary.phone}
+        </Typography>
+      ) : null}
+      {primary.email ? (
+        <Typography variant="caption" sx={{ fontSize: 11, color: 'text.secondary', display: 'block', lineHeight: 1.35, wordBreak: 'break-word' }}>
+          {primary.email}
+        </Typography>
+      ) : null}
+    </Box>
+  )
+}
+
+function SectorCell({ customer }: { customer: Customer }) {
+  const theme = useTheme()
+  const sector = getSectorLabel(customer)
+  if (sector === '—') {
+    return (
+      <Typography variant="body2" sx={{ fontSize: 12, color: 'text.disabled' }}>
+        —
+      </Typography>
+    )
+  }
+  const tagMode = theme.palette.mode === 'dark' ? 'dark' : 'light'
+  const colors = getSectorTagSx(sector, tagMode)
+  return (
+    <MuiChip
+      label={sector}
+      size="small"
+      sx={{
+        height: 20,
+        fontSize: 10,
+        borderRadius: '4px',
+        bgcolor: colors.bg,
+        color: colors.color,
+        border: 'none',
+        '& .MuiChip-label': { px: '6px' },
+      }}
+    />
+  )
+}
+
+function ComplianceCell({ customer }: { customer: Customer }) {
+  const labels = getComplianceLabels(customer)
+  if (!labels.length) {
+    return (
+      <Typography variant="body2" sx={{ fontSize: 12, color: 'text.disabled' }}>
+        —
+      </Typography>
+    )
+  }
+  return (
+    <Stack direction="row" flexWrap="wrap" gap={0.5} useFlexGap>
+      {labels.map((label) => (
+        <MuiChip
+          key={label}
+          label={label}
+          size="small"
+          sx={{
+            height: 18,
+            fontSize: 9,
+            fontWeight: 600,
+            borderRadius: '4px',
+            bgcolor: alpha(tokens.color.primary[500], 0.08),
+            color: tokens.color.primary[700],
+            '& .MuiChip-label': { px: '5px' },
+          }}
+        />
+      ))}
+    </Stack>
   )
 }
 
@@ -180,11 +317,25 @@ interface CustomerTableProps {
   onSort: (field: string, direction: 'asc' | 'desc') => void
   onView: (id: string) => void
   onEdit: (customer: Customer) => void
-  onDelete: (customer: Customer) => void
+  onProjects: (customer: Customer) => void
+  onAddProject: (customer: Customer) => void
+  onBillingSummary: (customer: Customer) => void
+  onArchive: (customer: Customer) => void
 }
 
 function CustomerTable({
-  items, loading, visibleColumns, sortField, sortDirection, onSort, onView, onEdit, onDelete,
+  items,
+  loading,
+  visibleColumns,
+  sortField,
+  sortDirection,
+  onSort,
+  onView,
+  onEdit,
+  onProjects,
+  onAddProject,
+  onBillingSummary,
+  onArchive,
 }: CustomerTableProps) {
   const theme = useTheme()
   const hoverBg = alpha(theme.palette.primary.main, 0.04)
@@ -195,7 +346,7 @@ function CustomerTable({
         <TableHead>
           <TableRow sx={{ bgcolor: alpha(theme.palette.text.primary, 0.02) }}>
             <SortHeader
-              label="Customer"
+              label="Client Name"
               field="name"
               sortField={sortField}
               sortDirection={sortDirection}
@@ -206,10 +357,10 @@ function CustomerTable({
                 Contact Person
               </TableCell>
             )}
-            {visibleColumns.location && (
+            {visibleColumns.sector && (
               <SortHeader
-                label="Location"
-                field="city"
+                label="Sector"
+                field="sector"
                 sortField={sortField}
                 sortDirection={sortDirection}
                 onSort={onSort}
@@ -226,20 +377,39 @@ function CustomerTable({
                 sx={{ display: { xs: 'none', lg: 'table-cell' } }}
               />
             )}
-            {visibleColumns.receivables && (
+            {visibleColumns.totalBillAmount && (
               <SortHeader
-                label="Receivables"
-                field="totalReceivables"
+                label="Total Bill Amount"
+                field="totalBillAmount"
                 sortField={sortField}
                 sortDirection={sortDirection}
                 onSort={onSort}
                 sx={{ display: { xs: 'none', lg: 'table-cell' } }}
               />
             )}
+            {visibleColumns.compliance && (
+              <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', py: '8px', px: '14px', borderBottom: `2px solid ${tokens.color.neutral[100]}`, display: { xs: 'none', md: 'table-cell' } }}>
+                Compliance
+              </TableCell>
+            )}
             <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', py: '8px', px: '14px', borderBottom: `2px solid ${tokens.color.neutral[100]}` }}>
               Status
             </TableCell>
-            <TableCell sx={{ width: 48, py: '8px', px: '8px', borderBottom: `2px solid ${tokens.color.neutral[100]}` }} />
+            <TableCell
+              sx={{
+                width: 48,
+                py: '8px',
+                px: '8px',
+                fontSize: 11,
+                fontWeight: 600,
+                color: 'text.secondary',
+                borderBottom: `2px solid ${tokens.color.neutral[100]}`,
+                verticalAlign: 'bottom',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              Action
+            </TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
@@ -257,7 +427,7 @@ function CustomerTable({
 
           {!loading && items.length === 0 && (
             <TableRow>
-              <TableCell colSpan={7} sx={{ border: 0 }}>
+              <TableCell colSpan={9} sx={{ border: 0 }}>
                 <Box sx={{ py: 6, textAlign: 'center' }}>
                   <Building2 size={32} color={tokens.color.neutral[300]} />
                   <Typography variant="body2" sx={{ mt: 1.5, fontWeight: 500 }}>
@@ -281,98 +451,93 @@ function CustomerTable({
                 '&:last-child td': { border: 0 },
               }}
             >
-              {/* Customer */}
-              <TableCell sx={{ py: '10px', px: '14px' }}>
-                <Stack direction="row" alignItems="center" gap={1.5}>
+              {/* Client Name */}
+              <TableCell sx={TABLE_CELL_SX}>
+                <Stack direction="row" alignItems="center" gap={1.25}>
                   <CustomerAvatar name={customer.name} />
-                  <Box>
-                    <Typography variant="body2" fontWeight={500} sx={{ fontSize: 12, lineHeight: 1.3 }}>
-                      {customer.name}
-                    </Typography>
-                    <Stack direction="row" gap={0.5} sx={{ mt: '3px' }}>
-                      <MuiChip
-                        label={customer.type}
-                        size="small"
-                        variant="outlined"
-                        sx={{ height: 18, fontSize: 10, '& .MuiChip-label': { px: '6px' } }}
-                      />
-                      <MuiChip
-                        label={customer.gstStatus}
-                        size="small"
-                        variant="outlined"
-                        sx={{ height: 18, fontSize: 10, '& .MuiChip-label': { px: '6px' } }}
-                      />
-                    </Stack>
-                  </Box>
+                  <Typography variant="body2" fontWeight={500} sx={{ fontSize: 12, lineHeight: 1.35, wordBreak: 'break-word' }}>
+                    {customer.name}
+                  </Typography>
                 </Stack>
               </TableCell>
 
-              {/* Contact Person */}
               {visibleColumns.contactPerson && (
-                <TableCell sx={{ py: '10px', px: '14px' }}>
-                  <Typography variant="body2" fontWeight={500} sx={{ fontSize: 12 }}>
-                    {customer.contactPerson}
-                  </Typography>
-                  <Stack direction="row" alignItems="center" gap="3px" sx={{ mt: '3px' }}>
-                    <Phone size={11} color={tokens.color.neutral[400]} />
-                    <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
-                      {customer.phone}
-                    </Typography>
-                  </Stack>
-                  <Stack direction="row" alignItems="center" gap="3px">
-                    <Mail size={11} color={tokens.color.neutral[400]} />
-                    <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
-                      {customer.email}
-                    </Typography>
-                  </Stack>
+                <TableCell sx={TABLE_CELL_COMPACT_SX}>
+                  <ContactPersonCell customer={customer} />
                 </TableCell>
               )}
 
-              {/* Location */}
-              {visibleColumns.location && (
-                <TableCell sx={{ py: '10px', px: '14px', display: { xs: 'none', md: 'table-cell' } }}>
-                  <Typography variant="body2" sx={{ fontSize: 12 }}>
-                    {customer.city}, {customer.state}
-                  </Typography>
+              {visibleColumns.sector && (
+                <TableCell sx={{ ...TABLE_CELL_SX, display: { xs: 'none', md: 'table-cell' } }}>
+                  <SectorCell customer={customer} />
                 </TableCell>
               )}
 
-              {/* Projects */}
               {visibleColumns.projects && (
-                <TableCell sx={{ py: '10px', px: '14px', display: { xs: 'none', lg: 'table-cell' } }}>
-                  {customer.activeProjects === 0 ? (
-                    <Typography variant="body2" color="text.disabled" sx={{ fontSize: 12 }}>
-                      0 Active
-                    </Typography>
-                  ) : (
-                    <Typography variant="body2" color="primary.main" fontWeight={500} sx={{ fontSize: 12 }}>
-                      {customer.activeProjects} Active
-                    </Typography>
-                  )}
+                <TableCell sx={{ ...TABLE_CELL_SX, display: { xs: 'none', lg: 'table-cell' } }}>
+                  {(() => {
+                    const count = getTotalProjectCount(customer)
+                    const label = `${count} Project${count === 1 ? '' : 's'}`
+                    if (count === 0) {
+                      return (
+                        <Typography variant="body2" color="text.disabled" sx={{ fontSize: 12 }}>
+                          {label}
+                        </Typography>
+                      )
+                    }
+                    return (
+                      <Typography
+                        component="button"
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onProjects(customer)
+                        }}
+                        sx={{
+                          fontSize: 12,
+                          fontWeight: 500,
+                          color: 'primary.main',
+                          cursor: 'pointer',
+                          border: 0,
+                          bgcolor: 'transparent',
+                          p: 0,
+                          textAlign: 'left',
+                          '&:hover': { textDecoration: 'underline' },
+                        }}
+                      >
+                        {label}
+                      </Typography>
+                    )
+                  })()}
                 </TableCell>
               )}
 
-              {/* Receivables */}
-              {visibleColumns.receivables && (
-                <TableCell sx={{ py: '10px', px: '14px', display: { xs: 'none', lg: 'table-cell' } }}>
+              {visibleColumns.totalBillAmount && (
+                <TableCell sx={{ ...TABLE_CELL_SX, display: { xs: 'none', lg: 'table-cell' } }}>
                   <Typography variant="body2" fontWeight={500} sx={{ fontSize: 12 }}>
-                    ₹{formatCurrency(customer.totalReceivables)}
+                    ₹{formatCurrency(getTotalBillAmount(customer))}
                   </Typography>
                 </TableCell>
               )}
 
-              {/* Status */}
-              <TableCell sx={{ py: '10px', px: '14px' }}>
+              {visibleColumns.compliance && (
+                <TableCell sx={{ ...TABLE_CELL_SX, display: { xs: 'none', md: 'table-cell' } }}>
+                  <ComplianceCell customer={customer} />
+                </TableCell>
+              )}
+
+              <TableCell sx={TABLE_CELL_SX}>
                 <StatusBadge status={customer.status.toLowerCase() as StatusType} />
               </TableCell>
 
-              {/* Actions */}
-              <TableCell sx={{ py: '6px', px: '8px' }} onClick={(e) => e.stopPropagation()}>
+              <TableCell sx={{ py: '6px', px: '8px', verticalAlign: 'top' }} onClick={(e) => e.stopPropagation()}>
                 <RowActions
                   customer={customer}
                   onView={() => onView(customer.id)}
                   onEdit={() => onEdit(customer)}
-                  onDelete={() => onDelete(customer)}
+                  onAddProject={() => onAddProject(customer)}
+                  onBillingSummary={() => onBillingSummary(customer)}
+                  onArchive={() => onArchive(customer)}
                 />
               </TableCell>
             </TableRow>
@@ -389,10 +554,22 @@ interface GridCardProps {
   customer: Customer
   onView: () => void
   onEdit: () => void
-  onDelete: () => void
+  onProjects: () => void
+  onAddProject: () => void
+  onBillingSummary: () => void
+  onArchive: () => void
 }
 
-function CustomerGridCard({ customer, onView, onEdit, onDelete }: GridCardProps) {
+function CustomerGridCard({
+  customer,
+  onView,
+  onEdit,
+  onProjects,
+  onAddProject,
+  onBillingSummary,
+  onArchive,
+}: GridCardProps) {
+  const projectCount = getTotalProjectCount(customer)
   return (
     <MuiCard
       elevation={0}
@@ -407,57 +584,70 @@ function CustomerGridCard({ customer, onView, onEdit, onDelete }: GridCardProps)
       }}
     >
       <Box sx={{ position: 'absolute', top: 8, right: 8 }} onClick={(e) => e.stopPropagation()}>
-        <RowActions customer={customer} onView={onView} onEdit={onEdit} onDelete={onDelete} />
+        <RowActions
+          customer={customer}
+          onView={onView}
+          onEdit={onEdit}
+          onAddProject={onAddProject}
+          onBillingSummary={onBillingSummary}
+          onArchive={onArchive}
+        />
       </Box>
 
-      <Stack direction="row" alignItems="center" gap={1.5} sx={{ mb: 1.5 }}>
+      <Stack direction="row" alignItems="center" gap={1.25} sx={{ mb: 1.25 }}>
         <CustomerAvatar name={customer.name} />
-        <Box sx={{ minWidth: 0 }}>
-          <Typography variant="body2" fontWeight={600} sx={{ fontSize: 13, lineHeight: 1.3, pr: 3 }}>
+        <Box sx={{ minWidth: 0, pr: 3 }}>
+          <Typography variant="body2" fontWeight={600} sx={{ fontSize: 13, lineHeight: 1.35, wordBreak: 'break-word' }}>
             {customer.name}
           </Typography>
-          <StatusBadge status={customer.status.toLowerCase() as StatusType} />
+          <Stack direction="row" alignItems="center" gap={0.75} sx={{ mt: 0.5 }}>
+            <SectorCell customer={customer} />
+            <StatusBadge status={customer.status.toLowerCase() as StatusType} />
+          </Stack>
         </Box>
       </Stack>
 
-      <Stack direction="row" alignItems="center" gap="4px" sx={{ mb: '4px' }}>
-        <Phone size={11} color={tokens.color.neutral[400]} />
-        <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
-          {customer.phone}
-        </Typography>
-      </Stack>
-      <Stack direction="row" alignItems="center" gap="4px" sx={{ mb: 1 }}>
-        <Mail size={11} color={tokens.color.neutral[400]} />
-        <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
-          {customer.email}
-        </Typography>
-      </Stack>
+      <Box sx={{ mb: 1.25 }}>
+        <ContactPersonCell customer={customer} />
+      </Box>
 
-      <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11, display: 'block', mb: 1.5 }}>
-        {customer.city}, {customer.state}
-      </Typography>
+      <ComplianceCell customer={customer} />
 
-      <Divider sx={{ mb: 1.5 }} />
+      <Divider sx={{ my: 1.25 }} />
 
-      <Stack direction="row" justifyContent="space-between">
+      <Stack direction="row" justifyContent="space-between" alignItems="flex-end">
         <Box>
           <Typography variant="overline" sx={{ fontSize: 10, color: 'text.secondary', display: 'block' }}>
             Projects
           </Typography>
           <Typography
-            variant="body2"
-            fontWeight={500}
-            sx={{ fontSize: 12, color: customer.activeProjects > 0 ? 'primary.main' : 'text.disabled' }}
+            component="button"
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              onProjects()
+            }}
+            sx={{
+              fontSize: 12,
+              fontWeight: 500,
+              color: projectCount > 0 ? 'primary.main' : 'text.disabled',
+              cursor: projectCount > 0 ? 'pointer' : 'default',
+              border: 0,
+              bgcolor: 'transparent',
+              p: 0,
+              textAlign: 'left',
+              '&:hover': projectCount > 0 ? { textDecoration: 'underline' } : undefined,
+            }}
           >
-            {customer.activeProjects} Active
+            {projectCount} Project{projectCount === 1 ? '' : 's'}
           </Typography>
         </Box>
         <Box sx={{ textAlign: 'right' }}>
           <Typography variant="overline" sx={{ fontSize: 10, color: 'text.secondary', display: 'block' }}>
-            Receivables
+            Total Bill Amount
           </Typography>
           <Typography variant="body2" fontWeight={500} sx={{ fontSize: 12 }}>
-            ₹{formatCurrency(customer.totalReceivables)}
+            ₹{formatCurrency(getTotalBillAmount(customer))}
           </Typography>
         </Box>
       </Stack>
@@ -500,32 +690,32 @@ function SimplePagination({ page, pageSize, total, onPage }: SimplePaginationPro
   )
 }
 
-// ─── Confirm Delete Dialog ────────────────────────────────────────────────────
+// ─── Confirm Archive Dialog ───────────────────────────────────────────────────
 
-interface ConfirmDeleteProps {
+interface ConfirmArchiveProps {
   customer: Customer | null
   onConfirm: () => void
   onClose: () => void
 }
 
-function ConfirmDeleteDialog({ customer, onConfirm, onClose }: ConfirmDeleteProps) {
+function ConfirmArchiveDialog({ customer, onConfirm, onClose }: ConfirmArchiveProps) {
   return (
     <Modal
       open={!!customer}
       onClose={onClose}
-      title="Delete Customer"
+      title="Archive Customer"
       size="xs"
       footer={
         <Stack direction="row" justifyContent="flex-end" gap={1}>
           <Button variant="outlined" color="secondary" size="sm" onClick={onClose}>Cancel</Button>
-          <Button variant="contained" color="error" size="sm" onClick={onConfirm}>
-            Delete
+          <Button variant="contained" color="primary" size="sm" onClick={onConfirm}>
+            Archive
           </Button>
         </Stack>
       }
     >
       <Typography variant="body2">
-        Are you sure you want to delete <strong>{customer?.name}</strong>? This action cannot be undone.
+        Archive <strong>{customer?.name}</strong>? The customer will be marked inactive and hidden from active lists.
       </Typography>
     </Modal>
   )
@@ -535,7 +725,8 @@ function ConfirmDeleteDialog({ customer, onConfirm, onClose }: ConfirmDeleteProp
 
 export default function CustomersPage() {
   const dispatch = useAppDispatch()
-  const { items, loading, pagination, filters, sortConfig } = useAppSelector((s) => s.customers)
+  const { items: rawItems, loading, pagination, filters, sortConfig } = useAppSelector((s) => s.customers)
+  const items = rawItems ?? []
   const { showToast } = useToast()
   const navigate = useNavigate()
 
@@ -543,14 +734,15 @@ export default function CustomersPage() {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [drawerMode, setDrawerMode] = useState<'add' | 'edit'>('add')
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null)
-  const [deleteTarget, setDeleteTarget] = useState<Customer | null>(null)
+  const [archiveTarget, setArchiveTarget] = useState<Customer | null>(null)
   const [counts, setCounts] = useState({ all: 0, active: 0, inactive: 0 })
   const [activeFilters, setActiveFilters] = useState<Record<string, unknown>>({})
   const [visibleColumns, setVisibleColumns] = useState({
     contactPerson: true,
-    location: true,
+    sector: true,
     projects: true,
-    receivables: true,
+    totalBillAmount: true,
+    compliance: true,
   })
 
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -590,6 +782,16 @@ export default function CustomersPage() {
   // Sort items client-side
   const sortedItems = [...items].sort((a, b) => {
     if (!sortConfig.field) return 0
+    if (sortConfig.field === 'totalBillAmount') {
+      const diff = getTotalBillAmount(a) - getTotalBillAmount(b)
+      return sortConfig.direction === 'asc' ? diff : -diff
+    }
+    if (sortConfig.field === 'sector') {
+      const aStr = getSectorLabel(a).toLowerCase()
+      const bStr = getSectorLabel(b).toLowerCase()
+      const cmp = aStr < bStr ? -1 : 1
+      return sortConfig.direction === 'asc' ? cmp : -cmp
+    }
     const field = sortConfig.field as keyof Customer
     const aVal = a[field]
     const bVal = b[field]
@@ -603,42 +805,12 @@ export default function CustomersPage() {
     return sortConfig.direction === 'asc' ? cmp : -cmp
   })
 
-  // KPI stat cards
-  const statCards = [
-    {
-      label: 'TOTAL CUSTOMERS',
-      value: items.length,
-      variant: 'default' as const,
-      icon: <People sx={{ fontSize: 24 }} />,
-    },
-    {
-      label: 'ACTIVE PROJECTS',
-      value: items.reduce((sum, c) => sum + c.activeProjects, 0),
-      variant: 'success' as const,
-      icon: <FolderOpen sx={{ fontSize: 24 }} />,
-    },
-    {
-      label: 'TOTAL RECEIVABLES',
-      value: '₹' + formatCurrency(items.reduce((sum, c) => sum + c.totalReceivables, 0)),
-      variant: 'teal' as const,
-      icon: <TrendingUp sx={{ fontSize: 24 }} />,
-    },
-    {
-      label: 'OUTSTANDING',
-      value: '₹' + formatCurrency(
-        items.filter((c) => c.status === 'Active').reduce((sum, c) => sum + c.totalReceivables, 0)
-      ),
-      variant: 'warning' as const,
-      icon: <AccountBalance sx={{ fontSize: 24 }} />,
-    },
-  ]
-
-  // Column visibility config for ListingTemplate
   const columnsConfig: ColumnItem[] = [
     { field: 'contactPerson', label: 'Contact Person', visible: visibleColumns.contactPerson },
-    { field: 'location',      label: 'Location',       visible: visibleColumns.location },
-    { field: 'projects',      label: 'Projects',       visible: visibleColumns.projects },
-    { field: 'receivables',   label: 'Receivables',    visible: visibleColumns.receivables },
+    { field: 'sector', label: 'Sector', visible: visibleColumns.sector },
+    { field: 'projects', label: 'Projects', visible: visibleColumns.projects },
+    { field: 'totalBillAmount', label: 'Total Bill Amount', visible: visibleColumns.totalBillAmount },
+    { field: 'compliance', label: 'Compliance', visible: visibleColumns.compliance },
   ]
 
   // Filter config
@@ -782,22 +954,44 @@ export default function CustomersPage() {
     setEditingCustomer(null)
   }
 
+  function customerDetailPath(customer: Customer) {
+    return `/customers/${toSlug(customer.name)}`
+  }
+
   function handleNavigateToCustomer(id: string) {
     const customer = items.find((c) => c.id === id)
     if (customer) {
-      navigate(`/customers/${toSlug(customer.name)}`)
+      navigate(customerDetailPath(customer))
     }
   }
 
-  async function handleDelete() {
-    if (!deleteTarget) return
+  function handleProjectsClick(customer: Customer) {
+    navigate(`${customerDetailPath(customer)}?tab=projects`)
+  }
+
+  function handleBillingSummary(customer: Customer) {
+    navigate(`${customerDetailPath(customer)}?tab=financial`)
+  }
+
+  function handleAddProject(customer: Customer) {
+    navigate(`${customerDetailPath(customer)}?tab=projects`)
+  }
+
+  async function handleArchive() {
+    if (!archiveTarget) return
     try {
-      await dispatch(deleteCustomer(deleteTarget.id)).unwrap()
-      showToast({ title: 'Customer deleted', variant: 'success' })
+      await dispatch(updateCustomer({ id: archiveTarget.id, data: { status: 'Inactive' } })).unwrap()
+      showToast({ title: 'Customer archived', variant: 'success' })
+      dispatch(fetchCustomers({
+        page: pagination.page,
+        pageSize: pagination.pageSize,
+        search: filters.search || undefined,
+        status: filters.status || undefined,
+      }))
     } catch (err) {
-      showToast({ title: (err as string) || 'Failed to delete customer', variant: 'error' })
+      showToast({ title: (err as string) || 'Failed to archive customer', variant: 'error' })
     }
-    setDeleteTarget(null)
+    setArchiveTarget(null)
   }
 
   // ── Render ────────────────────────────────────────────────────────
@@ -806,13 +1000,12 @@ export default function CustomersPage() {
       <ListingTemplate
         icon={<Building2 size={20} />}
         title="Customers"
-        subtitle="Manage client relationships and billing details"
+        subtitle="Client directory and relationship management"
         primaryAction={{
           label: 'Add Customer',
           onClick: openAddDrawer,
           startIcon: <Plus size={16} strokeWidth={2} />,
         }}
-        statCards={statCards}
         showViewToggle
         searchPlaceholder="Search customers..."
         searchValue={filters.search}
@@ -856,9 +1049,12 @@ export default function CustomersPage() {
                 <CustomerGridCard
                   key={customer.id}
                   customer={customer}
-                  onView={() => navigate(`/customers/${toSlug(customer.name)}`)}
+                  onView={() => navigate(customerDetailPath(customer))}
                   onEdit={() => openEditDrawer(customer)}
-                  onDelete={() => setDeleteTarget(customer)}
+                  onProjects={() => handleProjectsClick(customer)}
+                  onAddProject={() => handleAddProject(customer)}
+                  onBillingSummary={() => handleBillingSummary(customer)}
+                  onArchive={() => setArchiveTarget(customer)}
                 />
               ))
             )}
@@ -873,7 +1069,10 @@ export default function CustomersPage() {
             onSort={handleSortChange}
             onView={handleNavigateToCustomer}
             onEdit={openEditDrawer}
-            onDelete={setDeleteTarget}
+            onProjects={handleProjectsClick}
+            onAddProject={handleAddProject}
+            onBillingSummary={handleBillingSummary}
+            onArchive={setArchiveTarget}
           />
         )}
 
@@ -894,10 +1093,10 @@ export default function CustomersPage() {
         customer={editingCustomer}
       />
 
-      <ConfirmDeleteDialog
-        customer={deleteTarget}
-        onConfirm={handleDelete}
-        onClose={() => setDeleteTarget(null)}
+      <ConfirmArchiveDialog
+        customer={archiveTarget}
+        onConfirm={handleArchive}
+        onClose={() => setArchiveTarget(null)}
       />
     </>
   )

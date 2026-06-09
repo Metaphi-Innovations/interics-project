@@ -13,7 +13,7 @@ import {
 } from '@/design-system/components'
 import { receivablesApi } from '@/api/receivablesApi'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
-import { createInvoice, updateInvoice } from '@/slices/receivables/thunk'
+import { createInvoice, updateInvoice, sendInvoice } from '@/slices/receivables/thunk'
 import { fetchProjects } from '@/slices/projects/thunk'
 import { fetchClientPO, fetchBaseline } from '@/slices/baseline/thunk'
 import { fetchServices, fetchSACCodes } from '@/slices/settings/thunk'
@@ -135,7 +135,7 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved }: C
   const dispatch = useAppDispatch()
   const { showToast } = useToast()
   const saving = useAppSelector((s) => s.receivables.saving)
-  const projects = useAppSelector((s) => s.projects.items)
+  const projects = useAppSelector((s) => s.projects.items ?? [])
   const { services, sacCodes } = useAppSelector((s) => s.settings)
   const clientPOs = useAppSelector((s) => s.baseline.clientPOs)
   const baseline = useAppSelector((s) => s.baseline.baseline)
@@ -164,7 +164,7 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved }: C
         customerId: invoice.clientId,
         customerName: invoice.clientName,
         projectCode: '',
-        type: 'Design Only',
+        projectTypes: [],
         status: 'Live',
         progress: '',
         location: '',
@@ -239,7 +239,7 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved }: C
         customerId: invoice.clientId,
         customerName: invoice.clientName,
         projectCode: '',
-        type: 'Design Only',
+        projectTypes: [],
         status: 'Live',
         progress: '',
         location: '',
@@ -434,12 +434,18 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved }: C
   async function handleSaveSend() {
     if (!validate()) return
     try {
+      let invId = invoice?.id;
       if (mode === 'edit' && invoice) {
-        await dispatch(updateInvoice({ id: invoice.id, data: buildPayload(true) })).unwrap()
-        showToast({ title: 'Invoice updated and sent', variant: 'success' })
+        const result = await dispatch(updateInvoice({ id: invoice.id, data: buildPayload(false) })).unwrap()
+        invId = result.id || invoice.id;
       } else {
-        await dispatch(createInvoice(buildPayload(true))).unwrap()
-        showToast({ title: 'Invoice created and sent', variant: 'success' })
+        const result = await dispatch(createInvoice(buildPayload(false))).unwrap()
+        invId = result.id;
+      }
+      
+      if (invId) {
+        await dispatch(sendInvoice(invId)).unwrap()
+        showToast({ title: mode === 'edit' ? 'Invoice updated and sent' : 'Invoice created and sent', variant: 'success' })
       }
       onSaved()
       onClose()
@@ -455,9 +461,8 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved }: C
 
   const footer = (
     <Stack direction="row" justifyContent="flex-end" gap={1} sx={{ px: 5, py: 3.5 }}>
-      <Button variant="outlined" size="sm" onClick={onClose} disabled={saving} label="Cancel" />
-      <Button variant="outlined" size="sm" onClick={handleSaveDraft} loading={saving} label="Save as Draft" />
-      <Button variant="contained" size="sm" onClick={handleSaveSend} loading={saving} label="Save & Send →" />
+      <Button variant="outlined" size="sm" onClick={handleSaveDraft} loading={saving} label="Draft invoice" />
+      <Button variant="contained" size="sm" onClick={handleSaveSend} loading={saving} label="Save" />
     </Stack>
   )
 
@@ -471,7 +476,7 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved }: C
           {invoice.invoiceNo}
         </Typography>
       </Stack>
-    ) : undefined
+    ) : null
 
   const poSelectOptions: { label: string; value: string }[] = [
     { label: 'No PO (optional)', value: '' },
@@ -488,12 +493,44 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved }: C
       open={open}
       onClose={onClose}
       title={mode === 'edit' ? 'Edit Invoice' : 'Create Invoice'}
-      subtitle={headerSubtitle}
+      hideHeaderDivider
+      headerSx={{ py: 1.5, alignItems: 'center' }}
       width={600}
       footer={footer}
     >
-      <Stack spacing={3}>
-        <FormSection title="Project selection">
+      <Stack spacing={3} sx={{ pt: 1 }}>
+        {headerSubtitle && <Box>{headerSubtitle}</Box>}
+        <Stack
+          direction="row"
+          alignItems="center"
+          justifyContent="space-between"
+          sx={{ mb: -1 }}
+        >
+          <Typography
+            variant="overline"
+            sx={{
+              fontSize: '10px',
+              fontWeight: 600,
+              letterSpacing: '0.8px',
+              color: 'text.secondary',
+              textTransform: 'uppercase',
+            }}
+          >
+            Project selection
+          </Typography>
+          <Button
+            variant="outlined"
+            size="sm"
+            onClick={() =>
+              showToast({
+                title: invoice ? 'PDF download (placeholder)' : 'Draft preview download (placeholder)',
+                variant: 'success',
+              })
+            }
+            label="Download PDF"
+          />
+        </Stack>
+        <FormSection title="" divider={false}>
           <Stack spacing={2}>
             <FormField label="Project" required error={errors.project}>
               <AutocompleteField<Project>

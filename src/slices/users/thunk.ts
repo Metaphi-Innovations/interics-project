@@ -1,5 +1,6 @@
 import { createAsyncThunk } from '@reduxjs/toolkit'
 import { usersApi } from '../../api/usersApi'
+import { normalizeArrayResponse } from '@/utils/normalizeListResponse'
 import type { User } from './reducer'
 
 export const fetchUsers = createAsyncThunk(
@@ -7,7 +8,7 @@ export const fetchUsers = createAsyncThunk(
   async (params: Record<string, unknown> = {}, { rejectWithValue }) => {
     try {
       const response = await usersApi.getAll(params)
-      return response.data as User[]
+      return normalizeArrayResponse<User>(response.data)
     } catch (err: unknown) {
       const error = err as { response?: { data?: { message?: string } } }
       return rejectWithValue(error.response?.data?.message ?? 'Failed to fetch users')

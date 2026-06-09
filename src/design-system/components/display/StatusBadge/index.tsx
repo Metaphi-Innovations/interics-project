@@ -22,6 +22,7 @@ export type StatusType =
   | 'partially_paid'
   | 'overdue'
   | 'paid'
+  | 'tax'
   | 'issued'
   | 'filed'
   | 'partial'
@@ -60,6 +61,7 @@ export const STATUS_COLORS_LIGHT: Record<StatusType, StatusBadgeColors> = {
   overdue: { bg: '#FEE2E2', text: '#B91C1C' },
   sent: { bg: '#DBEAFE', text: '#1D4ED8' },
   draft: { bg: '#F3F4F6', text: '#374151' },
+  tax: { bg: '#DBEAFE', text: '#1D4ED8' },
   partially_paid: { bg: '#E0F2FE', text: '#0369A1' },
   unpaid: { bg: '#FEF3C7', text: '#B45309' },
   additional: { bg: '#F3F4F6', text: '#374151' },
@@ -97,6 +99,7 @@ export const STATUS_COLORS_DARK: Record<StatusType, StatusBadgeColors> = {
   overdue: { bg: '#7F1D1D', text: '#FCA5A5' },
   sent: { bg: '#1E3A8A', text: '#93C5FD' },
   draft: { bg: '#374151', text: '#E5E7EB' },
+  tax: { bg: '#1E3A8A', text: '#93C5FD' },
   partially_paid: { bg: '#0C4A6E', text: '#7DD3FC' },
   unpaid: { bg: '#78350F', text: '#FCD34D' },
   additional: { bg: '#374151', text: '#E5E7EB' },
@@ -140,6 +143,7 @@ const STATUS_LABEL: Record<StatusType, string> = {
   delayed: 'Delayed',
   overdue: 'Overdue',
   completed: 'Completed',
+  tax: 'Tax',
   sent: 'Sent',
   issued: 'Issued',
   in_progress: 'In Progress',

@@ -118,7 +118,7 @@ export const fetchVendorPOs = createAsyncThunk<
 
 export const createVendorPO = createAsyncThunk<
   VendorPO,
-  { projectId: string; data: Omit<VendorPO, 'id' | 'projectId' | 'milestones'> },
+  { projectId: string; data: Omit<VendorPO, 'id' | 'projectId'> },
   { rejectValue: string }
 >('baseline/createVendorPO', async ({ projectId, data }, { rejectWithValue }) => {
   const res = await fetch(`${BASE}/${projectId}/vendor-pos`, {

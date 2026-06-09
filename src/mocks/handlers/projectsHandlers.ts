@@ -1,45 +1,30 @@
 import { http, HttpResponse } from 'msw'
 import type { PitchCategory, PlannedExpense } from '../../slices/pitch/reducer'
+import type { Project } from '../../slices/projects/reducer'
 
-interface Project {
-  id: string
-  projectCode: string
-  name: string
-  customerId: string
-  customerName: string
-  type: 'Design Only' | 'Design & Build'
-  status: 'Pitch' | 'Live' | 'Completed' | 'Cancelled' | 'Archived'
-  progress: string
-  location: string
-  carpetArea: number | null
-  headcount: number | null
-  projectManager: string
-  projectManagerId: string
-  startDate: string | null
-  expectedEndDate: string | null
-  projectValue: number
-  totalClientPOValue: number
-  totalVendorPOValue: number
-  invoicedAmount: number
-  paidVendorAmount: number
-  createdAt: string
-}
+type MockProject = Project
 
-let projects: Project[] = [
+let projects: MockProject[] = [
   {
     id: 'p-001',
     projectCode: 'PRJ-24-001',
     name: 'Acme Corp - Head Office Redesign',
     customerId: 'c-004',
     customerName: 'Acme Corp',
-    type: 'Design & Build',
+    projectTypes: ['TDD', 'ID', 'MEP', 'Build'],
     status: 'Live',
     progress: 'Execution ongoing',
+    building: 'Connaught Place Tower',
     location: 'Connaught Place, Delhi',
+    floor: '12th Floor',
     carpetArea: 4500,
     headcount: 120,
     projectManager: 'Rahul Sharma',
     projectManagerId: 'u-003',
+    assignedTeam: [
+      { userId: 'u-004', name: 'Meera Iyer', roleLabel: 'Interior Designer' },
+      { userId: 'u-005', name: 'Vikram Shah', roleLabel: 'Site Coordinator' },
+    ],
     startDate: '2024-01-15',
     expectedEndDate: '2024-08-30',
     projectValue: 4500000,
@@ -48,6 +33,18 @@ let projects: Project[] = [
     invoicedAmount: 1550000,
     paidVendorAmount: 1200000,
     createdAt: '2026-04-01',
+    sector: 'Commercial',
+    designFeePerSqft: 850,
+    buildValuePerSqft: 4200,
+    clientTeam: [
+      {
+        name: 'Anita Verma',
+        designation: 'Facilities Head',
+        email: 'anita.verma@acmecorp.com',
+        phone: '+91 98765 43210',
+        company: 'Acme Corp',
+      },
+    ],
   },
   {
     id: 'p-002',
@@ -55,14 +52,20 @@ let projects: Project[] = [
     name: 'TechVentures - Office Expansion',
     customerId: 'c-005',
     customerName: 'TechVentures Ltd',
-    type: 'Design & Build',
+    projectTypes: ['ID', 'MEP', 'Lighting', 'Build'],
     status: 'Live',
     progress: 'Execution ongoing',
+    building: 'Cyber Towers',
     location: 'HITEC City, Hyderabad',
+    floor: '8th Floor',
     carpetArea: 3200,
     headcount: 85,
     projectManager: 'Arjun Nair',
     projectManagerId: 'u-004',
+    assignedTeam: [
+      { userId: 'u-003', name: 'Arjun Nair', roleLabel: 'Design Lead' },
+      { userId: 'u-002', name: 'Sarah Kapoor', roleLabel: 'Project Coordinator' },
+    ],
     startDate: '2024-02-01',
     expectedEndDate: '2024-09-15',
     projectValue: 2800000,
@@ -71,6 +74,18 @@ let projects: Project[] = [
     invoicedAmount: 980000,
     paidVendorAmount: 750000,
     createdAt: '2026-04-03',
+    sector: 'Commercial',
+    designFeePerSqft: 720,
+    buildValuePerSqft: 3800,
+    clientTeam: [
+      {
+        name: 'Rohit Menon',
+        designation: 'Project Coordinator',
+        email: 'rohit.menon@techventures.com',
+        phone: '+91 91234 56780',
+        company: 'TechVentures Ltd',
+      },
+    ],
   },
   {
     id: 'p-003',
@@ -78,14 +93,17 @@ let projects: Project[] = [
     name: 'Acme Corp - Retail Fit-out',
     customerId: 'c-004',
     customerName: 'Acme Corp',
-    type: 'Design Only',
+    projectTypes: ['TDD', 'ID', 'Branding & Styling'],
     status: 'Pitch',
     progress: 'Quotation ready',
+    building: 'Khan Market Plaza',
     location: 'Khan Market, Delhi',
+    floor: 'Ground Floor',
     carpetArea: 1200,
     headcount: 20,
     projectManager: 'Rahul Sharma',
     projectManagerId: 'u-003',
+    assignedTeam: [{ userId: 'u-004', name: 'Meera Iyer', roleLabel: 'Designer' }],
     startDate: null,
     expectedEndDate: null,
     projectValue: 1250000,
@@ -94,6 +112,8 @@ let projects: Project[] = [
     invoicedAmount: 0,
     paidVendorAmount: 0,
     createdAt: '2026-04-05',
+    sector: 'Retail',
+    designFeePerSqft: 950,
   },
   {
     id: 'p-004',
@@ -101,14 +121,20 @@ let projects: Project[] = [
     name: 'Global Solutions - Store Renovation',
     customerId: 'c-006',
     customerName: 'Global Solutions LLP',
-    type: 'Design & Build',
+    projectTypes: ['MEP', 'Local Approvals', 'Structural', 'Build'],
     status: 'Live',
     progress: 'Payment pending — awaiting client wire',
+    building: 'Express Avenue',
     location: 'Anna Salai, Chennai',
+    floor: '3rd Floor',
     carpetArea: 2800,
     headcount: 60,
     projectManager: 'Arjun Nair',
     projectManagerId: 'u-004',
+    assignedTeam: [
+      { userId: 'u-005', name: 'Vikram Shah', roleLabel: 'Execution' },
+      { userId: 'u-002', name: 'Sarah Kapoor', roleLabel: 'Accounts' },
+    ],
     startDate: '2024-01-20',
     expectedEndDate: '2024-07-20',
     projectValue: 1850000,
@@ -117,6 +143,9 @@ let projects: Project[] = [
     invoicedAmount: 740000,
     paidVendorAmount: 580000,
     createdAt: '2026-04-07',
+    sector: 'Retail',
+    designFeePerSqft: 680,
+    buildValuePerSqft: 3500,
   },
   {
     id: 'p-005',
@@ -124,14 +153,17 @@ let projects: Project[] = [
     name: 'Elite Consultants - Office Interiors',
     customerId: 'c-001',
     customerName: 'TechHub Systems Pvt Ltd',
-    type: 'Design & Build',
+    projectTypes: ['ID', 'Kitchen', 'AV', 'IT'],
     status: 'Completed',
     progress: 'Completed',
+    building: 'ITPL Block A',
     location: 'Whitefield, Bangalore',
+    floor: '5th Floor',
     carpetArea: 3800,
     headcount: 100,
     projectManager: 'Rahul Sharma',
     projectManagerId: 'u-003',
+    assignedTeam: [{ userId: 'u-004', name: 'Meera Iyer', roleLabel: 'Designer' }],
     startDate: '2023-06-01',
     expectedEndDate: '2023-12-31',
     projectValue: 3200000,
@@ -140,6 +172,8 @@ let projects: Project[] = [
     invoicedAmount: 3200000,
     paidVendorAmount: 2100000,
     createdAt: '2026-03-18',
+    sector: 'Commercial',
+    designFeePerSqft: 780,
   },
   {
     id: 'p-006',
@@ -147,14 +181,20 @@ let projects: Project[] = [
     name: 'Skyline Penthouse',
     customerId: 'c-002',
     customerName: 'Mr. Arun Sharma',
-    type: 'Design & Build',
+    projectTypes: ['TDD', 'ID', 'LEED', 'Lighting', 'Security'],
     status: 'Live',
     progress: 'At risk',
+    building: 'Skyline Residency',
     location: 'Bandra, Mumbai',
+    floor: 'Penthouse',
     carpetArea: 2200,
     headcount: 4,
     projectManager: 'Priya Menon',
     projectManagerId: 'u-003',
+    assignedTeam: [
+      { userId: 'u-002', name: 'Sarah Kapoor', roleLabel: 'Design Lead' },
+      { userId: 'u-005', name: 'Vikram Shah', roleLabel: 'Site' },
+    ],
     startDate: '2024-01-15',
     expectedEndDate: '2024-06-30',
     projectValue: 5500000,
@@ -163,6 +203,8 @@ let projects: Project[] = [
     invoicedAmount: 1550000,
     paidVendorAmount: 1200000,
     createdAt: '2026-04-02',
+    sector: 'Residential',
+    designFeePerSqft: 1200,
   },
   {
     id: 'p-007',
@@ -170,14 +212,17 @@ let projects: Project[] = [
     name: 'Green Villa - Lobby Design',
     customerId: 'c-003',
     customerName: 'Green Villa Estates',
-    type: 'Design Only',
+    projectTypes: ['ID', 'Acoustic'],
     status: 'Cancelled',
     progress: 'Cancelled',
+    building: 'Green Villa',
     location: 'Baner, Pune',
+    floor: 'Lobby',
     carpetArea: 800,
     headcount: 0,
     projectManager: 'Rahul Sharma',
     projectManagerId: 'u-003',
+    assignedTeam: [],
     startDate: '2024-02-01',
     expectedEndDate: null,
     projectValue: 450000,
@@ -186,6 +231,8 @@ let projects: Project[] = [
     invoicedAmount: 0,
     paidVendorAmount: 0,
     createdAt: '2026-03-28',
+    sector: 'Hospitality',
+    designFeePerSqft: 640,
   },
   {
     id: 'p-008',
@@ -193,14 +240,17 @@ let projects: Project[] = [
     name: 'TechHub - Floor 3 Renovation',
     customerId: 'c-001',
     customerName: 'TechHub Systems Pvt Ltd',
-    type: 'Design & Build',
+    projectTypes: ['MEP', 'Build', 'Other'],
     status: 'Archived',
     progress: 'Archived',
+    building: 'TechHub Campus',
     location: 'Whitefield, Bangalore',
+    floor: '3rd Floor',
     carpetArea: 1500,
     headcount: 40,
     projectManager: 'Rahul Sharma',
     projectManagerId: 'u-003',
+    assignedTeam: [{ userId: 'u-004', name: 'Meera Iyer', roleLabel: 'Designer' }],
     startDate: '2023-01-10',
     expectedEndDate: '2023-05-30',
     projectValue: 1200000,
@@ -209,6 +259,9 @@ let projects: Project[] = [
     invoicedAmount: 1200000,
     paidVendorAmount: 780000,
     createdAt: '2026-02-12',
+    sector: 'Industrial',
+    designFeePerSqft: 520,
+    buildValuePerSqft: 2900,
   },
 ]
 
@@ -227,6 +280,23 @@ type TransitionPersisted = {
 }
 
 const transitionByProjectId = new Map<string, TransitionPersisted>()
+
+function ensureAssignedTeam(project: MockProject): MockProject {
+  if (project.assignedTeam && project.assignedTeam.length > 0) return project
+  if (project.projectManagerId && project.projectManager) {
+    return {
+      ...project,
+      assignedTeam: [
+        {
+          userId: project.projectManagerId,
+          name: project.projectManager,
+          roleLabel: 'Project Lead',
+        },
+      ],
+    }
+  }
+  return { ...project, assignedTeam: project.assignedTeam ?? [] }
+}
 
 export const projectsHandlers = [
   http.get('/api/projects', ({ request }) => {
@@ -248,11 +318,18 @@ export const projectsHandlers = [
       )
     }
     if (status) filtered = filtered.filter((p) => p.status === status)
-    if (type) filtered = filtered.filter((p) => p.type === type)
+    if (type) {
+      filtered = filtered.filter((p) => {
+        const types = p.projectTypes ?? []
+        return types.includes(type)
+      })
+    }
     if (projectManager) filtered = filtered.filter((p) => p.projectManagerId === projectManager)
 
     const total = filtered.length
-    const items = filtered.slice((page - 1) * pageSize, page * pageSize)
+    const items = filtered
+      .slice((page - 1) * pageSize, page * pageSize)
+      .map(ensureAssignedTeam)
     return HttpResponse.json({ items, total })
   }),
 
@@ -266,13 +343,13 @@ export const projectsHandlers = [
     if (!project) {
       return HttpResponse.json({ message: 'Project not found' }, { status: 404 })
     }
-    return HttpResponse.json(project)
+    return HttpResponse.json(ensureAssignedTeam(project))
   }),
 
   http.post('/api/projects', async ({ request }) => {
-    const data = await request.json() as Omit<Project, 'id' | 'projectCode' | 'createdAt'>
+    const data = await request.json() as Omit<MockProject, 'id' | 'projectCode' | 'createdAt'>
     const year = new Date().getFullYear().toString().slice(-2)
-    const newProject: Project = {
+    const newProject: MockProject = {
       ...data,
       id: `p-${String(idCounter++).padStart(3, '0')}`,
       projectCode: `PRJ-${year}-${String(codeCounter++).padStart(3, '0')}`,
@@ -287,7 +364,7 @@ export const projectsHandlers = [
     if (idx === -1) {
       return HttpResponse.json({ message: 'Project not found' }, { status: 404 })
     }
-    const data = await request.json() as Partial<Project>
+    const data = await request.json() as Partial<MockProject>
     projects[idx] = { ...projects[idx], ...data }
     return HttpResponse.json(projects[idx])
   }),
@@ -297,7 +374,7 @@ export const projectsHandlers = [
     if (idx === -1) {
       return HttpResponse.json({ message: 'Project not found' }, { status: 404 })
     }
-    const { status } = await request.json() as { status: Project['status'] }
+    const { status } = await request.json() as { status: MockProject['status'] }
     projects[idx] = { ...projects[idx], status }
     return HttpResponse.json(projects[idx])
   }),

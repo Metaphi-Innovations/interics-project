@@ -13,13 +13,24 @@ import {
   deleteExpense,
   fetchReimbursements,
   createReimbursement,
+  deleteReimbursement,
+  fetchVendorPayableControls,
+  updateVendorPayableControl,
 } from './thunk'
-import type { ClientInvoice, Expense, Reimbursement, VendorInvoice, VendorPayment } from './types'
+import type {
+  ClientInvoice,
+  Expense,
+  Reimbursement,
+  VendorInvoice,
+  VendorPayableControl,
+  VendorPayment,
+} from './types'
 
 export type {
   ClientInvoice,
   VendorInvoice,
   VendorPayment,
+  VendorPayableControl,
   Expense,
   ExpenseType,
   Reimbursement,
@@ -29,6 +40,7 @@ export type {
 interface LiveState {
   invoices: ClientInvoice[]
   vendorInvoices: VendorInvoice[]
+  vendorPayableControls: VendorPayableControl[]
   payments: VendorPayment[]
   expenses: Expense[]
   reimbursements: Reimbursement[]
@@ -39,6 +51,7 @@ interface LiveState {
 const initialState: LiveState = {
   invoices: [],
   vendorInvoices: [],
+  vendorPayableControls: [],
   payments: [],
   expenses: [],
   reimbursements: [],
@@ -49,9 +62,11 @@ const initialState: LiveState = {
 function mergeByProjectId<T extends { projectId: string }>(
   rows: T[],
   projectId: string,
-  incoming: T[],
+  incoming: T[] | undefined | null,
 ): T[] {
-  return [...rows.filter((x) => x.projectId !== projectId), ...incoming]
+  const safeRows = Array.isArray(rows) ? rows : []
+  const safeIncoming = Array.isArray(incoming) ? incoming : []
+  return [...safeRows.filter((x) => x.projectId !== projectId), ...safeIncoming]
 }
 
 const liveSlice = createSlice({
@@ -69,7 +84,7 @@ const liveSlice = createSlice({
       })
       .addCase(fetchInvoices.fulfilled, (state, action) => {
         state.loading = false
-        state.invoices = action.payload
+        state.invoices = action.payload ?? []
       })
       .addCase(fetchInvoices.rejected, (state) => {
         state.loading = false
@@ -119,6 +134,27 @@ const liveSlice = createSlice({
         state.saving = false
       })
 
+      .addCase(fetchVendorPayableControls.fulfilled, (state, action) => {
+        const projectId = action.meta.arg
+        state.vendorPayableControls = mergeByProjectId(
+          state.vendorPayableControls,
+          projectId,
+          action.payload,
+        )
+      })
+
+      .addCase(updateVendorPayableControl.fulfilled, (state, action) => {
+        const ctrl = action.payload
+        const idx = state.vendorPayableControls.findIndex(
+          (c) =>
+            c.projectId === ctrl.projectId &&
+            c.vendorId === ctrl.vendorId &&
+            c.serviceId === ctrl.serviceId,
+        )
+        if (idx === -1) state.vendorPayableControls.push(ctrl)
+        else state.vendorPayableControls[idx] = ctrl
+      })
+
       .addCase(fetchPayments.fulfilled, (state, action) => {
         const projectId = action.meta.arg
         state.payments = mergeByProjectId(state.payments, projectId, action.payload)
@@ -131,11 +167,11 @@ const liveSlice = createSlice({
         state.saving = false
         state.payments.push(action.payload)
         const pay = action.payload
-        for (const invId of pay.linkedInvoiceIds) {
+        for (const invId of pay.linkedInvoiceIds ?? []) {
           const idx = state.vendorInvoices.findIndex((v) => v.id === invId)
           if (idx !== -1) state.vendorInvoices[idx] = { ...state.vendorInvoices[idx], status: 'paid' }
         }
-        for (const expId of pay.linkedExpenseIds) {
+        for (const expId of pay.linkedExpenseIds ?? []) {
           const idx = state.expenses.findIndex((e) => e.id === expId)
           if (idx !== -1) {
             state.expenses[idx] = {
@@ -145,7 +181,7 @@ const liveSlice = createSlice({
             }
           }
         }
-        for (const rId of pay.linkedReimbursementIds) {
+        for (const rId of pay.linkedReimbursementIds ?? []) {
           const idx = state.reimbursements.findIndex((r) => r.id === rId)
           if (idx !== -1) {
             state.reimbursements[idx] = {
@@ -181,8 +217,11 @@ const liveSlice = createSlice({
       })
       .addCase(deleteExpense.fulfilled, (state, action) => {
         state.saving = false
-        const { expenseId } = action.payload
+        const { expenseId, linkedReimbursementId } = action.payload
         state.expenses = state.expenses.filter((e) => e.id !== expenseId)
+        if (linkedReimbursementId) {
+          state.reimbursements = state.reimbursements.filter((r) => r.id !== linkedReimbursementId)
+        }
       })
       .addCase(deleteExpense.rejected, (state) => {
         state.saving = false
@@ -202,6 +241,11 @@ const liveSlice = createSlice({
       })
       .addCase(createReimbursement.rejected, (state) => {
         state.saving = false
+      })
+
+      .addCase(deleteReimbursement.fulfilled, (state, action) => {
+        const { reimbursementId } = action.payload
+        state.reimbursements = state.reimbursements.filter((r) => r.id !== reimbursementId)
       })
   },
 })

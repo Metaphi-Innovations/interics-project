@@ -1,13 +1,9 @@
 /**
- * Project Documents tab — uploads are client-only (extended categories cover every subsection).
+ * Project detail Documents tab — grouped by Project, Client, and Vendor document sets.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { MouseEvent } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   Box,
-  IconButton,
-  Menu,
-  MenuItem,
   Stack,
   Table,
   TableBody,
@@ -18,14 +14,14 @@ import {
   ToggleButtonGroup,
   Typography,
 } from '@mui/material'
-import MoreVertIcon from '@mui/icons-material/MoreVert'
 import { useNavigate } from 'react-router-dom'
-import { FileUp } from 'lucide-react'
+import { FileUp, Trash2 } from 'lucide-react'
 import { DrawerForm, FormField } from '../../../components/templates/DrawerForm'
 import {
   Badge,
   Button,
   FileUpload,
+  IconButton,
   Input,
   Select,
   Textarea,
@@ -40,38 +36,53 @@ import {
   TABLE_CELL_SX,
   TABLE_HEADER_SX,
 } from './live/vendorSettlement/utils'
+import {
+  isLegacyInternalUploadCategory,
+  useProjectDocumentUploads,
+  type UploadCategory,
+  type UploadedProjectDocument,
+} from '../projectDocumentUploads'
+import {
+  buildProjectDocumentSections,
+  countProjectDocumentRows,
+  filterProjectDocumentSectionsBySearch,
+  mergeLegacyInternalUploadRows,
+  resolveProjectForDocuments,
+  type ProjectDocumentColumnRow,
+} from '../projectDocumentsDisplay'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-/** Extends the short category list so every subsection can receive uploads. */
-type UploadCategory =
-  | 'client_quotation'
-  | 'client_po'
-  | 'vendor_quotation'
-  | 'vendor_po'
-  | 'vendor_invoice_doc'
-  | 'internal_requirements'
-  | 'internal_attachments'
-  | 'other'
-
-type DocumentFilter = 'all' | 'client' | 'vendor' | 'internal'
-
-interface UploadedProjectDocument {
-  id: string
-  projectId: string
-  displayName: string
-  category: UploadCategory
-  fileName: string
-  sizeBytes: number
-  uploadedAt: string
-  uploadedBy: string
-  uploadedByUserId: string
-  notes: string
-  blobUrl: string
-}
+type DocumentFilter = 'all' | 'client' | 'vendor' | 'project'
 
 const ACCEPT =
   '.pdf,.doc,.docx,.xlsx,.jpg,.jpeg,.png,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,image/jpeg,image/png'
+
+/** Fixed column widths — must sum to 100% for consistent alignment across all document tables. */
+const DOCUMENTS_COL_WIDTH = {
+  name: '28%',
+  type: '14%',
+  uploadedBy: '16%',
+  date: '14%',
+  size: '12%',
+  action: '16%',
+} as const
+
+const DOCUMENTS_HEADER_SX = {
+  ...TABLE_HEADER_SX,
+  px: 2,
+  py: 1.5,
+  verticalAlign: 'middle',
+} as const
+
+const DOCUMENTS_CELL_SX = {
+  ...TABLE_CELL_SX,
+  px: 2,
+  py: 1.5,
+  verticalAlign: 'middle',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+} as const
 
 const CATEGORY_OPTIONS: { value: UploadCategory; label: string }[] = [
   { value: 'client_quotation', label: 'Client Quotation' },
@@ -79,9 +90,6 @@ const CATEGORY_OPTIONS: { value: UploadCategory; label: string }[] = [
   { value: 'vendor_quotation', label: 'Vendor Quotation' },
   { value: 'vendor_po', label: 'Vendor PO' },
   { value: 'vendor_invoice_doc', label: 'Vendor Invoice (upload)' },
-  { value: 'internal_requirements', label: 'Internal — Requirements' },
-  { value: 'internal_attachments', label: 'Internal — Attachments' },
-  { value: 'other', label: 'Other' },
 ]
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
@@ -113,20 +121,7 @@ function matchesSearch(text: string, q: string): boolean {
 
 // ─── Subsection tables ───────────────────────────────────────────────────────
 
-interface ColumnRow {
-  id: string
-  name: string
-  typeLabel: string
-  uploadedBy: string
-  dateStr: string
-  sizeStr: string | null
-  isUpload: boolean
-  blobUrl?: string
-  fileName?: string
-  canDelete: boolean
-  onView: () => void
-  onDownload?: () => void
-}
+type ColumnRow = ProjectDocumentColumnRow
 
 function RowActions({
   row,
@@ -135,53 +130,42 @@ function RowActions({
   row: ColumnRow
   onDelete?: (id: string) => void
 }) {
-  const [anchor, setAnchor] = useState<null | HTMLElement>(null)
-
-  const openMenu = (e: MouseEvent<HTMLElement>) => {
-    e.stopPropagation()
-    setAnchor(e.currentTarget)
-  }
-  const close = () => setAnchor(null)
+  const deleteEnabled = Boolean(row.canDelete && onDelete)
 
   return (
-    <>
-      <Stack direction="row" alignItems="center" gap={0.5} justifyContent="flex-end">
-        <Button variant="soft" color="primary" size="sm" onClick={row.onView}>
-          View
-        </Button>
-        {row.isUpload && (
-          <IconButton size="small" onClick={openMenu} aria-label="More actions">
-            <MoreVertIcon sx={{ fontSize: 18 }} />
-          </IconButton>
-        )}
-      </Stack>
-      <Menu anchorEl={anchor} open={Boolean(anchor)} onClose={close}>
-        {row.onDownload && (
-          <MenuItem
-            dense
-            onClick={() => {
-              row.onDownload?.()
-              close()
-            }}
-          >
-            Download
-          </MenuItem>
-        )}
-        {row.isUpload && row.canDelete && onDelete && (
-          <MenuItem
-            dense
-            onClick={() => {
-              onDelete(row.id)
-              close()
-            }}
-          >
-            Delete
-          </MenuItem>
-        )}
-      </Menu>
-    </>
+    <Stack
+      direction="row"
+      alignItems="center"
+      justifyContent="flex-end"
+      gap={0.5}
+      sx={{ width: '100%', minWidth: 0 }}
+    >
+      <Button variant="soft" color="primary" size="sm" onClick={row.onView}>
+        View
+      </Button>
+      <IconButton
+        size="sm"
+        variant="outlined"
+        color="default"
+        icon={<Trash2 size={14} strokeWidth={1.75} />}
+        tooltip="Delete document"
+        disabled={!deleteEnabled}
+        onClick={() => {
+          if (deleteEnabled && onDelete) onDelete(row.id)
+        }}
+      />
+    </Stack>
   )
 }
+
+const DOCUMENTS_TABLE_COLUMNS: { key: keyof typeof DOCUMENTS_COL_WIDTH; label: string }[] = [
+  { key: 'name', label: 'Name' },
+  { key: 'type', label: 'Type' },
+  { key: 'uploadedBy', label: 'Uploaded by' },
+  { key: 'date', label: 'Date' },
+  { key: 'size', label: 'Size' },
+  { key: 'action', label: 'Action' },
+]
 
 function DocumentsTable({
   rows,
@@ -191,25 +175,26 @@ function DocumentsTable({
   onDelete?: (id: string) => void
 }) {
   return (
-    <Table size="small" sx={{ tableLayout: 'fixed' }}>
+    <Table
+      size="small"
+      sx={{
+        tableLayout: 'fixed',
+        width: '100%',
+        '& .MuiTableCell-root': { boxSizing: 'border-box' },
+      }}
+    >
       <TableHead>
         <TableRow>
-          {['Name', 'Type', 'Uploaded by', 'Date', 'Size', 'Actions'].map((h) => (
+          {DOCUMENTS_TABLE_COLUMNS.map(({ key, label }) => (
             <TableCell
-              key={h}
+              key={key}
               sx={{
-                ...TABLE_HEADER_SX,
-                width:
-                  h === 'Name'
-                    ? '26%'
-                    : h === 'Actions'
-                      ? '22%'
-                      : h === 'Type'
-                        ? '14%'
-                        : undefined,
+                ...DOCUMENTS_HEADER_SX,
+                width: DOCUMENTS_COL_WIDTH[key],
+                textAlign: key === 'action' ? 'right' : 'left',
               }}
             >
-              {h}
+              {label}
             </TableCell>
           ))}
         </TableRow>
@@ -217,21 +202,62 @@ function DocumentsTable({
       <TableBody>
         {rows.length === 0 ? (
           <TableRow>
-            <TableCell colSpan={6} sx={{ ...TABLE_CELL_SX, color: 'text.secondary' }}>
+            <TableCell colSpan={6} sx={{ ...DOCUMENTS_CELL_SX, color: 'text.secondary' }}>
               No documents in this category.
             </TableCell>
           </TableRow>
         ) : (
           rows.map((row) => (
             <TableRow key={row.id}>
-              <TableCell sx={{ ...TABLE_CELL_SX, fontWeight: 500 }}>{row.name}</TableCell>
-              <TableCell sx={TABLE_CELL_SX}>
+              <TableCell
+                sx={{
+                  ...DOCUMENTS_CELL_SX,
+                  width: DOCUMENTS_COL_WIDTH.name,
+                  fontWeight: 500,
+                }}
+              >
+                {row.href ? (
+                  <Typography
+                    component="a"
+                    href={row.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    variant="body2"
+                    sx={{
+                      fontWeight: 500,
+                      color: 'primary.main',
+                      textDecoration: 'none',
+                      wordBreak: 'break-word',
+                      '&:hover': { textDecoration: 'underline' },
+                    }}
+                  >
+                    {row.name}
+                  </Typography>
+                ) : (
+                  <Typography variant="body2" component="span" sx={{ wordBreak: 'break-word' }}>
+                    {row.name}
+                  </Typography>
+                )}
+              </TableCell>
+              <TableCell sx={{ ...DOCUMENTS_CELL_SX, width: DOCUMENTS_COL_WIDTH.type }}>
                 <Badge label={row.typeLabel} color="neutral" size="sm" variant="outlined" />
               </TableCell>
-              <TableCell sx={TABLE_CELL_SX}>{row.uploadedBy}</TableCell>
-              <TableCell sx={TABLE_CELL_SX}>{row.dateStr}</TableCell>
-              <TableCell sx={TABLE_CELL_SX}>{row.sizeStr ?? '—'}</TableCell>
-              <TableCell sx={{ ...TABLE_CELL_SX, textAlign: 'right' }}>
+              <TableCell sx={{ ...DOCUMENTS_CELL_SX, width: DOCUMENTS_COL_WIDTH.uploadedBy }}>
+                {row.uploadedBy}
+              </TableCell>
+              <TableCell sx={{ ...DOCUMENTS_CELL_SX, width: DOCUMENTS_COL_WIDTH.date }}>
+                {row.dateStr}
+              </TableCell>
+              <TableCell sx={{ ...DOCUMENTS_CELL_SX, width: DOCUMENTS_COL_WIDTH.size }}>
+                {row.sizeStr ?? '—'}
+              </TableCell>
+              <TableCell
+                sx={{
+                  ...DOCUMENTS_CELL_SX,
+                  width: DOCUMENTS_COL_WIDTH.action,
+                  textAlign: 'right',
+                }}
+              >
                 <RowActions row={row} onDelete={onDelete} />
               </TableCell>
             </TableRow>
@@ -272,10 +298,22 @@ function SubsectionBlock({
           borderColor: 'divider',
           borderRadius: 2,
           overflow: 'hidden',
+          maxWidth: '100%',
         }}
       >
         <DocumentsTable rows={rows} onDelete={onDelete} />
       </Box>
+    </Box>
+  )
+}
+
+function DocumentGroup({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <Box>
+      <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1.5, color: 'text.primary' }}>
+        {title}
+      </Typography>
+      {children}
     </Box>
   )
 }
@@ -291,9 +329,14 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
   const navigate = useNavigate()
   const authUser = useAppSelector((s) => s.auth.user)
   const { invoices, vendorInvoices } = useAppSelector((s) => s.live)
+  const listProjects = useAppSelector((s) => s.projects.items ?? [])
 
-  const [uploads, setUploads] = useState<UploadedProjectDocument[]>([])
-  const uploadsRef = useRef<UploadedProjectDocument[]>([])
+  const projectForDocuments = useMemo(
+    () => resolveProjectForDocuments(project, listProjects),
+    [project, listProjects],
+  )
+
+  const { uploads, addUpload, removeUpload } = useProjectDocumentUploads(project.id)
 
   const [filter, setFilter] = useState<DocumentFilter>('all')
   const [search, setSearch] = useState('')
@@ -306,30 +349,12 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
   const [formErrors, setFormErrors] = useState<{
     name?: string
     category?: string
-    file?: string
   }>({})
 
   useEffect(() => {
     void dispatch(fetchInvoices(project.id))
     void dispatch(fetchVendorInvoices(project.id))
   }, [dispatch, project.id])
-
-  useEffect(() => {
-    uploadsRef.current = uploads
-  }, [uploads])
-
-  useEffect(() => {
-    setUploads((prev) => {
-      prev.forEach((u) => URL.revokeObjectURL(u.blobUrl))
-      return []
-    })
-  }, [project.id])
-
-  useEffect(() => {
-    return () => {
-      uploadsRef.current.forEach((u) => URL.revokeObjectURL(u.blobUrl))
-    }
-  }, [])
 
   const projectInvoices = useMemo(
     () => invoices.filter((i) => i.projectId === project.id),
@@ -437,6 +462,34 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
   const clientPO = pickUploads('client_po').map(buildUploadColumnRow)
   const clientInvoices = clientInvoiceRows.map(buildClientInvoiceRow)
 
+  const legacyInternalUploadRows = useMemo(() => {
+    return uploads
+      .filter(
+        (u) =>
+          u.projectId === project.id &&
+          isLegacyInternalUploadCategory(u.category) &&
+          matchesSearch([u.displayName, u.fileName, u.notes].join(' '), search),
+      )
+      .map(buildUploadColumnRow)
+  }, [uploads, project.id, search, buildUploadColumnRow])
+
+  const projectDocumentSections = useMemo(() => {
+    const withPersisted = buildProjectDocumentSections(projectForDocuments, {
+      alwaysShowSections: true,
+    })
+    const withLegacy = mergeLegacyInternalUploadRows(
+      withPersisted,
+      legacyInternalUploadRows,
+    )
+    return filterProjectDocumentSectionsBySearch(withLegacy, search, matchesSearch)
+  }, [projectForDocuments, search, legacyInternalUploadRows])
+
+  /** Rows from Create Project → Project Documents (not manual drawer uploads). */
+  const projectFinalDocumentCount = useMemo(
+    () => countProjectDocumentRows(buildProjectDocumentSections(projectForDocuments)),
+    [projectForDocuments],
+  )
+
   const vendorQuotations = pickUploads('vendor_quotation').map(buildUploadColumnRow)
   const vendorPOs = pickUploads('vendor_po').map(buildUploadColumnRow)
   const vendorInvoiceUploads = pickUploads('vendor_invoice_doc').map(buildUploadColumnRow)
@@ -445,50 +498,73 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
     ...vendorInvoiceUploads,
   ]
 
-  const requirements = pickUploads('internal_requirements').map(buildUploadColumnRow)
-  const attachments = [
-    ...pickUploads('internal_attachments').map(buildUploadColumnRow),
-    ...pickUploads('other').map(buildUploadColumnRow),
-  ]
-
   const handleDelete = (id: string) => {
-    setUploads((prev) => {
-      const found = prev.find((x) => x.id === id)
-      if (found) URL.revokeObjectURL(found.blobUrl)
-      return prev.filter((x) => x.id !== id)
-    })
+    removeUpload(id)
   }
 
-  const totalCount =
-    uploadsFiltered.length + clientInvoiceRows.length + vendorInvoiceRows.length
+  const totalCount = useMemo(() => {
+    const uploadCount = uploads.filter((u) => u.projectId === project.id).length
+    return (
+      uploadCount +
+      projectInvoices.length +
+      projectVendorInvoices.length +
+      projectFinalDocumentCount
+    )
+  }, [
+    uploads,
+    project.id,
+    projectInvoices.length,
+    projectVendorInvoices.length,
+    projectFinalDocumentCount,
+  ])
 
+  const showProject = filter === 'all' || filter === 'project'
   const showClient = filter === 'all' || filter === 'client'
   const showVendor = filter === 'all' || filter === 'vendor'
-  const showInternal = filter === 'all' || filter === 'internal'
+
+  const projectRowCount = projectDocumentSections.reduce((sum, s) => sum + s.rows.length, 0)
+  const clientRowCount = clientQuotations.length + clientPO.length + clientInvoices.length
+  const vendorRowCount =
+    vendorQuotations.length + vendorPOs.length + vendorInvoicesCombined.length
 
   const visibleRowCount = useMemo(() => {
     let n = 0
-    if (showClient) n += clientQuotations.length + clientPO.length + clientInvoices.length
-    if (showVendor)
-      n += vendorQuotations.length + vendorPOs.length + vendorInvoicesCombined.length
-    if (showInternal) n += requirements.length + attachments.length
+    if (showProject) n += projectRowCount
+    if (showClient) n += clientRowCount
+    if (showVendor) n += vendorRowCount
     return n
-  }, [
-    showClient,
-    showVendor,
-    showInternal,
-    clientQuotations.length,
-    clientPO.length,
-    clientInvoices.length,
-    vendorQuotations.length,
-    vendorPOs.length,
-    vendorInvoicesCombined.length,
-    requirements.length,
-    attachments.length,
-  ])
+  }, [showProject, showClient, showVendor, projectRowCount, clientRowCount, vendorRowCount])
+
+  const projectDocumentContent = projectDocumentSections.map((section) => (
+    <SubsectionBlock
+      key={section.title}
+      title={section.title}
+      rows={section.rows}
+      onDelete={handleDelete}
+    />
+  ))
+
+  const clientDocumentContent = (
+    <>
+      <SubsectionBlock title="Client Quotations" rows={clientQuotations} onDelete={handleDelete} />
+      <SubsectionBlock title="Client POs" rows={clientPO} onDelete={handleDelete} />
+      <SubsectionBlock title="Client Invoices" rows={clientInvoices} onDelete={handleDelete} />
+    </>
+  )
+
+  const vendorDocumentContent = (
+    <>
+      <SubsectionBlock title="Vendor Quotations" rows={vendorQuotations} onDelete={handleDelete} />
+      <SubsectionBlock title="Vendor POs" rows={vendorPOs} onDelete={handleDelete} />
+      <SubsectionBlock title="Vendor Invoices" rows={vendorInvoicesCombined} onDelete={handleDelete} />
+    </>
+  )
 
   const globalEmpty = totalCount === 0
-  const noMatches = !globalEmpty && visibleRowCount === 0
+  const hasActiveSearch = search.trim().length > 0
+  const noMatches = !globalEmpty && visibleRowCount === 0 && hasActiveSearch
+  const showProjectSections =
+    showProject && (filter === 'project' || !hasActiveSearch || projectRowCount > 0)
 
   const openDrawer = () => {
     setFormErrors({})
@@ -511,29 +587,37 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
     const err: typeof formErrors = {}
     if (!docName.trim()) err.name = 'Document name is required'
     if (!category) err.category = 'Category is required'
-    if (selectedFiles.length === 0) err.file = 'A file is required'
     setFormErrors(err)
     if (Object.keys(err).length > 0) return
 
-    const file = selectedFiles[0]!
-    const blobUrl = URL.createObjectURL(file)
+    const file = selectedFiles[0] ?? null
+    const fallbackBlob = new Blob(
+      [
+        `No file uploaded for "${docName.trim()}".\n`,
+        notes.trim() ? `Notes: ${notes.trim()}\n` : '',
+      ],
+      { type: 'text/plain' },
+    )
+    const blobUrl = URL.createObjectURL(file ?? fallbackBlob)
     const uid = authUser?.id ?? 'unknown'
     const uname = authUser?.name ?? 'Unknown'
+    const fileName = file?.name ?? `${docName.trim().replace(/\s+/g, '_')}.txt`
+    const sizeBytes = file?.size ?? fallbackBlob.size
 
     const next: UploadedProjectDocument = {
       id: crypto.randomUUID(),
       projectId: project.id,
       displayName: docName.trim(),
       category: category as UploadCategory,
-      fileName: file.name,
-      sizeBytes: file.size,
+      fileName,
+      sizeBytes,
       uploadedAt: new Date().toISOString(),
       uploadedBy: uname,
       uploadedByUserId: uid,
       notes: notes.trim(),
       blobUrl,
     }
-    setUploads((prev) => [...prev, next])
+    addUpload(next)
     closeDrawer()
   }
 
@@ -562,7 +646,7 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
           <ToggleButton value="all">All</ToggleButton>
           <ToggleButton value="client">Client Documents</ToggleButton>
           <ToggleButton value="vendor">Vendor Documents</ToggleButton>
-          <ToggleButton value="internal">Internal</ToggleButton>
+          <ToggleButton value="project">Project Documents</ToggleButton>
         </ToggleButtonGroup>
         <Box sx={{ minWidth: { md: 220 }, flex: 1 }}>
           <Input
@@ -645,36 +729,16 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
       )}
 
       <Stack gap={1}>
+        {showProjectSections && (
+          <DocumentGroup title="Project Documents">{projectDocumentContent}</DocumentGroup>
+        )}
+
         {showClient && (
-          <Box>
-            <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1.5, color: 'text.primary' }}>
-              Client Documents
-            </Typography>
-            <SubsectionBlock title="Client Quotations" rows={clientQuotations} onDelete={handleDelete} />
-            <SubsectionBlock title="Client PO" rows={clientPO} onDelete={handleDelete} />
-            <SubsectionBlock title="Client Invoices" rows={clientInvoices} />
-          </Box>
+          <DocumentGroup title="Client Documents">{clientDocumentContent}</DocumentGroup>
         )}
 
         {showVendor && (
-          <Box>
-            <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1.5, color: 'text.primary' }}>
-              Vendor Documents
-            </Typography>
-            <SubsectionBlock title="Vendor Quotations" rows={vendorQuotations} onDelete={handleDelete} />
-            <SubsectionBlock title="Vendor POs" rows={vendorPOs} onDelete={handleDelete} />
-            <SubsectionBlock title="Vendor Invoices" rows={vendorInvoicesCombined} onDelete={handleDelete} />
-          </Box>
-        )}
-
-        {showInternal && (
-          <Box>
-            <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1.5, color: 'text.primary' }}>
-              Internal
-            </Typography>
-            <SubsectionBlock title="Requirements" rows={requirements} onDelete={handleDelete} />
-            <SubsectionBlock title="Attachments" rows={attachments} onDelete={handleDelete} />
-          </Box>
+          <DocumentGroup title="Vendor Documents">{vendorDocumentContent}</DocumentGroup>
         )}
       </Stack>
 
@@ -719,7 +783,7 @@ function UploadFormBody({
   setSelectedFiles: (f: File[]) => void
   notes: string
   setNotes: (v: string) => void
-  formErrors: { name?: string; category?: string; file?: string }
+  formErrors: { name?: string; category?: string }
 }) {
   return (
     <Stack gap={2}>
@@ -736,13 +800,17 @@ function UploadFormBody({
           fullWidth
         />
       </FormField>
-      <FormField label="File" required error={formErrors.file}>
-        <FileUpload
-          accept={ACCEPT}
-          multiple={false}
-          onUpload={(files) => setSelectedFiles(files)}
-          helperText="PDF, Word, Excel, JPG, PNG"
-        />
+      <FormField label="File" hint="Optional">
+        <Box sx={{ minWidth: 0, maxWidth: '100%', overflow: 'hidden' }}>
+          <FileUpload
+            accept={ACCEPT}
+            multiple={false}
+            showAcceptText={false}
+            onUpload={(files) => setSelectedFiles(files)}
+            helperText="PDF, Word, Excel, JPG, PNG"
+            sx={{ width: '100%', maxWidth: '100%' }}
+          />
+        </Box>
       </FormField>
       <FormField label="Notes" hint="Optional">
         <Textarea
