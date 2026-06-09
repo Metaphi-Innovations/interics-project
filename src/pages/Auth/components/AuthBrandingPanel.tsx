@@ -1,6 +1,7 @@
 import { Box, Stack, Typography } from '@mui/material'
 import { alpha, useTheme } from '@mui/material/styles'
 import { tokens } from '@/design-system/tokens'
+import authBrandingOffice from '@/assets/auth-branding-office.png'
 import {
   AUTH_FEATURE_HIGHLIGHTS,
   AUTH_HEADLINE,
@@ -23,9 +24,36 @@ export default function AuthBrandingPanel() {
         minHeight: { lg: '100vh' },
         flexDirection: 'column',
         overflow: 'hidden',
-        background: `linear-gradient(165deg, ${theme.palette.primary.dark} 0%, ${theme.palette.primary.main} 48%, ${alpha(theme.palette.primary.dark, 0.96)} 100%)`,
+        bgcolor: theme.palette.primary.dark,
       }}
     >
+      <Box
+        component="img"
+        src={authBrandingOffice}
+        alt=""
+        aria-hidden
+        sx={{
+          position: 'absolute',
+          inset: 0,
+          width: '100%',
+          height: '100%',
+          objectFit: 'cover',
+          objectPosition: 'center',
+          opacity: 0.45,
+          pointerEvents: 'none',
+        }}
+      />
+
+      <Box
+        aria-hidden
+        sx={{
+          position: 'absolute',
+          inset: 0,
+          pointerEvents: 'none',
+          background: `linear-gradient(165deg, ${alpha(theme.palette.primary.dark, 0.48)} 0%, ${alpha(theme.palette.primary.main, 0.38)} 48%, ${alpha(theme.palette.primary.dark, 0.52)} 100%)`,
+        }}
+      />
+
       <Box
         aria-hidden
         sx={{
