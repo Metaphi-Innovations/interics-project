@@ -45,7 +45,10 @@ interface VendorPOPitchSummaryProps {
 
 interface AddPOContext {
   vendorId: string
+  vendorName: string
+  categoryName: string
   serviceId: string
+  serviceName: string
   offerAmount: number
 }
 
@@ -73,7 +76,10 @@ export function VendorPOPitchSummary({ projectId }: VendorPOPitchSummaryProps) {
   function handleAddPO(row: (typeof vendorRows)[number]) {
     setAddPOContext({
       vendorId: row.mapping.vendorId,
+      vendorName: row.mapping.vendorName,
+      categoryName: row.categoryName,
       serviceId: row.serviceId,
+      serviceName: row.serviceName,
       offerAmount: row.mapping.value,
     })
     setAddPOOpen(true)
@@ -184,6 +190,9 @@ export function VendorPOPitchSummary({ projectId }: VendorPOPitchSummaryProps) {
         vendors={vendorOptions}
         initialVendorId={addPOContext?.vendorId}
         initialServiceId={addPOContext?.serviceId}
+        initialVendorName={addPOContext?.vendorName}
+        initialCategoryName={addPOContext?.categoryName}
+        initialServiceName={addPOContext?.serviceName}
         initialPoValue={addPOContext?.offerAmount}
       />
     </>
