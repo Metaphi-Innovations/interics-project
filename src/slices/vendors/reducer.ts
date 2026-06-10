@@ -70,6 +70,10 @@ export interface Vendor {
   state: string
   address: string | null
   pincode?: string | null
+  shippingAddress?: string | null
+  shippingCity?: string | null
+  shippingState?: string | null
+  shippingPincode?: string | null
   tags: string[]
   paymentTerms?: string | null
   notes: string | null
