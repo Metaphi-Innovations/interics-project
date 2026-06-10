@@ -306,11 +306,17 @@ export default function VendorDetailPage() {
     const gstPill = gstStatusHeaderPillSx(gstRegistered, theme)
     const mono =
       (theme.typography as { fontFamilyMonospace?: string }).fontFamilyMonospace ?? `'Courier New', monospace`
-    const addressStr = formatFullAddress(
+    const billingAddressStr = formatFullAddress(
       vendor!.address,
       vendor!.city,
       vendor!.state,
       vendor!.pincode,
+    ).trim()
+    const shippingAddressStr = formatFullAddress(
+      vendor!.shippingAddress ?? null,
+      vendor!.shippingCity ?? '',
+      vendor!.shippingState ?? '',
+      vendor!.shippingPincode,
     ).trim()
     const projTotal = getTotalVendorProjects(vendor!)
     const siteHref = vendorWebsiteHref(vendor!.website)
@@ -393,17 +399,33 @@ export default function VendorDetailPage() {
           </Box>
 
           <Box sx={getRecordDetailFlatSectionSx(theme, { isLast: false })}>
-            <RecordDetailSectionTitle>Address & location</RecordDetailSectionTitle>
-            {addressStr ? (
+            <RecordDetailSectionTitle>Billing address</RecordDetailSectionTitle>
+            {billingAddressStr ? (
               <Typography
                 variant="body2"
                 sx={{ color: 'text.primary', fontWeight: 500, fontSize: theme.typography.body2.fontSize, whiteSpace: 'pre-line' }}
               >
-                {addressStr}
+                {billingAddressStr}
               </Typography>
             ) : (
               <Typography variant="body2" color="text.disabled">
-                No address added
+                No billing address added
+              </Typography>
+            )}
+          </Box>
+
+          <Box sx={getRecordDetailFlatSectionSx(theme, { isLast: false })}>
+            <RecordDetailSectionTitle>Shipping address</RecordDetailSectionTitle>
+            {shippingAddressStr ? (
+              <Typography
+                variant="body2"
+                sx={{ color: 'text.primary', fontWeight: 500, fontSize: theme.typography.body2.fontSize, whiteSpace: 'pre-line' }}
+              >
+                {shippingAddressStr}
+              </Typography>
+            ) : (
+              <Typography variant="body2" color="text.disabled">
+                No shipping address added
               </Typography>
             )}
           </Box>

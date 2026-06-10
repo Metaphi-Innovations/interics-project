@@ -4,7 +4,7 @@ import { DrawerForm, FormSection, FormField } from '../../components/templates'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { createVendor, updateVendor } from '../../slices/vendors/thunk'
 import { useToast, Button, DatePicker } from '@/design-system/components'
-import type { Vendor } from '../../slices/vendors/reducer'
+import type { Vendor, VendorDocument } from '../../slices/vendors/reducer'
 import { buildVendorComplianceSnapshot } from '../../utils/vendorCompliance'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -46,6 +46,10 @@ interface FormState {
   city: string
   state: string
   pincode: string
+  shippingAddress: string
+  shippingCity: string
+  shippingState: string
+  shippingPincode: string
   tags: string[]
   paymentTerms: string
   notes: string
@@ -65,6 +69,10 @@ const defaultForm: FormState = {
   city: '',
   state: '',
   pincode: '',
+  shippingAddress: '',
+  shippingCity: '',
+  shippingState: '',
+  shippingPincode: '',
   tags: [],
   paymentTerms: '',
   notes: '',
@@ -117,6 +125,35 @@ function validate(form: FormState): Record<string, string> {
     }
   }
   return errors
+}
+
+function getExistingCatalogue(vendor?: Vendor | null): { name: string; url: string } | null {
+  const doc = vendor?.documents?.find((d) => d.type === 'Catalogue')
+  return doc ? { name: doc.name, url: doc.url } : null
+}
+
+function buildCatalogueDocuments(
+  catalogueFile: File | null,
+  vendor: Vendor | null | undefined,
+  mode: 'add' | 'edit',
+): VendorDocument[] | undefined {
+  const existing = mode === 'edit' ? (vendor?.documents ?? []) : []
+  const withoutCatalogue = existing.filter((d) => d.type !== 'Catalogue')
+  const keptCatalogue = existing.find((d) => d.type === 'Catalogue')
+
+  if (!catalogueFile) {
+    return existing.length > 0 ? existing : undefined
+  }
+
+  const catalogueDoc: VendorDocument = {
+    id: keptCatalogue?.id ?? `vd-cat-${Date.now()}`,
+    name: catalogueFile.name,
+    type: 'Catalogue',
+    uploadedAt: new Date().toISOString(),
+    url: URL.createObjectURL(catalogueFile),
+  }
+
+  return [...withoutCatalogue, catalogueDoc]
 }
 
 interface CompactComplianceDocRowProps {
@@ -251,6 +288,7 @@ export function VendorDrawer({ open, onClose, mode, vendor }: VendorDrawerProps)
   const [panDocFile, setPanDocFile] = useState<File | null>(null)
   const [bankChequeFile, setBankChequeFile] = useState<File | null>(null)
   const [insuranceFile, setInsuranceFile] = useState<File | null>(null)
+  const [catalogueFile, setCatalogueFile] = useState<File | null>(null)
   const [insuranceExpiry, setInsuranceExpiry] = useState<Date | null>(null)
 
   useEffect(() => {
@@ -259,6 +297,7 @@ export function VendorDrawer({ open, onClose, mode, vendor }: VendorDrawerProps)
       setPanDocFile(null)
       setBankChequeFile(null)
       setInsuranceFile(null)
+      setCatalogueFile(null)
       if (vendor && mode === 'edit') {
         setForm({
           name: vendor.name,
@@ -274,6 +313,10 @@ export function VendorDrawer({ open, onClose, mode, vendor }: VendorDrawerProps)
           city: vendor.city,
           state: vendor.state,
           pincode: vendor.pincode ?? '',
+          shippingAddress: vendor.shippingAddress ?? '',
+          shippingCity: vendor.shippingCity ?? '',
+          shippingState: vendor.shippingState ?? '',
+          shippingPincode: vendor.shippingPincode ?? '',
           tags: vendor.tags,
           paymentTerms: vendor.paymentTerms ?? '',
           notes: vendor.notes ?? '',
@@ -339,6 +382,8 @@ export function VendorDrawer({ open, onClose, mode, vendor }: VendorDrawerProps)
       insuranceExpiryIso,
     )
 
+    const documents = buildCatalogueDocuments(catalogueFile, vendor, mode)
+
     const payload = {
       name: form.name.trim(),
       website: form.website.trim() || null,
@@ -358,12 +403,17 @@ export function VendorDrawer({ open, onClose, mode, vendor }: VendorDrawerProps)
       city: form.city.trim(),
       state: form.state,
       pincode: form.pincode.trim() || null,
+      shippingAddress: form.shippingAddress.trim() || null,
+      shippingCity: form.shippingCity.trim() || null,
+      shippingState: form.shippingState.trim() || null,
+      shippingPincode: form.shippingPincode.trim() || null,
       tags: form.tags,
       paymentTerms: form.paymentTerms || null,
       notes: form.notes.trim() || null,
       status: (vendor?.status ?? 'Active') as 'Active' | 'Inactive',
       activeProjects: vendor?.activeProjects ?? 0,
       totalPayables: vendor?.totalPayables ?? 0,
+      ...(documents ? { documents } : {}),
     }
 
     try {
@@ -463,7 +513,7 @@ export function VendorDrawer({ open, onClose, mode, vendor }: VendorDrawerProps)
         </FormField>
       </FormSection>
 
-      <FormSection title="Address" columns={2}>
+      <FormSection title="Billing Address" columns={2}>
         <Box sx={{ gridColumn: 'span 2' }}>
           <FormField label="Address">
             <TextField
@@ -512,6 +562,61 @@ export function VendorDrawer({ open, onClose, mode, vendor }: VendorDrawerProps)
             size="small"
             value={form.pincode}
             onChange={(e) => update('pincode', e.target.value)}
+            placeholder="560001"
+          />
+        </FormField>
+      </FormSection>
+
+      <FormSection title="Shipping Address" columns={2}>
+        <Box sx={{ gridColumn: 'span 2' }}>
+          <FormField label="Address">
+            <TextField
+              fullWidth
+              size="small"
+              multiline
+              rows={2}
+              value={form.shippingAddress}
+              onChange={(e) => update('shippingAddress', e.target.value)}
+              placeholder="Building, Street"
+            />
+          </FormField>
+        </Box>
+
+        <FormField label="City">
+          <TextField
+            fullWidth
+            size="small"
+            value={form.shippingCity}
+            onChange={(e) => update('shippingCity', e.target.value)}
+            placeholder="City"
+          />
+        </FormField>
+
+        <FormField label="State">
+          <TextField
+            fullWidth
+            size="small"
+            select
+            value={form.shippingState}
+            onChange={(e) => update('shippingState', e.target.value)}
+          >
+            <MenuItem value="">
+              Select state…
+            </MenuItem>
+            {INDIAN_STATES.map((s) => (
+              <MenuItem key={s} value={s}>
+                {s}
+              </MenuItem>
+            ))}
+          </TextField>
+        </FormField>
+
+        <FormField label="Pincode">
+          <TextField
+            fullWidth
+            size="small"
+            value={form.shippingPincode}
+            onChange={(e) => update('shippingPincode', e.target.value)}
             placeholder="560001"
           />
         </FormField>
@@ -589,14 +694,18 @@ export function VendorDrawer({ open, onClose, mode, vendor }: VendorDrawerProps)
           onFileSelect={setInsuranceFile}
         />
 
-        <Box sx={{ gridColumn: 'span 2' }}>
-          <FormField
-            label="Insurance Expiry Date"
-            hint="Track insurance expiry when a policy is uploaded"
-          >
-            <DatePicker value={insuranceExpiry} onChange={setInsuranceExpiry} fullWidth size="sm" />
-          </FormField>
-        </Box>
+        <FormField
+          label="Insurance Expiry Date"
+          hint="Track insurance expiry when a policy is uploaded"
+        >
+          <DatePicker value={insuranceExpiry} onChange={setInsuranceExpiry} fullWidth size="sm" />
+        </FormField>
+        <CompactComplianceDocRow
+          label="Catalogue"
+          file={catalogueFile}
+          existing={mode === 'edit' ? getExistingCatalogue(vendor) : null}
+          onFileSelect={setCatalogueFile}
+        />
       </FormSection>
 
       <FormSection title="Vendor Profile" columns={2}>

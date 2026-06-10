@@ -149,6 +149,17 @@ export function AddVendorPODrawer({
     return formatted || '—'
   }, [vendorRecord])
 
+  const vendorShippingAddress = useMemo(() => {
+    if (!vendorRecord) return '—'
+    const formatted = formatFullAddress(
+      vendorRecord.shippingAddress ?? null,
+      vendorRecord.shippingCity ?? '',
+      vendorRecord.shippingState ?? '',
+      vendorRecord.shippingPincode,
+    )
+    return formatted || vendorAddress
+  }, [vendorRecord, vendorAddress])
+
   const milestonesValid = useMemo(
     () => isVendorPOMilestoneBreakdownValid(poValueNumber, milestones, retention),
     [poValueNumber, milestones, retention],
@@ -301,7 +312,7 @@ export function AddVendorPODrawer({
               <ReadOnlyField label="Category" value={initialCategoryName ?? '—'} />
               <ReadOnlyField label="Service" value={initialServiceName ?? '—'} />
               <ReadOnlyField label="Billing Address" value={vendorAddress} multiline />
-              <ReadOnlyField label="Shipping Address" value={vendorAddress} multiline />
+              <ReadOnlyField label="Shipping Address" value={vendorShippingAddress} multiline />
               <Box sx={{ gridColumn: '1 / -1' }}>
                 <Divider sx={{ my: 0.5 }} />
               </Box>
