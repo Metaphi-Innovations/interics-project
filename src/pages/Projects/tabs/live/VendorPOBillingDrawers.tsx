@@ -18,7 +18,9 @@ import {
   fetchVendorPOs,
   updateVendorPO,
 } from '../../../../slices/baseline/thunk'
+import { fetchVendors } from '../../../../slices/vendors/thunk'
 import type { VendorPO } from '../../../../slices/baseline/reducer'
+import { formatFullAddress } from '../../../workspace/recordDetailTabUtils'
 import { formatCurrency, formatDate } from '../../../../utils/formatters'
 import type { VendorOption } from './vendorPOHelpers'
 import {
@@ -37,13 +39,29 @@ const PO_SECTION_TITLE_SX = {
   textTransform: 'uppercase' as const,
 }
 
-function ReadOnlyField({ label, value }: { label: string; value: string }) {
+function ReadOnlyField({
+  label,
+  value,
+  multiline,
+}: {
+  label: string
+  value: string
+  multiline?: boolean
+}) {
   return (
     <Box>
       <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
         {label}
       </Typography>
-      <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 500, mt: 0.25 }}>
+      <Typography
+        variant="body2"
+        sx={{
+          fontSize: 13,
+          fontWeight: 500,
+          mt: 0.25,
+          ...(multiline ? { whiteSpace: 'pre-wrap' as const } : {}),
+        }}
+      >
         {value}
       </Typography>
     </Box>
@@ -57,6 +75,10 @@ interface AddVendorPODrawerProps {
   vendors: VendorOption[]
   initialVendorId?: string
   initialServiceId?: string
+  /** Pre-filled from vendor offer row — shown read-only above PO fields. */
+  initialVendorName?: string
+  initialCategoryName?: string
+  initialServiceName?: string
   /** Vendor offer amount — pre-fills PO value when adding from an offer row. */
   initialPoValue?: number
 }
@@ -68,10 +90,14 @@ export function AddVendorPODrawer({
   vendors,
   initialVendorId,
   initialServiceId,
+  initialVendorName,
+  initialCategoryName,
+  initialServiceName,
   initialPoValue,
 }: AddVendorPODrawerProps) {
   const dispatch = useAppDispatch()
   const { saving } = useAppSelector((s) => s.baseline)
+  const vendorItems = useAppSelector((s) => s.vendors.items ?? [])
   const toast = useToast((s) => s.showToast)
   const [form, setForm] = useState({
     vendorId: '',
@@ -81,6 +107,12 @@ export function AddVendorPODrawer({
   })
   const [milestones, setMilestones] = useState<VendorPOMilestoneRow[]>([])
   const [retention, setRetention] = useState<VendorPORetentionRow | null>(null)
+
+  useEffect(() => {
+    if (open) {
+      void dispatch(fetchVendors({ pageSize: 500 }))
+    }
+  }, [open, dispatch])
 
   useEffect(() => {
     if (!open) {
@@ -100,6 +132,22 @@ export function AddVendorPODrawer({
   const poValueNumber = Number(form.poValue) || 0
   const selectedVendor = vendors.find((v) => v.vendorId === form.vendorId)
   const fromOfferRow = Boolean(initialVendorId && initialServiceId)
+
+  const vendorRecord = useMemo(
+    () => vendorItems.find((v) => v.id === (initialVendorId ?? form.vendorId)),
+    [vendorItems, initialVendorId, form.vendorId],
+  )
+
+  const vendorAddress = useMemo(() => {
+    if (!vendorRecord) return '—'
+    const formatted = formatFullAddress(
+      vendorRecord.address,
+      vendorRecord.city,
+      vendorRecord.state,
+      vendorRecord.pincode,
+    )
+    return formatted || '—'
+  }, [vendorRecord])
 
   const milestonesValid = useMemo(
     () => isVendorPOMilestoneBreakdownValid(poValueNumber, milestones, retention),
@@ -242,7 +290,23 @@ export function AddVendorPODrawer({
                 </MuiSelect>
               </FormField>
             </Box>
-          ) : null}
+          ) : (
+            <>
+              <Box sx={{ gridColumn: '1 / -1' }}>
+                <ReadOnlyField
+                  label="Vendor Name"
+                  value={initialVendorName ?? selectedVendor?.vendorName ?? '—'}
+                />
+              </Box>
+              <ReadOnlyField label="Category" value={initialCategoryName ?? '—'} />
+              <ReadOnlyField label="Service" value={initialServiceName ?? '—'} />
+              <ReadOnlyField label="Billing Address" value={vendorAddress} multiline />
+              <ReadOnlyField label="Shipping Address" value={vendorAddress} multiline />
+              <Box sx={{ gridColumn: '1 / -1' }}>
+                <Divider sx={{ my: 0.5 }} />
+              </Box>
+            </>
+          )}
           <FormField label="PO Date" required>
             <TextField
               fullWidth

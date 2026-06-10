@@ -38,7 +38,7 @@ export default function LiveTab({ project }: LiveTabProps) {
   }, [dispatch, project.id])
 
   const subTabs = [
-    { label: 'Vendor PO', value: 'vendor-po' },
+    { label: 'Contract', value: 'vendor-po' },
     { label: 'Receivable', value: 'billing' },
     { label: 'Payable', value: 'payments' },
     { label: 'Expenses', value: 'expenses' },
