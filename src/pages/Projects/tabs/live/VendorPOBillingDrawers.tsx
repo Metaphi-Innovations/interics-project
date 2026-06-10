@@ -10,7 +10,8 @@ import {
   Button as MuiButton,
 } from '@mui/material'
 import { Download, Upload } from '@mui/icons-material'
-import { Button, useToast } from '@/design-system/components'
+import { Button, Checkbox, useToast } from '@/design-system/components'
+import { tokens } from '@/design-system/tokens'
 import { DrawerForm, FormField } from '../../../../components/templates'
 import { useAppDispatch, useAppSelector } from '../../../../store/hooks'
 import {
@@ -30,6 +31,15 @@ import {
   type VendorPOMilestoneRow,
   type VendorPORetentionRow,
 } from './VendorPOMilestoneEditor'
+
+const PO_VENDOR_SUMMARY_SX = {
+  border: '1px solid',
+  borderColor: 'divider',
+  borderRadius: tokens.borderRadius.lg,
+  bgcolor: tokens.color.neutral[50],
+  p: 1.5,
+  mb: 1.5,
+} as const
 
 const PO_SECTION_TITLE_SX = {
   fontSize: '10px',
@@ -104,6 +114,9 @@ export function AddVendorPODrawer({
     poDate: '',
     poValue: '',
     file: null as File | null,
+    insurance: false,
+    contractSigned: false,
+    requiredDocumentsSubmitted: false,
   })
   const [milestones, setMilestones] = useState<VendorPOMilestoneRow[]>([])
   const [retention, setRetention] = useState<VendorPORetentionRow | null>(null)
@@ -116,7 +129,15 @@ export function AddVendorPODrawer({
 
   useEffect(() => {
     if (!open) {
-      setForm({ vendorId: '', poDate: '', poValue: '', file: null })
+      setForm({
+        vendorId: '',
+        poDate: '',
+        poValue: '',
+        file: null,
+        insurance: false,
+        contractSigned: false,
+        requiredDocumentsSubmitted: false,
+      })
       setMilestones([])
       setRetention(null)
       return
@@ -180,7 +201,7 @@ export function AddVendorPODrawer({
     )
   }, [poValueNumber])
 
-  function setField(key: keyof typeof form, value: string | File | null) {
+  function setField<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
     setForm((prev) => ({ ...prev, [key]: value }))
   }
 
@@ -216,6 +237,9 @@ export function AddVendorPODrawer({
             status: 'Draft',
             documentUrl,
             fileName: form.file?.name ?? null,
+            insurance: form.insurance,
+            contractSigned: form.contractSigned,
+            requiredDocumentsSubmitted: form.requiredDocumentsSubmitted,
           },
         }),
       ).unwrap()
@@ -272,6 +296,57 @@ export function AddVendorPODrawer({
             {form.file.name}
           </Typography>
         ) : null}
+        {fromOfferRow ? (
+          <>
+            <Box sx={PO_VENDOR_SUMMARY_SX}>
+              <Box
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(2, 1fr)',
+                  gap: 1.5,
+                }}
+              >
+                <Box sx={{ gridColumn: '1 / -1' }}>
+                  <ReadOnlyField
+                    label="Vendor Name"
+                    value={initialVendorName ?? selectedVendor?.vendorName ?? '—'}
+                  />
+                </Box>
+                <ReadOnlyField label="Category" value={initialCategoryName ?? '—'} />
+                <ReadOnlyField label="Service" value={initialServiceName ?? '—'} />
+                <ReadOnlyField label="Billing Address" value={vendorAddress} multiline />
+                <ReadOnlyField label="Shipping Address" value={vendorShippingAddress} multiline />
+              </Box>
+            </Box>
+            <Stack
+              direction="row"
+              flexWrap="wrap"
+              alignItems="center"
+              sx={{ mb: 0, columnGap: 1, rowGap: 0.5 }}
+            >
+              <Checkbox
+                size="sm"
+                label="Insurance"
+                checked={form.insurance}
+                onChange={(checked) => setField('insurance', checked)}
+                sx={{ mr: 2 }}
+              />
+              <Checkbox
+                size="sm"
+                label="Contract Signed"
+                checked={form.contractSigned}
+                onChange={(checked) => setField('contractSigned', checked)}
+              />
+              <Checkbox
+                size="sm"
+                label="Required Documents Submitted"
+                checked={form.requiredDocumentsSubmitted}
+                onChange={(checked) => setField('requiredDocumentsSubmitted', checked)}
+              />
+            </Stack>
+            <Divider sx={{ my: 1.5 }} />
+          </>
+        ) : null}
         <Box
           sx={{
             display: 'grid',
@@ -301,23 +376,7 @@ export function AddVendorPODrawer({
                 </MuiSelect>
               </FormField>
             </Box>
-          ) : (
-            <>
-              <Box sx={{ gridColumn: '1 / -1' }}>
-                <ReadOnlyField
-                  label="Vendor Name"
-                  value={initialVendorName ?? selectedVendor?.vendorName ?? '—'}
-                />
-              </Box>
-              <ReadOnlyField label="Category" value={initialCategoryName ?? '—'} />
-              <ReadOnlyField label="Service" value={initialServiceName ?? '—'} />
-              <ReadOnlyField label="Billing Address" value={vendorAddress} multiline />
-              <ReadOnlyField label="Shipping Address" value={vendorShippingAddress} multiline />
-              <Box sx={{ gridColumn: '1 / -1' }}>
-                <Divider sx={{ my: 0.5 }} />
-              </Box>
-            </>
-          )}
+          ) : null}
           <FormField label="PO Date" required>
             <TextField
               fullWidth
