@@ -66,6 +66,9 @@ export interface VendorPO {
   linkedBaselineServiceIds?: string[]
   documentUrl?: string | null
   fileName?: string | null
+  insurance?: boolean
+  contractSigned?: boolean
+  requiredDocumentsSubmitted?: boolean
 }
 
 /** Locked baseline: financial snapshot matches Pitch categories + planned expenses. */

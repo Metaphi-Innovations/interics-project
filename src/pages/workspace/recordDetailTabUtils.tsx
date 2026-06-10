@@ -6,6 +6,7 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import CheckIcon from '@mui/icons-material/Check'
 import type { LucideIcon } from 'lucide-react'
 import {
+  BookOpen,
   Download,
   FileText,
   IndianRupee,
@@ -249,7 +250,7 @@ export function RecordDetailCopyIconButton({
 }
 
 export interface RecordDetailTaxDocCardProps {
-  variant: 'gst' | 'pan' | 'cheque' | 'insurance'
+  variant: 'gst' | 'pan' | 'cheque' | 'insurance' | 'catalogue'
   title: string
   statusChip?: { label: string; isRegistered: boolean }
   fieldLabel: string
@@ -287,7 +288,9 @@ export function RecordDetailTaxDocCard({
         ? theme.palette.warning.light
         : variant === 'cheque'
           ? theme.palette.info.light
-          : theme.palette.secondary.light
+          : variant === 'catalogue'
+            ? theme.palette.primary.light
+            : theme.palette.secondary.light
 
   const headerIconColor =
     variant === 'gst'
@@ -296,7 +299,9 @@ export function RecordDetailTaxDocCard({
         ? theme.palette.warning.dark
         : variant === 'cheque'
           ? theme.palette.info.dark
-          : theme.palette.secondary.dark
+          : variant === 'catalogue'
+            ? theme.palette.primary.dark
+            : theme.palette.secondary.dark
 
   return (
     <Box sx={cardSx}>
@@ -328,6 +333,8 @@ export function RecordDetailTaxDocCard({
           >
             {variant === 'cheque' ? (
               <IndianRupee size={18} strokeWidth={2} color={headerIconColor} />
+            ) : variant === 'catalogue' ? (
+              <BookOpen size={18} strokeWidth={2} color={headerIconColor} />
             ) : variant === 'gst' || variant === 'insurance' ? (
               <ShieldCheck size={18} strokeWidth={2} color={headerIconColor} />
             ) : (
@@ -407,6 +414,8 @@ export function RecordDetailTaxDocCard({
           <Box sx={{ color: 'primary.main', display: 'flex' }}>
             {variant === 'cheque' ? (
               <IndianRupee size={18} strokeWidth={1.75} />
+            ) : variant === 'catalogue' ? (
+              <BookOpen size={18} strokeWidth={1.75} />
             ) : variant === 'gst' || variant === 'insurance' ? (
               <ShieldCheck size={18} strokeWidth={1.75} />
             ) : (

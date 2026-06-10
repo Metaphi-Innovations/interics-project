@@ -607,6 +607,7 @@ export default function VendorDetailPage() {
   function renderDocumentsCompliance() {
     const onCopy = () => showToast({ title: 'Copied to clipboard', variant: 'success' })
     const insExpiry = vendor!.compliance?.insurance?.expiryDate
+    const catalogueDoc = vendor!.documents?.find((d) => d.type === 'Catalogue') ?? null
 
     function fmtTs(iso: string) {
       try {
@@ -683,6 +684,20 @@ export default function VendorDetailPage() {
                 onCopySuccess={onCopy}
               />
             </Box>
+            <RecordDetailTaxDocCard
+              variant="catalogue"
+              title="Catalogue"
+              fieldLabel="Uploaded"
+              fieldValue={catalogueDoc?.uploadedAt ? fmtTs(catalogueDoc.uploadedAt) : null}
+              document={
+                catalogueDoc ? { name: catalogueDoc.name, url: catalogueDoc.url } : null
+              }
+              emptyDocMessage="No catalogue uploaded"
+              uploadButtonLabel="+ Upload catalogue"
+              onView={openTaxDocument}
+              onDownload={openTaxDocument}
+              onCopySuccess={onCopy}
+            />
           </Box>
         </WorkspaceSection>
 
