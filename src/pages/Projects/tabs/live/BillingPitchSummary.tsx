@@ -11,13 +11,13 @@ import {
 import { ExpandMore } from '@mui/icons-material'
 import { tokens } from '@/design-system/tokens'
 import { useAppDispatch, useAppSelector } from '../../../../store/hooks'
-import { fetchVersions } from '../../../../slices/pitch/thunk'
 import type { PitchCategory, PitchVersion } from '../../../../slices/pitch/reducer'
 import { fetchClientPO } from '../../../../slices/baseline/thunk'
 import type { ClientPO } from '../../../../slices/baseline/reducer'
 import { formatCurrency } from '../../../../utils/formatters'
 import { ClientPOSection } from '../../components/ClientPOSection'
 import { AddClientPODrawer, ViewClientPODrawer } from './ClientPOBillingDrawers'
+import { useLiveOfferVersion } from './useLiveOfferVersion'
 
 const SUBSECTION_SX = {
   border: '1px solid',
@@ -84,7 +84,7 @@ function ClientOfferSection({ version }: { version: PitchVersion | null }) {
         <SubsectionTitle>Client Offer</SubsectionTitle>
       </Stack>
 
-      {!version ? (
+      {!version || clientOfferSections.length === 0 ? (
         <EmptyHint>No client offer on file. Add services on the Pitch tab.</EmptyHint>
       ) : (
         <>
@@ -173,28 +173,20 @@ interface BillingPitchSummaryProps {
 
 export function BillingPitchSummary({ projectId }: BillingPitchSummaryProps) {
   const dispatch = useAppDispatch()
-  const { activeVersion, loading: pitchLoading } = useAppSelector((s) => s.pitch)
   const { clientPOs } = useAppSelector((s) => s.baseline)
+  const { offerVersion, loading } = useLiveOfferVersion(projectId)
 
   const [addPOOpen, setAddPOOpen] = useState(false)
   const [viewPO, setViewPO] = useState<ClientPO | null>(null)
 
   useEffect(() => {
-    void dispatch(fetchVersions(projectId))
     void dispatch(fetchClientPO(projectId))
   }, [dispatch, projectId])
-
-  const pitchVersion = useMemo(() => {
-    if (!activeVersion || activeVersion.projectId !== projectId) return null
-    return activeVersion
-  }, [activeVersion, projectId])
 
   const projectClientPOs = useMemo(
     () => clientPOs.filter((po) => po.projectId === projectId),
     [clientPOs, projectId],
   )
-
-  const loading = pitchLoading && !pitchVersion
 
   return (
     <>
@@ -230,7 +222,7 @@ export function BillingPitchSummary({ projectId }: BillingPitchSummaryProps) {
                 alignItems: 'stretch',
               }}
             >
-              <ClientOfferSection version={pitchVersion} />
+              <ClientOfferSection version={offerVersion} />
               <ClientPOSection
                 clientPOs={projectClientPOs}
                 onAddPO={() => setAddPOOpen(true)}

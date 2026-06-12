@@ -1172,7 +1172,7 @@ export default function PitchTab({ project }: { project: Project }) {
                 displayEmpty
               >
                 <MenuItem value="" disabled sx={{ fontSize: 12 }}>
-                  Select category
+                  Select Category
                 </MenuItem>
                 {addablePitchCategories.map((cat) => (
                   <MenuItem key={cat.id} value={cat.id} sx={{ fontSize: 12 }}>

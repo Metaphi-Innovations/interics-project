@@ -1,5 +1,6 @@
 import type { Baseline, VendorPO, VendorPOMilestone } from '@/slices/baseline/reducer'
 import type { PitchService, PitchVersion, VendorMapping } from '@/slices/pitch/reducer'
+import { resolvePitchVersionForProject } from '@/store/selectors/pitchSelectors'
 import {
   normalizeVendorMapping,
   validateVendorMilestonePercents,
@@ -117,7 +118,59 @@ export function buildVendorOfferRows(version: PitchVersion | null): VendorOfferR
   return rows
 }
 
+/** True when a vendor PO was created from this offer row (vendor + linked service). */
+export function vendorOfferHasPo(
+  row: VendorOfferRow,
+  vendorPOs: VendorPO[],
+  projectId: string,
+): boolean {
+  return vendorPOs.some((po) => {
+    if (po.projectId !== projectId) return false
+    if (po.vendorId !== row.mapping.vendorId) return false
+    const linked = po.linkedBaselineServiceIds ?? []
+    return linked.includes(row.serviceId)
+  })
+}
+
 export { resolvePitchVersionForProject } from '@/store/selectors/pitchSelectors'
+
+/** PitchVersion-shaped view of a locked baseline (Live offer summaries). */
+export function baselineToOfferVersion(baseline: Baseline): PitchVersion {
+  return {
+    id: baseline.versionId,
+    projectId: baseline.projectId,
+    versionNumber: baseline.pitchVersionNumber,
+    label: baseline.versionLabel,
+    isActive: true,
+    createdAt: baseline.lockedAt,
+    categories: baseline.categories,
+    plannedExpenses: baseline.plannedExpenses ?? [],
+    totalRevenue: baseline.totalRevenue,
+    totalCost: baseline.totalCost,
+    profitability: baseline.profitability,
+  }
+}
+
+/**
+ * Resolve client/vendor offer data for Live Contract & Receivable summaries.
+ * Prefers the pitch version when it has categories; otherwise uses the locked baseline
+ * created during Convert Live.
+ */
+export function resolveOfferVersionForProject(
+  projectId: string,
+  activeVersion: PitchVersion | null,
+  versions: PitchVersion[],
+  baseline: Baseline | null,
+): PitchVersion | null {
+  const pitch = resolvePitchVersionForProject(projectId, activeVersion, versions)
+  if (pitch && pitch.categories.length > 0) return pitch
+
+  if (baseline?.projectId === projectId) {
+    return baselineToOfferVersion(baseline)
+  }
+
+  return pitch
+}
 
 export function deriveVendorOptions(version: PitchVersion | null): VendorOption[] {
   const map = new Map<string, VendorOption>()

@@ -8,19 +8,16 @@ import {
   TableRow,
   Typography,
 } from '@mui/material'
-import { Button } from '@/design-system/components'
+import { Badge, Button } from '@/design-system/components'
 import { WorkspaceSection } from '../../../../components/templates'
 import { tokens } from '@/design-system/tokens'
 import { useAppDispatch, useAppSelector } from '../../../../store/hooks'
-import { fetchVersions } from '../../../../slices/pitch/thunk'
+import { fetchVendorPOs } from '../../../../slices/baseline/thunk'
 import { formatCurrency } from '../../../../utils/formatters'
 import { AddVendorOfferDrawer } from './AddVendorOfferDrawer'
 import { AddVendorPODrawer } from './VendorPOBillingDrawers'
-import {
-  buildVendorOfferRows,
-  deriveVendorOptions,
-  resolvePitchVersionForProject,
-} from './vendorPOHelpers'
+import { buildVendorOfferRows, deriveVendorOptions, vendorOfferHasPo } from './vendorPOHelpers'
+import { useLiveOfferVersion } from './useLiveOfferVersion'
 
 const TABLE_HEADER_SX = {
   fontSize: 10,
@@ -54,24 +51,24 @@ interface AddPOContext {
 
 export function VendorPOPitchSummary({ projectId }: VendorPOPitchSummaryProps) {
   const dispatch = useAppDispatch()
-  const { activeVersion, versions, loading: pitchLoading } = useAppSelector((s) => s.pitch)
+  const { vendorPOs } = useAppSelector((s) => s.baseline)
+  const { offerVersion, loading } = useLiveOfferVersion(projectId)
 
   const [addOfferOpen, setAddOfferOpen] = useState(false)
   const [addPOOpen, setAddPOOpen] = useState(false)
   const [addPOContext, setAddPOContext] = useState<AddPOContext | null>(null)
 
   useEffect(() => {
-    void dispatch(fetchVersions(projectId))
+    void dispatch(fetchVendorPOs(projectId))
   }, [dispatch, projectId])
 
-  const pitchVersion = useMemo(
-    () => resolvePitchVersionForProject(projectId, activeVersion, versions),
-    [activeVersion, versions, projectId],
+  const projectVendorPOs = useMemo(
+    () => vendorPOs.filter((po) => po.projectId === projectId),
+    [vendorPOs, projectId],
   )
 
-  const vendorRows = useMemo(() => buildVendorOfferRows(pitchVersion), [pitchVersion])
-  const vendorOptions = useMemo(() => deriveVendorOptions(pitchVersion), [pitchVersion])
-  const loading = pitchLoading && !pitchVersion
+  const vendorRows = useMemo(() => buildVendorOfferRows(offerVersion), [offerVersion])
+  const vendorOptions = useMemo(() => deriveVendorOptions(offerVersion), [offerVersion])
 
   function handleAddPO(row: (typeof vendorRows)[number]) {
     setAddPOContext({
@@ -145,7 +142,9 @@ export function VendorPOPitchSummary({ projectId }: VendorPOPitchSummaryProps) {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  vendorRows.map((row) => (
+                  vendorRows.map((row) => {
+                    const poAdded = vendorOfferHasPo(row, projectVendorPOs, projectId)
+                    return (
                     <TableRow key={`${row.mapping.id}-${row.serviceId}`} hover>
                       <TableCell sx={TABLE_CELL_SX}>{row.mapping.vendorName || '—'}</TableCell>
                       <TableCell sx={TABLE_CELL_SX}>{row.categoryName}</TableCell>
@@ -157,19 +156,24 @@ export function VendorPOPitchSummary({ projectId }: VendorPOPitchSummaryProps) {
                         {row.mapping.notes?.trim() || '—'}
                       </TableCell>
                       <TableCell sx={TABLE_CELL_SX}>
-                        <Button
-                          size="sm"
-                          variant="outlined"
-                          color="primary"
-                          label="Add PO"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleAddPO(row)
-                          }}
-                        />
+                        {poAdded ? (
+                          <Badge label="PO Added" color="success" size="sm" variant="soft" />
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="outlined"
+                            color="primary"
+                            label="Add PO"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleAddPO(row)
+                            }}
+                          />
+                        )}
                       </TableCell>
                     </TableRow>
-                  ))
+                    )
+                  })
                 )}
               </TableBody>
             </Table>

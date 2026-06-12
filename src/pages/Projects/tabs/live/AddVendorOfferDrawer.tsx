@@ -18,7 +18,7 @@ import { fetchVendors } from '../../../../slices/vendors/thunk'
 import { fetchVersions, updateVendorMapping } from '../../../../slices/pitch/thunk'
 import type { PitchService, VendorMapping, VendorMilestone } from '../../../../slices/pitch/reducer'
 import type { VendorPOMilestone } from '../../../../slices/baseline/reducer'
-import { resolvePitchVersionForProject } from './vendorPOHelpers'
+import { resolveOfferVersionForProject } from './vendorPOHelpers'
 import {
   VendorPOMilestoneEditor,
   buildVendorPOMilestonePayload,
@@ -91,6 +91,7 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
   const { saving } = useAppSelector((s) => s.pitch)
   const vendorItems = useAppSelector((s) => s.vendors.items ?? [])
   const { activeVersion, versions } = useAppSelector((s) => s.pitch)
+  const { baseline } = useAppSelector((s) => s.baseline)
 
   const [form, setForm] = useState({
     vendorId: '',
@@ -103,9 +104,18 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
   const [milestones, setMilestones] = useState<VendorPOMilestoneRow[]>([])
   const [retention, setRetention] = useState<VendorPORetentionRow | null>(null)
 
+  const baselineForProject =
+    baseline?.projectId === projectId ? baseline : null
+
   const pitchVersion = useMemo(
-    () => resolvePitchVersionForProject(projectId, activeVersion, versions),
-    [activeVersion, versions, projectId],
+    () =>
+      resolveOfferVersionForProject(
+        projectId,
+        activeVersion,
+        versions,
+        baselineForProject,
+      ),
+    [activeVersion, versions, projectId, baselineForProject],
   )
 
   const serviceTargets = useMemo(() => listServiceTargets(pitchVersion), [pitchVersion])
