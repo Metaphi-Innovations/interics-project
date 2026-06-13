@@ -16,7 +16,7 @@ import { fetchVendorPOs } from '../../../../slices/baseline/thunk'
 import { formatCurrency } from '../../../../utils/formatters'
 import { AddVendorOfferDrawer } from './AddVendorOfferDrawer'
 import { AddVendorPODrawer } from './VendorPOBillingDrawers'
-import { buildVendorOfferRows, deriveVendorOptions, vendorOfferHasPo } from './vendorPOHelpers'
+import { buildVendorOfferRows, collectMatchingServiceIds, deriveVendorOptions, vendorOfferHasPo, vendorOfferRowKey } from './vendorPOHelpers'
 import { useLiveOfferVersion } from './useLiveOfferVersion'
 
 const TABLE_HEADER_SX = {
@@ -47,16 +47,20 @@ interface AddPOContext {
   serviceId: string
   serviceName: string
   offerAmount: number
+  vendorMappingId: string
+  linkedServiceIds: string[]
+  rowKey: string
 }
 
 export function VendorPOPitchSummary({ projectId }: VendorPOPitchSummaryProps) {
   const dispatch = useAppDispatch()
-  const { vendorPOs } = useAppSelector((s) => s.baseline)
+  const { vendorPOs, baseline } = useAppSelector((s) => s.baseline)
   const { offerVersion, loading } = useLiveOfferVersion(projectId)
 
   const [addOfferOpen, setAddOfferOpen] = useState(false)
   const [addPOOpen, setAddPOOpen] = useState(false)
   const [addPOContext, setAddPOContext] = useState<AddPOContext | null>(null)
+  const [poAddedRowKeys, setPoAddedRowKeys] = useState<Set<string>>(() => new Set())
 
   useEffect(() => {
     void dispatch(fetchVendorPOs(projectId))
@@ -67,10 +71,21 @@ export function VendorPOPitchSummary({ projectId }: VendorPOPitchSummaryProps) {
     [vendorPOs, projectId],
   )
 
+  const baselineForProject = useMemo(
+    () => (baseline?.projectId === projectId ? baseline : null),
+    [baseline, projectId],
+  )
+
   const vendorRows = useMemo(() => buildVendorOfferRows(offerVersion), [offerVersion])
   const vendorOptions = useMemo(() => deriveVendorOptions(offerVersion), [offerVersion])
 
   function handleAddPO(row: (typeof vendorRows)[number]) {
+    const linkedServiceIds = collectMatchingServiceIds(
+      row,
+      baselineForProject,
+      offerVersion,
+      projectId,
+    )
     setAddPOContext({
       vendorId: row.mapping.vendorId,
       vendorName: row.mapping.vendorName,
@@ -78,8 +93,16 @@ export function VendorPOPitchSummary({ projectId }: VendorPOPitchSummaryProps) {
       serviceId: row.serviceId,
       serviceName: row.serviceName,
       offerAmount: row.mapping.value,
+      vendorMappingId: row.mapping.id,
+      linkedServiceIds,
+      rowKey: vendorOfferRowKey(row),
     })
     setAddPOOpen(true)
+  }
+
+  function handlePoCreated(rowKey: string) {
+    if (!rowKey) return
+    setPoAddedRowKeys((prev) => new Set(prev).add(rowKey))
   }
 
   function handleCloseAddPO() {
@@ -143,7 +166,16 @@ export function VendorPOPitchSummary({ projectId }: VendorPOPitchSummaryProps) {
                   </TableRow>
                 ) : (
                   vendorRows.map((row) => {
-                    const poAdded = vendorOfferHasPo(row, projectVendorPOs, projectId)
+                    const alternateServiceIds = collectMatchingServiceIds(
+                      row,
+                      baselineForProject,
+                      offerVersion,
+                      projectId,
+                    )
+                    const poAdded = vendorOfferHasPo(row, projectVendorPOs, projectId, {
+                      alternateServiceIds,
+                      confirmedRowKeys: poAddedRowKeys,
+                    })
                     return (
                     <TableRow key={`${row.mapping.id}-${row.serviceId}`} hover>
                       <TableCell sx={TABLE_CELL_SX}>{row.mapping.vendorName || '—'}</TableCell>
@@ -155,21 +187,34 @@ export function VendorPOPitchSummary({ projectId }: VendorPOPitchSummaryProps) {
                       <TableCell sx={{ ...TABLE_CELL_SX, color: 'text.secondary' }}>
                         {row.mapping.notes?.trim() || '—'}
                       </TableCell>
-                      <TableCell sx={TABLE_CELL_SX}>
-                        {poAdded ? (
-                          <Badge label="PO Added" color="success" size="sm" variant="soft" />
-                        ) : (
-                          <Button
-                            size="sm"
-                            variant="outlined"
-                            color="primary"
-                            label="Add PO"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleAddPO(row)
-                            }}
-                          />
-                        )}
+                      <TableCell
+                        sx={{
+                          ...TABLE_CELL_SX,
+                          textAlign: 'center',
+                        }}
+                      >
+                        <Box
+                          sx={{
+                            display: 'flex',
+                            justifyContent: 'center',
+                            alignItems: 'center',
+                          }}
+                        >
+                          {poAdded ? (
+                            <Badge label="PO Added" color="success" size="sm" variant="soft" />
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="outlined"
+                              color="primary"
+                              label="Add PO"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleAddPO(row)
+                              }}
+                            />
+                          )}
+                        </Box>
                       </TableCell>
                     </TableRow>
                     )
@@ -194,6 +239,10 @@ export function VendorPOPitchSummary({ projectId }: VendorPOPitchSummaryProps) {
         vendors={vendorOptions}
         initialVendorId={addPOContext?.vendorId}
         initialServiceId={addPOContext?.serviceId}
+        linkedServiceIds={addPOContext?.linkedServiceIds}
+        linkedVendorMappingId={addPOContext?.vendorMappingId}
+        offerRowKey={addPOContext?.rowKey}
+        onPoCreated={handlePoCreated}
         initialVendorName={addPOContext?.vendorName}
         initialCategoryName={addPOContext?.categoryName}
         initialServiceName={addPOContext?.serviceName}

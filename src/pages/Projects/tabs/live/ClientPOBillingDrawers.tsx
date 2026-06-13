@@ -64,9 +64,32 @@ const TABLE_CELL_SX = {
 } as const
 
 /** Grid columns: Service | Name | % | Value | Action */
-const MILESTONE_GRID_COLUMNS = 'minmax(120px, 1fr) minmax(0, 1fr) 72px 96px 36px'
+const MILESTONE_GRID_COLUMNS_WITH_SERVICE =
+  'minmax(120px, 1fr) minmax(0, 1fr) 72px 96px 36px'
 
-const MILESTONE_HEADER_LABELS = ['Service', 'Name', 'Percentage (%)', 'Value (₹)', 'Action'] as const
+/** Grid columns: Name | % | Value | Action (Add Client PO) */
+const MILESTONE_GRID_COLUMNS_NO_SERVICE = 'minmax(0, 1fr) 72px 96px 36px'
+
+const MILESTONE_HEADER_LABELS_WITH_SERVICE = [
+  'Service',
+  'Name',
+  'Percentage (%)',
+  'Value (₹)',
+  'Action',
+] as const
+
+const MILESTONE_HEADER_LABELS_NO_SERVICE = [
+  'Name',
+  'Percentage (%)',
+  'Value (₹)',
+  'Action',
+] as const
+
+function milestoneGridColumns(hideServiceColumn: boolean): string {
+  return hideServiceColumn
+    ? MILESTONE_GRID_COLUMNS_NO_SERVICE
+    : MILESTONE_GRID_COLUMNS_WITH_SERVICE
+}
 
 function calcMilestoneAmount(poValue: number, percentage: number): number {
   if (!poValue || !percentage) return 0
@@ -129,12 +152,19 @@ function useClientPOServiceOptions(projectId: string, open: boolean): ClientPOSe
   )
 }
 
-function MilestoneEditorHeader() {
+function MilestoneEditorHeader({ hideServiceColumn = false }: { hideServiceColumn?: boolean }) {
+  const labels = hideServiceColumn
+    ? MILESTONE_HEADER_LABELS_NO_SERVICE
+    : MILESTONE_HEADER_LABELS_WITH_SERVICE
+  const pctIdx = hideServiceColumn ? 1 : 2
+  const valueIdx = hideServiceColumn ? 2 : 3
+  const actionIdx = hideServiceColumn ? 3 : 4
+
   return (
     <Box
       sx={{
         display: 'grid',
-        gridTemplateColumns: MILESTONE_GRID_COLUMNS,
+        gridTemplateColumns: milestoneGridColumns(hideServiceColumn),
         gap: 1,
         alignItems: 'center',
         px: 1.5,
@@ -143,7 +173,7 @@ function MilestoneEditorHeader() {
         borderBottom: `1px solid ${tokens.color.neutral[100]}`,
       }}
     >
-      {MILESTONE_HEADER_LABELS.map((label, i) => (
+      {labels.map((label, i) => (
         <Typography
           key={label}
           variant="caption"
@@ -152,8 +182,8 @@ function MilestoneEditorHeader() {
             fontWeight: 700,
             color: tokens.color.neutral[500],
             letterSpacing: 0.5,
-            textAlign: i === 2 || i === 3 ? 'right' : 'left',
-            ...(i === 4 ? { textAlign: 'center' } : {}),
+            textAlign: i === pctIdx || i === valueIdx ? 'right' : 'left',
+            ...(i === actionIdx ? { textAlign: 'center' } : {}),
           }}
         >
           {label}
@@ -168,6 +198,7 @@ interface MilestoneEditorRowsProps {
   serviceOptions: ClientPOServiceOption[]
   onUpdate: (idx: number, patch: Partial<ClientPOMilestone>) => void
   onRemove: (idx: number) => void
+  hideServiceColumn?: boolean
 }
 
 function MilestoneEditorRows({
@@ -175,6 +206,7 @@ function MilestoneEditorRows({
   serviceOptions,
   onUpdate,
   onRemove,
+  hideServiceColumn = false,
 }: MilestoneEditorRowsProps) {
   if (milestones.length === 0) {
     return (
@@ -195,7 +227,7 @@ function MilestoneEditorRows({
           key={m.id}
           sx={{
             display: 'grid',
-            gridTemplateColumns: MILESTONE_GRID_COLUMNS,
+            gridTemplateColumns: milestoneGridColumns(hideServiceColumn),
             gap: 1,
             alignItems: 'center',
             px: 1.5,
@@ -206,23 +238,25 @@ function MilestoneEditorRows({
                 : 'none',
           }}
         >
-          <Select
-            size="small"
-            fullWidth
-            displayEmpty
-            value={m.serviceId}
-            onChange={(e) => onUpdate(idx, { serviceId: e.target.value })}
-            sx={{ fontSize: 12 }}
-          >
-            <MenuItem value="" sx={{ fontSize: 12 }}>
-              Select service
-            </MenuItem>
-            {serviceOptions.map((opt) => (
-              <MenuItem key={opt.id} value={opt.id} sx={{ fontSize: 12 }}>
-                {opt.label}
+          {!hideServiceColumn ? (
+            <Select
+              size="small"
+              fullWidth
+              displayEmpty
+              value={m.serviceId}
+              onChange={(e) => onUpdate(idx, { serviceId: e.target.value })}
+              sx={{ fontSize: 12 }}
+            >
+              <MenuItem value="" sx={{ fontSize: 12 }}>
+                Select service
               </MenuItem>
-            ))}
-          </Select>
+              {serviceOptions.map((opt) => (
+                <MenuItem key={opt.id} value={opt.id} sx={{ fontSize: 12 }}>
+                  {opt.label}
+                </MenuItem>
+              ))}
+            </Select>
+          ) : null}
           <TextField
             size="small"
             fullWidth
@@ -361,7 +395,15 @@ export function AddClientPODrawer({ open, onClose, projectId }: AddClientPODrawe
   }
 
   function addMilestoneRow(): void {
-    setMilestones((prev) => [...prev, emptyMilestoneRow()])
+    const defaultService = serviceOptions[0]
+    setMilestones((prev) => [
+      ...prev,
+      {
+        ...emptyMilestoneRow(),
+        serviceId: defaultService?.id ?? '',
+        serviceName: defaultService?.label ?? '',
+      },
+    ])
   }
 
   function updateMilestone(idx: number, patch: Partial<ClientPOMilestone>): void {
@@ -532,12 +574,13 @@ export function AddClientPODrawer({ open, onClose, projectId }: AddClientPODrawe
             overflow: 'hidden',
           }}
         >
-          <MilestoneEditorHeader />
+          <MilestoneEditorHeader hideServiceColumn />
           <MilestoneEditorRows
             milestones={milestones}
             serviceOptions={serviceOptions}
             onUpdate={updateMilestone}
             onRemove={removeMilestone}
+            hideServiceColumn
           />
         </Box>
       </Stack>

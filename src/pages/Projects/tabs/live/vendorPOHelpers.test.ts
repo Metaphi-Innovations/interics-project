@@ -170,4 +170,19 @@ describe('vendorOfferHasPo', () => {
     const po = makeVendorPo(['svc-1'])
     expect(vendorOfferHasPo(offerRow, [{ ...po, vendorId: 'v-2' }], projectId)).toBe(false)
   })
+
+  it('returns true when PO links the vendor mapping id', () => {
+    const po = makeVendorPo([])
+    expect(
+      vendorOfferHasPo(offerRow, [{ ...po, linkedVendorMappingId: 'vm-1' }], projectId),
+    ).toBe(true)
+  })
+
+  it('returns true for alternate service id when pitch/baseline ids differ', () => {
+    expect(
+      vendorOfferHasPo(offerRow, [makeVendorPo(['svc-baseline'])], projectId, {
+        alternateServiceIds: ['svc-baseline'],
+      }),
+    ).toBe(true)
+  })
 })

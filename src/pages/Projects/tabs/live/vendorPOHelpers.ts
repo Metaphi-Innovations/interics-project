@@ -1,5 +1,5 @@
 import type { Baseline, VendorPO, VendorPOMilestone } from '@/slices/baseline/reducer'
-import type { PitchService, PitchVersion, VendorMapping } from '@/slices/pitch/reducer'
+import type { PitchCategory, PitchService, PitchVersion, VendorMapping } from '@/slices/pitch/reducer'
 import { resolvePitchVersionForProject } from '@/store/selectors/pitchSelectors'
 import {
   normalizeVendorMapping,
@@ -118,17 +118,65 @@ export function buildVendorOfferRows(version: PitchVersion | null): VendorOfferR
   return rows
 }
 
-/** True when a vendor PO was created from this offer row (vendor + linked service). */
+function normalizeOfferLabel(value: string): string {
+  return value.trim().toLowerCase()
+}
+
+/** Stable key for a vendor-offer table row (optimistic PO Added state). */
+export function vendorOfferRowKey(row: VendorOfferRow): string {
+  return `${row.mapping.vendorId}:${row.serviceId}:${row.mapping.id}`
+}
+
+/** Service ids for the same category + service label across pitch and baseline snapshots. */
+export function collectMatchingServiceIds(
+  row: VendorOfferRow,
+  baseline: Baseline | null,
+  offerVersion: PitchVersion | null,
+  projectId: string,
+): string[] {
+  const ids = new Set<string>([row.serviceId])
+  const targetCategory = normalizeOfferLabel(row.categoryName)
+  const targetService = normalizeOfferLabel(row.serviceName)
+
+  const sources: PitchCategory[][] = []
+  if (baseline?.projectId === projectId) sources.push(baseline.categories)
+  if (offerVersion?.projectId === projectId) sources.push(offerVersion.categories)
+
+  for (const categories of sources) {
+    for (const cat of categories) {
+      if (normalizeOfferLabel(cat.categoryName) !== targetCategory) continue
+      for (const svc of cat.services) {
+        const label = normalizeOfferLabel(svc.subcategoryName ?? svc.name ?? svc.customName ?? '')
+        if (label === targetService) ids.add(svc.id)
+      }
+    }
+  }
+  return Array.from(ids)
+}
+
+export interface VendorOfferHasPoOptions {
+  alternateServiceIds?: string[]
+  confirmedRowKeys?: ReadonlySet<string>
+}
+
+/** True when a vendor PO was created from this offer row. */
 export function vendorOfferHasPo(
   row: VendorOfferRow,
   vendorPOs: VendorPO[],
   projectId: string,
+  options?: VendorOfferHasPoOptions,
 ): boolean {
+  const rowKey = vendorOfferRowKey(row)
+  if (options?.confirmedRowKeys?.has(rowKey)) return true
+
+  const serviceIds = new Set([row.serviceId, ...(options?.alternateServiceIds ?? [])])
+
   return vendorPOs.some((po) => {
     if (po.projectId !== projectId) return false
     if (po.vendorId !== row.mapping.vendorId) return false
+    if (po.linkedVendorMappingId && po.linkedVendorMappingId === row.mapping.id) return true
     const linked = po.linkedBaselineServiceIds ?? []
-    return linked.includes(row.serviceId)
+    return linked.some((id) => serviceIds.has(id))
   })
 }
 

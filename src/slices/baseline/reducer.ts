@@ -64,6 +64,8 @@ export interface VendorPO {
   paymentTerms?: string
   status: VendorPOExecutionStatus
   linkedBaselineServiceIds?: string[]
+  /** Vendor mapping row id from the pitch/baseline offer (Live Contract → Add PO). */
+  linkedVendorMappingId?: string
   documentUrl?: string | null
   fileName?: string | null
   insurance?: boolean

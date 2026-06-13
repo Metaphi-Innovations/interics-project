@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Box,
   Divider,
@@ -85,6 +85,11 @@ interface AddVendorPODrawerProps {
   vendors: VendorOption[]
   initialVendorId?: string
   initialServiceId?: string
+  /** All service ids for this offer (pitch + baseline) — stored on the PO for reliable matching. */
+  linkedServiceIds?: string[]
+  linkedVendorMappingId?: string
+  offerRowKey?: string
+  onPoCreated?: (rowKey: string) => void
   /** Pre-filled from vendor offer row — shown read-only above PO fields. */
   initialVendorName?: string
   initialCategoryName?: string
@@ -100,6 +105,10 @@ export function AddVendorPODrawer({
   vendors,
   initialVendorId,
   initialServiceId,
+  linkedServiceIds,
+  linkedVendorMappingId,
+  offerRowKey,
+  onPoCreated,
   initialVendorName,
   initialCategoryName,
   initialServiceName,
@@ -109,6 +118,11 @@ export function AddVendorPODrawer({
   const { saving } = useAppSelector((s) => s.baseline)
   const vendorItems = useAppSelector((s) => s.vendors.items ?? [])
   const toast = useToast((s) => s.showToast)
+  const offerLinkRef = useRef<{
+    serviceIds: string[]
+    vendorMappingId?: string
+    rowKey?: string
+  } | null>(null)
   const [form, setForm] = useState({
     vendorId: '',
     poDate: '',
@@ -140,7 +154,21 @@ export function AddVendorPODrawer({
       })
       setMilestones([])
       setRetention(null)
+      offerLinkRef.current = null
       return
+    }
+    const serviceIds =
+      linkedServiceIds?.length
+        ? linkedServiceIds
+        : initialServiceId
+          ? [initialServiceId]
+          : []
+    if (serviceIds.length > 0 || linkedVendorMappingId) {
+      offerLinkRef.current = {
+        serviceIds,
+        vendorMappingId: linkedVendorMappingId,
+        rowKey: offerRowKey,
+      }
     }
     if (initialVendorId) {
       setForm((prev) => ({ ...prev, vendorId: initialVendorId }))
@@ -148,7 +176,15 @@ export function AddVendorPODrawer({
     if (initialPoValue && initialPoValue > 0) {
       setForm((prev) => ({ ...prev, poValue: String(initialPoValue) }))
     }
-  }, [open, initialVendorId, initialPoValue])
+  }, [
+    open,
+    initialVendorId,
+    initialServiceId,
+    initialPoValue,
+    linkedServiceIds,
+    linkedVendorMappingId,
+    offerRowKey,
+  ])
 
   const poValueNumber = Number(form.poValue) || 0
   const selectedVendor = vendors.find((v) => v.vendorId === form.vendorId)
@@ -222,6 +258,8 @@ export function AddVendorPODrawer({
     const vendor = vendors.find((v) => v.vendorId === form.vendorId)
     const documentUrl = form.file ? URL.createObjectURL(form.file) : null
     const milestonePayload = buildVendorPOMilestonePayload(milestones, retention)
+    const link = offerLinkRef.current
+    const linkedIds = link?.serviceIds?.length ? link.serviceIds : undefined
     try {
       await dispatch(
         createVendorPO({
@@ -233,7 +271,8 @@ export function AddVendorPODrawer({
             poDate: form.poDate,
             poValue: poValueNumber,
             milestones: milestonePayload,
-            linkedBaselineServiceIds: initialServiceId ? [initialServiceId] : undefined,
+            linkedBaselineServiceIds: linkedIds,
+            linkedVendorMappingId: link?.vendorMappingId,
             status: 'Draft',
             documentUrl,
             fileName: form.file?.name ?? null,
@@ -243,7 +282,8 @@ export function AddVendorPODrawer({
           },
         }),
       ).unwrap()
-      void dispatch(fetchVendorPOs(projectId))
+      await dispatch(fetchVendorPOs(projectId)).unwrap()
+      if (link?.rowKey) onPoCreated?.(link.rowKey)
       toast({ title: 'Vendor PO saved successfully', variant: 'success' })
       onClose()
     } catch {
