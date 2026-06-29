@@ -5,6 +5,11 @@ import {
   MenuItem,
   Select as MuiSelect,
   Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
   TextField,
   Typography,
   Button as MuiButton,
@@ -30,6 +35,7 @@ import {
   isVendorPOMilestoneBreakdownValid,
   type VendorPOMilestoneRow,
   type VendorPORetentionRow,
+  type VendorPOFinalMilestoneRow,
 } from './VendorPOMilestoneEditor'
 
 const PO_VENDOR_SUMMARY_SX = {
@@ -47,6 +53,73 @@ const PO_SECTION_TITLE_SX = {
   letterSpacing: '0.8px',
   color: 'text.secondary',
   textTransform: 'uppercase' as const,
+}
+
+const MILESTONE_TABLE_HEADER_SX = {
+  fontSize: 10,
+  fontWeight: 700,
+  color: tokens.color.neutral[500],
+  letterSpacing: 0.5,
+  py: 1,
+  px: 1.5,
+} as const
+
+const MILESTONE_TABLE_CELL_SX = {
+  fontSize: 12,
+  py: 1,
+  px: 1.5,
+} as const
+
+function VendorPOMilestonesTable({ milestones }: { milestones: VendorPO['milestones'] }) {
+  if (milestones.length === 0) {
+    return (
+      <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12, py: 2, textAlign: 'center' }}>
+        No milestones recorded for this PO.
+      </Typography>
+    )
+  }
+
+  return (
+    <Box
+      sx={{
+        border: '1px solid',
+        borderColor: 'divider',
+        borderRadius: 2,
+        overflow: 'hidden',
+      }}
+    >
+      <Table size="small" sx={{ width: '100%', tableLayout: 'fixed' }}>
+        <TableHead>
+          <TableRow sx={{ bgcolor: tokens.color.neutral[50] }}>
+            <TableCell sx={{ ...MILESTONE_TABLE_HEADER_SX, width: '36%' }}>Name</TableCell>
+            <TableCell align="right" sx={{ ...MILESTONE_TABLE_HEADER_SX, width: '22%' }}>
+              Percentage (%)
+            </TableCell>
+            <TableCell align="right" sx={{ ...MILESTONE_TABLE_HEADER_SX, width: '42%' }}>
+              Value (₹)
+            </TableCell>
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {milestones.map((m) => (
+            <TableRow key={m.id} hover>
+              <TableCell sx={MILESTONE_TABLE_CELL_SX}>
+                <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 500 }}>
+                  {m.name || '—'}
+                </Typography>
+              </TableCell>
+              <TableCell align="right" sx={MILESTONE_TABLE_CELL_SX}>
+                {m.percentage}%
+              </TableCell>
+              <TableCell align="right" sx={{ ...MILESTONE_TABLE_CELL_SX, fontWeight: 600 }}>
+                ₹{formatCurrency(m.value)}
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </Box>
+  )
 }
 
 function ReadOnlyField({
@@ -88,8 +161,6 @@ interface AddVendorPODrawerProps {
   /** All service ids for this offer (pitch + baseline) — stored on the PO for reliable matching. */
   linkedServiceIds?: string[]
   linkedVendorMappingId?: string
-  offerRowKey?: string
-  onPoCreated?: (rowKey: string) => void
   /** Pre-filled from vendor offer row — shown read-only above PO fields. */
   initialVendorName?: string
   initialCategoryName?: string
@@ -107,8 +178,6 @@ export function AddVendorPODrawer({
   initialServiceId,
   linkedServiceIds,
   linkedVendorMappingId,
-  offerRowKey,
-  onPoCreated,
   initialVendorName,
   initialCategoryName,
   initialServiceName,
@@ -121,12 +190,12 @@ export function AddVendorPODrawer({
   const offerLinkRef = useRef<{
     serviceIds: string[]
     vendorMappingId?: string
-    rowKey?: string
   } | null>(null)
   const [form, setForm] = useState({
     vendorId: '',
     poDate: '',
     poValue: '',
+    executedValue: '',
     file: null as File | null,
     insurance: false,
     contractSigned: false,
@@ -134,6 +203,7 @@ export function AddVendorPODrawer({
   })
   const [milestones, setMilestones] = useState<VendorPOMilestoneRow[]>([])
   const [retention, setRetention] = useState<VendorPORetentionRow | null>(null)
+  const [finalMilestone, setFinalMilestone] = useState<VendorPOFinalMilestoneRow | null>(null)
 
   useEffect(() => {
     if (open) {
@@ -147,6 +217,7 @@ export function AddVendorPODrawer({
         vendorId: '',
         poDate: '',
         poValue: '',
+        executedValue: '',
         file: null,
         insurance: false,
         contractSigned: false,
@@ -154,6 +225,7 @@ export function AddVendorPODrawer({
       })
       setMilestones([])
       setRetention(null)
+      setFinalMilestone(null)
       offerLinkRef.current = null
       return
     }
@@ -167,14 +239,17 @@ export function AddVendorPODrawer({
       offerLinkRef.current = {
         serviceIds,
         vendorMappingId: linkedVendorMappingId,
-        rowKey: offerRowKey,
       }
     }
     if (initialVendorId) {
       setForm((prev) => ({ ...prev, vendorId: initialVendorId }))
     }
     if (initialPoValue && initialPoValue > 0) {
-      setForm((prev) => ({ ...prev, poValue: String(initialPoValue) }))
+      setForm((prev) => ({
+        ...prev,
+        poValue: String(initialPoValue),
+        executedValue: String(initialPoValue),
+      }))
     }
   }, [
     open,
@@ -183,10 +258,11 @@ export function AddVendorPODrawer({
     initialPoValue,
     linkedServiceIds,
     linkedVendorMappingId,
-    offerRowKey,
   ])
 
   const poValueNumber = Number(form.poValue) || 0
+  const executedValueNumber = Number(form.executedValue) || poValueNumber
+  const milestoneBaseValue = executedValueNumber
   const selectedVendor = vendors.find((v) => v.vendorId === form.vendorId)
   const fromOfferRow = Boolean(initialVendorId && initialServiceId)
 
@@ -218,27 +294,32 @@ export function AddVendorPODrawer({
   }, [vendorRecord, vendorAddress])
 
   const milestonesValid = useMemo(
-    () => isVendorPOMilestoneBreakdownValid(poValueNumber, milestones, retention),
-    [poValueNumber, milestones, retention],
+    () => isVendorPOMilestoneBreakdownValid(milestoneBaseValue, milestones, retention, finalMilestone),
+    [milestoneBaseValue, milestones, retention, finalMilestone],
   )
 
   useEffect(() => {
-    if (poValueNumber <= 0) return
-    setMilestones((prev) =>
-      prev.map((m) => ({
-        ...m,
-        value: Math.round((m.percentage / 100) * poValueNumber),
-      })),
+    if (milestoneBaseValue <= 0) return
+    setFinalMilestone((prev) =>
+      prev ? { ...prev, amount: Math.round((prev.percentage / 100) * milestoneBaseValue) } : null,
     )
-    setRetention((prev) =>
-      prev
-        ? { ...prev, amount: Math.round((prev.percentage / 100) * poValueNumber) }
-        : null,
-    )
-  }, [poValueNumber])
+  }, [milestoneBaseValue])
 
   function setField<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
     setForm((prev) => ({ ...prev, [key]: value }))
+  }
+
+  function handlePoValueChange(value: string) {
+    setForm((prev) => {
+      const oldPo = Number(prev.poValue) || 0
+      const oldExec = prev.executedValue ? Number(prev.executedValue) : oldPo
+      const syncExec = !prev.executedValue || oldExec === oldPo
+      return {
+        ...prev,
+        poValue: value,
+        executedValue: syncExec ? value : prev.executedValue,
+      }
+    })
   }
 
   function generatePoNumber(): string {
@@ -252,12 +333,12 @@ export function AddVendorPODrawer({
       return
     }
     if (!milestonesValid) {
-      toast({ title: 'Milestone and retention percentages must equal 100%', variant: 'error' })
+      toast({ title: 'Milestone, retention, and final milestone percentages must equal 100%', variant: 'error' })
       return
     }
     const vendor = vendors.find((v) => v.vendorId === form.vendorId)
     const documentUrl = form.file ? URL.createObjectURL(form.file) : null
-    const milestonePayload = buildVendorPOMilestonePayload(milestones, retention)
+    const milestonePayload = buildVendorPOMilestonePayload(milestones, retention, finalMilestone)
     const link = offerLinkRef.current
     const linkedIds = link?.serviceIds?.length ? link.serviceIds : undefined
     try {
@@ -270,6 +351,7 @@ export function AddVendorPODrawer({
             poNumber: generatePoNumber(),
             poDate: form.poDate,
             poValue: poValueNumber,
+            executedValue: executedValueNumber,
             milestones: milestonePayload,
             linkedBaselineServiceIds: linkedIds,
             linkedVendorMappingId: link?.vendorMappingId,
@@ -283,7 +365,6 @@ export function AddVendorPODrawer({
         }),
       ).unwrap()
       await dispatch(fetchVendorPOs(projectId)).unwrap()
-      if (link?.rowKey) onPoCreated?.(link.rowKey)
       toast({ title: 'Vendor PO saved successfully', variant: 'success' })
       onClose()
     } catch {
@@ -440,24 +521,43 @@ export function AddVendorPODrawer({
               size="small"
               type="number"
               value={form.poValue}
-              onChange={(e) => setField('poValue', e.target.value)}
+              onChange={(e) => handlePoValueChange(e.target.value)}
               placeholder="0"
             />
           </FormField>
+          <Box sx={{ gridColumn: '1 / -1' }}>
+            <FormField label="Executed Value (₹)">
+              <TextField
+                fullWidth
+                size="small"
+                type="number"
+                value={form.executedValue}
+                onChange={(e) => setField('executedValue', e.target.value)}
+                placeholder="0"
+              />
+            </FormField>
+          </Box>
         </Box>
       </Box>
 
       <Divider sx={{ my: 2 }} />
 
       <VendorPOMilestoneEditor
-        poValue={poValueNumber}
+        poValue={milestoneBaseValue}
         milestones={milestones}
         retention={retention}
+        finalMilestone={finalMilestone}
         onMilestonesChange={setMilestones}
         onRetentionChange={setRetention}
+        onFinalMilestoneChange={setFinalMilestone}
       />
     </DrawerForm>
   )
+}
+
+function formatExecutedValueLabel(poValue: number, executedValue?: number | null): string {
+  if (executedValue != null) return `₹${formatCurrency(executedValue)}`
+  return `₹${formatCurrency(poValue)}`
 }
 
 interface ViewVendorPODrawerProps {
@@ -472,7 +572,7 @@ export function ViewVendorPODrawer({ open, onClose, projectId, po }: ViewVendorP
   const { saving } = useAppSelector((s) => s.baseline)
   const toast = useToast((s) => s.showToast)
   const [editing, setEditing] = useState(false)
-  const [form, setForm] = useState({ poNumber: '', poDate: '', poValue: '' })
+  const [form, setForm] = useState({ poNumber: '', poDate: '', poValue: '', executedValue: '' })
   const [newFile, setNewFile] = useState<File | null>(null)
 
   useEffect(() => {
@@ -485,13 +585,14 @@ export function ViewVendorPODrawer({ open, onClose, projectId, po }: ViewVendorP
       poNumber: po.poNumber,
       poDate: po.poDate,
       poValue: String(po.poValue),
+      executedValue: po.executedValue != null ? String(po.executedValue) : String(po.poValue),
     })
     setEditing(false)
     setNewFile(null)
   }, [open, po])
 
   async function handleSave() {
-    if (!po || !form.poNumber || !form.poDate || !form.poValue) {
+    if (!po || !form.poNumber || !form.poDate) {
       toast({ title: 'Please fill in all required fields', variant: 'error' })
       return
     }
@@ -504,7 +605,6 @@ export function ViewVendorPODrawer({ open, onClose, projectId, po }: ViewVendorP
           data: {
             poNumber: form.poNumber,
             poDate: form.poDate,
-            poValue: Number(form.poValue),
             documentUrl,
             fileName: newFile?.name ?? po.fileName,
           },
@@ -548,6 +648,8 @@ export function ViewVendorPODrawer({ open, onClose, projectId, po }: ViewVendorP
                       poNumber: po.poNumber,
                       poDate: po.poDate,
                       poValue: String(po.poValue),
+                      executedValue:
+                        po.executedValue != null ? String(po.executedValue) : String(po.poValue),
                     })
                   }
                   setNewFile(null)
@@ -663,15 +765,11 @@ export function ViewVendorPODrawer({ open, onClose, projectId, po }: ViewVendorP
                       onChange={(e) => setForm((p) => ({ ...p, poDate: e.target.value }))}
                     />
                   </FormField>
-                  <FormField label="PO Value (₹)" required>
-                    <TextField
-                      fullWidth
-                      size="small"
-                      type="number"
-                      value={form.poValue}
-                      onChange={(e) => setForm((p) => ({ ...p, poValue: e.target.value }))}
-                    />
-                  </FormField>
+                  <ReadOnlyField label="PO Value (₹)" value={`₹${formatCurrency(po.poValue)}`} />
+                  <ReadOnlyField
+                    label="Executed Value (₹)"
+                    value={formatExecutedValueLabel(po.poValue, po.executedValue)}
+                  />
                 </Box>
               </>
             ) : (
@@ -686,6 +784,14 @@ export function ViewVendorPODrawer({ open, onClose, projectId, po }: ViewVendorP
                 <ReadOnlyField label="PO Number" value={po.poNumber} />
                 <ReadOnlyField label="PO Date" value={formatDate(po.poDate)} />
                 <ReadOnlyField label="PO Value" value={`₹${formatCurrency(po.poValue)}`} />
+                <ReadOnlyField
+                  label="Executed Value"
+                  value={
+                    po.executedValue != null
+                      ? `₹${formatCurrency(po.executedValue)}`
+                      : `₹${formatCurrency(po.poValue)}`
+                  }
+                />
                 {po.fileName ? (
                   <Box sx={{ gridColumn: '1 / -1' }}>
                     <ReadOnlyField label="Uploaded PO Document" value={po.fileName} />
@@ -695,6 +801,18 @@ export function ViewVendorPODrawer({ open, onClose, projectId, po }: ViewVendorP
             )}
           </Box>
           <Divider />
+          {!editing ? (
+            <Box>
+              <Typography
+                component="span"
+                variant="overline"
+                sx={{ ...PO_SECTION_TITLE_SX, display: 'block', mb: 1.5 }}
+              >
+                Milestones
+              </Typography>
+              <VendorPOMilestonesTable milestones={po.milestones} />
+            </Box>
+          ) : null}
         </Stack>
       ) : null}
     </DrawerForm>

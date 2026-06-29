@@ -19,6 +19,12 @@ let projects: MockProject[] = [
     floor: '12th Floor',
     carpetArea: 4500,
     headcount: 120,
+    workstationSize: '1200 sq ft',
+    meetingRoomCount: 6,
+    serverRoomDetails: '200 sq ft with raised flooring',
+    upsCapacity: '20 KVA',
+    receptionDetails: 'Open reception with waiting lounge',
+    pantryDetails: '2 pantries with wet and dry zones',
     projectManager: 'Rahul Sharma',
     projectManagerId: 'u-003',
     assignedTeam: [

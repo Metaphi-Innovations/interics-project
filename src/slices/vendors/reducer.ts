@@ -1,12 +1,14 @@
 import { createSlice } from '@reduxjs/toolkit'
 import type { PayloadAction } from '@reduxjs/toolkit'
 import type { ActivityEntry, Contact } from '../customers/reducer'
+import { getVendorContactsList } from '@/utils/vendorContacts'
 import {
   fetchVendors,
   fetchVendorById,
   createVendor,
   updateVendor,
   deleteVendor,
+  createVendorContact,
 } from './thunk'
 
 export interface VendorFinancialDetails {
@@ -30,6 +32,24 @@ export type VendorDocumentType =
   | 'Compliance'
   | 'Product'
 
+export type VendorComplianceDocumentType =
+  | 'gst'
+  | 'pan'
+  | 'bank_cheque'
+  | 'insurance'
+  | 'catalogue'
+
+export interface VendorComplianceDocument {
+  documentType?: VendorComplianceDocumentType
+  name: string
+  url: string
+  description?: string | null
+  uploadedBy?: string | null
+  uploadedOn?: string | null
+  lastUpdatedOn?: string | null
+  expiryDate?: string | null
+}
+
 export interface VendorDocument {
   id: string
   name: string
@@ -37,12 +57,20 @@ export interface VendorDocument {
   uploadedAt: string
   expiryDate?: string | null
   url: string
+  description?: string | null
+  uploadedBy?: string | null
+  lastUpdatedOn?: string | null
 }
 
 export interface VendorAdditionalComplianceDoc {
   id: string
   name: string
   url: string
+  fileName?: string | null
+  description?: string | null
+  uploadedBy?: string | null
+  uploadedOn?: string | null
+  lastUpdatedOn?: string | null
   expiryDate?: string | null
 }
 
@@ -78,14 +106,16 @@ export interface Vendor {
   paymentTerms?: string | null
   notes: string | null
   status: 'Active' | 'Inactive'
+  /** Performance rating on a 0–5 scale; null when not yet rated. */
+  rating: number | null
   activeProjects: number
   totalPayables: number
   createdAt: string
   contacts?: Contact[]
-  gstDocument?: { name: string; url: string } | null
-  panDocument?: { name: string; url: string } | null
-  bankChequeDocument?: { name: string; url: string } | null
-  insuranceDocument?: { name: string; url: string } | null
+  gstDocument?: VendorComplianceDocument | null
+  panDocument?: VendorComplianceDocument | null
+  bankChequeDocument?: VendorComplianceDocument | null
+  insuranceDocument?: VendorComplianceDocument | null
   activityLog?: ActivityEntry[]
   financialDetails?: VendorFinancialDetails
   documents?: VendorDocument[]
@@ -207,6 +237,24 @@ const vendorsSlice = createSlice({
       })
       .addCase(deleteVendor.rejected, (state, action) => {
         state.error = action.payload as string
+      })
+      .addCase(createVendorContact.fulfilled, (state, action) => {
+        const { vendorId, contact } = action.payload
+        const idx = state.items.findIndex((v) => v.id === vendorId)
+        if (idx !== -1) {
+          const vendor = state.items[idx]
+          const baseContacts = vendor.contacts?.length
+            ? vendor.contacts
+            : getVendorContactsList(vendor)
+          state.items[idx] = { ...vendor, contacts: [...baseContacts, contact] }
+        }
+        if (state.selectedItem?.id === vendorId) {
+          const vendor = state.selectedItem
+          const baseContacts = vendor.contacts?.length
+            ? vendor.contacts
+            : getVendorContactsList(vendor)
+          state.selectedItem = { ...vendor, contacts: [...baseContacts, contact] }
+        }
       })
   },
 })

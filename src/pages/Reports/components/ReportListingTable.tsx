@@ -22,7 +22,7 @@ import { tokens } from '@/design-system/tokens'
 import { formatCurrency } from '@/utils/formatters'
 import type { ReportColumn, ReportListingRow } from '../reportsConfig'
 
-const ACTION_WIDTH_PX = 56
+const ACTION_WIDTH_PX = 60
 const CELL_PAD_X = '14px'
 const DEFAULT_PAGE_SIZE = 10
 
@@ -191,7 +191,7 @@ function RowActions({
           setAnchor(e.currentTarget)
         }}
         aria-label="More actions"
-        sx={{ color: tokens.color.neutral[400], p: 0.5 }}
+        sx={{ color: tokens.color.neutral[500], p: 0.5 }}
       >
         <MoreVertIcon sx={{ fontSize: 16 }} />
       </MuiIconButton>
@@ -244,8 +244,8 @@ export function ReportListingTable({
   const pageSize = DEFAULT_PAGE_SIZE
 
   const colWidth = dataColWidth(columns.length)
-  const headDataSx = { ...TABLE_HEADER_CELL_SX, width: colWidth }
-  const cellDataSx = { ...TABLE_CELL_SX, width: colWidth }
+  const headDataSx = { ...TABLE_HEADER_CELL_SX, width: colWidth, minWidth: 0 }
+  const cellDataSx = { ...TABLE_CELL_SX, width: colWidth, minWidth: 0, overflow: 'hidden' }
 
   useEffect(() => {
     setPage(1)
@@ -268,8 +268,14 @@ export function ReportListingTable({
 
   return (
     <Box sx={{ width: '100%', minWidth: 0, maxWidth: '100%' }}>
-      <TableContainer sx={{ overflow: 'visible', width: '100%', maxWidth: '100%' }}>
+      <TableContainer sx={{ width: '100%', overflowX: 'auto' }}>
         <Table size="small" sx={{ tableLayout: 'fixed', width: '100%', minWidth: 0 }}>
+          <colgroup>
+            {columns.map((col) => (
+              <col key={col.key} style={{ width: colWidth }} />
+            ))}
+            <col style={{ width: `${ACTION_WIDTH_PX}px` }} />
+          </colgroup>
           <TableHead>
             <TableRow sx={{ bgcolor: alpha(theme.palette.text.primary, 0.02) }}>
               {columns.map((col) => (

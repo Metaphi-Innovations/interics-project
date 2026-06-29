@@ -21,6 +21,7 @@ export function WorkspaceSection({
     <Card
       sx={{
         mb: 2,
+        height: 'fit-content',
         border: '1px solid #E8EEEC',
         boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
         borderRadius: '10px',

@@ -20,7 +20,6 @@ import {
 } from '@mui/material'
 import {
   Business,
-  Circle,
   VerifiedUser,
   LocationOn,
 } from '@mui/icons-material'
@@ -34,13 +33,11 @@ import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { fetchCustomers, updateCustomer } from '../../slices/customers/thunk'
 import { setFilters, resetFilters, setPage, setSortConfig } from '../../slices/customers/reducer'
 import type { Customer } from '../../slices/customers/reducer'
-import { customersApi } from '../../api/customersApi'
 import { ListingTemplate } from '../../components/templates'
 import type { FilterField, ColumnItem } from '../../components/templates/ListingTemplate'
 import { CustomerDrawer } from './CustomerDrawer'
-import { StatusBadge, useToast, Modal, Button } from '@/design-system/components'
-import type { StatusType } from '@/design-system/components'
-import { getInitials, getAvatarColor, formatCurrency, toSlug } from '../../utils/formatters'
+import { useToast, Modal, Button } from '@/design-system/components'
+import { getInitials, getAvatarColor, toSlug } from '../../utils/formatters'
 import { getPrimaryContact } from '../../utils/customerContacts'
 import { tokens } from '@/design-system/tokens'
 import { getSectorTagSx } from '../../utils/sectorTagStyles'
@@ -65,22 +62,24 @@ function getTotalProjectCount(customer: Customer): number {
   return customer.activeProjects
 }
 
-function getTotalBillAmount(customer: Customer): number {
-  return customer.financialDetails?.totalBilled ?? 0
-}
-
-function getComplianceLabels(customer: Customer): string[] {
-  const labels: string[] = []
-  if (customer.msmeRegistered) labels.push('MSME')
-  if (customer.gstStatus === 'Registered' || customer.gstin) labels.push('GST')
-  if (customer.pan) labels.push('PAN')
-  if (customer.gstStatus === 'Composition') labels.push('Composition')
-  if (customer.gstStatus === 'SEZ') labels.push('SEZ')
-  return labels
-}
-
 function getSectorLabel(customer: Customer): string {
   return customer.sector ?? '—'
+}
+
+type CustomerTableVisibleColumns = {
+  contactPerson: boolean
+  sector: boolean
+  projects: boolean
+}
+
+function customerTableColCount(visible: CustomerTableVisibleColumns): number {
+  return (
+    1 +
+    (visible.contactPerson ? 1 : 0) +
+    (visible.sector ? 1 : 0) +
+    (visible.projects ? 1 : 0) +
+    1
+  )
 }
 
 // ─── Avatar Cell ──────────────────────────────────────────────────────────────
@@ -226,37 +225,6 @@ function SectorCell({ customer }: { customer: Customer }) {
   )
 }
 
-function ComplianceCell({ customer }: { customer: Customer }) {
-  const labels = getComplianceLabels(customer)
-  if (!labels.length) {
-    return (
-      <Typography variant="body2" sx={{ fontSize: 12, color: 'text.disabled' }}>
-        —
-      </Typography>
-    )
-  }
-  return (
-    <Stack direction="row" flexWrap="wrap" gap={0.5} useFlexGap>
-      {labels.map((label) => (
-        <MuiChip
-          key={label}
-          label={label}
-          size="small"
-          sx={{
-            height: 18,
-            fontSize: 9,
-            fontWeight: 600,
-            borderRadius: '4px',
-            bgcolor: alpha(tokens.color.primary[500], 0.08),
-            color: tokens.color.primary[700],
-            '& .MuiChip-label': { px: '5px' },
-          }}
-        />
-      ))}
-    </Stack>
-  )
-}
-
 // ─── Sort Header Cell ──────────────────────────────────────────────────────────
 
 interface SortHeaderProps {
@@ -311,7 +279,7 @@ function SortHeader({ label, field, sortField, sortDirection, onSort, sx }: Sort
 interface CustomerTableProps {
   items: Customer[]
   loading: boolean
-  visibleColumns: Record<string, boolean>
+  visibleColumns: CustomerTableVisibleColumns
   sortField: string | null
   sortDirection: 'asc' | 'desc'
   onSort: (field: string, direction: 'asc' | 'desc') => void
@@ -339,6 +307,7 @@ function CustomerTable({
 }: CustomerTableProps) {
   const theme = useTheme()
   const hoverBg = alpha(theme.palette.primary.main, 0.04)
+  const colCount = customerTableColCount(visibleColumns)
 
   return (
     <TableContainer>
@@ -377,24 +346,6 @@ function CustomerTable({
                 sx={{ display: { xs: 'none', lg: 'table-cell' } }}
               />
             )}
-            {visibleColumns.totalBillAmount && (
-              <SortHeader
-                label="Total Bill Amount"
-                field="totalBillAmount"
-                sortField={sortField}
-                sortDirection={sortDirection}
-                onSort={onSort}
-                sx={{ display: { xs: 'none', lg: 'table-cell' } }}
-              />
-            )}
-            {visibleColumns.compliance && (
-              <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', py: '8px', px: '14px', borderBottom: `2px solid ${tokens.color.neutral[100]}`, display: { xs: 'none', md: 'table-cell' } }}>
-                Compliance
-              </TableCell>
-            )}
-            <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', py: '8px', px: '14px', borderBottom: `2px solid ${tokens.color.neutral[100]}` }}>
-              Status
-            </TableCell>
             <TableCell
               sx={{
                 width: 48,
@@ -416,7 +367,7 @@ function CustomerTable({
           {loading && (
             [...Array(5)].map((_, i) => (
               <TableRow key={i}>
-                {[...Array(7)].map((__, j) => (
+                {[...Array(colCount)].map((__, j) => (
                   <TableCell key={j} sx={{ py: '10px', px: '14px' }}>
                     <Skeleton variant="text" width="80%" height={20} />
                   </TableCell>
@@ -427,7 +378,7 @@ function CustomerTable({
 
           {!loading && items.length === 0 && (
             <TableRow>
-              <TableCell colSpan={9} sx={{ border: 0 }}>
+              <TableCell colSpan={colCount} sx={{ border: 0 }}>
                 <Box sx={{ py: 6, textAlign: 'center' }}>
                   <Building2 size={32} color={tokens.color.neutral[300]} />
                   <Typography variant="body2" sx={{ mt: 1.5, fontWeight: 500 }}>
@@ -512,24 +463,6 @@ function CustomerTable({
                 </TableCell>
               )}
 
-              {visibleColumns.totalBillAmount && (
-                <TableCell sx={{ ...TABLE_CELL_SX, display: { xs: 'none', lg: 'table-cell' } }}>
-                  <Typography variant="body2" fontWeight={500} sx={{ fontSize: 12 }}>
-                    ₹{formatCurrency(getTotalBillAmount(customer))}
-                  </Typography>
-                </TableCell>
-              )}
-
-              {visibleColumns.compliance && (
-                <TableCell sx={{ ...TABLE_CELL_SX, display: { xs: 'none', md: 'table-cell' } }}>
-                  <ComplianceCell customer={customer} />
-                </TableCell>
-              )}
-
-              <TableCell sx={TABLE_CELL_SX}>
-                <StatusBadge status={customer.status.toLowerCase() as StatusType} />
-              </TableCell>
-
               <TableCell sx={{ py: '6px', px: '8px', verticalAlign: 'top' }} onClick={(e) => e.stopPropagation()}>
                 <RowActions
                   customer={customer}
@@ -600,18 +533,15 @@ function CustomerGridCard({
           <Typography variant="body2" fontWeight={600} sx={{ fontSize: 13, lineHeight: 1.35, wordBreak: 'break-word' }}>
             {customer.name}
           </Typography>
-          <Stack direction="row" alignItems="center" gap={0.75} sx={{ mt: 0.5 }}>
+          <Box sx={{ mt: 0.5 }}>
             <SectorCell customer={customer} />
-            <StatusBadge status={customer.status.toLowerCase() as StatusType} />
-          </Stack>
+          </Box>
         </Box>
       </Stack>
 
       <Box sx={{ mb: 1.25 }}>
         <ContactPersonCell customer={customer} />
       </Box>
-
-      <ComplianceCell customer={customer} />
 
       <Divider sx={{ my: 1.25 }} />
 
@@ -640,14 +570,6 @@ function CustomerGridCard({
             }}
           >
             {projectCount} Project{projectCount === 1 ? '' : 's'}
-          </Typography>
-        </Box>
-        <Box sx={{ textAlign: 'right' }}>
-          <Typography variant="overline" sx={{ fontSize: 10, color: 'text.secondary', display: 'block' }}>
-            Total Bill Amount
-          </Typography>
-          <Typography variant="body2" fontWeight={500} sx={{ fontSize: 12 }}>
-            ₹{formatCurrency(getTotalBillAmount(customer))}
           </Typography>
         </Box>
       </Stack>
@@ -735,14 +657,11 @@ export default function CustomersPage() {
   const [drawerMode, setDrawerMode] = useState<'add' | 'edit'>('add')
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null)
   const [archiveTarget, setArchiveTarget] = useState<Customer | null>(null)
-  const [counts, setCounts] = useState({ all: 0, active: 0, inactive: 0 })
   const [activeFilters, setActiveFilters] = useState<Record<string, unknown>>({})
-  const [visibleColumns, setVisibleColumns] = useState({
+  const [visibleColumns, setVisibleColumns] = useState<CustomerTableVisibleColumns>({
     contactPerson: true,
     sector: true,
     projects: true,
-    totalBillAmount: true,
-    compliance: true,
   })
 
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -750,17 +669,6 @@ export default function CustomersPage() {
   // ── Initial fetch ──────────────────────────────────────────────────
   useEffect(() => {
     dispatch(fetchCustomers({ page: 1, pageSize: pagination.pageSize }))
-    void Promise.all([
-      customersApi.getAll({ pageSize: 1 }),
-      customersApi.getAll({ pageSize: 1, status: 'Active' }),
-      customersApi.getAll({ pageSize: 1, status: 'Inactive' }),
-    ]).then(([all, active, inactive]) => {
-      setCounts({
-        all: (all.data as { total: number }).total,
-        active: (active.data as { total: number }).total,
-        inactive: (inactive.data as { total: number }).total,
-      })
-    }).catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -770,22 +678,9 @@ export default function CustomersPage() {
     }
   }, [])
 
-  // ── Computed ──────────────────────────────────────────────────────
-  const activeTabKey = !filters.status ? 'all' : filters.status === 'Active' ? 'active' : 'inactive'
-
-  const tabs = [
-    { label: 'All Customers', value: 'all', count: counts.all },
-    { label: 'Active', value: 'active', count: counts.active },
-    { label: 'Inactive', value: 'inactive', count: counts.inactive },
-  ]
-
   // Sort items client-side
   const sortedItems = [...items].sort((a, b) => {
     if (!sortConfig.field) return 0
-    if (sortConfig.field === 'totalBillAmount') {
-      const diff = getTotalBillAmount(a) - getTotalBillAmount(b)
-      return sortConfig.direction === 'asc' ? diff : -diff
-    }
     if (sortConfig.field === 'sector') {
       const aStr = getSectorLabel(a).toLowerCase()
       const bStr = getSectorLabel(b).toLowerCase()
@@ -809,23 +704,9 @@ export default function CustomersPage() {
     { field: 'contactPerson', label: 'Contact Person', visible: visibleColumns.contactPerson },
     { field: 'sector', label: 'Sector', visible: visibleColumns.sector },
     { field: 'projects', label: 'Projects', visible: visibleColumns.projects },
-    { field: 'totalBillAmount', label: 'Total Bill Amount', visible: visibleColumns.totalBillAmount },
-    { field: 'compliance', label: 'Compliance', visible: visibleColumns.compliance },
   ]
 
-  // Filter config
   const filterConfig: FilterField[] = [
-    {
-      field: 'status',
-      label: 'Status',
-      type: 'select',
-      icon: <Circle sx={{ fontSize: 12 }} />,
-      options: [
-        { label: 'All', value: '' },
-        { label: 'Active', value: 'Active' },
-        { label: 'Inactive', value: 'Inactive' },
-      ],
-    },
     {
       field: 'type',
       label: 'Customer Type',
@@ -867,21 +748,6 @@ export default function CustomersPage() {
   ]
 
   // ── Handlers ──────────────────────────────────────────────────────
-  function handleTabChange(value: string) {
-    const statusMap: Record<string, string> = { all: '', active: 'Active', inactive: 'Inactive' }
-    const status = statusMap[value] ?? ''
-    setActiveFilters({})
-    dispatch(resetFilters())
-    dispatch(setFilters({ status }))
-    dispatch(setPage(1))
-    dispatch(fetchCustomers({
-      page: 1,
-      pageSize: pagination.pageSize,
-      search: filters.search || undefined,
-      status: status || undefined,
-    }))
-  }
-
   function handleSearchChange(value: string) {
     dispatch(setFilters({ search: value }))
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
@@ -891,7 +757,6 @@ export default function CustomersPage() {
         page: 1,
         pageSize: pagination.pageSize,
         search: value || undefined,
-        status: filters.status || undefined,
       }))
     }, 300)
   }
@@ -902,7 +767,7 @@ export default function CustomersPage() {
     for (const [k, v] of Object.entries(newFilters)) {
       params[k] = (v as string) || undefined
     }
-    dispatch(setFilters(params as { search?: string; status?: string; type?: string; gstStatus?: string; state?: string }))
+    dispatch(setFilters(params as { search?: string; type?: string; gstStatus?: string; state?: string }))
     dispatch(setPage(1))
     dispatch(fetchCustomers({ page: 1, pageSize: pagination.pageSize, search: filters.search || undefined, ...params }))
   }
@@ -915,7 +780,6 @@ export default function CustomersPage() {
       page: 1,
       pageSize: pagination.pageSize,
       search: filters.search || undefined,
-      status: filters.status || undefined,
     }))
   }
 
@@ -929,12 +793,11 @@ export default function CustomersPage() {
       page,
       pageSize: pagination.pageSize,
       search: filters.search || undefined,
-      status: filters.status || undefined,
     }))
   }
 
   function handleColumnVisibilityChange(field: string, visible: boolean) {
-    setVisibleColumns((prev) => ({ ...prev, [field]: visible }))
+    setVisibleColumns((prev) => ({ ...prev, [field]: visible } as CustomerTableVisibleColumns))
   }
 
   function openAddDrawer() {
@@ -986,7 +849,6 @@ export default function CustomersPage() {
         page: pagination.page,
         pageSize: pagination.pageSize,
         search: filters.search || undefined,
-        status: filters.status || undefined,
       }))
     } catch (err) {
       showToast({ title: (err as string) || 'Failed to archive customer', variant: 'error' })
@@ -1010,9 +872,6 @@ export default function CustomersPage() {
         searchPlaceholder="Search customers..."
         searchValue={filters.search}
         onSearchChange={handleSearchChange}
-        tabs={tabs}
-        activeTab={activeTabKey}
-        onTabChange={handleTabChange}
         filterConfig={filterConfig}
         activeFilters={activeFilters}
         onFilterChange={handleFilterChange}

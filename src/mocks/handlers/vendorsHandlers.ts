@@ -38,6 +38,17 @@ type VendorDocumentType =
   | 'Compliance'
   | 'Product'
 
+interface VendorComplianceDocument {
+  documentType?: string
+  name: string
+  url: string
+  description?: string | null
+  uploadedBy?: string | null
+  uploadedOn?: string | null
+  lastUpdatedOn?: string | null
+  expiryDate?: string | null
+}
+
 interface VendorDocument {
   id: string
   name: string
@@ -45,6 +56,9 @@ interface VendorDocument {
   uploadedAt: string
   expiryDate?: string | null
   url: string
+  description?: string | null
+  uploadedBy?: string | null
+  lastUpdatedOn?: string | null
 }
 
 type ComplianceChipStatus = 'verified' | 'missing' | 'expired' | 'expiring_soon'
@@ -79,18 +93,29 @@ interface Vendor {
   paymentTerms?: string | null
   notes: string | null
   status: 'Active' | 'Inactive'
+  rating?: number | null
   activeProjects: number
   totalPayables: number
   createdAt: string
   contacts: Contact[]
-  gstDocument: { name: string; url: string } | null
-  panDocument: { name: string; url: string } | null
-  bankChequeDocument?: { name: string; url: string } | null
-  insuranceDocument?: { name: string; url: string } | null
+  gstDocument: VendorComplianceDocument | null
+  panDocument: VendorComplianceDocument | null
+  bankChequeDocument?: VendorComplianceDocument | null
+  insuranceDocument?: VendorComplianceDocument | null
   activityLog: ActivityEntry[]
   financialDetails: VendorFinancialDetails
   documents?: VendorDocument[]
-  additionalComplianceDocuments?: { id: string; name: string; url: string; expiryDate?: string | null }[]
+  additionalComplianceDocuments?: {
+    id: string
+    name: string
+    url: string
+    fileName?: string | null
+    description?: string | null
+    uploadedBy?: string | null
+    uploadedOn?: string | null
+    lastUpdatedOn?: string | null
+    expiryDate?: string | null
+  }[]
   compliance?: VendorCompliance
 }
 
@@ -143,10 +168,43 @@ let vendors: Vendor[] = [
         isPrimary: false,
       },
     ],
-    gstDocument: { name: 'GST_Certificate.pdf', url: '#' },
-    panDocument: { name: 'PAN_Card.pdf', url: '#' },
-    bankChequeDocument: { name: 'buildwell_cancelled_cheque.pdf', url: '#' },
-    insuranceDocument: { name: 'general_liability_cover.pdf', url: '#' },
+    gstDocument: {
+      documentType: 'gst',
+      name: 'GST_Certificate.pdf',
+      url: '#',
+      description: 'GST Certificate submitted for FY 2025 during vendor onboarding.',
+      uploadedBy: 'Neha Sharma',
+      uploadedOn: '2023-11-10T09:30:00Z',
+      lastUpdatedOn: '2023-11-10T09:30:00Z',
+    },
+    panDocument: {
+      documentType: 'pan',
+      name: 'PAN_Card.pdf',
+      url: '#',
+      description: 'Updated PAN card submitted by vendor.',
+      uploadedBy: 'Neha Sharma',
+      uploadedOn: '2023-11-08T11:00:00Z',
+      lastUpdatedOn: '2023-11-08T11:00:00Z',
+    },
+    bankChequeDocument: {
+      documentType: 'bank_cheque',
+      name: 'buildwell_cancelled_cheque.pdf',
+      url: '#',
+      description: 'Cancelled cheque for NEFT payments.',
+      uploadedBy: 'Rajan Mehta',
+      uploadedOn: '2023-10-15T10:00:00Z',
+      lastUpdatedOn: '2023-10-15T10:00:00Z',
+    },
+    insuranceDocument: {
+      documentType: 'insurance',
+      name: 'general_liability_cover.pdf',
+      url: '#',
+      description: 'Insurance policy renewed for FY 2026.',
+      uploadedBy: 'Neha Sharma',
+      uploadedOn: '2025-12-01T09:00:00Z',
+      lastUpdatedOn: '2025-12-01T09:00:00Z',
+      expiryDate: '2026-06-15',
+    },
     compliance: {
       gst: 'verified',
       pan: 'verified',
@@ -160,6 +218,9 @@ let vendors: Vendor[] = [
         type: 'Catalogue',
         uploadedAt: '2025-03-01T10:00:00Z',
         url: '#',
+        description: 'Product catalogue for FY 2025 materials and finishes.',
+        uploadedBy: 'Ramesh Patil',
+        lastUpdatedOn: '2025-03-01T10:00:00Z',
       },
       {
         id: 'vd-bw-2',
@@ -573,6 +634,20 @@ let vendors: Vendor[] = [
   },
 ]
 
+const VENDOR_SEED_RATINGS: Record<string, number> = {
+  'v-001': 4.7,
+  'v-002': 4.3,
+  'v-003': 4.8,
+  'v-004': 3.9,
+  'v-005': 4.5,
+  'v-006': 3.2,
+}
+
+vendors = vendors.map((vendor) => ({
+  ...vendor,
+  rating: vendor.rating ?? VENDOR_SEED_RATINGS[vendor.id] ?? null,
+}))
+
 // Per-vendor contacts store (for sub-resource CRUD)
 const contactsStore: Record<string, Contact[]> = {}
 vendors.forEach((v) => {
@@ -653,6 +728,7 @@ export const vendorsHandlers = [
       ...data,
       id: `v-${String(idCounter++).padStart(3, '0')}`,
       createdAt: new Date().toISOString().split('T')[0],
+      rating: data.rating ?? null,
       contacts: data.contacts ?? [],
       activityLog: data.activityLog ?? [],
       financialDetails: {
@@ -727,6 +803,17 @@ export const vendorsHandlers = [
       return HttpResponse.json({ message: 'Vendor not found' }, { status: 404 })
     }
     const data = await request.json() as Omit<Contact, 'id'>
+    const normalizePhone = (phone: string) => phone.replace(/\D/g, '')
+    const nextPhone = normalizePhone(data.phone ?? '')
+    if (
+      nextPhone &&
+      contactsStore[id].some((c) => normalizePhone(c.phone) === nextPhone)
+    ) {
+      return HttpResponse.json(
+        { message: 'A contact with this mobile number already exists for this vendor' },
+        { status: 409 },
+      )
+    }
     const newContact: Contact = {
       ...data,
       id: `vc-${String(contactIdCounter++).padStart(3, '0')}`,
@@ -735,6 +822,19 @@ export const vendorsHandlers = [
       contactsStore[id].forEach((c) => { c.isPrimary = false })
     }
     contactsStore[id].push(newContact)
+    const vendorIdx = vendors.findIndex((v) => v.id === id)
+    if (vendorIdx !== -1) {
+      vendors[vendorIdx] = {
+        ...vendors[vendorIdx],
+        contacts: [...contactsStore[id]],
+      }
+      const primary = contactsStore[id].find((c) => c.isPrimary) ?? contactsStore[id][0]
+      if (primary) {
+        vendors[vendorIdx].contactPerson = primary.name
+        vendors[vendorIdx].phone = primary.phone
+        vendors[vendorIdx].email = primary.email
+      }
+    }
     return HttpResponse.json(newContact, { status: 201 })
   }),
 

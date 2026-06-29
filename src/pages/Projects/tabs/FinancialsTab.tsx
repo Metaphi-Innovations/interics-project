@@ -1,18 +1,21 @@
-import { Fragment, useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import {
   Box,
   Card,
-  Grid,
+  IconButton,
   Stack,
   Table,
   TableBody,
   TableCell,
+  TableContainer,
   TableHead,
   TableRow,
   Typography,
 } from '@mui/material'
-import { alpha } from '@mui/material/styles'
+import type { Theme } from '@mui/material/styles'
+import { alpha, useTheme } from '@mui/material/styles'
+import { ChevronDown, ChevronRight } from 'lucide-react'
 import { WorkspaceSection } from '../../../components/templates'
 import { tokens } from '@/design-system/tokens'
 import { useAppDispatch, useAppSelector } from '../../../store/hooks'
@@ -46,6 +49,7 @@ import {
   sumPlannedExpensesBaseline,
   sumVendorPaymentsNetPaid,
   varianceColorKey,
+  type RevenueServiceRow,
 } from './financialsAggregates'
 import { balancePending, totalReceivedBank } from './live/clientInvoiceUtils'
 
@@ -56,6 +60,66 @@ const VARIANCE_NOTE_LINES = [
   'Baseline from locked project baseline.',
 ] as const
 const TRACKING_METRIC_COUNT = 6
+
+const METRIC_CELL_ALIGN_SX = {
+  display: 'flex',
+  flexDirection: 'column',
+  justifyContent: 'center',
+  alignItems: 'center',
+  textAlign: 'center',
+  height: '100%',
+} as const
+
+const SUMMARY_CELL_SX = {
+  px: '20px',
+  py: '4px',
+  minWidth: 0,
+  ...METRIC_CELL_ALIGN_SX,
+} as const
+
+const DURATION_CELL_SX = {
+  px: '20px',
+  py: 0,
+  minWidth: 0,
+  ...METRIC_CELL_ALIGN_SX,
+} as const
+
+const TRACKING_CELL_SX = {
+  px: '20px',
+  py: '6px',
+  minWidth: 0,
+  ...METRIC_CELL_ALIGN_SX,
+} as const
+
+const REVENUE_TABLE_COLGROUP = (
+  <colgroup>
+    <col style={{ width: '28%' }} />
+    <col style={{ width: '18%' }} />
+    <col style={{ width: '18%' }} />
+    <col style={{ width: '18%' }} />
+    <col style={{ width: '18%' }} />
+  </colgroup>
+)
+
+const COST_TABLE_COLGROUP = (
+  <colgroup>
+    <col style={{ width: '22%' }} />
+    <col style={{ width: '22%' }} />
+    <col style={{ width: '19%' }} />
+    <col style={{ width: '19%' }} />
+    <col style={{ width: '18%' }} />
+  </colgroup>
+)
+
+const VARIANCE_TABLE_COLGROUP = (
+  <colgroup>
+    <col style={{ width: '28%' }} />
+    <col style={{ width: '18%' }} />
+    <col style={{ width: '18%' }} />
+    <col style={{ width: '18%' }} />
+    <col style={{ width: '18%' }} />
+  </colgroup>
+)
 
 function fmtInr(amount: number): string {
   return `₹${formatCurrency(amount)}`
@@ -125,7 +189,90 @@ function CommercialRatesSection({ project }: { project: Project }) {
   )
 }
 
+interface RevenueCategorySubtotal {
+  baseline: number
+  invoiced: number
+  received: number
+}
+
+function RevenueCategorySection({
+  categoryName,
+  catRows,
+  subtotal,
+  isCollapsed,
+  onToggle,
+  theme,
+}: {
+  categoryName: string
+  catRows: RevenueServiceRow[]
+  subtotal: RevenueCategorySubtotal
+  isCollapsed: boolean
+  onToggle: () => void
+  theme: Theme
+}) {
+  return (
+    <>
+      <TableRow
+        sx={{
+          bgcolor: alpha(theme.palette.text.primary, 0.04),
+          '& .MuiTableCell-root': {
+            fontWeight: 700,
+            borderBottom: `1px solid ${tokens.color.neutral[100]}`,
+          },
+        }}
+      >
+        <TableCell sx={TABLE_CELL_SX}>
+          <Stack direction="row" alignItems="center" gap={0.5}>
+            <IconButton
+              size="small"
+              aria-label={isCollapsed ? `Expand ${categoryName}` : `Collapse ${categoryName}`}
+              onClick={onToggle}
+              sx={{ p: 0.25 }}
+            >
+              {isCollapsed ? (
+                <ChevronRight size={16} strokeWidth={1.75} />
+              ) : (
+                <ChevronDown size={16} strokeWidth={1.75} />
+              )}
+            </IconButton>
+            <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 700 }}>
+              {categoryName}
+            </Typography>
+          </Stack>
+        </TableCell>
+        <TableCell sx={TABLE_CELL_SX}>{fmtInr(subtotal.baseline)}</TableCell>
+        <TableCell sx={TABLE_CELL_SX}>{fmtInr(subtotal.invoiced)}</TableCell>
+        <TableCell sx={TABLE_CELL_SX}>{fmtInr(subtotal.received)}</TableCell>
+        <TableCell sx={TABLE_CELL_SX} />
+      </TableRow>
+
+      {!isCollapsed
+        ? catRows.map((r, idx) => (
+            <TableRow
+              key={`${r.categoryId}-${r.serviceId}`}
+              sx={{
+                bgcolor: idx % 2 === 0 ? 'background.paper' : tokens.color.neutral[50],
+              }}
+            >
+              <TableCell sx={{ ...TABLE_CELL_SX, pl: 5 }}>
+                <Typography variant="body2" sx={{ fontSize: 12 }}>
+                  {r.serviceName}
+                </Typography>
+              </TableCell>
+              <TableCell sx={TABLE_CELL_SX}>{fmtInr(r.baseline)}</TableCell>
+              <TableCell sx={TABLE_CELL_SX}>{fmtInr(r.invoiced)}</TableCell>
+              <TableCell sx={TABLE_CELL_SX}>{fmtInr(r.received)}</TableCell>
+              <TableCell sx={TABLE_CELL_SX}>{r.status}</TableCell>
+            </TableRow>
+          ))
+        : null}
+    </>
+  )
+}
+
 export default function FinancialsTab({ project }: FinancialsTabProps) {
+  const theme = useTheme()
+  const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set())
   const dispatch = useAppDispatch()
   const canViewFinancialMetrics = usePermission('financial', 'view')
   const selected = useAppSelector((s) => s.projects.selectedItem)
@@ -269,6 +416,15 @@ export default function FinancialsTab({ project }: FinancialsTabProps) {
     { label: 'Soft Expenses', value: fmtInr(totalSoftExpenses) },
   ]
 
+  function toggleCategory(categoryId: string): void {
+    setCollapsedCategories((prev) => {
+      const next = new Set(prev)
+      if (next.has(categoryId)) next.delete(categoryId)
+      else next.add(categoryId)
+      return next
+    })
+  }
+
   return (
     <Stack gap={2}>
       {canViewFinancialMetrics ? <CommercialRatesSection project={projectForSummary} /> : null}
@@ -279,26 +435,24 @@ export default function FinancialsTab({ project }: FinancialsTabProps) {
           mb: 0,
           p: '10px 0',
           display: 'grid',
+          alignItems: 'stretch',
           gridTemplateColumns: {
             xs: 'repeat(2, 1fr)',
             lg: `repeat(${SUMMARY_COUNT}, 1fr)`,
           },
         }}
       >
-        {summaryMetrics.map((metric) => (
+        {summaryMetrics.map((metric, idx) => (
           <Box
             key={metric.label}
             sx={(t) => ({
-              px: '20px',
-              py: '4px',
-              borderRight: '1px solid',
-              borderRightColor: 'divider',
-              '&:nth-of-type(2n)': { borderRight: 'none' },
-              '&:nth-of-type(-n+2)': { borderBottom: '1px solid', borderBottomColor: 'divider' },
-              [t.breakpoints.up('lg')]: {
-                '&:nth-of-type(2n)': { borderRight: '1px solid', borderRightColor: 'divider' },
-                '&:last-of-type': { borderRight: 'none' },
-                '&:nth-of-type(-n+2)': { borderBottom: 'none' },
+              ...SUMMARY_CELL_SX,
+              borderRight: idx < summaryMetrics.length - 1 ? '1px solid' : 'none',
+              borderColor: 'divider',
+              [t.breakpoints.down('lg')]: {
+                borderRight:
+                  idx < summaryMetrics.length - 1 && idx % 2 === 0 ? '1px solid' : 'none',
+                borderBottom: idx < summaryMetrics.length - 2 ? '1px solid' : 'none',
               },
             })}
           >
@@ -340,48 +494,86 @@ export default function FinancialsTab({ project }: FinancialsTabProps) {
       <Card
         sx={{
           mb: 0,
-          p: '12px 16px',
+          py: '12px',
+          px: 0,
+          display: 'flex',
+          flexDirection: { xs: 'column', md: 'row' },
+          alignItems: 'stretch',
           border: `1px solid ${tokens.color.neutral[100]}`,
           borderRadius: 2,
         }}
       >
-        <Typography
-          variant="overline"
-          sx={{ fontSize: 10, color: 'text.secondary', letterSpacing: 0.6, display: 'block', mb: 1 }}
+        <Box
+          sx={(t) => ({
+            px: '20px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+            borderColor: 'divider',
+            [t.breakpoints.up('md')]: {
+              minWidth: 148,
+              borderRight: '1px solid',
+            },
+            [t.breakpoints.down('md')]: {
+              borderBottom: '1px solid',
+              pb: 1,
+              mb: 0.5,
+            },
+          })}
         >
-          PROJECT DURATION
-        </Typography>
+          <Typography
+            variant="overline"
+            sx={{
+              fontSize: 10,
+              color: 'text.secondary',
+              letterSpacing: 0.6,
+              textAlign: 'center',
+              lineHeight: 1.4,
+            }}
+          >
+            PROJECT DURATION
+          </Typography>
+        </Box>
         <Box
           sx={{
+            flex: 1,
+            minWidth: 0,
             display: 'grid',
-            gridTemplateColumns: { xs: '1fr', md: 'repeat(3, minmax(0, 1fr))' },
-            gap: 1.5,
+            alignItems: 'stretch',
+            gridTemplateColumns: { xs: '1fr', md: `repeat(3, minmax(0, 1fr))` },
           }}
         >
-          <Box>
-            <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: 11 }}>
-              Project Start Date
-            </Typography>
-            <Typography variant="body2" sx={{ mt: 0.5, fontSize: 13, fontWeight: 600 }}>
-              {fmtDate(projectStartDate)}
-            </Typography>
-          </Box>
-          <Box>
-            <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: 11 }}>
-              Project End Date
-            </Typography>
-            <Typography variant="body2" sx={{ mt: 0.5, fontSize: 13, fontWeight: 600 }}>
-              {fmtDate(projectEndDate)}
-            </Typography>
-          </Box>
-          <Box>
-            <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: 11 }}>
-              Active Duration / Timeline
-            </Typography>
-            <Typography variant="body2" sx={{ mt: 0.5, fontSize: 13, fontWeight: 600 }}>
-              {activeDurationLabel(projectStartDate, projectEndDate)}
-            </Typography>
-          </Box>
+          {[
+            { label: 'Project Start Date', value: fmtDate(projectStartDate) },
+            { label: 'Project End Date', value: fmtDate(projectEndDate) },
+            {
+              label: 'Active Duration / Timeline',
+              value: activeDurationLabel(projectStartDate, projectEndDate),
+            },
+          ].map((item, idx) => (
+            <Box
+              key={item.label}
+              sx={(t) => ({
+                ...DURATION_CELL_SX,
+                borderRight: idx < 2 ? '1px solid' : 'none',
+                borderColor: 'divider',
+                [t.breakpoints.down('md')]: {
+                  borderRight: 'none',
+                  borderBottom: idx < 2 ? '1px solid' : 'none',
+                  py: idx === 0 ? 0 : 1.5,
+                  pb: idx === 2 ? 0 : undefined,
+                },
+              })}
+            >
+              <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: 11 }}>
+                {item.label}
+              </Typography>
+              <Typography variant="body2" sx={{ mt: 0.5, fontSize: 13, fontWeight: 600 }}>
+                {item.value}
+              </Typography>
+            </Box>
+          ))}
         </Box>
       </Card>
 
@@ -390,6 +582,7 @@ export default function FinancialsTab({ project }: FinancialsTabProps) {
           mb: 0,
           p: '10px 0',
           display: 'grid',
+          alignItems: 'stretch',
           gridTemplateColumns: {
             xs: 'repeat(1, 1fr)',
             sm: 'repeat(2, 1fr)',
@@ -401,21 +594,20 @@ export default function FinancialsTab({ project }: FinancialsTabProps) {
           <Box
             key={metric.label}
             sx={(t) => ({
-              px: '16px',
-              py: '6px',
-              borderRight: '1px solid',
-              borderBottom: '1px solid',
+              ...TRACKING_CELL_SX,
               borderColor: 'divider',
-              '&:nth-of-type(2n)': { borderRight: 'none' },
-              '&:nth-last-of-type(-n+2)': { borderBottom: 'none' },
               [t.breakpoints.up('lg')]: {
+                borderRight: idx < trackingMetrics.length - 1 ? '1px solid' : 'none',
                 borderBottom: 'none',
-                '&:nth-of-type(2n)': { borderRight: '1px solid', borderColor: 'divider' },
-                '&:last-of-type': { borderRight: 'none' },
               },
-              ...(idx === trackingMetrics.length - 1 && {
-                [t.breakpoints.down('sm')]: { borderBottom: 'none' },
-              }),
+              [t.breakpoints.between('sm', 'lg')]: {
+                borderRight: idx % 2 === 0 && idx < trackingMetrics.length - 1 ? '1px solid' : 'none',
+                borderBottom: idx < trackingMetrics.length - 2 ? '1px solid' : 'none',
+              },
+              [t.breakpoints.down('sm')]: {
+                borderRight: 'none',
+                borderBottom: idx < trackingMetrics.length - 1 ? '1px solid' : 'none',
+              },
             })}
           >
             <Typography
@@ -431,167 +623,106 @@ export default function FinancialsTab({ project }: FinancialsTabProps) {
         ))}
       </Card>
 
-      {/* Section 2 — Two columns */}
-      <Grid container spacing={2}>
-        <Grid size={{ xs: 12, md: 6 }}>
-          <WorkspaceSection title="Revenue breakdown">
-            {!baseline ? (
-              <Typography variant="body2" color="text.secondary" sx={{ py: 2 }}>
-                Revenue breakdown requires a locked baseline for this project.
-              </Typography>
-            ) : (
-              <Table size="small" sx={{ tableLayout: 'fixed', width: '100%' }}>
-                <TableHead>
-                  <TableRow>
-                    {['Category / service', 'Baseline value', 'Invoiced', 'Received', 'Status'].map(
-                      (h) => (
-                        <TableCell key={h} sx={{ ...TABLE_HEADER_SX, width: h.includes('Category') ? '28%' : undefined }}>
-                          {h}
-                        </TableCell>
-                      ),
-                    )}
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {baseline.categories.map((cat) => {
-                    const catRows = revenueRows.filter((r) => r.categoryId === cat.id)
-                    const catSub = catRows.reduce(
-                      (acc, r) => ({
-                        baseline: acc.baseline + r.baseline,
-                        invoiced: acc.invoiced + r.invoiced,
-                        received: acc.received + r.received,
-                      }),
-                      { baseline: 0, invoiced: 0, received: 0 },
-                    )
-                    return (
-                      <Fragment key={cat.id}>
-                        <TableRow>
-                          <TableCell
-                            colSpan={5}
-                            sx={(t) => ({
-                              ...TABLE_CELL_SX,
-                              fontWeight: 600,
-                              bgcolor:
-                                t.palette.mode === 'dark'
-                                  ? alpha(t.palette.common.white, 0.08)
-                                  : tokens.color.neutral[50],
-                              color: 'text.secondary',
-                              borderBottom: `1px solid ${tokens.color.neutral[100]}`,
-                            })}
-                          >
-                            {cat.categoryName}
-                          </TableCell>
-                        </TableRow>
-                        {catRows.map((r) => (
-                          <TableRow key={`${cat.id}-${r.serviceId}`}>
-                            <TableCell sx={{ ...TABLE_CELL_SX, pl: 3 }}>{r.serviceName}</TableCell>
-                            <TableCell sx={TABLE_CELL_SX}>{fmtInr(r.baseline)}</TableCell>
-                            <TableCell sx={TABLE_CELL_SX}>{fmtInr(r.invoiced)}</TableCell>
-                            <TableCell sx={TABLE_CELL_SX}>{fmtInr(r.received)}</TableCell>
-                            <TableCell sx={TABLE_CELL_SX}>{r.status}</TableCell>
-                          </TableRow>
-                        ))}
-                        <TableRow>
-                          <TableCell sx={{ ...TABLE_CELL_SX, fontWeight: 700 }}>
-                            Total {cat.categoryName}
-                          </TableCell>
-                          <TableCell sx={{ ...TABLE_CELL_SX, fontWeight: 700 }}>
-                            {fmtInr(catSub.baseline)}
-                          </TableCell>
-                          <TableCell sx={{ ...TABLE_CELL_SX, fontWeight: 700 }}>
-                            {fmtInr(catSub.invoiced)}
-                          </TableCell>
-                          <TableCell sx={{ ...TABLE_CELL_SX, fontWeight: 700 }}>
-                            {fmtInr(catSub.received)}
-                          </TableCell>
-                          <TableCell sx={TABLE_CELL_SX} />
-                        </TableRow>
-                      </Fragment>
-                    )
-                  })}
-                  <TableRow>
-                    <TableCell sx={{ ...TABLE_CELL_SX, fontWeight: 700 }}>Grand total</TableCell>
-                    <TableCell sx={{ ...TABLE_CELL_SX, fontWeight: 700 }}>
-                      {fmtInr(revenueGrand.baseline)}
-                    </TableCell>
-                    <TableCell sx={{ ...TABLE_CELL_SX, fontWeight: 700 }}>
-                      {fmtInr(revenueGrand.invoiced)}
-                    </TableCell>
-                    <TableCell sx={{ ...TABLE_CELL_SX, fontWeight: 700 }}>
-                      {fmtInr(revenueGrand.received)}
-                    </TableCell>
-                    <TableCell sx={TABLE_CELL_SX} />
-                  </TableRow>
-                </TableBody>
-              </Table>
-            )}
-          </WorkspaceSection>
-        </Grid>
-
-        <Grid size={{ xs: 12, md: 6 }}>
-          <WorkspaceSection title="Cost breakdown">
-            {!baseline ? (
-              <Typography variant="body2" color="text.secondary" sx={{ py: 2 }}>
-                Cost breakdown requires a locked baseline for this project.
-              </Typography>
-            ) : costRows.length === 0 ? (
-              <Typography variant="body2" color="text.secondary" sx={{ py: 2 }}>
-                No vendor mappings in the baseline.
-              </Typography>
-            ) : (
-              <Table size="small" sx={{ tableLayout: 'fixed', width: '100%' }}>
-                <TableHead>
-                  <TableRow>
-                    {['Vendor', 'Service', 'Baseline value', 'Invoiced', 'Paid'].map((h) => (
+      <WorkspaceSection title="Revenue breakdown" noPadding>
+        {!baseline ? (
+          <Typography variant="body2" color="text.secondary" sx={{ py: 2, px: 2 }}>
+            Revenue breakdown requires a locked baseline for this project.
+          </Typography>
+        ) : (
+          <TableContainer>
+            <Table
+              size="small"
+              sx={{
+                tableLayout: 'fixed',
+                width: '100%',
+                '& .MuiTableCell-root': { verticalAlign: 'middle' },
+              }}
+            >
+              {REVENUE_TABLE_COLGROUP}
+              <TableHead>
+                <TableRow>
+                  {['Category / service', 'Baseline value', 'Invoiced', 'Received', 'Status'].map(
+                    (h) => (
                       <TableCell key={h} sx={TABLE_HEADER_SX}>
                         {h}
                       </TableCell>
-                    ))}
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {costRows.map((r) => (
-                    <TableRow key={`${r.vendorId}-${r.serviceId}`}>
-                      <TableCell sx={TABLE_CELL_SX}>{r.vendorName}</TableCell>
-                      <TableCell sx={TABLE_CELL_SX}>{r.serviceName}</TableCell>
-                      <TableCell sx={TABLE_CELL_SX}>{fmtInr(r.baseline)}</TableCell>
-                      <TableCell sx={TABLE_CELL_SX}>{fmtInr(r.invoiced)}</TableCell>
-                      <TableCell sx={TABLE_CELL_SX}>{fmtInr(r.paid)}</TableCell>
-                    </TableRow>
-                  ))}
-                  <TableRow>
-                    <TableCell colSpan={2} sx={{ ...TABLE_CELL_SX, fontWeight: 700 }}>
-                      Grand total
-                    </TableCell>
-                    <TableCell sx={{ ...TABLE_CELL_SX, fontWeight: 700 }}>
-                      {fmtInr(costGrand.baseline)}
-                    </TableCell>
-                    <TableCell sx={{ ...TABLE_CELL_SX, fontWeight: 700 }}>
-                      {fmtInr(costGrand.invoiced)}
-                    </TableCell>
-                    <TableCell sx={{ ...TABLE_CELL_SX, fontWeight: 700 }}>
-                      {fmtInr(costGrand.paid)}
-                    </TableCell>
-                  </TableRow>
-                </TableBody>
-              </Table>
-            )}
-          </WorkspaceSection>
-        </Grid>
-      </Grid>
+                    ),
+                  )}
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {baseline.categories.map((cat) => {
+                  const catRows = revenueRows.filter((r) => r.categoryId === cat.id)
+                  const catSub = catRows.reduce(
+                    (acc, r) => ({
+                      baseline: acc.baseline + r.baseline,
+                      invoiced: acc.invoiced + r.invoiced,
+                      received: acc.received + r.received,
+                    }),
+                    { baseline: 0, invoiced: 0, received: 0 },
+                  )
+                  return (
+                    <RevenueCategorySection
+                      key={cat.id}
+                      categoryName={cat.categoryName}
+                      catRows={catRows}
+                      subtotal={catSub}
+                      isCollapsed={collapsedCategories.has(cat.id)}
+                      onToggle={() => toggleCategory(cat.id)}
+                      theme={theme}
+                    />
+                  )
+                })}
+                <TableRow
+                  sx={{
+                    '& .MuiTableCell-root': {
+                      borderTop: `2px solid ${tokens.color.neutral[200]}`,
+                      bgcolor: alpha(theme.palette.primary.main, 0.06),
+                      fontWeight: 700,
+                    },
+                  }}
+                >
+                  <TableCell sx={{ ...TABLE_CELL_SX, fontWeight: 700 }}>Grand total</TableCell>
+                  <TableCell sx={{ ...TABLE_CELL_SX, fontWeight: 700 }}>
+                    {fmtInr(revenueGrand.baseline)}
+                  </TableCell>
+                  <TableCell sx={{ ...TABLE_CELL_SX, fontWeight: 700 }}>
+                    {fmtInr(revenueGrand.invoiced)}
+                  </TableCell>
+                  <TableCell sx={{ ...TABLE_CELL_SX, fontWeight: 700 }}>
+                    {fmtInr(revenueGrand.received)}
+                  </TableCell>
+                  <TableCell sx={TABLE_CELL_SX} />
+                </TableRow>
+              </TableBody>
+            </Table>
+          </TableContainer>
+        )}
+      </WorkspaceSection>
 
-      {/* Section 3 — Variance */}
-      <WorkspaceSection title="Variance analysis">
-        {varianceRows.length === 0 ? (
-          <Typography variant="body2" color="text.secondary" sx={{ py: 2 }}>
-            Variance analysis requires a locked baseline for this project.
+      <WorkspaceSection title="Cost breakdown" noPadding>
+        {!baseline ? (
+          <Typography variant="body2" color="text.secondary" sx={{ py: 2, px: 2 }}>
+            Cost breakdown requires a locked baseline for this project.
+          </Typography>
+        ) : costRows.length === 0 ? (
+          <Typography variant="body2" color="text.secondary" sx={{ py: 2, px: 2 }}>
+            No vendor mappings in the baseline.
           </Typography>
         ) : (
-          <>
-            <Table size="small">
+          <TableContainer>
+            <Table
+              size="small"
+              sx={{
+                tableLayout: 'fixed',
+                width: '100%',
+                '& .MuiTableCell-root': { verticalAlign: 'middle' },
+              }}
+            >
+              {COST_TABLE_COLGROUP}
               <TableHead>
                 <TableRow>
-                  {['Item', 'Baseline', 'Actual', 'Variance', 'Variance %'].map((h) => (
+                  {['Vendor', 'Service', 'Baseline value', 'Invoiced', 'Paid'].map((h) => (
                     <TableCell key={h} sx={TABLE_HEADER_SX}>
                       {h}
                     </TableCell>
@@ -599,31 +730,96 @@ export default function FinancialsTab({ project }: FinancialsTabProps) {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {varianceRows.map((row) => {
-                  const tone = varianceColorKey(row)
-                  const varColor =
-                    tone === 'success'
-                      ? 'success.main'
-                      : tone === 'error'
-                        ? 'error.main'
-                        : 'text.primary'
-                  return (
-                    <TableRow key={row.item}>
-                      <TableCell sx={TABLE_CELL_SX}>{row.item}</TableCell>
-                      <TableCell sx={TABLE_CELL_SX}>{fmtInr(row.baseline)}</TableCell>
-                      <TableCell sx={TABLE_CELL_SX}>{fmtInr(row.actual)}</TableCell>
-                      <TableCell sx={{ ...TABLE_CELL_SX, color: varColor, fontWeight: 600 }}>
-                        {fmtSignedInr(row.variance)}
-                      </TableCell>
-                      <TableCell sx={{ ...TABLE_CELL_SX, color: varColor, fontWeight: 600 }}>
-                        {row.variancePctLabel}
-                      </TableCell>
-                    </TableRow>
-                  )
-                })}
+                {costRows.map((r) => (
+                  <TableRow key={`${r.vendorId}-${r.serviceId}`}>
+                    <TableCell sx={TABLE_CELL_SX}>{r.vendorName}</TableCell>
+                    <TableCell sx={TABLE_CELL_SX}>{r.serviceName}</TableCell>
+                    <TableCell sx={TABLE_CELL_SX}>{fmtInr(r.baseline)}</TableCell>
+                    <TableCell sx={TABLE_CELL_SX}>{fmtInr(r.invoiced)}</TableCell>
+                    <TableCell sx={TABLE_CELL_SX}>{fmtInr(r.paid)}</TableCell>
+                  </TableRow>
+                ))}
+                <TableRow
+                  sx={{
+                    '& .MuiTableCell-root': {
+                      borderTop: `2px solid ${tokens.color.neutral[200]}`,
+                      bgcolor: alpha(theme.palette.primary.main, 0.06),
+                      fontWeight: 700,
+                    },
+                  }}
+                >
+                  <TableCell colSpan={2} sx={{ ...TABLE_CELL_SX, fontWeight: 700 }}>
+                    Grand total
+                  </TableCell>
+                  <TableCell sx={{ ...TABLE_CELL_SX, fontWeight: 700 }}>
+                    {fmtInr(costGrand.baseline)}
+                  </TableCell>
+                  <TableCell sx={{ ...TABLE_CELL_SX, fontWeight: 700 }}>
+                    {fmtInr(costGrand.invoiced)}
+                  </TableCell>
+                  <TableCell sx={{ ...TABLE_CELL_SX, fontWeight: 700 }}>
+                    {fmtInr(costGrand.paid)}
+                  </TableCell>
+                </TableRow>
               </TableBody>
             </Table>
-            <Box component="footer" sx={{ mt: 2 }}>
+          </TableContainer>
+        )}
+      </WorkspaceSection>
+
+      <WorkspaceSection title="Variance analysis" noPadding>
+        {varianceRows.length === 0 ? (
+          <Typography variant="body2" color="text.secondary" sx={{ py: 2, px: 2 }}>
+            Variance analysis requires a locked baseline for this project.
+          </Typography>
+        ) : (
+          <>
+            <TableContainer>
+              <Table
+                size="small"
+                sx={{
+                  tableLayout: 'fixed',
+                  width: '100%',
+                  '& .MuiTableCell-root': { verticalAlign: 'middle' },
+                }}
+              >
+                {VARIANCE_TABLE_COLGROUP}
+                <TableHead>
+                  <TableRow>
+                    {['Item', 'Baseline', 'Actual', 'Variance', 'Variance %'].map((h) => (
+                      <TableCell key={h} sx={TABLE_HEADER_SX}>
+                        {h}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {varianceRows.map((row) => {
+                    const tone = varianceColorKey(row)
+                    const varColor =
+                      tone === 'success'
+                        ? 'success.main'
+                        : tone === 'error'
+                          ? 'error.main'
+                          : 'text.primary'
+                    return (
+                      <TableRow key={row.item}>
+                        <TableCell sx={TABLE_CELL_SX}>{row.item}</TableCell>
+                        <TableCell sx={TABLE_CELL_SX}>{fmtInr(row.baseline)}</TableCell>
+                        <TableCell sx={TABLE_CELL_SX}>{fmtInr(row.actual)}</TableCell>
+                        <TableCell sx={{ ...TABLE_CELL_SX, color: varColor, fontWeight: 600 }}>
+                          {fmtSignedInr(row.variance)}
+                        </TableCell>
+                        <TableCell sx={{ ...TABLE_CELL_SX, color: varColor, fontWeight: 600 }}>
+                          {row.variancePctLabel}
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
+                </TableBody>
+              </Table>
+            </TableContainer>
+            <Box component="footer" sx={{ mt: 2, px: 2 }}>
               {VARIANCE_NOTE_LINES.map((line) => (
                 <Typography
                   key={line}

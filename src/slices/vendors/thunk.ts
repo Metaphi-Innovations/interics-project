@@ -1,6 +1,7 @@
 import { createAsyncThunk } from '@reduxjs/toolkit'
 import { vendorsApi } from '../../api/vendorsApi'
 import { normalizeListResponse } from '@/utils/normalizeListResponse'
+import type { Contact } from '../customers/reducer'
 import type { Vendor } from './reducer'
 
 interface FetchVendorsParams {
@@ -85,4 +86,28 @@ export const deleteVendor = createAsyncThunk(
       return rejectWithValue(error.response?.data?.message ?? 'Failed to delete vendor')
     }
   }
+)
+
+export const createVendorContact = createAsyncThunk(
+  'vendors/createContact',
+  async (
+    {
+      vendorId,
+      data,
+    }: { vendorId: string; data: Omit<Contact, 'id'> },
+    { rejectWithValue },
+  ) => {
+    try {
+      const response = await vendorsApi.createContact(vendorId, data)
+      return {
+        vendorId,
+        contact: response.data as Contact,
+      }
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { message?: string } } }
+      return rejectWithValue(
+        error.response?.data?.message ?? 'Failed to create vendor contact',
+      )
+    }
+  },
 )

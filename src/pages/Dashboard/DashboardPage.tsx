@@ -44,12 +44,13 @@ import { TeamPerformance } from './sections/TeamPerformance'
 import { ProjectAnalytics } from './sections/ProjectAnalytics'
 import { BuildCostIntelligence } from './sections/BuildCostIntelligence'
 import { BillingCashflow } from './sections/BillingCashflow'
+import { CHART_HEIGHT_MD, CHART_HEIGHT_SM } from './components/chartLayout'
 
 export default function DashboardPage() {
   const theme = useTheme() as Theme
   const navigate = useNavigate()
   const dispatch = useAppDispatch()
-  const chartHeight = useMediaQuery(theme.breakpoints.down('md')) ? 180 : 220
+  const chartHeight = useMediaQuery(theme.breakpoints.down('md')) ? CHART_HEIGHT_SM : CHART_HEIGHT_MD
 
   const clientInvoices = useAppSelector((s) => s.receivables.items ?? [])
   const projects = useAppSelector((s) => s.projects.items ?? [])
@@ -198,24 +199,6 @@ export default function DashboardPage() {
   const projectValueTotal = useMemo(
     () => filteredProjects.reduce((s, p) => s + (p.projectValue ?? 0), 0),
     [filteredProjects],
-  )
-
-  const receivableTableRows = useMemo(
-    () =>
-      scopedInvoices.filter(
-        (inv) =>
-          inv.status !== 'paid' &&
-          inv.status !== 'draft',
-      ),
-    [scopedInvoices],
-  )
-
-  const payableTableRows = useMemo(
-    () =>
-      scopedVendorInvoices.filter(
-        (v) => v.status === 'pending' || v.status === 'approved',
-      ),
-    [scopedVendorInvoices],
   )
 
   const handleReset = useCallback(() => {
@@ -496,11 +479,7 @@ export default function DashboardPage() {
         amountCollected={sumCollected(scopedInvoices)}
         outstandingInvoices={outstandingReceivablesAmount(scopedInvoices)}
         poValue={filteredProjects.reduce((s, p) => s + (p.totalClientPOValue ?? 0), 0)}
-        receivableRows={receivableTableRows}
-        payableRows={payableTableRows}
         ru={ru}
-        tableHeaderBg={theme.palette.background.default}
-        onNavigate={navigate}
       />
     </Box>
   )

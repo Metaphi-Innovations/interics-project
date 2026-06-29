@@ -1,3 +1,4 @@
+import { Fragment } from 'react'
 import {
   Alert,
   Box,
@@ -22,7 +23,22 @@ export interface VendorPOMilestoneRow {
   value: number
 }
 
+export function createEmptyVendorPOMilestoneRow(): VendorPOMilestoneRow {
+  return {
+    id: `vpo-ml-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+    name: '',
+    percentage: 0,
+    value: 0,
+  }
+}
+
 export interface VendorPORetentionRow {
+  percentage: number
+  amount: number
+}
+
+export interface VendorPOFinalMilestoneRow {
+  name: string
   percentage: number
   amount: number
 }
@@ -31,11 +47,44 @@ interface VendorPOMilestoneEditorProps {
   poValue: number
   milestones: VendorPOMilestoneRow[]
   retention: VendorPORetentionRow | null
+  finalMilestone: VendorPOFinalMilestoneRow | null
   onMilestonesChange: (next: VendorPOMilestoneRow[]) => void
   onRetentionChange: (next: VendorPORetentionRow | null) => void
+  onFinalMilestoneChange: (next: VendorPOFinalMilestoneRow | null) => void
+  /** Lighter styling when nested inside a service card. */
+  embedded?: boolean
+  /** When true, only render the regular milestones table (no final / retention). */
+  regularOnly?: boolean
 }
 
-const GRID_COLUMNS = '1fr 80px 130px 36px'
+const GRID_COLUMNS = 'minmax(0, 1fr) 72px 104px 36px'
+/** Mirrors CategoryServiceFields — name column aligns with Category dropdown. */
+const CARD_CATEGORY_ALIGN_GRID = 'repeat(2, minmax(0, 1fr))'
+const CARD_MILESTONE_VALUE_GRID = 'minmax(0, 1fr) minmax(0, 1.4fr) 28px'
+const CARD_FIELD_GAP = 1.5
+
+const MILESTONE_FIELD_HEADER_SX = {
+  fontSize: 10,
+  fontWeight: 700,
+  color: tokens.color.neutral[500],
+  letterSpacing: 0.5,
+} as const
+
+const MILESTONE_INPUT_SX = {
+  width: '100%',
+  minWidth: 0,
+  '& .MuiInputBase-input': { fontSize: 11 },
+  '& .MuiInputBase-root': { width: '100%' },
+} as const
+
+const CARD_ACTION_CELL_SX = {
+  width: 28,
+  height: 28,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  flexShrink: 0,
+} as const
 
 function calcValue(poValue: number, percentage: number): number {
   if (!poValue || !percentage) return 0
@@ -51,6 +100,7 @@ function toValidationMapping(
   poValue: number,
   milestones: VendorPOMilestoneRow[],
   retention: VendorPORetentionRow | null,
+  finalMilestone: VendorPOFinalMilestoneRow | null,
 ): VendorMapping {
   return {
     id: 'po-temp',
@@ -67,6 +117,13 @@ function toValidationMapping(
       }),
     ),
     retention: retention ?? undefined,
+    finalMilestone: finalMilestone
+      ? {
+          name: finalMilestone.name,
+          percentage: finalMilestone.percentage,
+          amount: finalMilestone.amount,
+        }
+      : undefined,
     isMeasurable: false,
   }
 }
@@ -77,20 +134,64 @@ function balanceLabel(totalPct: number): string {
   return `Exceeded ${(totalPct - 100).toFixed(1)}%`
 }
 
+function CardMilestoneFieldHeader() {
+  return (
+    <Box
+      sx={{
+        display: 'grid',
+        gridTemplateColumns: CARD_CATEGORY_ALIGN_GRID,
+        gap: CARD_FIELD_GAP,
+        alignItems: 'end',
+        mb: 0.5,
+      }}
+    >
+      <Typography variant="caption" sx={MILESTONE_FIELD_HEADER_SX}>
+        Milestone Name
+      </Typography>
+      <Box
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: CARD_MILESTONE_VALUE_GRID,
+          gap: 1,
+          alignItems: 'end',
+          minWidth: 0,
+        }}
+      >
+        <Typography variant="caption" sx={MILESTONE_FIELD_HEADER_SX}>
+          %
+        </Typography>
+        <Typography variant="caption" sx={MILESTONE_FIELD_HEADER_SX}>
+          Value (₹)
+        </Typography>
+        <Box aria-hidden sx={{ width: 28 }} />
+      </Box>
+    </Box>
+  )
+}
+
 export function VendorPOMilestoneEditor({
   poValue,
   milestones,
   retention,
+  finalMilestone,
   onMilestonesChange,
   onRetentionChange,
+  onFinalMilestoneChange,
+  embedded = false,
+  regularOnly = false,
 }: VendorPOMilestoneEditorProps) {
   const theme = useTheme()
+  const isCardMilestoneList = embedded && regularOnly
   const validation = validateVendorMilestonePercents(
-    toValidationMapping(poValue, milestones, retention),
+    toValidationMapping(poValue, milestones, retention, finalMilestone),
   )
-  const totalPct = validation.currentPct
+  const totalPct = regularOnly
+    ? milestones.reduce((sum, m) => sum + m.percentage, 0)
+    : validation.currentPct
   const isBalanced = Math.abs(totalPct - 100) < VENDOR_MILESTONE_PCT_EPS
-  const hasBreakdown = milestones.length > 0 || Boolean(retention)
+  const hasBreakdown = regularOnly
+    ? milestones.length > 0
+    : milestones.length > 0 || Boolean(retention) || Boolean(finalMilestone)
 
   function updateMilestone(idx: number, field: keyof VendorPOMilestoneRow, val: string | number) {
     const next = milestones.map((m, i) => {
@@ -107,14 +208,15 @@ export function VendorPOMilestoneEditor({
   }
 
   function addMilestone() {
-    onMilestonesChange([
-      ...milestones,
-      { id: `vpo-ml-${Date.now()}`, name: '', percentage: 0, value: 0 },
-    ])
+    onMilestonesChange([...milestones, createEmptyVendorPOMilestoneRow()])
   }
 
   function removeMilestone(idx: number) {
-    onMilestonesChange(milestones.filter((_, i) => i !== idx))
+    if (isCardMilestoneList && milestones.length <= 1) return
+    const next = milestones.filter((_, i) => i !== idx)
+    onMilestonesChange(
+      isCardMilestoneList && next.length === 0 ? [createEmptyVendorPOMilestoneRow()] : next,
+    )
   }
 
   function updateRetention(field: 'percentage' | 'amount', val: number) {
@@ -130,103 +232,247 @@ export function VendorPOMilestoneEditor({
     onRetentionChange(next)
   }
 
+  function updateFinalMilestone(
+    field: keyof VendorPOFinalMilestoneRow,
+    val: string | number,
+  ) {
+    if (!finalMilestone) return
+    const next = { ...finalMilestone, [field]: val }
+    if (field === 'percentage') {
+      next.amount = calcValue(poValue, Number(val))
+    } else if (field === 'amount') {
+      next.percentage = calcPercentage(poValue, Number(val))
+    }
+    onFinalMilestoneChange(next)
+  }
+
   return (
     <Box
       sx={{
-        bgcolor: tokens.color.neutral[50],
-        borderRadius: 2,
-        p: 1.5,
-        border: '1px solid',
+        bgcolor: embedded ? 'transparent' : tokens.color.neutral[50],
+        borderRadius: embedded ? 0 : 2,
+        p: embedded ? 0 : 1.5,
+        border: embedded ? 'none' : '1px solid',
         borderColor: 'divider',
       }}
     >
-      <Typography
-        variant="caption"
-        sx={{ fontSize: 10, fontWeight: 700, color: 'text.secondary', letterSpacing: 0.5, display: 'block', mb: 1 }}
-      >
-        MILESTONES
-      </Typography>
+      {!embedded ? (
+        <Typography
+          variant="caption"
+          sx={{ fontSize: 10, fontWeight: 700, color: 'text.secondary', letterSpacing: 0.5, display: 'block', mb: 1 }}
+        >
+          MILESTONES
+        </Typography>
+      ) : null}
 
-      <Box
-        sx={{
-          display: 'grid',
-          gridTemplateColumns: GRID_COLUMNS,
-          gap: 1,
-          px: 1,
-          py: 0.5,
-          mb: 0.5,
-        }}
-      >
-        {['NAME', '%', '₹ VALUE', ''].map((h) => (
-          <Typography
-            key={h || 'sp'}
-            variant="caption"
-            sx={{
-              fontSize: 10,
-              fontWeight: 600,
-              color: 'text.secondary',
-              textTransform: 'uppercase',
-              letterSpacing: '0.5px',
-            }}
-          >
-            {h}
-          </Typography>
-        ))}
-      </Box>
+      {isCardMilestoneList ? (
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+          <CardMilestoneFieldHeader />
+          {milestones.map((m, idx) => {
+            const isLast = idx === milestones.length - 1
+            const isOnly = milestones.length === 1
 
-      {milestones.map((m, idx) => (
+            return (
+              <Box
+                key={m.id}
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: CARD_CATEGORY_ALIGN_GRID,
+                  gap: CARD_FIELD_GAP,
+                  alignItems: 'center',
+                }}
+              >
+                <TextField
+                  size="small"
+                  fullWidth
+                  value={m.name}
+                  onChange={(e) => updateMilestone(idx, 'name', e.target.value)}
+                  placeholder="Milestone name"
+                  sx={MILESTONE_INPUT_SX}
+                />
+                <Box
+                  sx={{
+                    display: 'grid',
+                    gridTemplateColumns: CARD_MILESTONE_VALUE_GRID,
+                    gap: 1,
+                    alignItems: 'center',
+                    minWidth: 0,
+                  }}
+                >
+                  <TextField
+                    size="small"
+                    fullWidth
+                    type="number"
+                    value={m.percentage}
+                    onChange={(e) => updateMilestone(idx, 'percentage', Number(e.target.value))}
+                    placeholder="%"
+                    sx={MILESTONE_INPUT_SX}
+                  />
+                  <TextField
+                    size="small"
+                    fullWidth
+                    type="number"
+                    value={m.value}
+                    onChange={(e) => updateMilestone(idx, 'value', Number(e.target.value))}
+                    placeholder="₹ VALUE"
+                    sx={MILESTONE_INPUT_SX}
+                  />
+                  <Box sx={CARD_ACTION_CELL_SX}>
+                    {!isOnly && isLast ? (
+                      <MuiIconButton
+                        size="small"
+                        aria-label="Add milestone row"
+                        onClick={addMilestone}
+                        sx={{ color: 'primary.main', width: 28, height: 28, p: 0.25 }}
+                      >
+                        <Add sx={{ fontSize: 16 }} />
+                      </MuiIconButton>
+                    ) : null}
+                    {!isOnly && !isLast ? (
+                      <MuiIconButton
+                        size="small"
+                        aria-label="Remove milestone row"
+                        onClick={() => removeMilestone(idx)}
+                        sx={{ color: 'error.main', width: 28, height: 28, p: 0.25 }}
+                      >
+                        <Delete sx={{ fontSize: 16 }} />
+                      </MuiIconButton>
+                    ) : null}
+                  </Box>
+                </Box>
+              </Box>
+            )
+          })}
+        </Box>
+      ) : (
         <Box
-          key={m.id}
           sx={{
             display: 'grid',
             gridTemplateColumns: GRID_COLUMNS,
             gap: 1,
             alignItems: 'center',
-            mb: 0.75,
+            px: embedded ? 0 : 1,
           }}
         >
-          <TextField
-            size="small"
-            value={m.name}
-            onChange={(e) => updateMilestone(idx, 'name', e.target.value)}
-            placeholder="Milestone name"
-            sx={{ '& .MuiInputBase-input': { fontSize: 11 } }}
-          />
-          <TextField
-            size="small"
-            type="number"
-            value={m.percentage}
-            onChange={(e) => updateMilestone(idx, 'percentage', Number(e.target.value))}
-            sx={{ '& .MuiInputBase-input': { fontSize: 11 } }}
-          />
-          <TextField
-            size="small"
-            type="number"
-            value={m.value}
-            onChange={(e) => updateMilestone(idx, 'value', Number(e.target.value))}
-            sx={{ '& .MuiInputBase-input': { fontSize: 11 } }}
-          />
-          <MuiIconButton size="small" onClick={() => removeMilestone(idx)} sx={{ color: 'error.main' }}>
-            <Delete sx={{ fontSize: 14 }} />
-          </MuiIconButton>
+          {milestones.map((m, idx) => (
+            <Fragment key={m.id}>
+              <TextField
+                size="small"
+                fullWidth
+                value={m.name}
+                onChange={(e) => updateMilestone(idx, 'name', e.target.value)}
+                placeholder="Milestone name"
+                sx={MILESTONE_INPUT_SX}
+              />
+              <TextField
+                size="small"
+                fullWidth
+                type="number"
+                value={m.percentage}
+                onChange={(e) => updateMilestone(idx, 'percentage', Number(e.target.value))}
+                placeholder="%"
+                sx={MILESTONE_INPUT_SX}
+              />
+              <TextField
+                size="small"
+                fullWidth
+                type="number"
+                value={m.value}
+                onChange={(e) => updateMilestone(idx, 'value', Number(e.target.value))}
+                placeholder="₹ VALUE"
+                sx={MILESTONE_INPUT_SX}
+              />
+              <Box sx={CARD_ACTION_CELL_SX}>
+                <MuiIconButton
+                  size="small"
+                  aria-label="Remove milestone row"
+                  onClick={() => removeMilestone(idx)}
+                  sx={{ color: 'error.main', width: 28, height: 28, p: 0.25 }}
+                >
+                  <Delete sx={{ fontSize: 16 }} />
+                </MuiIconButton>
+              </Box>
+            </Fragment>
+          ))}
         </Box>
-      ))}
+      )}
 
-      <MuiButton
-        size="small"
-        variant="text"
-        startIcon={<Add sx={{ fontSize: 16 }} />}
-        onClick={addMilestone}
+      {regularOnly ? null : (
+        <>
+      <Divider sx={{ my: 2 }} />
+
+      <Typography
+        variant="caption"
+        sx={{ fontSize: 10, fontWeight: 700, color: 'text.secondary', letterSpacing: 0.5, display: 'block', mb: 1 }}
+      >
+        FINAL MILESTONE
+      </Typography>
+
+      <Box
         sx={{
-          fontSize: 12,
-          color: 'primary.main',
-          padding: '4px 8px',
-          mt: 0.5,
-          '&:hover': { backgroundColor: alpha(theme.palette.primary.main, 0.08) },
+          borderRadius: 1,
+          p: 1.5,
+          bgcolor: alpha(theme.palette.text.primary, 0.04),
+          border: `1px solid ${alpha(theme.palette.divider, 0.8)}`,
         }}
       >
-        Add Milestone
-      </MuiButton>
+        {!finalMilestone ? (
+          <Stack gap={1}>
+            <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12 }}>
+              No final milestone defined
+            </Typography>
+            <MuiButton
+              size="small"
+              variant="outlined"
+              startIcon={<Add sx={{ fontSize: 16 }} />}
+              onClick={() => onFinalMilestoneChange({ name: '', percentage: 0, amount: 0 })}
+              sx={{ fontSize: 12, alignSelf: 'flex-start' }}
+            >
+              Add Final Milestone
+            </MuiButton>
+          </Stack>
+        ) : (
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: GRID_COLUMNS,
+              gap: 1,
+              alignItems: 'center',
+            }}
+          >
+            <TextField
+              size="small"
+              value={finalMilestone.name}
+              onChange={(e) => updateFinalMilestone('name', e.target.value)}
+              placeholder="Milestone name"
+              sx={{ '& .MuiInputBase-input': { fontSize: 11 } }}
+            />
+            <TextField
+              size="small"
+              type="number"
+              value={finalMilestone.percentage}
+              onChange={(e) => updateFinalMilestone('percentage', Number(e.target.value))}
+              placeholder="%"
+              sx={{ '& .MuiInputBase-input': { fontSize: 11 } }}
+            />
+            <TextField
+              size="small"
+              type="number"
+              value={finalMilestone.amount}
+              onChange={(e) => updateFinalMilestone('amount', Number(e.target.value))}
+              placeholder="₹ VALUE"
+              sx={{ '& .MuiInputBase-input': { fontSize: 11 } }}
+            />
+            <MuiIconButton
+              size="small"
+              onClick={() => onFinalMilestoneChange(null)}
+              sx={{ color: 'error.main' }}
+            >
+              <Delete sx={{ fontSize: 16 }} />
+            </MuiIconButton>
+          </Box>
+        )}
+      </Box>
 
       <Divider sx={{ my: 2 }} />
 
@@ -257,7 +503,7 @@ export function VendorPOMilestoneEditor({
               onClick={() => onRetentionChange({ percentage: 0, amount: 0 })}
               sx={{ fontSize: 12, alignSelf: 'flex-start' }}
             >
-              Add Retention Milestone
+              Add Retention
             </MuiButton>
           </Stack>
         ) : (
@@ -280,6 +526,7 @@ export function VendorPOMilestoneEditor({
               type="number"
               value={retention.percentage}
               onChange={(e) => updateRetention('percentage', Number(e.target.value))}
+              placeholder="%"
               sx={{ '& .MuiInputBase-input': { fontSize: 11 } }}
             />
             <TextField
@@ -287,20 +534,21 @@ export function VendorPOMilestoneEditor({
               type="number"
               value={retention.amount}
               onChange={(e) => updateRetention('amount', Number(e.target.value))}
+              placeholder="₹ VALUE"
               sx={{ '& .MuiInputBase-input': { fontSize: 11 } }}
             />
             <MuiIconButton size="small" onClick={() => onRetentionChange(null)} sx={{ color: 'error.main' }}>
-              <Delete sx={{ fontSize: 14 }} />
+              <Delete sx={{ fontSize: 16 }} />
             </MuiIconButton>
           </Box>
         )}
       </Box>
 
       <Typography variant="caption" color="text.secondary" sx={{ fontSize: 10, display: 'block', mt: 1.5 }}>
-        Total of milestones and retention must equal 100%.
+        Total of milestones, retention, and final milestone must equal 100%.
       </Typography>
 
-      {!validation.valid && hasBreakdown && (validation.pctMessage || validation.structureMessage) ? (
+      {!validation.valid && hasBreakdown && !regularOnly && (validation.pctMessage || validation.structureMessage) ? (
         <Alert severity="error" sx={{ mt: 1, fontSize: 12 }}>
           {validation.structureMessage ?? validation.pctMessage}
         </Alert>
@@ -331,6 +579,8 @@ export function VendorPOMilestoneEditor({
           />
         </Stack>
       ) : null}
+        </>
+      )}
     </Box>
   )
 }
@@ -338,8 +588,9 @@ export function VendorPOMilestoneEditor({
 export function buildVendorPOMilestonePayload(
   milestones: VendorPOMilestoneRow[],
   retention: VendorPORetentionRow | null,
+  finalMilestone: VendorPOFinalMilestoneRow | null,
 ): import('@/slices/baseline/reducer').VendorPOMilestone[] {
-  const rows = milestones
+  const rows: import('@/slices/baseline/reducer').VendorPOMilestone[] = milestones
     .filter((m) => m.name.trim())
     .map((m) => ({
       id: m.id,
@@ -348,6 +599,7 @@ export function buildVendorPOMilestonePayload(
       value: m.value,
       dueDate: null,
       status: 'Pending' as const,
+      kind: 'regular' as const,
     }))
   if (retention && (retention.percentage > 0 || retention.amount > 0)) {
     rows.push({
@@ -357,6 +609,22 @@ export function buildVendorPOMilestonePayload(
       value: retention.amount,
       dueDate: null,
       status: 'Pending',
+      kind: 'retention',
+    })
+  }
+  if (
+    finalMilestone &&
+    finalMilestone.name.trim() &&
+    (finalMilestone.percentage > 0 || finalMilestone.amount > 0)
+  ) {
+    rows.push({
+      id: `vpo-final-${Date.now()}`,
+      name: finalMilestone.name.trim(),
+      percentage: finalMilestone.percentage,
+      value: finalMilestone.amount,
+      dueDate: null,
+      status: 'Pending',
+      kind: 'final',
     })
   }
   return rows
@@ -366,10 +634,11 @@ export function isVendorPOMilestoneBreakdownValid(
   poValue: number,
   milestones: VendorPOMilestoneRow[],
   retention: VendorPORetentionRow | null,
+  finalMilestone: VendorPOFinalMilestoneRow | null,
 ): boolean {
-  const hasBreakdown = milestones.length > 0 || Boolean(retention)
+  const hasBreakdown = milestones.length > 0 || Boolean(retention) || Boolean(finalMilestone)
   if (!hasBreakdown) return true
   return validateVendorMilestonePercents(
-    toValidationMapping(poValue, milestones, retention),
+    toValidationMapping(poValue, milestones, retention, finalMilestone),
   ).valid
 }

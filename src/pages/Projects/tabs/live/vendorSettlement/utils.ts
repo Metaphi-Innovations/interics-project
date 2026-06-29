@@ -171,6 +171,19 @@ export function expenseRowsForVendor(
   return out
 }
 
+/** Pending project expenses available for vendor invoice deduction (Pitch + Live). */
+export function selectableProjectExpensesForInvoice(
+  expenses: Expense[],
+  projectId: string,
+): Expense[] {
+  return expenses.filter(
+    (e) =>
+      e.projectId === projectId &&
+      e.status === 'pending' &&
+      e.type !== 'reimbursable_expenses',
+  )
+}
+
 export function itemsSummary(p: VendorPayment): string {
   const ni = p.linkedInvoiceIds.length
   const ne = p.linkedExpenseIds.length

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   Alert,
   Box,
@@ -7,9 +7,6 @@ import {
   DialogContent,
   DialogTitle,
   Divider,
-  IconButton as MuiIconButton,
-  MenuItem,
-  Select,
   Stack,
   Table,
   TableBody,
@@ -20,7 +17,8 @@ import {
   Typography,
   Button as MuiButton,
 } from '@mui/material'
-import { Add, Delete as DeleteIcon, Download, Upload } from '@mui/icons-material'
+import { Add, Download, Upload } from '@mui/icons-material'
+import { useTheme, alpha } from '@mui/material/styles'
 import { Button, useToast } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { DrawerForm, FormField } from '../../../../components/templates'
@@ -35,10 +33,25 @@ import { fetchVersions } from '../../../../slices/pitch/thunk'
 import type { ClientPO, ClientPOMilestone } from '../../../../slices/baseline/reducer'
 import { formatCurrency } from '../../../../utils/formatters'
 import {
+  clientPOCardServiceOptions,
+  clientPOCategoryOptions,
   flattenClientOfferServices,
-  serviceNameForOption,
   type ClientPOServiceOption,
 } from './clientPOServiceOptions'
+import {
+  buildClientPOMilestonePayload,
+  ClientPOMilestoneCardEditor,
+  ClientPORetentionCardEditor,
+  clientPOCardsFromMilestones,
+  createClientPOMilestoneCard,
+  createClientPORetentionCard,
+  groupClientCardsByService,
+  isClientGroupedServiceValid,
+  isMilestoneCardConfigured,
+  isRetentionCardConfigured,
+  type ClientPOMilestoneCard,
+  type ClientPORetentionCard,
+} from './ClientPOMilestoneCards'
 
 const PO_SECTION_TITLE_SX = {
   fontSize: '10px',
@@ -46,7 +59,7 @@ const PO_SECTION_TITLE_SX = {
   letterSpacing: '0.8px',
   color: 'text.secondary',
   textTransform: 'uppercase' as const,
-}
+} as const
 
 const TABLE_HEADER_SX = {
   fontSize: 10,
@@ -62,75 +75,6 @@ const TABLE_CELL_SX = {
   py: 1,
   px: 1.5,
 } as const
-
-/** Grid columns: Service | Name | % | Value | Action */
-const MILESTONE_GRID_COLUMNS_WITH_SERVICE =
-  'minmax(120px, 1fr) minmax(0, 1fr) 72px 96px 36px'
-
-/** Grid columns: Name | % | Value | Action (Add Client PO) */
-const MILESTONE_GRID_COLUMNS_NO_SERVICE = 'minmax(0, 1fr) 72px 96px 36px'
-
-const MILESTONE_HEADER_LABELS_WITH_SERVICE = [
-  'Service',
-  'Name',
-  'Percentage (%)',
-  'Value (₹)',
-  'Action',
-] as const
-
-const MILESTONE_HEADER_LABELS_NO_SERVICE = [
-  'Name',
-  'Percentage (%)',
-  'Value (₹)',
-  'Action',
-] as const
-
-function milestoneGridColumns(hideServiceColumn: boolean): string {
-  return hideServiceColumn
-    ? MILESTONE_GRID_COLUMNS_NO_SERVICE
-    : MILESTONE_GRID_COLUMNS_WITH_SERVICE
-}
-
-function calcMilestoneAmount(poValue: number, percentage: number): number {
-  if (!poValue || !percentage) return 0
-  return Math.round((percentage / 100) * poValue)
-}
-
-function emptyMilestoneRow(): ClientPOMilestone {
-  return {
-    id: `cpm-${Date.now()}`,
-    serviceId: '',
-    serviceName: '',
-    name: '',
-    percentage: 0,
-    value: 0,
-  }
-}
-
-function milestonePayloadFromEditor(milestones: ClientPOMilestone[]): ClientPOMilestone[] {
-  return milestones
-    .filter((m) => m.name.trim())
-    .map((m) => ({
-      id: m.id,
-      serviceId: m.serviceId,
-      serviceName: m.serviceName,
-      name: m.name,
-      percentage: m.percentage,
-      value: m.value,
-    }))
-}
-
-function validateNamedMilestones(
-  milestones: ClientPOMilestone[],
-  showError: (message: string) => void,
-): boolean {
-  const named = milestones.filter((m) => m.name.trim())
-  if (named.some((m) => !m.serviceId)) {
-    showError('Select a service for each milestone')
-    return false
-  }
-  return true
-}
 
 function useClientPOServiceOptions(projectId: string, open: boolean): ClientPOServiceOption[] {
   const dispatch = useAppDispatch()
@@ -152,146 +96,84 @@ function useClientPOServiceOptions(projectId: string, open: boolean): ClientPOSe
   )
 }
 
-function MilestoneEditorHeader({ hideServiceColumn = false }: { hideServiceColumn?: boolean }) {
-  const labels = hideServiceColumn
-    ? MILESTONE_HEADER_LABELS_NO_SERVICE
-    : MILESTONE_HEADER_LABELS_WITH_SERVICE
-  const pctIdx = hideServiceColumn ? 1 : 2
-  const valueIdx = hideServiceColumn ? 2 : 3
-  const actionIdx = hideServiceColumn ? 3 : 4
+function mapMilestonesFromPo(milestones: ClientPOMilestone[]): ClientPOMilestone[] {
+  return milestones.map((m) => ({
+    id: m.id,
+    serviceId: m.serviceId ?? '',
+    serviceName: m.serviceName ?? '',
+    name: m.name,
+    percentage: m.percentage,
+    value: m.value,
+    ...(m.kind ? { kind: m.kind } : {}),
+    ...(m.retention ? { retention: { ...m.retention } } : {}),
+  }))
+}
 
-  return (
-    <Box
-      sx={{
-        display: 'grid',
-        gridTemplateColumns: milestoneGridColumns(hideServiceColumn),
-        gap: 1,
-        alignItems: 'center',
-        px: 1.5,
-        py: 1,
-        bgcolor: tokens.color.neutral[50],
-        borderBottom: `1px solid ${tokens.color.neutral[100]}`,
-      }}
+function isRetentionRow(milestone: ClientPOMilestone): boolean {
+  return milestone.kind === 'retention' || milestone.id.startsWith('cli-ret-')
+}
+
+function MilestoneSectionPanel({
+  title,
+  addLabel,
+  onAdd,
+  addDisabled,
+  isEmpty,
+  showAddButton = true,
+  children,
+}: {
+  title: string
+  addLabel: string
+  onAdd: () => void
+  addDisabled?: boolean
+  isEmpty: boolean
+  showAddButton?: boolean
+  children?: ReactNode
+}) {
+  const theme = useTheme()
+
+  const addButton = showAddButton ? (
+    <MuiButton
+      size="small"
+      variant="outlined"
+      startIcon={<Add sx={{ fontSize: 16 }} />}
+      onClick={onAdd}
+      disabled={addDisabled}
+      sx={{ fontSize: 12, alignSelf: 'flex-start' }}
     >
-      {labels.map((label, i) => (
-        <Typography
-          key={label}
-          variant="caption"
-          sx={{
-            fontSize: 10,
-            fontWeight: 700,
-            color: tokens.color.neutral[500],
-            letterSpacing: 0.5,
-            textAlign: i === pctIdx || i === valueIdx ? 'right' : 'left',
-            ...(i === actionIdx ? { textAlign: 'center' } : {}),
-          }}
-        >
-          {label}
-        </Typography>
-      ))}
-    </Box>
-  )
-}
-
-interface MilestoneEditorRowsProps {
-  milestones: ClientPOMilestone[]
-  serviceOptions: ClientPOServiceOption[]
-  onUpdate: (idx: number, patch: Partial<ClientPOMilestone>) => void
-  onRemove: (idx: number) => void
-  hideServiceColumn?: boolean
-}
-
-function MilestoneEditorRows({
-  milestones,
-  serviceOptions,
-  onUpdate,
-  onRemove,
-  hideServiceColumn = false,
-}: MilestoneEditorRowsProps) {
-  if (milestones.length === 0) {
-    return (
-      <Typography
-        variant="body2"
-        color="text.secondary"
-        sx={{ fontSize: 12, py: 2, px: 1.5, textAlign: 'center' }}
-      >
-        No milestones yet. Click Add Milestone to create one.
-      </Typography>
-    )
-  }
+      {addLabel}
+    </MuiButton>
+  ) : null
 
   return (
-    <>
-      {milestones.map((m, idx) => (
-        <Box
-          key={m.id}
-          sx={{
-            display: 'grid',
-            gridTemplateColumns: milestoneGridColumns(hideServiceColumn),
-            gap: 1,
-            alignItems: 'center',
-            px: 1.5,
-            py: 1,
-            borderBottom:
-              idx < milestones.length - 1
-                ? `1px solid ${tokens.color.neutral[100]}`
-                : 'none',
-          }}
-        >
-          {!hideServiceColumn ? (
-            <Select
-              size="small"
-              fullWidth
-              displayEmpty
-              value={m.serviceId}
-              onChange={(e) => onUpdate(idx, { serviceId: e.target.value })}
-              sx={{ fontSize: 12 }}
-            >
-              <MenuItem value="" sx={{ fontSize: 12 }}>
-                Select service
-              </MenuItem>
-              {serviceOptions.map((opt) => (
-                <MenuItem key={opt.id} value={opt.id} sx={{ fontSize: 12 }}>
-                  {opt.label}
-                </MenuItem>
-              ))}
-            </Select>
-          ) : null}
-          <TextField
-            size="small"
-            fullWidth
-            value={m.name}
-            onChange={(e) => onUpdate(idx, { name: e.target.value })}
-            placeholder="Milestone name"
-            inputProps={{ style: { fontSize: 12 } }}
-          />
-          <TextField
-            size="small"
-            type="number"
-            value={m.percentage}
-            onChange={(e) => onUpdate(idx, { percentage: Number(e.target.value) })}
-            inputProps={{ style: { fontSize: 12, textAlign: 'right' } }}
-            placeholder="%"
-          />
-          <TextField
-            size="small"
-            type="number"
-            value={m.value}
-            onChange={(e) => onUpdate(idx, { value: Number(e.target.value) })}
-            inputProps={{ style: { fontSize: 12, textAlign: 'right' } }}
-            placeholder="₹"
-          />
-          <MuiIconButton
-            size="small"
-            aria-label="Remove milestone"
-            onClick={() => onRemove(idx)}
-            sx={{ color: 'error.main', p: '2px', justifySelf: 'center' }}
+    <Box sx={{ mt: 2 }}>
+      <Typography
+        component="span"
+        variant="overline"
+        sx={{ ...PO_SECTION_TITLE_SX, display: 'block', mb: 1 }}
+      >
+        {title}
+      </Typography>
+      {isEmpty ? (
+        addButton ? (
+          <Box
+            sx={{
+              borderRadius: 1,
+              p: 1.5,
+              bgcolor: alpha(theme.palette.text.primary, 0.04),
+              border: `1px solid ${alpha(theme.palette.divider, 0.8)}`,
+            }}
           >
-            <DeleteIcon sx={{ fontSize: 14 }} />
-          </MuiIconButton>
-        </Box>
-      ))}
-    </>
+            {addButton}
+          </Box>
+        ) : null
+      ) : (
+        <Stack gap={1.5}>
+          {children}
+          {addButton}
+        </Stack>
+      )}
+    </Box>
   )
 }
 
@@ -316,36 +198,58 @@ function ClientPOMilestonesTable({ milestones }: { milestones: ClientPOMilestone
       <Table size="small" sx={{ width: '100%', tableLayout: 'fixed' }}>
         <TableHead>
           <TableRow sx={{ bgcolor: tokens.color.neutral[50] }}>
-            <TableCell sx={{ ...TABLE_HEADER_SX, width: '28%' }}>Service</TableCell>
+            <TableCell sx={{ ...TABLE_HEADER_SX, width: '24%' }}>Service</TableCell>
             <TableCell sx={{ ...TABLE_HEADER_SX, width: '28%' }}>Name</TableCell>
             <TableCell align="right" sx={{ ...TABLE_HEADER_SX, width: '18%' }}>
               Percentage (%)
             </TableCell>
-            <TableCell align="right" sx={{ ...TABLE_HEADER_SX, width: '26%' }}>
+            <TableCell align="right" sx={{ ...TABLE_HEADER_SX, width: '30%' }}>
               Value (₹)
             </TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
           {milestones.map((m) => (
-            <TableRow key={m.id} hover>
-              <TableCell sx={TABLE_CELL_SX}>
-                <Typography variant="body2" sx={{ fontSize: 12 }}>
-                  {m.serviceName || '—'}
-                </Typography>
-              </TableCell>
-              <TableCell sx={TABLE_CELL_SX}>
-                <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 500 }}>
-                  {m.name || '—'}
-                </Typography>
-              </TableCell>
-              <TableCell align="right" sx={TABLE_CELL_SX}>
-                {m.percentage}%
-              </TableCell>
-              <TableCell align="right" sx={{ ...TABLE_CELL_SX, fontWeight: 600 }}>
-                ₹{formatCurrency(m.value)}
-              </TableCell>
-            </TableRow>
+            <Fragment key={m.id}>
+              <TableRow hover>
+                <TableCell sx={TABLE_CELL_SX}>
+                  <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary' }}>
+                    {m.serviceName || '—'}
+                  </Typography>
+                </TableCell>
+                <TableCell sx={TABLE_CELL_SX}>
+                  <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 500 }}>
+                    {isRetentionRow(m) ? `${m.name} (Retention)` : m.name || '—'}
+                  </Typography>
+                </TableCell>
+                <TableCell align="right" sx={TABLE_CELL_SX}>
+                  {m.percentage}%
+                </TableCell>
+                <TableCell align="right" sx={{ ...TABLE_CELL_SX, fontWeight: 600 }}>
+                  ₹{formatCurrency(m.value)}
+                </TableCell>
+              </TableRow>
+              {m.retention && !isRetentionRow(m) ? (
+                <TableRow key={`${m.id}-retention`} sx={{ bgcolor: tokens.color.neutral[50] }}>
+                  <TableCell sx={TABLE_CELL_SX}>
+                    <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary' }}>
+                      {m.serviceName || '—'}
+                    </Typography>
+                  </TableCell>
+                  <TableCell sx={{ ...TABLE_CELL_SX, pl: 3 }}>
+                    <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary' }}>
+                      ↳ Retention
+                    </Typography>
+                  </TableCell>
+                  <TableCell align="right" sx={TABLE_CELL_SX}>
+                    {m.retention.percentage}%
+                  </TableCell>
+                  <TableCell align="right" sx={{ ...TABLE_CELL_SX, fontWeight: 600 }}>
+                    ₹{formatCurrency(m.retention.value)}
+                  </TableCell>
+                </TableRow>
+              ) : null}
+            </Fragment>
           ))}
         </TableBody>
       </Table>
@@ -364,89 +268,113 @@ export function AddClientPODrawer({ open, onClose, projectId }: AddClientPODrawe
   const { saving } = useAppSelector((s) => s.baseline)
   const toast = useToast((s) => s.showToast)
   const serviceOptions = useClientPOServiceOptions(projectId, open)
+  const categoryOptions = useMemo(
+    () => clientPOCategoryOptions(serviceOptions),
+    [serviceOptions],
+  )
+  const cardServiceOptions = useMemo(
+    () => clientPOCardServiceOptions(serviceOptions),
+    [serviceOptions],
+  )
   const [poFormData, setPoFormData] = useState({
     poNumber: '',
     poValue: '',
+    executedValue: '',
     file: null as File | null,
   })
-  const [milestones, setMilestones] = useState<ClientPOMilestone[]>([])
+  const [milestoneCards, setMilestoneCards] = useState<ClientPOMilestoneCard[]>([])
+  const [retentionCards, setRetentionCards] = useState<ClientPORetentionCard[]>([])
 
   useEffect(() => {
     if (!open) {
-      setPoFormData({ poNumber: '', poValue: '', file: null })
-      setMilestones([])
+      setPoFormData({ poNumber: '', poValue: '', executedValue: '', file: null })
+      setMilestoneCards([])
+      setRetentionCards([])
     }
   }, [open])
 
   const poValueNumber = Number(poFormData.poValue) || 0
+  const executedValueNumber = poFormData.executedValue
+    ? Number(poFormData.executedValue)
+    : poValueNumber
+  const milestoneBaseValue = executedValueNumber
+
+  const hasConfiguredEntries = useMemo(
+    () =>
+      milestoneCards.some(isMilestoneCardConfigured) ||
+      retentionCards.some(isRetentionCardConfigured),
+    [milestoneCards, retentionCards],
+  )
+
+  const groupedForSave = useMemo(
+    () =>
+      groupClientCardsByService(
+        milestoneCards.filter(isMilestoneCardConfigured),
+        retentionCards.filter(isRetentionCardConfigured),
+      ),
+    [milestoneCards, retentionCards],
+  )
+
+  const groupedSaveValid = useMemo(
+    () => groupedForSave.every((group) => isClientGroupedServiceValid(milestoneBaseValue, group)),
+    [groupedForSave, milestoneBaseValue],
+  )
 
   useEffect(() => {
-    if (poValueNumber <= 0) return
-    setMilestones((prev) =>
-      prev.map((m) => ({
-        ...m,
-        value: calcMilestoneAmount(poValueNumber, m.percentage),
-      })),
-    )
-  }, [poValueNumber])
+    if (milestoneBaseValue <= 0) return
+    setRetentionCards((prev) => {
+      let changed = false
+      const next = prev.map((row) => {
+        const amount = Math.round((row.percentage / 100) * milestoneBaseValue)
+        if (row.value === amount) return row
+        changed = true
+        return { ...row, value: amount }
+      })
+      return changed ? next : prev
+    })
+  }, [milestoneBaseValue])
 
   const handlePoChange = (field: string) => (e: React.ChangeEvent<HTMLInputElement>) => {
     setPoFormData((prev) => ({ ...prev, [field]: e.target.value }))
   }
 
-  function addMilestoneRow(): void {
-    const defaultService = serviceOptions[0]
-    setMilestones((prev) => [
-      ...prev,
-      {
-        ...emptyMilestoneRow(),
-        serviceId: defaultService?.id ?? '',
-        serviceName: defaultService?.label ?? '',
-      },
-    ])
-  }
-
-  function updateMilestone(idx: number, patch: Partial<ClientPOMilestone>): void {
-    setMilestones((prev) => {
-      const updated = [...prev]
-      updated[idx] = { ...updated[idx], ...patch }
-      if (patch.serviceId !== undefined) {
-        updated[idx].serviceName = serviceNameForOption(serviceOptions, patch.serviceId)
+  function handlePoValueChange(value: string) {
+    setPoFormData((prev) => {
+      const oldPo = Number(prev.poValue) || 0
+      const oldExec = prev.executedValue ? Number(prev.executedValue) : oldPo
+      const syncExec = !prev.executedValue || oldExec === oldPo
+      return {
+        ...prev,
+        poValue: value,
+        executedValue: syncExec ? value : prev.executedValue,
       }
-      if (patch.percentage !== undefined) {
-        updated[idx].value = calcMilestoneAmount(poValueNumber, Number(patch.percentage))
-      } else if (patch.value !== undefined) {
-        updated[idx].percentage =
-          poValueNumber > 0 ? Math.round((Number(patch.value) / poValueNumber) * 100) : 0
-      }
-      return updated
     })
   }
 
-  function removeMilestone(idx: number): void {
-    setMilestones((prev) => prev.filter((_, i) => i !== idx))
-  }
-
-  const hasNamedMilestoneWithoutService = milestones.some(
-    (m) => m.name.trim() && !m.serviceId,
-  )
-  const submitDisabled =
-    saving || serviceOptions.length === 0 || hasNamedMilestoneWithoutService
+  const submitDisabled = saving || serviceOptions.length === 0
+  const cardsDisabled = categoryOptions.length === 0
 
   async function handleSubmit() {
     if (!poFormData.poNumber || !poFormData.poValue) {
       toast({ title: 'Please fill in all required fields', variant: 'error' })
       return
     }
-    if (
-      !validateNamedMilestones(milestones, (message) =>
-        toast({ title: message, variant: 'error' }),
-      )
-    ) {
+    if (!hasConfiguredEntries || groupedForSave.length === 0) {
+      toast({ title: 'Add at least one milestone or retention entry', variant: 'error' })
+      return
+    }
+    if (!groupedSaveValid) {
+      toast({
+        title: 'Combined milestones per service must equal 100%',
+        variant: 'error',
+      })
       return
     }
 
-    const milestonePayload = milestonePayloadFromEditor(milestones)
+    const milestonePayload = buildClientPOMilestonePayload(groupedForSave, serviceOptions)
+    const executedValueNumberSave = poFormData.executedValue
+      ? Number(poFormData.executedValue)
+      : null
 
     try {
       await dispatch(
@@ -457,6 +385,7 @@ export function AddClientPODrawer({ open, onClose, projectId }: AddClientPODrawe
             startDate: '',
             endDate: '',
             poValue: poValueNumber,
+            executedValue: executedValueNumberSave,
             documentUrl: null,
             fileName: poFormData.file?.name,
             milestones: milestonePayload,
@@ -487,7 +416,7 @@ export function AddClientPODrawer({ open, onClose, projectId }: AddClientPODrawe
           Add client offer services on the Pitch tab before adding PO milestones.
         </Alert>
       ) : null}
-      <Box sx={{ mb: 3 }}>
+      <Box sx={{ mb: 0 }}>
         <Stack
           direction="row"
           alignItems="center"
@@ -546,44 +475,82 @@ export function AddClientPODrawer({ open, onClose, projectId }: AddClientPODrawe
               size="small"
               type="number"
               value={poFormData.poValue}
-              onChange={handlePoChange('poValue')}
+              onChange={(e) => handlePoValueChange(e.target.value)}
+              placeholder="0"
+            />
+          </FormField>
+          <FormField label="Executed Value (₹)">
+            <TextField
+              fullWidth
+              size="small"
+              type="number"
+              value={poFormData.executedValue}
+              onChange={handlePoChange('executedValue')}
               placeholder="0"
             />
           </FormField>
         </Box>
       </Box>
 
-      <Divider sx={{ mb: 2 }} />
+      <Divider sx={{ my: 2 }} />
 
-      <Stack gap={1.5}>
-        <MuiButton
-          size="small"
-          variant="outlined"
-          startIcon={<Add sx={{ fontSize: 14 }} />}
-          onClick={addMilestoneRow}
-          disabled={serviceOptions.length === 0}
-          sx={{ fontSize: 11, alignSelf: 'flex-start' }}
-        >
-          Add Milestone
-        </MuiButton>
-
-        <Box
-          sx={{
-            border: `1px solid ${tokens.color.neutral[100]}`,
-            borderRadius: 1.5,
-            overflow: 'hidden',
-          }}
-        >
-          <MilestoneEditorHeader hideServiceColumn />
-          <MilestoneEditorRows
-            milestones={milestones}
-            serviceOptions={serviceOptions}
-            onUpdate={updateMilestone}
-            onRemove={removeMilestone}
-            hideServiceColumn
+      <MilestoneSectionPanel
+        title="Milestones"
+        addLabel="Add Milestone"
+        onAdd={() =>
+          setMilestoneCards((prev) => [
+            ...prev,
+            createClientPOMilestoneCard(categoryOptions, cardServiceOptions),
+          ])
+        }
+        addDisabled={cardsDisabled}
+        isEmpty={milestoneCards.length === 0}
+      >
+        {milestoneCards.map((card) => (
+          <ClientPOMilestoneCardEditor
+            key={card.id}
+            card={card}
+            categoryOptions={categoryOptions}
+            serviceOptions={cardServiceOptions}
+            milestoneBaseValue={milestoneBaseValue}
+            onChange={(patch) =>
+              setMilestoneCards((prev) =>
+                prev.map((c) => (c.id === card.id ? { ...c, ...patch } : c)),
+              )
+            }
+            onRemove={() => setMilestoneCards((prev) => prev.filter((c) => c.id !== card.id))}
           />
-        </Box>
-      </Stack>
+        ))}
+      </MilestoneSectionPanel>
+
+      <MilestoneSectionPanel
+        title="Retention"
+        addLabel="Add Retention"
+        onAdd={() =>
+          setRetentionCards([
+            createClientPORetentionCard(categoryOptions, cardServiceOptions),
+          ])
+        }
+        addDisabled={cardsDisabled}
+        isEmpty={retentionCards.length === 0}
+        showAddButton={retentionCards.length === 0}
+      >
+        {retentionCards.map((card) => (
+          <ClientPORetentionCardEditor
+            key={card.id}
+            card={card}
+            categoryOptions={categoryOptions}
+            serviceOptions={cardServiceOptions}
+            milestoneBaseValue={milestoneBaseValue}
+            onChange={(patch) =>
+              setRetentionCards((prev) =>
+                prev.map((c) => (c.id === card.id ? { ...c, ...patch } : c)),
+              )
+            }
+            onRemove={() => setRetentionCards((prev) => prev.filter((c) => c.id !== card.id))}
+          />
+        ))}
+      </MilestoneSectionPanel>
     </DrawerForm>
   )
 }
@@ -601,6 +568,11 @@ function ReadOnlyField({ label, value }: { label: string; value: string }) {
   )
 }
 
+function formatExecutedValueLabel(poValue: number, executedValue?: number | null): string {
+  if (executedValue != null) return `₹${formatCurrency(executedValue)}`
+  return `₹${formatCurrency(poValue)}`
+}
+
 interface ViewClientPODrawerProps {
   open: boolean
   onClose: () => void
@@ -613,13 +585,52 @@ export function ViewClientPODrawer({ open, onClose, projectId, po }: ViewClientP
   const { saving } = useAppSelector((s) => s.baseline)
   const toast = useToast((s) => s.showToast)
   const serviceOptions = useClientPOServiceOptions(projectId, open)
+  const categoryOptions = useMemo(
+    () => clientPOCategoryOptions(serviceOptions),
+    [serviceOptions],
+  )
+  const cardServiceOptions = useMemo(
+    () => clientPOCardServiceOptions(serviceOptions),
+    [serviceOptions],
+  )
   const [editing, setEditing] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
-  const [poFormData, setPoFormData] = useState({ poNumber: '', poValue: '' })
-  const [milestones, setMilestones] = useState<ClientPOMilestone[]>([])
+  const [poFormData, setPoFormData] = useState({
+    poNumber: '',
+    poValue: '',
+    executedValue: '',
+  })
+  const [milestoneCards, setMilestoneCards] = useState<ClientPOMilestoneCard[]>([])
+  const [retentionCards, setRetentionCards] = useState<ClientPORetentionCard[]>([])
   const [newFile, setNewFile] = useState<File | null>(null)
 
   const poValueNumber = Number(poFormData.poValue) || 0
+  const lockedExecutedValue =
+    po != null
+      ? po.executedValue ?? (Number(poFormData.poValue) || po.poValue)
+      : poValueNumber
+  const milestoneBaseValue = lockedExecutedValue
+
+  const hasConfiguredEntries = useMemo(
+    () =>
+      milestoneCards.some(isMilestoneCardConfigured) ||
+      retentionCards.some(isRetentionCardConfigured),
+    [milestoneCards, retentionCards],
+  )
+
+  const groupedForSave = useMemo(
+    () =>
+      groupClientCardsByService(
+        milestoneCards.filter(isMilestoneCardConfigured),
+        retentionCards.filter(isRetentionCardConfigured),
+      ),
+    [milestoneCards, retentionCards],
+  )
+
+  const groupedSaveValid = useMemo(
+    () => groupedForSave.every((group) => isClientGroupedServiceValid(milestoneBaseValue, group)),
+    [groupedForSave, milestoneBaseValue],
+  )
 
   useEffect(() => {
     if (!open || !po) {
@@ -628,78 +639,72 @@ export function ViewClientPODrawer({ open, onClose, projectId, po }: ViewClientP
       setNewFile(null)
       return
     }
-    setPoFormData({ poNumber: po.poNumber, poValue: String(po.poValue) })
-    setMilestones(
-      (po.milestones ?? []).map((m) => ({
-        id: m.id,
-        serviceId: m.serviceId ?? '',
-        serviceName: m.serviceName ?? '',
-        name: m.name,
-        percentage: m.percentage,
-        value: m.value,
-      })),
-    )
+    setPoFormData({
+      poNumber: po.poNumber,
+      poValue: String(po.poValue),
+      executedValue: po.executedValue != null ? String(po.executedValue) : '',
+    })
+    const cards = clientPOCardsFromMilestones(mapMilestonesFromPo(po.milestones ?? []), serviceOptions)
+    setMilestoneCards(cards.milestoneCards)
+    setRetentionCards(cards.retentionCards)
     setEditing(false)
     setNewFile(null)
-  }, [open, po])
+  }, [open, po, serviceOptions])
 
   useEffect(() => {
-    if (!editing || poValueNumber <= 0) return
-    setMilestones((prev) =>
-      prev.map((m) => ({
-        ...m,
-        value: calcMilestoneAmount(poValueNumber, m.percentage),
-      })),
-    )
-  }, [editing, poValueNumber])
-
-  function addMilestoneRow(): void {
-    setMilestones((prev) => [...prev, emptyMilestoneRow()])
-  }
-
-  function updateMilestone(idx: number, patch: Partial<ClientPOMilestone>): void {
-    setMilestones((prev) => {
-      const updated = [...prev]
-      updated[idx] = { ...updated[idx], ...patch }
-      if (patch.serviceId !== undefined) {
-        updated[idx].serviceName = serviceNameForOption(serviceOptions, patch.serviceId)
-      }
-      if (patch.percentage !== undefined) {
-        updated[idx].value = calcMilestoneAmount(poValueNumber, Number(patch.percentage))
-      } else if (patch.value !== undefined) {
-        updated[idx].percentage =
-          poValueNumber > 0 ? Math.round((Number(patch.value) / poValueNumber) * 100) : 0
-      }
-      return updated
+    if (!editing || milestoneBaseValue <= 0) return
+    setRetentionCards((prev) => {
+      let changed = false
+      const next = prev.map((row) => {
+        const amount = Math.round((row.percentage / 100) * milestoneBaseValue)
+        if (row.value === amount) return row
+        changed = true
+        return { ...row, value: amount }
+      })
+      return changed ? next : prev
     })
-  }
-
-  function removeMilestone(idx: number): void {
-    setMilestones((prev) => prev.filter((_, i) => i !== idx))
-  }
+  }, [editing, milestoneBaseValue])
 
   const handlePoChange = (field: string) => (e: React.ChangeEvent<HTMLInputElement>) => {
     setPoFormData((prev) => ({ ...prev, [field]: e.target.value }))
   }
 
-  const hasNamedMilestoneWithoutService = milestones.some(
-    (m) => m.name.trim() && !m.serviceId,
-  )
+  function handlePoValueChange(value: string) {
+    setPoFormData((prev) => ({ ...prev, poValue: value }))
+  }
+
+  function resetEditState() {
+    if (!po) return
+    setPoFormData({
+      poNumber: po.poNumber,
+      poValue: String(po.poValue),
+      executedValue: po.executedValue != null ? String(po.executedValue) : '',
+    })
+    const cards = clientPOCardsFromMilestones(mapMilestonesFromPo(po.milestones ?? []), serviceOptions)
+    setMilestoneCards(cards.milestoneCards)
+    setRetentionCards(cards.retentionCards)
+    setNewFile(null)
+    setEditing(false)
+  }
 
   async function handleSave() {
     if (!po || !poFormData.poNumber || !poFormData.poValue) {
       toast({ title: 'Please fill in all required fields', variant: 'error' })
       return
     }
-    if (
-      !validateNamedMilestones(milestones, (message) =>
-        toast({ title: message, variant: 'error' }),
-      )
-    ) {
+    if (!hasConfiguredEntries || groupedForSave.length === 0) {
+      toast({ title: 'Add at least one milestone or retention entry', variant: 'error' })
+      return
+    }
+    if (!groupedSaveValid) {
+      toast({
+        title: 'Combined milestones per service must equal 100%',
+        variant: 'error',
+      })
       return
     }
 
-    const milestonePayload = milestonePayloadFromEditor(milestones)
+    const milestonePayload = buildClientPOMilestonePayload(groupedForSave, serviceOptions)
 
     const documentUrl = newFile
       ? URL.createObjectURL(newFile)
@@ -713,6 +718,7 @@ export function ViewClientPODrawer({ open, onClose, projectId, po }: ViewClientP
           data: {
             poNumber: poFormData.poNumber,
             poValue: poValueNumber,
+            executedValue: po.executedValue,
             milestones: milestonePayload,
             documentUrl,
             fileName: newFile?.name ?? po.fileName,
@@ -765,23 +771,7 @@ export function ViewClientPODrawer({ open, onClose, projectId, po }: ViewClientP
                   variant="text"
                   size="sm"
                   label="Cancel"
-                  onClick={() => {
-                    if (po) {
-                      setPoFormData({ poNumber: po.poNumber, poValue: String(po.poValue) })
-                      setMilestones(
-                        (po.milestones ?? []).map((m) => ({
-                          id: m.id,
-                          serviceId: m.serviceId ?? '',
-                          serviceName: m.serviceName ?? '',
-                          name: m.name,
-                          percentage: m.percentage,
-                          value: m.value,
-                        })),
-                      )
-                    }
-                    setNewFile(null)
-                    setEditing(false)
-                  }}
+                  onClick={resetEditState}
                 />
                 <Button
                   size="sm"
@@ -789,11 +779,7 @@ export function ViewClientPODrawer({ open, onClose, projectId, po }: ViewClientP
                   color="primary"
                   label={saving ? 'Saving…' : 'Save'}
                   onClick={() => void handleSave()}
-                  disabled={
-                    saving ||
-                    serviceOptions.length === 0 ||
-                    hasNamedMilestoneWithoutService
-                  }
+                  disabled={saving || serviceOptions.length === 0}
                 />
               </>
             ) : (
@@ -899,9 +885,13 @@ export function ViewClientPODrawer({ open, onClose, projectId, po }: ViewClientP
                         size="small"
                         type="number"
                         value={poFormData.poValue}
-                        onChange={handlePoChange('poValue')}
+                        onChange={(e) => handlePoValueChange(e.target.value)}
                       />
                     </FormField>
+                    <ReadOnlyField
+                      label="Executed Value (₹)"
+                      value={formatExecutedValueLabel(poValueNumber, po.executedValue)}
+                    />
                   </Box>
                 </>
               ) : (
@@ -915,6 +905,14 @@ export function ViewClientPODrawer({ open, onClose, projectId, po }: ViewClientP
                   >
                     <ReadOnlyField label="PO Number" value={po.poNumber} />
                     <ReadOnlyField label="PO Value" value={`₹${formatCurrency(po.poValue)}`} />
+                    <ReadOnlyField
+                      label="Executed Value"
+                      value={
+                        po.executedValue != null
+                          ? `₹${formatCurrency(po.executedValue)}`
+                          : '—'
+                      }
+                    />
                   </Box>
                   {po.fileName ? (
                     <Box sx={{ mt: 1 }}>
@@ -925,53 +923,89 @@ export function ViewClientPODrawer({ open, onClose, projectId, po }: ViewClientP
               )}
             </Box>
 
-            <Divider />
+            <Divider sx={{ my: 0.5 }} />
 
-            <Box>
-              <Typography
-                component="span"
-                variant="overline"
-                sx={{ ...PO_SECTION_TITLE_SX, display: 'block', mb: 1.5 }}
-              >
-                Milestones
-              </Typography>
-              {editing ? (
-                <Stack gap={1.5}>
-                  {serviceOptions.length === 0 ? (
-                    <Alert severity="warning" sx={{ fontSize: 12 }}>
-                      Add client offer services on the Pitch tab before adding PO milestones.
-                    </Alert>
-                  ) : null}
-                  <MuiButton
-                    size="small"
-                    variant="outlined"
-                    startIcon={<Add sx={{ fontSize: 14 }} />}
-                    onClick={addMilestoneRow}
-                    disabled={serviceOptions.length === 0}
-                    sx={{ fontSize: 11, alignSelf: 'flex-start' }}
-                  >
-                    Add Milestone
-                  </MuiButton>
-                  <Box
-                    sx={{
-                      border: `1px solid ${tokens.color.neutral[100]}`,
-                      borderRadius: 1.5,
-                      overflow: 'hidden',
-                    }}
-                  >
-                    <MilestoneEditorHeader />
-                    <MilestoneEditorRows
-                      milestones={milestones}
-                      serviceOptions={serviceOptions}
-                      onUpdate={updateMilestone}
-                      onRemove={removeMilestone}
+            {editing ? (
+              <>
+                {serviceOptions.length === 0 ? (
+                  <Alert severity="warning" sx={{ fontSize: 12 }}>
+                    Add client offer services on the Pitch tab before adding PO milestones.
+                  </Alert>
+                ) : null}
+                <MilestoneSectionPanel
+                  title="Milestones"
+                  addLabel="Add Milestone"
+                  onAdd={() =>
+                    setMilestoneCards((prev) => [
+                      ...prev,
+                      createClientPOMilestoneCard(categoryOptions, cardServiceOptions),
+                    ])
+                  }
+                  addDisabled={categoryOptions.length === 0}
+                  isEmpty={milestoneCards.length === 0}
+                >
+                  {milestoneCards.map((card) => (
+                    <ClientPOMilestoneCardEditor
+                      key={card.id}
+                      card={card}
+                      categoryOptions={categoryOptions}
+                      serviceOptions={cardServiceOptions}
+                      milestoneBaseValue={milestoneBaseValue}
+                      onChange={(patch) =>
+                        setMilestoneCards((prev) =>
+                          prev.map((c) => (c.id === card.id ? { ...c, ...patch } : c)),
+                        )
+                      }
+                      onRemove={() =>
+                        setMilestoneCards((prev) => prev.filter((c) => c.id !== card.id))
+                      }
                     />
-                  </Box>
-                </Stack>
-              ) : (
+                  ))}
+                </MilestoneSectionPanel>
+
+                <MilestoneSectionPanel
+                  title="Retention"
+                  addLabel="Add Retention"
+                  onAdd={() =>
+                    setRetentionCards([
+                      createClientPORetentionCard(categoryOptions, cardServiceOptions),
+                    ])
+                  }
+                  addDisabled={categoryOptions.length === 0}
+                  isEmpty={retentionCards.length === 0}
+                  showAddButton={retentionCards.length === 0}
+                >
+                  {retentionCards.map((card) => (
+                    <ClientPORetentionCardEditor
+                      key={card.id}
+                      card={card}
+                      categoryOptions={categoryOptions}
+                      serviceOptions={cardServiceOptions}
+                      milestoneBaseValue={milestoneBaseValue}
+                      onChange={(patch) =>
+                        setRetentionCards((prev) =>
+                          prev.map((c) => (c.id === card.id ? { ...c, ...patch } : c)),
+                        )
+                      }
+                      onRemove={() =>
+                        setRetentionCards((prev) => prev.filter((c) => c.id !== card.id))
+                      }
+                    />
+                  ))}
+                </MilestoneSectionPanel>
+              </>
+            ) : (
+              <Box>
+                <Typography
+                  component="span"
+                  variant="overline"
+                  sx={{ ...PO_SECTION_TITLE_SX, display: 'block', mb: 1.5 }}
+                >
+                  Milestones
+                </Typography>
                 <ClientPOMilestonesTable milestones={po.milestones ?? []} />
-              )}
-            </Box>
+              </Box>
+            )}
           </Stack>
         ) : null}
       </DrawerForm>

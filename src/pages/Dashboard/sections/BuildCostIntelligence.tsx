@@ -96,7 +96,7 @@ export function BuildCostIntelligence({
           globalFilters={globalFilters}
           data={chartData}
         >
-          {({ scope, chartHeight: h }) => {
+          {({ scope }) => {
             const buildIds = new Set(
               scope.filteredProjects
                 .filter((p) => (p.projectTypes ?? []).includes('Build'))
@@ -107,7 +107,7 @@ export function BuildCostIntelligence({
               <DonutChartBlock
                 data={buildCostDonut(vendorScoped, baselinesByProjectId)}
                 theme={theme}
-                height={h}
+                height={chartHeight}
                 emptyMessage="No build cost breakdown for chart filters"
               />
             )
@@ -122,7 +122,7 @@ export function BuildCostIntelligence({
           globalFilters={globalFilters}
           data={chartData}
         >
-          {({ scope, monthBuckets, chartHeight: h }) => {
+          {({ scope, monthBuckets }) => {
             const bp = scope.filteredProjects.filter((p) => (p.projectTypes ?? []).includes('Build'))
             const series = buildBenchmarkTrend(monthBuckets, bp)
             if (!series.some((r) => r.costPerSqft > 0)) {
@@ -130,12 +130,11 @@ export function BuildCostIntelligence({
                 <EmptyChartState
                   title="No build benchmark data"
                   guidance="Set build value per sqft on Build projects."
-                  height={h}
                 />
               )
             }
             return (
-              <ResponsiveContainer width="100%" height="100%" minHeight={h}>
+              <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={series} margin={CHART_MARGIN}>
                   <CartesianGrid {...ct.gridProps} vertical={false} />
                   <XAxis dataKey="month" tick={ct.axisStyle} axisLine={false} tickLine={false} />

@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 import {
   Box,
-  Divider,
   Stack,
   Typography,
   Chip as MuiChip,
@@ -13,7 +12,6 @@ import {
   TableRow,
   IconButton as MuiIconButton,
   Grid,
-  Link,
 } from '@mui/material'
 import {
   Business,
@@ -30,7 +28,7 @@ import {
   StarBorder,
   Person,
 } from '@mui/icons-material'
-import { ChevronRight, History, Plus } from 'lucide-react'
+import { History } from 'lucide-react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { fetchCustomerById, updateCustomer } from '../../slices/customers/thunk'
@@ -56,7 +54,6 @@ import { tokens } from '@/design-system/tokens'
 import { useTheme, alpha } from '@mui/material/styles'
 import {
   getRecordDetailFlatSectionSx,
-  getRecordDetailOverviewRightCardSx,
   RecordDetailSectionTitle,
   formatFullAddress,
   getRecordTagChipColors,
@@ -215,11 +212,6 @@ export default function CustomerDetailPage() {
 
   // ── Contact actions ─────────────────────────────────────────────────────────
 
-  function primaryContact(): Contact | undefined {
-    if (!customer) return undefined
-    return getPrimaryContact({ ...customer, contacts })
-  }
-
   async function persistContacts(nextContacts: Contact[]) {
     if (!customer) return
     const normalized = normalizeContacts(nextContacts)
@@ -298,7 +290,6 @@ export default function CustomerDetailPage() {
   // ── renderOverview ─────────────────────────────────────────────────────────
 
   function renderOverview() {
-    const primary = primaryContact()
     const gstRegistered = customer!.gstStatus === 'Registered'
     const gstPill = gstStatusHeaderPillSx(gstRegistered, theme)
     const mono =
@@ -309,282 +300,156 @@ export default function CustomerDetailPage() {
       customer!.state,
       customer!.pincode,
     ).trim()
-    const fd = customer!.financialDetails
-    const totalBilled = fd?.totalBilled ?? 0
-    const outstanding = fd?.outstanding ?? 0
 
     return (
-      <Box
-        sx={{
-          display: 'grid',
-          gap: theme.spacing(2),
-          gridTemplateColumns: { xs: '1fr', md: '1fr 320px' },
-          alignItems: 'start',
-        }}
-      >
-        <Stack gap={0}>
-          <Box sx={getRecordDetailFlatSectionSx(theme, { isLast: false })}>
-            <RecordDetailSectionTitle>Customer profile</RecordDetailSectionTitle>
-            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: theme.spacing(2) }}>
-              <LabelValue label="Customer name">
-                <Typography variant="body2" sx={{ color: 'text.primary', fontWeight: 500, fontSize: theme.typography.body2.fontSize }}>
-                  {customer!.name}
-                </Typography>
-              </LabelValue>
-              <LabelValue label="Customer type">
-                <MuiChip
-                  label={customer!.type}
-                  size="small"
-                  variant="filled"
-                  sx={{
-                    height: 22,
-                    fontWeight: 600,
-                    fontSize: theme.typography.caption.fontSize,
-                    borderRadius: tokens.borderRadius.lg,
-                    border: 'none',
-                  }}
-                />
-              </LabelValue>
-              <LabelValue label="GST status">
-                <Box
-                  component="span"
-                  sx={{
-                    ...gstPill,
-                    fontSize: theme.typography.caption.fontSize,
-                    fontWeight: 600,
-                    px: theme.spacing(1),
-                    py: theme.spacing(0.5),
-                    borderRadius: tokens.borderRadius.md,
-                    lineHeight: 1.2,
-                    display: 'inline-block',
-                  }}
-                >
-                  {customer!.gstStatus}
-                </Box>
-              </LabelValue>
-              <LabelValue label="GSTIN">
-                <Typography
-                  variant="body2"
-                  sx={{
-                    fontFamily: mono,
-                    letterSpacing: '0.5px',
-                    color: 'text.primary',
-                    fontWeight: 500,
-                    fontSize: theme.typography.body2.fontSize,
-                  }}
-                >
-                  {customer!.gstin ?? '—'}
-                </Typography>
-              </LabelValue>
-              <LabelValue label="PAN">
-                <Typography
-                  variant="body2"
-                  sx={{
-                    fontFamily: mono,
-                    letterSpacing: '0.5px',
-                    color: 'text.primary',
-                    fontWeight: 500,
-                    fontSize: theme.typography.body2.fontSize,
-                  }}
-                >
-                  {customer!.pan ?? '—'}
-                </Typography>
-              </LabelValue>
-              <LabelValue label="Status">
-                <StatusBadge status={customer!.status.toLowerCase() as StatusType} />
-              </LabelValue>
-            </Box>
-          </Box>
-
-          <Box sx={getRecordDetailFlatSectionSx(theme, { isLast: false })}>
-            <RecordDetailSectionTitle>Address & location</RecordDetailSectionTitle>
-            {addressStr ? (
-              <Typography
-                variant="body2"
-                sx={{ color: 'text.primary', fontWeight: 500, fontSize: theme.typography.body2.fontSize, whiteSpace: 'pre-line' }}
-              >
-                {addressStr}
+      <Stack gap={0}>
+        <Box sx={getRecordDetailFlatSectionSx(theme, { isLast: false })}>
+          <RecordDetailSectionTitle>Customer profile</RecordDetailSectionTitle>
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, 1fr)' },
+              gap: theme.spacing(2),
+            }}
+          >
+            <LabelValue label="Customer name">
+              <Typography variant="body2" sx={{ color: 'text.primary', fontWeight: 500, fontSize: theme.typography.body2.fontSize }}>
+                {customer!.name}
               </Typography>
-            ) : (
-              <Typography variant="body2" color="text.disabled">
-                No address added
-              </Typography>
-            )}
-          </Box>
-
-          <Box sx={getRecordDetailFlatSectionSx(theme, { isLast: true })}>
-            <RecordDetailSectionTitle>Tags & notes</RecordDetailSectionTitle>
-            {customer!.tags.length > 0 ? (
-              <Stack direction="row" flexWrap="wrap" gap={theme.spacing(0.75)}>
-                {customer!.tags.map((tag) => {
-                  const c = getRecordTagChipColors(tag, theme)
-                  return (
-                    <MuiChip
-                      key={tag}
-                      label={tag}
-                      size="small"
-                      variant="filled"
-                      sx={{
-                        bgcolor: c.bg,
-                        color: c.color,
-                        fontWeight: 600,
-                        fontSize: theme.typography.caption.fontSize,
-                        borderRadius: tokens.borderRadius.lg,
-                        border: 'none',
-                        height: 22,
-                      }}
-                    />
-                  )
-                })}
-              </Stack>
-            ) : (
-              <Typography variant="body2" color="text.disabled">
-                No tags added
-              </Typography>
-            )}
-            {customer!.notes ? (
-              <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic', mt: theme.spacing(1.5) }}>
-                {customer!.notes}
-              </Typography>
-            ) : null}
-          </Box>
-        </Stack>
-
-        <Box sx={getRecordDetailOverviewRightCardSx(theme)}>
-          <RecordDetailSectionTitle>Primary contact</RecordDetailSectionTitle>
-          {primary ? (
-            <Stack direction="row" alignItems="flex-start" gap={theme.spacing(2)}>
-              <Box
+            </LabelValue>
+            <LabelValue label="Customer type">
+              <MuiChip
+                label={customer!.type}
+                size="small"
+                variant="filled"
                 sx={{
-                  width: 48,
-                  height: 48,
-                  borderRadius: '50%',
-                  flexShrink: 0,
-                  bgcolor: getAvatarColor(primary.name).bg,
-                  color: getAvatarColor(primary.name).text,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: 14,
-                  fontWeight: 700,
+                  height: 22,
+                  fontWeight: 600,
+                  fontSize: theme.typography.caption.fontSize,
+                  borderRadius: tokens.borderRadius.lg,
+                  border: 'none',
                 }}
-              >
-                {getInitials(primary.name)}
-              </Box>
-              <Box sx={{ flex: 1, minWidth: 0 }}>
-                <Typography variant="body2" fontWeight={500}>
-                  {primary.name}
-                </Typography>
-                {primary.designation ? (
-                  <Typography variant="body2" color="text.secondary">
-                    {primary.designation}
-                  </Typography>
-                ) : null}
-                <Stack direction="row" alignItems="center" gap={0.5} sx={{ mt: 1 }}>
-                  <Phone sx={{ fontSize: 12, color: 'text.secondary' }} />
-                  <Typography variant="body2" sx={{ fontSize: 12 }}>
-                    {primary.phone}
-                  </Typography>
-                </Stack>
-                <Stack direction="row" alignItems="center" gap={0.5}>
-                  <Email sx={{ fontSize: 12, color: 'text.secondary' }} />
-                  <Link href={`mailto:${primary.email}`} variant="body2" sx={{ fontSize: 12, color: 'primary.main' }}>
-                    {primary.email}
-                  </Link>
-                </Stack>
-              </Box>
-            </Stack>
-          ) : (
-            <Box sx={{ py: 2, textAlign: 'center' }}>
-              <Person sx={{ fontSize: 28, color: tokens.color.neutral[300], mb: 1 }} />
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-                No contact added yet
-              </Typography>
-              <Button
-                variant="outlined"
-                color="secondary"
-                size="sm"
-                startIcon={<Plus size={14} strokeWidth={2} />}
-                onClick={() => {
-                  setEditingContact(null)
-                  setContactDrawerOpen(true)
-                }}
-              >
-                Add contact
-              </Button>
-            </Box>
-          )}
-
-          <Divider sx={{ my: theme.spacing(1.5) }} />
-
-          <RecordDetailSectionTitle>Project summary</RecordDetailSectionTitle>
-          <Stack gap={theme.spacing(1.5)}>
-            <Stack direction="row" justifyContent="space-between" alignItems="center">
-              <Typography variant="caption" color="text.secondary">
-                Active Projects
-              </Typography>
+              />
+            </LabelValue>
+            <LabelValue label="Status">
+              <StatusBadge status={customer!.status.toLowerCase() as StatusType} />
+            </LabelValue>
+            <LabelValue label="GST status">
               <Box
                 component="span"
                 sx={{
-                  px: 1,
-                  py: 0.25,
-                  borderRadius: 1,
+                  ...gstPill,
                   fontSize: theme.typography.caption.fontSize,
                   fontWeight: 600,
-                  bgcolor: alpha(theme.palette.primary.main, 0.12),
-                  color: 'primary.main',
+                  px: theme.spacing(1),
+                  py: theme.spacing(0.5),
+                  borderRadius: tokens.borderRadius.md,
+                  lineHeight: 1.2,
+                  display: 'inline-block',
                 }}
               >
-                {customer!.activeProjects}
+                {customer!.gstStatus}
               </Box>
-            </Stack>
-            <Stack direction="row" justifyContent="space-between" alignItems="center">
-              <Typography variant="caption" color="text.secondary">
-                Total Billed
-              </Typography>
-              <Typography variant="body2" fontWeight={600}>
-                ₹{formatCurrency(totalBilled)}
-              </Typography>
-            </Stack>
-            <Stack direction="row" justifyContent="space-between" alignItems="center">
-              <Typography variant="caption" color="text.secondary">
-                Outstanding
-              </Typography>
+            </LabelValue>
+            <LabelValue label="GSTIN">
               <Typography
                 variant="body2"
-                fontWeight={600}
-                sx={{ color: outstanding > 0 ? 'warning.main' : 'text.primary' }}
+                sx={{
+                  fontFamily: mono,
+                  letterSpacing: '0.5px',
+                  color: 'text.primary',
+                  fontWeight: 500,
+                  fontSize: theme.typography.body2.fontSize,
+                }}
               >
-                ₹{formatCurrency(outstanding)}
+                {customer!.gstin ?? '—'}
               </Typography>
-            </Stack>
-          </Stack>
-
-          <Divider sx={{ my: theme.spacing(1.5) }} />
-
-          <RecordDetailSectionTitle>Quick actions</RecordDetailSectionTitle>
-          <Stack gap={0.25} alignItems="flex-start">
-            <Button
-              variant="text"
-              color="primary"
-              size="sm"
-              endIcon={<ChevronRight size={16} />}
-              onClick={() => setActiveTab('billing')}
-            >
-              View Billing History
-            </Button>
-            <Button
-              variant="text"
-              color="primary"
-              size="sm"
-              endIcon={<ChevronRight size={16} />}
-              onClick={() => setActiveTab('projects')}
-            >
-              View Linked Projects
-            </Button>
-          </Stack>
+            </LabelValue>
+            <LabelValue label="PAN">
+              <Typography
+                variant="body2"
+                sx={{
+                  fontFamily: mono,
+                  letterSpacing: '0.5px',
+                  color: 'text.primary',
+                  fontWeight: 500,
+                  fontSize: theme.typography.body2.fontSize,
+                }}
+              >
+                {customer!.pan ?? '—'}
+              </Typography>
+            </LabelValue>
+            <LabelValue label="City">
+              <Typography variant="body2" sx={{ color: 'text.primary', fontWeight: 500, fontSize: theme.typography.body2.fontSize }}>
+                {customer!.city || '—'}
+              </Typography>
+            </LabelValue>
+            <LabelValue label="State">
+              <Typography variant="body2" sx={{ color: 'text.primary', fontWeight: 500, fontSize: theme.typography.body2.fontSize }}>
+                {customer!.state || '—'}
+              </Typography>
+            </LabelValue>
+            <LabelValue label="Pincode">
+              <Typography variant="body2" sx={{ color: 'text.primary', fontWeight: 500, fontSize: theme.typography.body2.fontSize }}>
+                {customer!.pincode ?? '—'}
+              </Typography>
+            </LabelValue>
+          </Box>
         </Box>
-      </Box>
+
+        <Box sx={getRecordDetailFlatSectionSx(theme, { isLast: false })}>
+          <RecordDetailSectionTitle>Address & location</RecordDetailSectionTitle>
+          {addressStr ? (
+            <Typography
+              variant="body2"
+              sx={{ color: 'text.primary', fontWeight: 500, fontSize: theme.typography.body2.fontSize, whiteSpace: 'pre-line' }}
+            >
+              {addressStr}
+            </Typography>
+          ) : (
+            <Typography variant="body2" color="text.disabled">
+              No address added
+            </Typography>
+          )}
+        </Box>
+
+        <Box sx={getRecordDetailFlatSectionSx(theme, { isLast: true })}>
+          <RecordDetailSectionTitle>Tags & notes</RecordDetailSectionTitle>
+          {customer!.tags.length > 0 ? (
+            <Stack direction="row" flexWrap="wrap" gap={theme.spacing(0.75)}>
+              {customer!.tags.map((tag) => {
+                const c = getRecordTagChipColors(tag, theme)
+                return (
+                  <MuiChip
+                    key={tag}
+                    label={tag}
+                    size="small"
+                    variant="filled"
+                    sx={{
+                      bgcolor: c.bg,
+                      color: c.color,
+                      fontWeight: 600,
+                      fontSize: theme.typography.caption.fontSize,
+                      borderRadius: tokens.borderRadius.lg,
+                      border: 'none',
+                      height: 22,
+                    }}
+                  />
+                )
+              })}
+            </Stack>
+          ) : (
+            <Typography variant="body2" color="text.disabled">
+              No tags added
+            </Typography>
+          )}
+          {customer!.notes ? (
+            <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic', mt: theme.spacing(1.5) }}>
+              {customer!.notes}
+            </Typography>
+          ) : null}
+        </Box>
+      </Stack>
     )
   }
 
@@ -612,7 +477,6 @@ export default function CustomerDetailPage() {
           fieldValue={customer!.gstin}
           document={customer!.gstDocument ?? null}
           emptyDocMessage="No certificate uploaded"
-          uploadButtonLabel="+ Upload Certificate"
           onView={openTaxDocument}
           onDownload={openTaxDocument}
           onCopySuccess={onCopy}
@@ -624,7 +488,6 @@ export default function CustomerDetailPage() {
           fieldValue={customer!.pan}
           document={customer!.panDocument ?? null}
           emptyDocMessage="No document uploaded"
-          uploadButtonLabel="+ Upload Document"
           onView={openTaxDocument}
           onDownload={openTaxDocument}
           onCopySuccess={onCopy}

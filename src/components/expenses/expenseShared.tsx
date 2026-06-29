@@ -11,6 +11,8 @@ export function expenseStatusDisplay(
   switch (status) {
     case 'pending':
       return { status: 'pending', label: 'Pending' }
+    case 'adjusted':
+      return { status: 'adjusted', label: 'Adjusted' }
     case 'included_in_payment':
       return { status: 'included_in_payment', label: 'Included in Payment' }
   }
@@ -106,7 +108,7 @@ export function ViewExpenseModal({
 }) {
   if (!expense) return null
 
-  const locked = expense.status === 'included_in_payment'
+  const locked = expense.status === 'included_in_payment' || expense.status === 'adjusted'
 
   return (
     <Modal open={open} onClose={onClose} title="Expense details" size="sm">

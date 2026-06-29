@@ -1343,7 +1343,7 @@ interface TransitionExpensePlanningBlockProps {
   projectId: string
   version: PitchVersion
   onCommit: (next: PlannedExpense[]) => void
-  /** Defaults to "Expense Planning". */
+  /** Defaults to "Expenses". */
   sectionTitle?: string
   /** MUI spacing units for top margin on outer box; default 3. Use 0 when placed directly under a Divider. */
   sectionTopMargin?: number
@@ -1353,7 +1353,7 @@ function TransitionExpensePlanningBlock({
   projectId,
   version,
   onCommit,
-  sectionTitle = 'Expense Planning',
+  sectionTitle = 'Expenses',
   sectionTopMargin = 3,
 }: TransitionExpensePlanningBlockProps) {
   const dispatch = useAppDispatch()

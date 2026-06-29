@@ -7,6 +7,9 @@ export interface ClientInvoiceLineItem {
   serviceName: string
   sacCode: string
   amount: number
+  labourCessRate?: number
+  labourCessAmount?: number
+  taxableAmount?: number
   gstRate: number
   gstAmount: number
   milestoneId?: string
@@ -48,6 +51,8 @@ export interface ClientInvoice {
   serviceName: string
   lineItems: ClientInvoiceLineItem[]
   baseAmount: number
+  labourCessAmount?: number
+  taxableAmount?: number
   gstAmount: number
   grossAmount: number
   /** Cumulative TDS withheld (from payments) */
@@ -78,8 +83,13 @@ export interface VendorInvoice {
   /** Optional for list views that only expose invoice date */
   dueDate?: string
   baseAmount: number
+  gstRate?: number
+  gstAmount?: number
   tdsRate: number
   tdsAmount: number
+  /** Expense ids deducted when this invoice was uploaded. */
+  linkedExpenseIds?: string[]
+  expenseDeductions?: number
   netPayable: number
   status: 'pending' | 'approved' | 'paid'
   documentUrl?: string
@@ -154,8 +164,10 @@ export interface Expense {
     allocationPercent: number
     allocationAmount: number
   }[]
-  status: 'pending' | 'included_in_payment'
+  status: 'pending' | 'adjusted' | 'included_in_payment'
   linkedPaymentId?: string
+  /** Set when expense is deducted on a vendor invoice upload. */
+  linkedVendorInvoiceId?: string
   /** Set when a reimbursable expense auto-syncs to payables. */
   linkedReimbursementId?: string
 }

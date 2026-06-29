@@ -34,6 +34,7 @@ export type StatusType =
   | 'vendor_linked'
   | 'common'
   | 'included_in_payment'
+  | 'adjusted'
   | 'settled'
 
 export interface StatusBadgeColors {
@@ -68,6 +69,7 @@ export const STATUS_COLORS_LIGHT: Record<StatusType, StatusBadgeColors> = {
   vendor_linked: { bg: '#DBEAFE', text: '#1D4ED8' },
   common: { bg: '#EDE9FE', text: '#7C3AED' },
   included_in_payment: { bg: '#DCFCE7', text: '#15803D' },
+  adjusted: { bg: '#E0F2FE', text: '#0369A1' },
   settled: { bg: '#DCFCE7', text: '#15803D' },
   // Aliases — same semantics as spec-adjacent types
   in_progress: { bg: '#E0F2FE', text: '#0369A1' },
@@ -106,6 +108,7 @@ export const STATUS_COLORS_DARK: Record<StatusType, StatusBadgeColors> = {
   vendor_linked: { bg: '#1E3A8A', text: '#93C5FD' },
   common: { bg: '#4C1D95', text: '#C4B5FD' },
   included_in_payment: { bg: '#14532D', text: '#86EFAC' },
+  adjusted: { bg: '#0C4A6E', text: '#7DD3FC' },
   settled: { bg: '#14532D', text: '#86EFAC' },
   in_progress: { bg: '#0C4A6E', text: '#7DD3FC' },
   invoice_draft: { bg: '#374151', text: '#E5E7EB' },
@@ -162,6 +165,7 @@ const STATUS_LABEL: Record<StatusType, string> = {
   vendor_linked: 'Vendor Linked',
   common: 'Common',
   included_in_payment: 'Included in Payment',
+  adjusted: 'Adjusted',
   settled: 'Settled',
 }
 

@@ -1,12 +1,22 @@
 import { tokens } from '@/design-system/tokens'
 import type { Contact, Customer } from '../../slices/customers/reducer'
+import type { Vendor } from '../../slices/vendors/reducer'
 import type {
   ContactInfo,
   ProjectDocumentFile,
   ProjectDocuments,
 } from '../../slices/projects/reducer'
 import { getCustomerContactsList } from '../../utils/customerContacts'
+import { getVendorContactsList } from '../../utils/vendorContacts'
 import { normalizeContacts } from '../../utils/entityContacts'
+
+export type ProjectContactSource = 'customer' | 'vendor'
+
+export interface ProjectContactOption extends Contact {
+  sourceType: ProjectContactSource
+  entityId: string
+  entityName: string
+}
 
 export const PROJECT_SETUP_GRID_SX = {
   display: 'grid',
@@ -68,9 +78,116 @@ export function formatProjectValueTotal(value: number | null): string {
   return `₹${value.toLocaleString('en-IN')}`
 }
 
+export interface ProjectSetupWizardFields {
+  headcount: string
+  workstationSize: string
+  meetingRoomCount: string
+  serverRoomDetails: string
+  upsCapacity: string
+  receptionDetails: string
+  pantryDetails: string
+}
+
+export interface ProjectSetupFieldErrors {
+  headcount?: string
+  meetingRoomCount?: string
+}
+
+function parseOptionalWholeNumber(raw: string): number | null {
+  const trimmed = raw.trim()
+  if (!trimmed) return null
+  const n = Number(trimmed)
+  if (!Number.isFinite(n) || n < 0 || !Number.isInteger(n)) return null
+  return n
+}
+
+function isValidOptionalWholeNumber(raw: string): boolean {
+  if (!raw.trim()) return true
+  return parseOptionalWholeNumber(raw) !== null
+}
+
+function parseOptionalText(raw: string): string | null {
+  const trimmed = raw.trim()
+  return trimmed || null
+}
+
+export function validateProjectSetupFields(
+  fields: ProjectSetupWizardFields,
+): ProjectSetupFieldErrors {
+  const errors: ProjectSetupFieldErrors = {}
+  if (!isValidOptionalWholeNumber(fields.headcount)) {
+    errors.headcount = 'Enter a valid whole number'
+  }
+  if (!isValidOptionalWholeNumber(fields.meetingRoomCount)) {
+    errors.meetingRoomCount = 'Enter a valid whole number'
+  }
+  return errors
+}
+
+export function buildProjectSetupPayload(fields: ProjectSetupWizardFields) {
+  return {
+    headcount: parseOptionalWholeNumber(fields.headcount),
+    workstationSize: parseOptionalText(fields.workstationSize),
+    meetingRoomCount: parseOptionalWholeNumber(fields.meetingRoomCount),
+    serverRoomDetails: parseOptionalText(fields.serverRoomDetails),
+    upsCapacity: parseOptionalText(fields.upsCapacity),
+    receptionDetails: parseOptionalText(fields.receptionDetails),
+    pantryDetails: parseOptionalText(fields.pantryDetails),
+  }
+}
+
 export function getContactsForCustomer(customer: Customer | null | undefined): Contact[] {
   if (!customer) return []
   return normalizeContacts(getCustomerContactsList(customer))
+}
+
+export function buildProjectContactOptions(
+  customer: Customer | null | undefined,
+  vendors: Vendor[],
+): ProjectContactOption[] {
+  const options: ProjectContactOption[] = []
+  if (customer) {
+    for (const contact of getContactsForCustomer(customer)) {
+      options.push({
+        ...contact,
+        sourceType: 'customer',
+        entityId: customer.id,
+        entityName: customer.name,
+      })
+    }
+  }
+  for (const vendor of vendors) {
+    for (const contact of normalizeContacts(getVendorContactsList(vendor))) {
+      options.push({
+        ...contact,
+        sourceType: 'vendor',
+        entityId: vendor.id,
+        entityName: vendor.name,
+      })
+    }
+  }
+  return options
+}
+
+export function findProjectContactsByIds(
+  options: ProjectContactOption[],
+  contactIds: string[],
+): ProjectContactOption[] {
+  if (!contactIds.length) return []
+  return contactIds
+    .map((id) => options.find((c) => c.id === id))
+    .filter((c): c is ProjectContactOption => Boolean(c))
+}
+
+/** Compare phone numbers ignoring spaces, dashes, and country-code formatting. */
+export function normalizePhoneNumber(phone: string): string {
+  return phone.replace(/\D/g, '')
+}
+
+export function contactPhoneExists(contacts: Contact[], phone: string): boolean {
+  const normalized = normalizePhoneNumber(phone)
+  if (!normalized) return false
+  return contacts.some((c) => normalizePhoneNumber(c.phone) === normalized)
 }
 
 export function getDefaultContactId(contacts: Contact[]): string {
@@ -85,8 +202,8 @@ export function getDefaultContactIds(contacts: Contact[]): string[] {
 }
 
 export function clientTeamFromContacts(
-  contacts: Contact[],
-  companyName: string,
+  contacts: ProjectContactOption[],
+  defaultCompanyName: string,
 ): ContactInfo[] | undefined {
   if (!contacts.length) return undefined
   return contacts.map((contact) => ({
@@ -94,19 +211,20 @@ export function clientTeamFromContacts(
     designation: contact.designation,
     email: contact.email,
     phone: contact.phone,
-    company: companyName,
+    company:
+      contact.sourceType === 'vendor' ? contact.entityName : defaultCompanyName,
   }))
 }
 
+/** @deprecated Use findProjectContactsByIds with buildProjectContactOptions */
 export function findContactsByIds(
   customer: Customer | null | undefined,
   contactIds: string[],
-): Contact[] {
-  if (!customer || !contactIds.length) return []
-  const all = getContactsForCustomer(customer)
-  return contactIds
-    .map((id) => all.find((c) => c.id === id))
-    .filter((c): c is Contact => Boolean(c))
+): ProjectContactOption[] {
+  return findProjectContactsByIds(
+    buildProjectContactOptions(customer, []),
+    contactIds,
+  )
 }
 
 /** Returns a trimmed http(s) URL when the field contains a valid URL. */

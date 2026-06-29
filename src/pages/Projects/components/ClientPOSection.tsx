@@ -38,7 +38,7 @@ export function ClientPOSection({ clientPOs, onAddPO, onViewPO, caption }: Clien
         <Typography variant="subtitle1" sx={{ fontSize: 15, fontWeight: 600 }}>
           Client PO
         </Typography>
-        <Button size="sm" variant="outlined" color="primary" label="Add PO" onClick={onAddPO} />
+        <Button size="sm" variant="contained" color="primary" label="Add Client PO" onClick={onAddPO} />
       </Stack>
       {caption ? (
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5, fontSize: 11 }}>

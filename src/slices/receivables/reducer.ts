@@ -27,6 +27,9 @@ export interface LineItem {
   serviceName: string
   sacCode: string
   amount: number
+  labourCessRate?: number
+  labourCessAmount?: number
+  taxableAmount?: number
   gstRate: number
   gstAmount: number
   milestoneId?: string

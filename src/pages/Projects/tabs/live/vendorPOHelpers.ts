@@ -6,6 +6,26 @@ import {
   validateVendorMilestonePercents,
 } from '@/utils/vendorMilestones'
 
+export type VendorMilestoneKind = 'regular' | 'retention' | 'final'
+
+export function resolveVendorPOMilestoneKind(m: VendorPOMilestone): VendorMilestoneKind {
+  if (m.kind === 'retention') return 'retention'
+  if (m.kind === 'final') return 'final'
+  if (m.name.trim().toLowerCase() === 'retention') return 'retention'
+  return 'regular'
+}
+
+export function vendorMilestoneTypeLabel(type: VendorMilestoneKind): string {
+  switch (type) {
+    case 'retention':
+      return 'Retention'
+    case 'final':
+      return 'Final Milestone'
+    default:
+      return 'Regular'
+  }
+}
+
 export interface VendorOfferRow {
   categoryName: string
   categoryId: string
@@ -18,6 +38,11 @@ export interface VendorOption {
   vendorId: string
   vendorName: string
   allocatedValue: number
+}
+
+/** Contractual PO value vs latest execution amount — calculations use executed when set. */
+export function vendorPoEffectiveValue(po: Pick<VendorPO, 'poValue' | 'executedValue'>): number {
+  return po.executedValue ?? po.poValue
 }
 
 export type VendorMappingRowStatus =
@@ -36,17 +61,24 @@ export interface VendorMilestoneOverviewRow {
   amount: number
   retentionAmount: number
   allocationStatus: string
+  milestoneType: VendorMilestoneKind
 }
 
 export interface VendorPOMilestoneOverviewRow {
   key: string
   poId: string
   poNumber: string
+  vendorId: string
   vendor: string
+  serviceId: string
+  serviceName: string
   service: string
+  milestoneId: string
   name: string
   pct: number
   amount: number
+  milestoneType: VendorMilestoneKind
+  /** @deprecated use milestoneType === 'retention' */
   isRetention: boolean
   status: VendorPOMilestone['status']
 }
@@ -79,18 +111,27 @@ export function buildVendorPOMilestoneOverviewRows(
   const rows: VendorPOMilestoneOverviewRow[] = []
   for (const po of vendorPOs.filter((p) => p.projectId === projectId)) {
     const serviceLabel = linkedServiceLabels(po, baseline)
+    const primaryServiceId = po.linkedBaselineServiceIds?.[0] ?? ''
+    const primarySvc = primaryServiceId ? findServiceInBaseline(baseline, primaryServiceId) : undefined
+    const primaryServiceName =
+      primarySvc?.subcategoryName ?? primarySvc?.name ?? primaryServiceId
     for (const m of po.milestones) {
-      const isRetention = m.name.trim().toLowerCase() === 'retention'
+      const milestoneType = resolveVendorPOMilestoneKind(m)
       rows.push({
         key: `${po.id}-${m.id}`,
         poId: po.id,
         poNumber: po.poNumber,
+        vendorId: po.vendorId,
         vendor: po.vendorName,
+        serviceId: primaryServiceId,
+        serviceName: primaryServiceName,
         service: serviceLabel,
+        milestoneId: m.id,
         name: m.name,
         pct: m.percentage,
         amount: m.value,
-        isRetention,
+        milestoneType,
+        isRetention: milestoneType === 'retention',
         status: m.status,
       })
     }
@@ -122,7 +163,7 @@ function normalizeOfferLabel(value: string): string {
   return value.trim().toLowerCase()
 }
 
-/** Stable key for a vendor-offer table row (optimistic PO Added state). */
+/** Stable key for a vendor-offer table row. */
 export function vendorOfferRowKey(row: VendorOfferRow): string {
   return `${row.mapping.vendorId}:${row.serviceId}:${row.mapping.id}`
 }
@@ -254,13 +295,19 @@ export function findPitchService(
 export function mappingAllocatedTotal(mapping: VendorMapping): number {
   const normalized = normalizeVendorMapping(mapping)
   const fromMilestones = (normalized.milestones ?? []).reduce((sum, m) => sum + m.value, 0)
-  return fromMilestones + (normalized.retention?.amount ?? 0)
+  return (
+    fromMilestones +
+    (normalized.retention?.amount ?? 0) +
+    (normalized.finalMilestone?.amount ?? 0)
+  )
 }
 
 export function deriveVendorMappingRowStatus(mapping: VendorMapping): VendorMappingRowStatus {
   const normalized = normalizeVendorMapping(mapping)
   const hasBreakdown =
-    (normalized.milestones?.length ?? 0) > 0 || Boolean(normalized.retention)
+    (normalized.milestones?.length ?? 0) > 0 ||
+    Boolean(normalized.retention) ||
+    Boolean(normalized.finalMilestone)
   if (!hasBreakdown) {
     return normalized.value > 0 ? 'Mapped' : 'Milestones Pending'
   }
@@ -282,7 +329,9 @@ export function buildVendorMilestoneOverviewRows(
         const normalized = normalizeVendorMapping(vm)
         const allocated = mappingAllocatedTotal(normalized)
         const allocationStatus =
-          normalized.milestones.length === 0 && !normalized.retention
+          normalized.milestones.length === 0 &&
+          !normalized.retention &&
+          !normalized.finalMilestone
             ? 'No breakdown'
             : Math.abs(allocated - normalized.value) <= 1
               ? 'Fully allocated'
@@ -299,6 +348,7 @@ export function buildVendorMilestoneOverviewRows(
             amount: m.value,
             retentionAmount: 0,
             allocationStatus,
+            milestoneType: 'regular',
           })
         }
         if (normalized.retention) {
@@ -312,6 +362,21 @@ export function buildVendorMilestoneOverviewRows(
             amount: normalized.retention.amount,
             retentionAmount: normalized.retention.amount,
             allocationStatus,
+            milestoneType: 'retention',
+          })
+        }
+        if (normalized.finalMilestone) {
+          rows.push({
+            key: `${svc.id}-${vm.id}-final`,
+            service: svc.name,
+            category: cat.categoryName,
+            vendor: vm.vendorName,
+            name: normalized.finalMilestone.name,
+            pct: normalized.finalMilestone.percentage,
+            amount: normalized.finalMilestone.amount,
+            retentionAmount: 0,
+            allocationStatus,
+            milestoneType: 'final',
           })
         }
       }

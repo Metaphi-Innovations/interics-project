@@ -58,6 +58,7 @@ import { useTheme, alpha } from '@mui/material/styles'
 import {
   formatCurrency,
   formatDate,
+  getDaysBetweenDates,
   getInitials,
   getAvatarColor,
   toSlug,
@@ -357,6 +358,10 @@ function ProjectsTable({
               project.status !== 'Completed' &&
               project.status !== 'Archived' &&
               project.status !== 'Cancelled'
+            const dateSpanDays = getDaysBetweenDates(
+              project.startDate,
+              project.expectedEndDate,
+            )
 
             return (
               <TableRow
@@ -438,6 +443,14 @@ function ProjectsTable({
                           {formatDate(project.expectedEndDate)}
                         </Typography>
                       </Stack>
+                      {dateSpanDays !== null && (
+                        <Typography
+                          variant="caption"
+                          sx={{ fontSize: 10, color: 'text.secondary', pl: '13px' }}
+                        >
+                          {dateSpanDays} {dateSpanDays === 1 ? 'day' : 'days'}
+                        </Typography>
+                      )}
                     </Stack>
                   </TableCell>
                 )}
@@ -896,6 +909,63 @@ function EditProjectDrawer({
               set('headcount', v ? Number(v) : null)
             }
             placeholder="e.g. 120"
+            size="sm"
+          />
+        </FormField>
+
+        <FormField label="Workstation Size">
+          <Input
+            value={form.workstationSize ?? ''}
+            onChange={(v) => set('workstationSize', v || null)}
+            placeholder="e.g. 1200 sq ft"
+            size="sm"
+          />
+        </FormField>
+
+        <FormField label="Meeting Room Count">
+          <Input
+            type="number"
+            value={form.meetingRoomCount?.toString() ?? ''}
+            onChange={(v) =>
+              set('meetingRoomCount', v ? Number(v) : null)
+            }
+            placeholder="e.g. 4"
+            size="sm"
+          />
+        </FormField>
+
+        <FormField label="Server Room Details">
+          <Input
+            value={form.serverRoomDetails ?? ''}
+            onChange={(v) => set('serverRoomDetails', v || null)}
+            placeholder="e.g. 200 sq ft, raised floor"
+            size="sm"
+          />
+        </FormField>
+
+        <FormField label="UPS Capacity">
+          <Input
+            value={form.upsCapacity ?? ''}
+            onChange={(v) => set('upsCapacity', v || null)}
+            placeholder="e.g. 20 KVA"
+            size="sm"
+          />
+        </FormField>
+
+        <FormField label="Reception Details">
+          <Input
+            value={form.receptionDetails ?? ''}
+            onChange={(v) => set('receptionDetails', v || null)}
+            placeholder="e.g. Open reception with waiting lounge"
+            size="sm"
+          />
+        </FormField>
+
+        <FormField label="Pantry Details">
+          <Input
+            value={form.pantryDetails ?? ''}
+            onChange={(v) => set('pantryDetails', v || null)}
+            placeholder="e.g. 2 pantries with wet and dry zones"
             size="sm"
           />
         </FormField>

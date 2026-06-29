@@ -5,7 +5,10 @@ import type {
   ClientInvoicePayment,
   ClientInvoicePaymentMode,
 } from '@/slices/live/types'
-
+import {
+  computeLineItemTaxBreakdown,
+  rollupsFromLineItems,
+} from '@/pages/Projects/tabs/live/clientInvoiceUtils'
 function milestoneNameFromLine(li: LineItem | undefined): string {
   if (!li) return '—'
   if (!li.milestoneId) return li.serviceName
@@ -21,19 +24,22 @@ function toClientLineSource(
 }
 
 function toClientLineItem(li: LineItem): ClientInvoiceLineItem {
+  const breakdown = computeLineItemTaxBreakdown(li.amount, li.labourCessRate ?? 0, li.gstRate)
   return {
     id: li.id,
     serviceId: li.serviceId,
     serviceName: li.serviceName,
     sacCode: li.sacCode,
     amount: li.amount,
+    labourCessRate: li.labourCessRate ?? 0,
+    labourCessAmount: li.labourCessAmount ?? breakdown.labourCessAmount,
+    taxableAmount: li.taxableAmount ?? breakdown.taxableAmount,
     gstRate: li.gstRate,
     gstAmount: li.gstAmount,
     milestoneId: li.milestoneId,
     lineSource: toClientLineSource(li),
   }
 }
-
 function paymentToClient(p: Payment): ClientInvoicePayment {
   const mode = p.paymentMode as ClientInvoicePaymentMode
   return {
@@ -60,6 +66,8 @@ export function invoiceToClientInvoice(inv: Invoice): ClientInvoice {
   const primary =
     inv.lineItems.find((l) => l.milestoneId) ?? inv.lineItems[0]
   const serviceKey = primary?.baselineServiceId ?? primary?.serviceId ?? ''
+  const mappedLines = inv.lineItems.map(toClientLineItem)
+  const roll = rollupsFromLineItems(mappedLines)
   return {
     id: inv.id,
     projectId: inv.projectId,
@@ -70,10 +78,12 @@ export function invoiceToClientInvoice(inv: Invoice): ClientInvoice {
     milestoneName: milestoneNameFromLine(primary),
     serviceId: serviceKey,
     serviceName: primary?.serviceName ?? '—',
-    lineItems: inv.lineItems.map(toClientLineItem),
-    baseAmount: inv.baseAmount,
-    gstAmount: inv.gstAmount,
-    grossAmount: inv.totalAmount,
+    lineItems: mappedLines,
+    baseAmount: roll.baseAmount,
+    labourCessAmount: roll.labourCessAmount,
+    taxableAmount: roll.taxableAmount,
+    gstAmount: roll.gstAmount,
+    grossAmount: roll.grossAmount,
     tdsAmount: inv.tdsDeducted,
     netReceivable: inv.balance,
     invoiceNumber: inv.invoiceNo,
@@ -100,6 +110,9 @@ export function clientInvoiceDraftToReceivablesPost(
     serviceName: li.serviceName,
     sacCode: li.sacCode,
     amount: li.amount,
+    labourCessRate: li.labourCessRate ?? 0,
+    labourCessAmount: li.labourCessAmount,
+    taxableAmount: li.taxableAmount,
     gstRate: li.gstRate,
     gstAmount: li.gstAmount,
     milestoneId: li.milestoneId,
@@ -113,6 +126,8 @@ export function clientInvoiceDraftToReceivablesPost(
     invoiceDate: data.invoiceDate,
     dueDate: data.dueDate,
     lineItems,
+    labourCessAmount: data.labourCessAmount,
+    taxableAmount: data.taxableAmount,
     notes: data.notes,
     sendNow: options.sendNow,
     invoiceNo: data.invoiceNumber,

@@ -52,6 +52,13 @@ export const liveHandlers = [
       ...body,
     }
     vendorInvoices.push(newVI)
+    for (const expId of newVI.linkedExpenseIds ?? []) {
+      const ex = expenses.find((e) => e.id === expId)
+      if (ex && ex.status === 'pending') {
+        ex.status = 'adjusted'
+        ex.linkedVendorInvoiceId = newVI.id
+      }
+    }
     return HttpResponse.json(newVI, { status: 201 })
   }),
 

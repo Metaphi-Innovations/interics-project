@@ -17,6 +17,11 @@ import {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+export interface ClientPORetention {
+  percentage: number
+  value: number
+}
+
 export interface ClientPOMilestone {
   id: string
   serviceId: string
@@ -24,6 +29,10 @@ export interface ClientPOMilestone {
   name: string
   percentage: number
   value: number
+  /** Distinguishes retention rows saved from retention cards. */
+  kind?: 'regular' | 'retention'
+  /** Optional retention slice linked to this milestone (legacy). */
+  retention?: ClientPORetention
 }
 
 export interface ClientPO {
@@ -33,6 +42,8 @@ export interface ClientPO {
   startDate: string
   endDate: string
   poValue: number
+  /** Contracted executed value (may differ from PO value). */
+  executedValue?: number | null
   documentUrl: string | null
   /** Display name for documents section */
   fileName?: string
@@ -48,6 +59,7 @@ export interface VendorPOMilestone {
   value: number
   dueDate: string | null
   status: 'Paid' | 'Pending' | 'Overdue'
+  kind?: 'regular' | 'retention' | 'final'
 }
 
 export type VendorPOExecutionStatus = 'Draft' | 'Issued' | 'Accepted'
@@ -60,6 +72,8 @@ export interface VendorPO {
   poNumber: string
   poDate: string
   poValue: number
+  /** Latest agreed execution amount (may differ from contractual PO value). */
+  executedValue?: number | null
   milestones: VendorPOMilestone[]
   paymentTerms?: string
   status: VendorPOExecutionStatus

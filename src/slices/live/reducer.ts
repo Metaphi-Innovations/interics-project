@@ -129,6 +129,17 @@ const liveSlice = createSlice({
       .addCase(uploadVendorInvoice.fulfilled, (state, action) => {
         state.saving = false
         state.vendorInvoices.push(action.payload)
+        const inv = action.payload
+        for (const expId of inv.linkedExpenseIds ?? []) {
+          const idx = state.expenses.findIndex((e) => e.id === expId)
+          if (idx !== -1 && state.expenses[idx].status === 'pending') {
+            state.expenses[idx] = {
+              ...state.expenses[idx],
+              status: 'adjusted',
+              linkedVendorInvoiceId: inv.id,
+            }
+          }
+        }
       })
       .addCase(uploadVendorInvoice.rejected, (state) => {
         state.saving = false

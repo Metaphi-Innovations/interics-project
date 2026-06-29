@@ -4,24 +4,27 @@ import { BarChart2 } from 'lucide-react'
 interface EmptyChartStateProps {
   title: string
   guidance?: string
-  height?: number
+  height?: number | '100%'
 }
 
 export function EmptyChartState({
   title,
   guidance = 'Try expanding the date range or resetting chart filters.',
-  height = 220,
+  height = '100%',
 }: EmptyChartStateProps) {
   return (
     <Box
       sx={{
         height,
+        minHeight: height === '100%' ? '100%' : height,
+        flex: height === '100%' ? 1 : undefined,
+        width: '100%',
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
         gap: 1,
-        px: 3,
+        px: 2,
         textAlign: 'center',
       }}
     >

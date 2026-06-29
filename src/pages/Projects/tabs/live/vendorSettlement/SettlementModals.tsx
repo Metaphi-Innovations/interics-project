@@ -1,19 +1,26 @@
 import { Divider, Stack, Typography } from '@mui/material'
 import { Modal } from '@/design-system/components'
-import type { VendorInvoice, VendorPayment } from '@/slices/live/reducer'
+import type { Expense, VendorInvoice, VendorPayment } from '@/slices/live/types'
 import { formatCurrency, formatDate } from '@/utils/formatters'
 import { itemsSummary } from './utils'
 
 export function VendorInvoiceDetailModal({
   open,
   invoice,
+  expenses = [],
   onClose,
 }: {
   open: boolean
   invoice: VendorInvoice | null
+  expenses?: Expense[]
   onClose: () => void
 }) {
   if (!invoice) return null
+
+  const linkedExpenses = (invoice.linkedExpenseIds ?? [])
+    .map((id) => expenses.find((e) => e.id === id))
+    .filter((e): e is Expense => Boolean(e))
+
   return (
     <Modal open={open} onClose={onClose} title="Vendor invoice" size="sm">
       <Stack gap={1} sx={{ py: 1 }}>
@@ -27,8 +34,33 @@ export function VendorInvoiceDetailModal({
           Date: {formatDate(invoice.invoiceDate)}
         </Typography>
         <Typography variant="body2" sx={{ fontSize: 12 }}>
-          Base: ₹{formatCurrency(invoice.baseAmount)} · TDS: ₹{formatCurrency(invoice.tdsAmount)}
+          Invoice amount: ₹{formatCurrency(invoice.baseAmount)}
         </Typography>
+        {invoice.gstAmount != null && invoice.gstAmount > 0 ? (
+          <Typography variant="body2" sx={{ fontSize: 12 }}>
+            GST ({invoice.gstRate ?? 0}%): ₹{formatCurrency(invoice.gstAmount)}
+          </Typography>
+        ) : null}
+        <Typography variant="body2" sx={{ fontSize: 12 }}>
+          TDS ({invoice.tdsRate}%): ₹{formatCurrency(invoice.tdsAmount)}
+        </Typography>
+        {(invoice.expenseDeductions ?? 0) > 0 ? (
+          <>
+            <Divider sx={{ my: 0.5 }} />
+            <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
+              Linked expenses
+            </Typography>
+            {linkedExpenses.map((exp) => (
+              <Typography key={exp.id} variant="body2" sx={{ fontSize: 12 }}>
+                {exp.description} · −₹{formatCurrency(exp.amount)}
+              </Typography>
+            ))}
+            <Typography variant="body2" sx={{ fontSize: 12 }}>
+              Total deductions: ₹{formatCurrency(invoice.expenseDeductions ?? 0)}
+            </Typography>
+          </>
+        ) : null}
+        <Divider sx={{ my: 0.5 }} />
         <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 700 }}>
           Net payable: ₹{formatCurrency(invoice.netPayable)}
         </Typography>

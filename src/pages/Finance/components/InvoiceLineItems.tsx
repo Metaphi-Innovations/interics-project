@@ -16,6 +16,7 @@ import type { LineItem, LineSource } from '@/slices/receivables/reducer'
 import type { Service, SACCode } from '@/slices/settings/reducer'
 import { tokens } from '@/design-system/tokens'
 import { formatInr } from '@/utils/formatters'
+import { computeLineItemTaxBreakdown } from '@/pages/Projects/tabs/live/clientInvoiceUtils'
 
 export interface DraftLineItem {
   id: string
@@ -23,6 +24,9 @@ export interface DraftLineItem {
   serviceName: string
   sacCode: string
   amount: number
+  labourCessRate: number
+  labourCessAmount: number
+  taxableAmount: number
   gstRate: number
   gstAmount: number
   milestoneId?: string
@@ -32,8 +36,19 @@ export interface DraftLineItem {
   maxAmount?: number
 }
 
-function computeGst(amount: number, gstRate: number): number {
-  return Math.round(amount * (gstRate / 100) * 100) / 100
+function applyLineTaxes(line: DraftLineItem): DraftLineItem {
+  let amount = line.amount
+  if (line.maxAmount !== undefined && line.maxAmount >= 0) {
+    amount = Math.min(amount, line.maxAmount)
+  }
+  const breakdown = computeLineItemTaxBreakdown(amount, line.labourCessRate, line.gstRate)
+  return {
+    ...line,
+    amount,
+    labourCessAmount: breakdown.labourCessAmount,
+    taxableAmount: breakdown.taxableAmount,
+    gstAmount: breakdown.gstAmount,
+  }
 }
 
 function resolveSac(sacCodes: SACCode[], service: Service | undefined): string {
@@ -56,6 +71,8 @@ export interface InvoiceLineItemsProps {
   manualAddCollapsed?: boolean
   /** Hide SAC Code column (project generate-invoice flow) */
   hideSacColumn?: boolean
+  /** Show Labour cess % column between Amount and GST % */
+  showLabourCessColumn?: boolean
 }
 
 export function emptyDraftLine(): DraftLineItem {
@@ -65,6 +82,9 @@ export function emptyDraftLine(): DraftLineItem {
     serviceName: '',
     sacCode: '',
     amount: 0,
+    labourCessRate: 0,
+    labourCessAmount: 0,
+    taxableAmount: 0,
     gstRate: 18,
     gstAmount: 0,
     lineSource: 'manual',
@@ -82,6 +102,7 @@ export function InvoiceLineItems({
   allowEmpty = false,
   manualAddCollapsed = false,
   hideSacColumn = false,
+  showLabourCessColumn = false,
 }: InvoiceLineItemsProps) {
   const activeServices = services.filter((s) => s.status === 'active')
   const [manualOpen, setManualOpen] = useState(!manualAddCollapsed)
@@ -96,15 +117,16 @@ export function InvoiceLineItems({
       cur.gstRate = svc?.gstRate ?? 18
       cur.sacCode = resolveSac(sacCodes, svc)
     }
-    if (patch.amount !== undefined || patch.gstRate !== undefined || patch.serviceId !== undefined) {
-      let amt = cur.amount
-      if (cur.maxAmount !== undefined && cur.maxAmount >= 0) {
-        amt = Math.min(amt, cur.maxAmount)
-      }
-      cur.amount = amt
-      cur.gstAmount = computeGst(cur.amount, cur.gstRate)
+    if (
+      patch.amount !== undefined ||
+      patch.gstRate !== undefined ||
+      patch.labourCessRate !== undefined ||
+      patch.serviceId !== undefined
+    ) {
+      next[index] = applyLineTaxes(cur)
+    } else {
+      next[index] = cur
     }
-    next[index] = cur
     onChange(next)
   }
 
@@ -130,14 +152,39 @@ export function InvoiceLineItems({
   const gstTotal = lines.reduce((s, l) => s + l.gstAmount, 0)
 
   const descLabel = projectSourced ? 'Service / milestone' : 'Service'
+  const isCompactProjectTable = projectSourced && hideSacColumn
+  const emptyColSpan =
+    1 +
+    (hideSacColumn ? 0 : 1) +
+    1 +
+    (showLabourCessColumn ? 1 : 0) +
+    2 +
+    (mode === 'edit' ? 1 : 0)
+
+  const serviceColSx = isCompactProjectTable
+    ? { width: '34%', pl: 1.5, pr: 0.25 }
+    : undefined
+  const amountColSx = isCompactProjectTable
+    ? { width: 96, pl: 0.25, pr: 1 }
+    : { width: 120 }
 
   return (
     <Box>
       <TableContainer>
-        <Table size="small">
+        <Table
+          size="small"
+          sx={isCompactProjectTable ? { width: '100%', tableLayout: 'fixed' } : undefined}
+        >
           <TableHead>
             <TableRow sx={{ bgcolor: tokens.color.neutral[50] }}>
-              <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary' }}>
+              <TableCell
+                sx={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: 'text.secondary',
+                  ...serviceColSx,
+                }}
+              >
                 {descLabel}
               </TableCell>
               {!hideSacColumn ? (
@@ -145,9 +192,21 @@ export function InvoiceLineItems({
                   SAC Code
                 </TableCell>
               ) : null}
-              <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', width: 120 }}>
+              <TableCell
+                sx={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: 'text.secondary',
+                  ...amountColSx,
+                }}
+              >
                 Amount
               </TableCell>
+              {showLabourCessColumn ? (
+                <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', width: 80 }}>
+                  Labour cess
+                </TableCell>
+              ) : null}
               <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', width: 88 }}>
                 GST %
               </TableCell>
@@ -160,7 +219,7 @@ export function InvoiceLineItems({
           <TableBody>
             {lines.length === 0 && mode === 'edit' ? (
               <TableRow>
-                <TableCell colSpan={hideSacColumn ? 5 : 6}>
+                <TableCell colSpan={emptyColSpan}>
                   <Typography variant="body2" color="text.secondary">
                     No lines yet — select milestones or services above, or add a manual line.
                   </Typography>
@@ -172,17 +231,22 @@ export function InvoiceLineItems({
               const isManual = !projectSourced || draft.lineSource === 'manual' || !draft.lineSource
               return mode === 'read' ? (
                 <TableRow key={row.id}>
-                  <TableCell sx={{ fontSize: 12 }}>{row.serviceName}</TableCell>
+                  <TableCell sx={{ fontSize: 12, ...serviceColSx }}>{row.serviceName}</TableCell>
                   {!hideSacColumn ? (
                     <TableCell sx={{ fontSize: 12, fontFamily: 'monospace' }}>{row.sacCode}</TableCell>
                   ) : null}
-                  <TableCell sx={{ fontSize: 12 }}>₹{formatInr(row.amount)}</TableCell>
+                  <TableCell sx={{ fontSize: 12, ...amountColSx }}>₹{formatInr(row.amount)}</TableCell>
+                  {showLabourCessColumn ? (
+                    <TableCell sx={{ fontSize: 12 }}>
+                      {(row as DraftLineItem).labourCessRate ?? 0}%
+                    </TableCell>
+                  ) : null}
                   <TableCell sx={{ fontSize: 12 }}>{row.gstRate}%</TableCell>
                   <TableCell sx={{ fontSize: 12 }}>₹{formatInr(row.gstAmount)}</TableCell>
                 </TableRow>
               ) : (
                 <TableRow key={row.id}>
-                  <TableCell sx={{ py: 1.5, verticalAlign: 'top' }}>
+                  <TableCell sx={{ py: 1.5, verticalAlign: 'top', ...serviceColSx }}>
                     {isManual ? (
                       <Select
                         size="sm"
@@ -203,7 +267,7 @@ export function InvoiceLineItems({
                       {draft.sacCode || '—'}
                     </TableCell>
                   ) : null}
-                  <TableCell sx={{ py: 1.5, verticalAlign: 'top' }}>
+                  <TableCell sx={{ py: 1.5, verticalAlign: 'top', ...amountColSx }}>
                     <Input
                       size="sm"
                       type="number"
@@ -217,6 +281,18 @@ export function InvoiceLineItems({
                       </Typography>
                     )}
                   </TableCell>
+                  {showLabourCessColumn ? (
+                    <TableCell sx={{ py: 1.5, verticalAlign: 'top' }}>
+                      <Input
+                        size="sm"
+                        type="number"
+                        value={draft.labourCessRate ? String(draft.labourCessRate) : ''}
+                        onChange={(v) => updateLine(index, { labourCessRate: Number(v) || 0 })}
+                        fullWidth
+                        placeholder="0"
+                      />
+                    </TableCell>
+                  ) : null}
                   <TableCell sx={{ verticalAlign: 'middle' }}>
                     <Badge label={`${row.gstRate}%`} size="sm" color="neutral" variant="soft" />
                   </TableCell>
@@ -244,6 +320,7 @@ export function InvoiceLineItems({
                 <TableCell sx={{ fontSize: 12, fontWeight: 700 }}>Subtotal</TableCell>
                 {!hideSacColumn ? <TableCell>—</TableCell> : null}
                 <TableCell sx={{ fontSize: 12, fontWeight: 700 }}>₹{formatInr(baseTotal)}</TableCell>
+                {showLabourCessColumn ? <TableCell>—</TableCell> : null}
                 <TableCell>—</TableCell>
                 <TableCell sx={{ fontSize: 12, fontWeight: 700 }}>₹{formatInr(gstTotal)}</TableCell>
               </TableRow>
@@ -272,4 +349,6 @@ export function InvoiceLineItems({
   )
 }
 
-export { computeGst }
+export function computeGst(amount: number, gstRate: number): number {
+  return computeLineItemTaxBreakdown(amount, 0, gstRate).gstAmount
+}

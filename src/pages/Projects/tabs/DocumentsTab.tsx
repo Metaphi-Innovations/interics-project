@@ -20,12 +20,11 @@ import { DrawerForm, FormField } from '../../../components/templates/DrawerForm'
 import {
   Badge,
   Button,
-  FileUpload,
   IconButton,
   Input,
   Select,
-  Textarea,
 } from '@/design-system/components'
+import { DocumentUploadFormBody } from '@/components/forms/DocumentUploadFormBody'
 import { tokens } from '@/design-system/tokens'
 import { useAppDispatch, useAppSelector } from '../../../store/hooks'
 import { fetchInvoices, fetchVendorInvoices } from '../../../slices/live/thunk'
@@ -38,6 +37,7 @@ import {
 } from './live/vendorSettlement/utils'
 import {
   isLegacyInternalUploadCategory,
+  openProjectUploadInNewTab,
   useProjectDocumentUploads,
   type UploadCategory,
   type UploadedProjectDocument,
@@ -54,9 +54,6 @@ import {
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 type DocumentFilter = 'all' | 'client' | 'vendor' | 'project'
-
-const ACCEPT =
-  '.pdf,.doc,.docx,.xlsx,.jpg,.jpeg,.png,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,image/jpeg,image/png'
 
 /** Fixed column widths — must sum to 100% for consistent alignment across all document tables. */
 const DOCUMENTS_COL_WIDTH = {
@@ -411,7 +408,7 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
       fileName: u.fileName,
       canDelete: Boolean(authUser?.id && u.uploadedByUserId === authUser.id),
       onView: () => {
-        window.open(u.blobUrl, '_blank', 'noopener,noreferrer')
+        openProjectUploadInNewTab(u)
       },
       onDownload: () => {
         const a = document.createElement('a')
@@ -617,7 +614,7 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
       notes: notes.trim(),
       blobUrl,
     }
-    addUpload(next)
+    addUpload(next, file)
     closeDrawer()
   }
 
@@ -775,6 +772,7 @@ function UploadFormBody({
   notes,
   setNotes,
   formErrors,
+  uploadResetKey,
 }: {
   docName: string
   setDocName: (v: string) => void
@@ -784,43 +782,29 @@ function UploadFormBody({
   notes: string
   setNotes: (v: string) => void
   formErrors: { name?: string; category?: string }
+  uploadResetKey?: number
 }) {
   return (
-    <Stack gap={2}>
-      <FormField label="Document Name" required error={formErrors.name}>
-        <Input value={docName} onChange={setDocName} size="sm" />
-      </FormField>
-      <FormField label="Category" required error={formErrors.category}>
-        <Select
-          placeholder="Select category"
-          value={category || undefined}
-          onChange={(v) => setCategory(v as UploadCategory)}
-          options={CATEGORY_OPTIONS.map((o) => ({ label: o.label, value: o.value }))}
-          size="sm"
-          fullWidth
-        />
-      </FormField>
-      <FormField label="File" hint="Optional">
-        <Box sx={{ minWidth: 0, maxWidth: '100%', overflow: 'hidden' }}>
-          <FileUpload
-            accept={ACCEPT}
-            multiple={false}
-            showAcceptText={false}
-            onUpload={(files) => setSelectedFiles(files)}
-            helperText="PDF, Word, Excel, JPG, PNG"
-            sx={{ width: '100%', maxWidth: '100%' }}
+    <DocumentUploadFormBody
+      docName={docName}
+      onDocNameChange={setDocName}
+      onFilesChange={setSelectedFiles}
+      notes={notes}
+      onNotesChange={setNotes}
+      nameError={formErrors.name}
+      uploadResetKey={uploadResetKey}
+      middleSlot={
+        <FormField label="Category" required error={formErrors.category}>
+          <Select
+            placeholder="Select category"
+            value={category || undefined}
+            onChange={(v) => setCategory(v as UploadCategory)}
+            options={CATEGORY_OPTIONS.map((o) => ({ label: o.label, value: o.value }))}
+            size="sm"
+            fullWidth
           />
-        </Box>
-      </FormField>
-      <FormField label="Notes" hint="Optional">
-        <Textarea
-          value={notes}
-          onChange={setNotes}
-          minRows={3}
-          placeholder="Add context for your team…"
-          fullWidth
-        />
-      </FormField>
-    </Stack>
+        </FormField>
+      }
+    />
   )
 }

@@ -53,10 +53,10 @@ const EMPTY_DRAFT: VendorOfferDraft = {
 }
 
 const ALLOCATION_COL_WIDTH = {
-  vendor: '25%',
-  amount: '25%',
-  upload: '25%',
-  delete: '25%',
+  vendor: '40%',
+  amount: '18%',
+  upload: '30%',
+  delete: '12%',
 } as const
 
 const TABLE_HEADER_SX = {
@@ -75,6 +75,16 @@ const TABLE_CELL_SX = {
   px: 1.5,
   verticalAlign: 'middle' as const,
 }
+
+const VENDOR_CELL_SX = { ...TABLE_CELL_SX, pl: 1.5, pr: 1 }
+const AMOUNT_CELL_SX = { ...TABLE_CELL_SX, px: 1 }
+const UPLOAD_CELL_SX = { ...TABLE_CELL_SX, pl: 1, pr: 0.25 }
+const DELETE_CELL_SX = { ...TABLE_CELL_SX, pl: 0.25, pr: 1.5 }
+
+const VENDOR_HEADER_SX = { ...TABLE_HEADER_SX, pl: 1.5, pr: 1 }
+const AMOUNT_HEADER_SX = { ...TABLE_HEADER_SX, px: 1 }
+const UPLOAD_HEADER_SX = { ...TABLE_HEADER_SX, pl: 1, pr: 0.25 }
+const DELETE_HEADER_SX = { ...TABLE_HEADER_SX, pl: 0.25, pr: 1.5 }
 
 const ALLOCATION_TABLE_SX = {
   border: '1px solid',
@@ -261,6 +271,7 @@ export function VendorOfferDrawer({
       onSubmit={handleSubmit}
       submitLabel="Save"
       submitDisabled={!canSave}
+      width={680}
     >
       <Stack spacing={2}>
         <Box
@@ -277,8 +288,10 @@ export function VendorOfferDrawer({
               options={categoryOptions}
               value={categoryOptions.find((c) => c.id === draft.categoryId) ?? null}
               onChange={(_, next) => handleCategoryChange(next?.id ?? '')}
+              getOptionLabel={(opt) => opt.label}
+              isOptionEqualToValue={(opt, val) => opt.id === val.id}
               renderInput={(params) => (
-                <TextField {...params} placeholder="Select category" sx={{ '& input': { fontSize: 12 } }} />
+                <TextField {...params} placeholder="Search category…" sx={{ '& input': { fontSize: 12 } }} />
               )}
             />
           </FormField>
@@ -294,7 +307,7 @@ export function VendorOfferDrawer({
               value={serviceOptions.find((s) => s.id === draft.serviceId) ?? null}
               onChange={(_, next) => handleServiceChange(next?.id ?? '')}
               renderInput={(params) => (
-                <TextField {...params} placeholder="Select service" sx={{ '& input': { fontSize: 12 } }} />
+                <TextField {...params} placeholder="Search service…" sx={{ '& input': { fontSize: 12 } }} />
               )}
             />
           </FormField>
@@ -386,18 +399,21 @@ export function VendorOfferDrawer({
             >
               <TableHead>
                 <TableRow>
-                  <TableCell sx={{ ...TABLE_HEADER_SX, width: ALLOCATION_COL_WIDTH.vendor }}>
+                  <TableCell sx={{ ...VENDOR_HEADER_SX, width: ALLOCATION_COL_WIDTH.vendor }}>
                     Vendor
                   </TableCell>
-                  <TableCell sx={{ ...TABLE_HEADER_SX, width: ALLOCATION_COL_WIDTH.amount }}>
+                  <TableCell sx={{ ...AMOUNT_HEADER_SX, width: ALLOCATION_COL_WIDTH.amount }}>
                     Amount
                   </TableCell>
-                  <TableCell sx={{ ...TABLE_HEADER_SX, width: ALLOCATION_COL_WIDTH.upload }}>
+                  <TableCell
+                    align="center"
+                    sx={{ ...UPLOAD_HEADER_SX, width: ALLOCATION_COL_WIDTH.upload }}
+                  >
                     Upload Quotation
                   </TableCell>
                   <TableCell
                     align="center"
-                    sx={{ ...TABLE_HEADER_SX, width: ALLOCATION_COL_WIDTH.delete }}
+                    sx={{ ...DELETE_HEADER_SX, width: ALLOCATION_COL_WIDTH.delete }}
                   >
                     Delete
                   </TableCell>
@@ -416,26 +432,28 @@ export function VendorOfferDrawer({
 
                   return (
                     <TableRow key={row.id}>
-                      <TableCell sx={TABLE_CELL_SX}>
+                      <TableCell sx={VENDOR_CELL_SX}>
                         <Autocomplete
                           size="small"
                           fullWidth
                           options={autocompleteOptions}
                           value={selectedVendor}
                           onChange={(_, v) => handleVendorChange(row.id, v?.id ?? '')}
+                          getOptionLabel={(opt) => opt.label}
+                          isOptionEqualToValue={(opt, val) => opt.id === val.id}
                           getOptionDisabled={(opt) =>
                             draft.rows.some((r) => r.id !== row.id && r.vendorId === opt.id)
                           }
                           renderInput={(params) => (
                             <TextField
                               {...params}
-                              placeholder="Select vendor"
+                              placeholder="Search vendor…"
                               sx={{ '& input': { fontSize: 12 } }}
                             />
                           )}
                         />
                       </TableCell>
-                      <TableCell sx={TABLE_CELL_SX}>
+                      <TableCell sx={AMOUNT_CELL_SX}>
                         <Stack gap={0.75}>
                           <TextField
                             size="small"
@@ -467,12 +485,12 @@ export function VendorOfferDrawer({
                           />
                         </Stack>
                       </TableCell>
-                      <TableCell sx={TABLE_CELL_SX}>
+                      <TableCell align="center" sx={UPLOAD_CELL_SX}>
                         <Box
                           sx={{
                             display: 'flex',
                             flexDirection: 'column',
-                            alignItems: 'flex-start',
+                            alignItems: 'center',
                             justifyContent: 'center',
                             gap: 0.25,
                             minHeight: 32,
@@ -504,7 +522,7 @@ export function VendorOfferDrawer({
                           ) : null}
                         </Box>
                       </TableCell>
-                      <TableCell align="center" sx={TABLE_CELL_SX}>
+                      <TableCell align="center" sx={DELETE_CELL_SX}>
                         <MuiIconButton
                           size="small"
                           aria-label="Remove vendor row"

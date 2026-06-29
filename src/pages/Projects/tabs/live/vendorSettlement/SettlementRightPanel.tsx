@@ -25,7 +25,7 @@ import type { ExpenseType, VendorInvoice } from '@/slices/live/reducer'
 import type { Baseline } from '@/slices/baseline/reducer'
 import { fetchVendorPOs } from '@/slices/baseline/thunk'
 import { formatCurrency, formatDate } from '@/utils/formatters'
-import { isVendorRetentionMilestone } from '@/utils/vendorMilestones'
+import { isVendorFinalMilestoneId, isVendorRetentionMilestone } from '@/utils/vendorMilestones'
 import { AddVendorInvoiceDrawer } from './AddVendorInvoiceDrawer'
 import { VendorInvoiceDetailModal } from './SettlementModals'
 import {
@@ -510,7 +510,9 @@ export function SettlementRightPanel({
                                 <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 700, lineHeight: 1.3 }}>
                                   {isVendorRetentionMilestone(vm.name)
                                     ? 'Retention'
-                                    : `M${idx + 1} — ${vm.name}`}
+                                    : isVendorFinalMilestoneId(vm.id)
+                                      ? `Final — ${vm.name}`
+                                      : `M${idx + 1} — ${vm.name}`}
                                 </Typography>
                                 <Typography
                                   variant="body2"
@@ -625,7 +627,7 @@ export function SettlementRightPanel({
               ) : (
                 <Grid container spacing={1.5}>
                   {expensesForRow.map(({ expense: e, amount, kind }) => {
-                    const locked = e.status === 'included_in_payment'
+                    const locked = e.status !== 'pending'
                     return (
                       <Grid key={`${e.id}-${kind}`} size={{ xs: 12, sm: 6, md: 4 }}>
                         <Stack

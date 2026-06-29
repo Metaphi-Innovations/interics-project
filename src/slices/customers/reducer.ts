@@ -1,11 +1,13 @@
 import { createSlice } from '@reduxjs/toolkit'
 import type { PayloadAction } from '@reduxjs/toolkit'
+import { getCustomerContactsList } from '@/utils/customerContacts'
 import {
   fetchCustomers,
   fetchCustomerById,
   createCustomer,
   updateCustomer,
   deleteCustomer,
+  createCustomerContact,
 } from './thunk'
 
 export interface Contact {
@@ -186,6 +188,24 @@ const customersSlice = createSlice({
       .addCase(updateCustomer.rejected, (state, action) => {
         state.saving = false
         state.error = action.payload as string
+      })
+      .addCase(createCustomerContact.fulfilled, (state, action) => {
+        const { customerId, contact } = action.payload
+        const idx = state.items.findIndex((c) => c.id === customerId)
+        if (idx !== -1) {
+          const customer = state.items[idx]
+          const baseContacts = customer.contacts?.length
+            ? customer.contacts
+            : getCustomerContactsList(customer)
+          state.items[idx] = { ...customer, contacts: [...baseContacts, contact] }
+        }
+        if (state.selectedItem?.id === customerId) {
+          const customer = state.selectedItem
+          const baseContacts = customer.contacts?.length
+            ? customer.contacts
+            : getCustomerContactsList(customer)
+          state.selectedItem = { ...customer, contacts: [...baseContacts, contact] }
+        }
       })
       .addCase(deleteCustomer.fulfilled, (state, action) => {
         state.items = state.items.filter((c) => c.id !== action.payload)

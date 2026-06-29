@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 import {
   Box,
-  Divider,
   Stack,
   Typography,
   Chip as MuiChip,
@@ -12,7 +11,6 @@ import {
   TableHead,
   TableRow,
   IconButton as MuiIconButton,
-  Link,
 } from '@mui/material'
 import {
   VerifiedUser,
@@ -27,7 +25,7 @@ import {
   Star,
   Person,
 } from '@mui/icons-material'
-import { ChevronRight, History, Plus } from 'lucide-react'
+import { FileUp, History } from 'lucide-react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { fetchVendorById, updateVendor } from '../../slices/vendors/thunk'
@@ -39,6 +37,13 @@ import type { Contact } from '../../slices/customers/reducer'
 import { WorkspaceDetail, WorkspaceSection } from '../../components/templates'
 import { VendorDrawer } from './VendorDrawer'
 import { ContactDrawer } from '../../components/ContactDrawer'
+import { ComplianceDocumentsUploadModal } from './ComplianceDocumentsUploadModal'
+import type { ComplianceDocumentUploadValues } from './ComplianceDocumentsUploadModal'
+import {
+  createUploadedCompliancePreview,
+  UploadedCompliancePreviewStack,
+} from './VendorAdditionalComplianceSection'
+import type { UploadedCompliancePreview } from './VendorAdditionalComplianceSection'
 import { StatusBadge, useToast, Button } from '@/design-system/components'
 import type { StatusType } from '@/design-system/components'
 import {
@@ -51,15 +56,18 @@ import {
   getPrimaryContact as getVendorListingPrimaryContact,
   primaryFieldsFromVendor,
 } from '../../utils/vendorContacts'
-import {
-  getVendorComplianceChips,
-  getVendorListingCompliance,
-} from '../../utils/vendorCompliance'
 import { tokens } from '@/design-system/tokens'
 import { useTheme, alpha } from '@mui/material/styles'
 import {
+  buildComplianceDeletePatch,
+  buildGenericComplianceUploadPatch,
+  getInsuranceExpiryDate,
+  getVendorComplianceRegistrationDoc,
+  resolveComplianceDocKeyFromDocumentName,
+} from '../../utils/vendorComplianceDocuments'
+import type { ComplianceRegistrationDocKey } from '../../utils/vendorComplianceDocuments'
+import {
   getRecordDetailFlatSectionSx,
-  getRecordDetailOverviewRightCardSx,
   RecordDetailSectionTitle,
   formatFullAddress,
   getRecordTagChipColors,
@@ -142,22 +150,6 @@ function getTotalVendorProjects(vendor: Vendor): number {
   return vendor.activeProjects
 }
 
-function vendorWebsiteHref(raw: string | null | undefined): string | null {
-  const t = raw?.trim()
-  if (!t) return null
-  return /^https?:\/\//i.test(t) ? t : `https://${t}`
-}
-
-function vendorWebsiteHost(raw: string | null | undefined): string | null {
-  const href = vendorWebsiteHref(raw)
-  if (!href) return null
-  try {
-    return new URL(href).hostname
-  } catch {
-    return raw!.replace(/^https?:\/\//i, '').replace(/\/$/, '') || null
-  }
-}
-
 // ── VendorDetailPage ──────────────────────────────────────────────────────────
 
 export default function VendorDetailPage() {
@@ -165,6 +157,8 @@ export default function VendorDetailPage() {
   const [searchParams] = useSearchParams()
   const dispatch = useAppDispatch()
   const vendor = useAppSelector((s) => s.vendors.selectedItem)
+  const saving = useAppSelector((s) => s.vendors.saving)
+  const authUser = useAppSelector((s) => s.auth.user)
   const { showToast } = useToast()
   const theme = useTheme()
 
@@ -177,6 +171,8 @@ export default function VendorDetailPage() {
   const [contactDrawerOpen, setContactDrawerOpen] = useState(false)
   const [editingContact, setEditingContact] = useState<Contact | null>(null)
   const [activityFilter, setActivityFilter] = useState<ActivityFilterCategory>('all')
+  const [uploadModalOpen, setUploadModalOpen] = useState(false)
+  const [localUploadedDocs, setLocalUploadedDocs] = useState<UploadedCompliancePreview[]>([])
 
   useEffect(() => {
     if (!slug) return
@@ -205,6 +201,44 @@ export default function VendorDetailPage() {
     }
   }, [searchParams])
 
+  useEffect(() => {
+    setLocalUploadedDocs([])
+  }, [vendor?.id])
+
+  async function handleComplianceUpload(values: ComplianceDocumentUploadValues) {
+    if (!vendor) return
+
+    const preview = createUploadedCompliancePreview(values)
+    setLocalUploadedDocs((prev) => [preview, ...prev])
+
+    const uploadedBy = authUser?.name ?? 'Current User'
+    const docKey = resolveComplianceDocKeyFromDocumentName(values.documentName)
+    const hadExisting = docKey
+      ? getVendorComplianceRegistrationDoc(vendor, docKey) !== null
+      : false
+
+    setUploadModalOpen(false)
+    showToast({
+      title: hadExisting
+        ? 'Document updated successfully.'
+        : 'Document uploaded successfully.',
+      variant: 'success',
+    })
+
+    try {
+      const patch = buildGenericComplianceUploadPatch(vendor, {
+        documentName: values.documentName,
+        file: values.file,
+        notes: values.notes,
+        uploadedBy,
+        expiryDate: values.expiryDate,
+      })
+      await dispatch(updateVendor({ id: vendor.id, data: patch })).unwrap()
+    } catch {
+      // Session preview already shown — mock API failure does not block the demo flow.
+    }
+  }
+
   async function handleToggleStatus() {
     if (!vendor) return
     const newStatus = vendor.status === 'Active' ? 'Inactive' : 'Active'
@@ -220,9 +254,32 @@ export default function VendorDetailPage() {
     window.open(url, '_blank', 'noopener,noreferrer')
   }
 
-  function primaryContact(): Contact | undefined {
-    if (!vendor) return undefined
-    return getVendorListingPrimaryContact({ ...vendor, contacts })
+  async function handleDeleteComplianceDoc(docKey: ComplianceRegistrationDocKey) {
+    if (!vendor || !getVendorComplianceRegistrationDoc(vendor, docKey)) return
+
+    const deletedBy = authUser?.name ?? 'Current User'
+    try {
+      const patch = buildComplianceDeletePatch(vendor, docKey, deletedBy)
+      await dispatch(updateVendor({ id: vendor.id, data: patch })).unwrap()
+      showToast({ title: 'Document removed', variant: 'success' })
+    } catch {
+      showToast({ title: 'Failed to remove document', variant: 'error' })
+    }
+  }
+
+  function handleDeleteUploadedPreview(id: string) {
+    setLocalUploadedDocs((prev) => {
+      const doc = prev.find((item) => item.id === id)
+      if (doc?.blobUrl) URL.revokeObjectURL(doc.blobUrl)
+      return prev.filter((item) => item.id !== id)
+    })
+    showToast({ title: 'Document removed', variant: 'success' })
+  }
+
+  function complianceDocDeleteHandler(docKey: ComplianceRegistrationDocKey) {
+    return getVendorComplianceRegistrationDoc(vendor!, docKey)
+      ? () => { void handleDeleteComplianceDoc(docKey) }
+      : undefined
   }
 
   async function persistContacts(nextContacts: Contact[]) {
@@ -301,7 +358,6 @@ export default function VendorDetailPage() {
   // ── renderOverview ─────────────────────────────────────────────────────────
 
   function renderOverview() {
-    const primary = primaryContact()
     const gstRegistered = vendor!.gstStatus === 'Registered'
     const gstPill = gstStatusHeaderPillSx(gstRegistered, theme)
     const mono =
@@ -318,25 +374,18 @@ export default function VendorDetailPage() {
       vendor!.shippingState ?? '',
       vendor!.shippingPincode,
     ).trim()
-    const projTotal = getTotalVendorProjects(vendor!)
-    const siteHref = vendorWebsiteHref(vendor!.website)
-    const siteHost = vendorWebsiteHost(vendor!.website)
-    const complianceSnap = getVendorComplianceChips(vendor!)
-    const overallCompliance = getVendorListingCompliance(vendor!)
 
     return (
-      <Box
-        sx={{
-          display: 'grid',
-          gap: theme.spacing(2),
-          gridTemplateColumns: { xs: '1fr', md: '1fr 320px' },
-          alignItems: 'start',
-        }}
-      >
-        <Stack gap={0}>
+      <Stack gap={0}>
           <Box sx={getRecordDetailFlatSectionSx(theme, { isLast: false })}>
             <RecordDetailSectionTitle>Vendor profile</RecordDetailSectionTitle>
-            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: theme.spacing(2) }}>
+            <Box
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(3, 1fr)' },
+                gap: theme.spacing(2),
+              }}
+            >
               <LabelValue label="Vendor name">
                 <Typography variant="body2" sx={{ color: 'text.primary', fontWeight: 500, fontSize: theme.typography.body2.fontSize }}>
                   {vendor!.name}
@@ -461,144 +510,7 @@ export default function VendorDetailPage() {
               </Typography>
             )}
           </Box>
-        </Stack>
-
-        <Box sx={getRecordDetailOverviewRightCardSx(theme)}>
-          <RecordDetailSectionTitle>Primary contact</RecordDetailSectionTitle>
-          {primary ? (
-            <Stack direction="row" alignItems="flex-start" gap={theme.spacing(2)}>
-              <Box
-                sx={{
-                  width: 48,
-                  height: 48,
-                  borderRadius: '50%',
-                  flexShrink: 0,
-                  bgcolor: getAvatarColor(primary.name).bg,
-                  color: getAvatarColor(primary.name).text,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: 14,
-                  fontWeight: 700,
-                }}
-              >
-                {getInitials(primary.name)}
-              </Box>
-              <Box sx={{ flex: 1, minWidth: 0 }}>
-                <Typography variant="body2" fontWeight={500}>
-                  {primary.name}
-                </Typography>
-                {primary.designation ? (
-                  <Typography variant="body2" color="text.secondary">
-                    {primary.designation}
-                  </Typography>
-                ) : null}
-                <Stack direction="row" alignItems="center" gap={0.5} sx={{ mt: 1 }}>
-                  <Phone sx={{ fontSize: 12, color: 'text.secondary' }} />
-                  <Typography variant="body2" sx={{ fontSize: 12 }}>
-                    {primary.phone}
-                  </Typography>
-                </Stack>
-                <Stack direction="row" alignItems="center" gap={0.5}>
-                  <Email sx={{ fontSize: 12, color: 'text.secondary' }} />
-                  <Link href={`mailto:${primary.email}`} variant="body2" sx={{ fontSize: 12, color: 'primary.main' }}>
-                    {primary.email}
-                  </Link>
-                </Stack>
-              </Box>
-            </Stack>
-          ) : (
-            <Box sx={{ py: 2, textAlign: 'center' }}>
-              <Person sx={{ fontSize: 28, color: tokens.color.neutral[300], mb: 1 }} />
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-                No contact added yet
-              </Typography>
-              <Button
-                variant="outlined"
-                color="secondary"
-                size="sm"
-                startIcon={<Plus size={14} strokeWidth={2} />}
-                onClick={() => {
-                  setEditingContact(null)
-                  setContactDrawerOpen(true)
-                }}
-              >
-                Add contact
-              </Button>
-            </Box>
-          )}
-
-          <Divider sx={{ my: theme.spacing(1.5) }} />
-
-          <RecordDetailSectionTitle>Procurement summary</RecordDetailSectionTitle>
-          <Stack gap={theme.spacing(1)}>
-            <LabelValue label="Website">
-              {siteHref && siteHost ? (
-                <Link href={siteHref} target="_blank" rel="noopener noreferrer" variant="body2" sx={{ fontSize: 12 }}>
-                  {siteHost}
-                </Link>
-              ) : (
-                <Typography variant="body2" color="text.disabled" sx={{ fontSize: 12 }}>
-                  —
-                </Typography>
-              )}
-            </LabelValue>
-            <LabelValue label="Linked projects">
-              <Typography variant="body2" fontWeight={600} sx={{ fontSize: 12 }}>
-                {projTotal} Project{projTotal === 1 ? '' : 's'}
-              </Typography>
-            </LabelValue>
-            <Stack direction="row" alignItems="center" gap={0.75} sx={{ mt: 0.5, mb: 0.5 }}>
-              <Typography component="span" sx={{ fontSize: 14 }}>
-                {overallCompliance.emoji}
-              </Typography>
-              <StatusBadge
-                status={overallCompliance.statusBadgeType}
-                label={overallCompliance.label}
-              />
-            </Stack>
-            <Stack direction="row" flexWrap="wrap" gap={0.5} useFlexGap>
-              {complianceSnap.map((c) => {
-                const sx =
-                  c.tone === 'verified'
-                    ? { bgcolor: alpha(tokens.color.primary[500], 0.08), color: tokens.color.primary[700] }
-                    : c.tone === 'warning'
-                      ? { bgcolor: alpha(theme.palette.warning.main, 0.12), color: theme.palette.warning.dark }
-                      : { bgcolor: tokens.color.neutral[100], color: 'text.disabled' }
-                return (
-                  <MuiChip
-                    key={c.label}
-                    label={c.label}
-                    size="small"
-                    sx={{
-                      height: 18,
-                      fontSize: 9,
-                      fontWeight: 600,
-                      '& .MuiChip-label': { px: '5px' },
-                      ...sx,
-                    }}
-                  />
-                )
-              })}
-            </Stack>
-          </Stack>
-
-          <Divider sx={{ my: theme.spacing(1.5) }} />
-
-          <RecordDetailSectionTitle>Quick actions</RecordDetailSectionTitle>
-          <Stack gap={0.25} alignItems="flex-start">
-            <Button
-              variant="text"
-              color="primary"
-              size="sm"
-              endIcon={<ChevronRight size={16} />}
-              onClick={() => setActiveTab('projects')}
-            >
-              View Linked Projects
-            </Button>
-          </Stack>
-        </Box>
-      </Box>
+      </Stack>
     )
   }
 
@@ -606,8 +518,12 @@ export default function VendorDetailPage() {
 
   function renderDocumentsCompliance() {
     const onCopy = () => showToast({ title: 'Copied to clipboard', variant: 'success' })
-    const insExpiry = vendor!.compliance?.insurance?.expiryDate
-    const catalogueDoc = vendor!.documents?.find((d) => d.type === 'Catalogue') ?? null
+    const insExpiry = getInsuranceExpiryDate(vendor!)
+    const gstDoc = getVendorComplianceRegistrationDoc(vendor!, 'gst')
+    const panDoc = getVendorComplianceRegistrationDoc(vendor!, 'pan')
+    const bankDoc = getVendorComplianceRegistrationDoc(vendor!, 'bank_cheque')
+    const insuranceDoc = getVendorComplianceRegistrationDoc(vendor!, 'insurance')
+    const catalogueDoc = getVendorComplianceRegistrationDoc(vendor!, 'catalogue')
 
     function fmtTs(iso: string) {
       try {
@@ -621,7 +537,19 @@ export default function VendorDetailPage() {
 
     return (
       <Stack gap={theme.spacing(2)}>
-        <WorkspaceSection title="Compliance registration">
+        <WorkspaceSection
+          title="Compliance registration"
+          action={
+            <Button
+              variant="outlined"
+              color="secondary"
+              size="sm"
+              label="Upload Document"
+              startIcon={<FileUp size={14} strokeWidth={1.75} />}
+              onClick={() => setUploadModalOpen(true)}
+            />
+          }
+        >
           <Box
             sx={{
               display: 'grid',
@@ -633,74 +561,85 @@ export default function VendorDetailPage() {
             <RecordDetailTaxDocCard
               variant="gst"
               title="GST Registration"
-              statusChip={{
-                label: vendor!.gstStatus,
-                isRegistered: vendor!.gstStatus === 'Registered',
-              }}
+              showHeaderIcon={false}
+              showUploadMeta={false}
               fieldLabel="GSTIN"
               fieldValue={vendor!.gstin}
-              document={vendor!.gstDocument ?? null}
+              document={gstDoc}
               emptyDocMessage="No certificate uploaded"
-              uploadButtonLabel="+ Upload Certificate"
               onView={openTaxDocument}
               onDownload={openTaxDocument}
               onCopySuccess={onCopy}
+              onDelete={complianceDocDeleteHandler('gst')}
             />
             <RecordDetailTaxDocCard
               variant="pan"
               title="PAN / Income Tax"
+              showHeaderIcon={false}
+              showUploadMeta={false}
               fieldLabel="PAN"
               fieldValue={vendor!.pan}
-              document={vendor!.panDocument ?? null}
+              document={panDoc}
               emptyDocMessage="No document uploaded"
-              uploadButtonLabel="+ Upload Document"
               onView={openTaxDocument}
               onDownload={openTaxDocument}
               onCopySuccess={onCopy}
+              onDelete={complianceDocDeleteHandler('pan')}
             />
             <RecordDetailTaxDocCard
               variant="cheque"
               title="Bank Cancelled Cheque"
+              showHeaderIcon={false}
+              showUploadMeta={false}
               fieldLabel="Verification document"
               fieldValue="—"
-              document={vendor!.bankChequeDocument ?? null}
+              document={bankDoc}
               emptyDocMessage="No cancelled cheque uploaded"
-              uploadButtonLabel="+ Upload cheque"
               onView={openTaxDocument}
               onDownload={openTaxDocument}
               onCopySuccess={onCopy}
+              onDelete={complianceDocDeleteHandler('bank_cheque')}
             />
-            <Box>
-              <RecordDetailTaxDocCard
-                variant="insurance"
-                title="Insurance"
-                fieldLabel={insExpiry ? 'Policy expiry' : 'Coverage'}
-                fieldValue={insExpiry ? fmtTs(insExpiry) : 'General liability'}
-                document={vendor!.insuranceDocument ?? null}
-                emptyDocMessage="No insurance document uploaded"
-                uploadButtonLabel="+ Upload certificate"
-                onView={openTaxDocument}
-                onDownload={openTaxDocument}
-                onCopySuccess={onCopy}
-              />
-            </Box>
             <RecordDetailTaxDocCard
               variant="catalogue"
               title="Catalogue"
+              showHeaderIcon={false}
+              showUploadMeta={false}
               fieldLabel="Uploaded"
-              fieldValue={catalogueDoc?.uploadedAt ? fmtTs(catalogueDoc.uploadedAt) : null}
-              document={
-                catalogueDoc ? { name: catalogueDoc.name, url: catalogueDoc.url } : null
-              }
+              fieldValue={catalogueDoc?.uploadedOn ? fmtTs(catalogueDoc.uploadedOn) : null}
+              document={catalogueDoc}
               emptyDocMessage="No catalogue uploaded"
-              uploadButtonLabel="+ Upload catalogue"
               onView={openTaxDocument}
               onDownload={openTaxDocument}
               onCopySuccess={onCopy}
+              onDelete={complianceDocDeleteHandler('catalogue')}
             />
+            <RecordDetailTaxDocCard
+              variant="insurance"
+              title="Insurance"
+              showHeaderIcon={false}
+              showUploadMeta={false}
+              fieldLabel={insExpiry ? 'Policy expiry' : 'Coverage'}
+              fieldValue={insExpiry ? fmtTs(insExpiry) : 'General liability'}
+              document={insuranceDoc}
+              emptyDocMessage="No insurance document uploaded"
+              onView={openTaxDocument}
+              onDownload={openTaxDocument}
+              onCopySuccess={onCopy}
+              onDelete={complianceDocDeleteHandler('insurance')}
+            />
+            <Box>
+              <UploadedCompliancePreviewStack
+                documents={localUploadedDocs}
+                onView={openTaxDocument}
+                onDownload={openTaxDocument}
+                onCopySuccess={onCopy}
+                onDelete={handleDeleteUploadedPreview}
+                stackTopSpacing={false}
+              />
+            </Box>
           </Box>
         </WorkspaceSection>
-
       </Stack>
     )
   }
@@ -1016,6 +955,13 @@ export default function VendorDetailPage() {
         mode={editingContact ? 'edit' : 'add'}
         contact={editingContact}
         onSave={(data) => { void handleSaveContact(data) }}
+      />
+
+      <ComplianceDocumentsUploadModal
+        open={uploadModalOpen}
+        onClose={() => setUploadModalOpen(false)}
+        saving={saving}
+        onSubmit={handleComplianceUpload}
       />
 
     </>

@@ -10,12 +10,10 @@ import {
   fetchReimbursements,
 } from '../../../slices/live/thunk'
 import type { Project } from '../../../slices/projects/reducer'
+import FinancialSummaryTab from './live/FinancialSummaryTab'
 import BillingTab from './live/BillingTab'
-import VendorPOTab from './live/VendorPOTab'
 import PaymentsTab from './live/PaymentsTab'
 import ExpensesTab from './live/ExpensesTab'
-import ComplianceTab from './live/ComplianceTab'
-import ReimbursementTab from './live/ReimbursementTab'
 
 interface LiveTabProps {
   project: Project
@@ -23,10 +21,10 @@ interface LiveTabProps {
 
 export default function LiveTab({ project }: LiveTabProps) {
   const dispatch = useAppDispatch()
-  const [activeSubTab, setActiveSubTab] = useState('vendor-po')
+  const [activeSubTab, setActiveSubTab] = useState('financial-summary')
 
   useEffect(() => {
-    setActiveSubTab('vendor-po')
+    setActiveSubTab('financial-summary')
   }, [project.id])
 
   useEffect(() => {
@@ -38,12 +36,10 @@ export default function LiveTab({ project }: LiveTabProps) {
   }, [dispatch, project.id])
 
   const subTabs = [
-    { label: 'Contract', value: 'vendor-po' },
+    { label: 'Overview', value: 'financial-summary' },
     { label: 'Receivable', value: 'billing' },
     { label: 'Payable', value: 'payments' },
     { label: 'Expenses', value: 'expenses' },
-    { label: 'Reimbursement', value: 'reimbursement' },
-    { label: 'Compliance', value: 'compliance' },
   ] as const
 
   return (
@@ -78,7 +74,9 @@ export default function LiveTab({ project }: LiveTabProps) {
         </Tabs>
       </Box>
 
-      {activeSubTab === 'vendor-po' && <VendorPOTab projectId={project.id} />}
+      {activeSubTab === 'financial-summary' && (
+        <FinancialSummaryTab projectId={project.id} />
+      )}
       {activeSubTab === 'billing' && (
         <BillingTab
           projectId={project.id}
@@ -91,15 +89,6 @@ export default function LiveTab({ project }: LiveTabProps) {
         <PaymentsTab projectId={project.id} />
       )}
       {activeSubTab === 'expenses' && <ExpensesTab projectId={project.id} />}
-      {activeSubTab === 'reimbursement' && (
-        <ReimbursementTab
-          projectId={project.id}
-          onNavigateToPayments={() => setActiveSubTab('payments')}
-        />
-      )}
-      {activeSubTab === 'compliance' && (
-        <ComplianceTab projectId={project.id} clientName={project.customerName} />
-      )}
     </Box>
   )
 }

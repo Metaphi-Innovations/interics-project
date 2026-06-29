@@ -100,9 +100,23 @@ async function loadFinanceForAllProjects(dispatch: AppDispatch, projectIds: stri
 
 /** Equal-width data columns; action column fixed. Horizontal padding matches listing toolbar (14px). */
 const PAY_DATA_COL_COUNT = 7
-const PAY_ACTION_WIDTH_PX = 56
+const PAY_ACTION_WIDTH_PX = 44
 const PAY_COL_WIDTH = `calc((100% - ${PAY_ACTION_WIDTH_PX}px) / ${PAY_DATA_COL_COUNT})`
 const PAY_CELL_PAD_X = '14px'
+const LISTING_EDGE_PAD = PAY_CELL_PAD_X
+
+const CENTER_CELL_CONTENT_SX = {
+  display: 'flex',
+  justifyContent: 'center',
+  alignItems: 'center',
+  width: 1,
+} as const
+
+const STICKY_ACTION_SX = {
+  position: 'sticky' as const,
+  right: 0,
+  zIndex: 1,
+}
 
 const PAY_HEADER_SX = {
   fontSize: 11,
@@ -118,18 +132,23 @@ const PAY_HEADER_SX = {
 }
 
 const PAY_HEADER_ACTION_SX = {
+  ...STICKY_ACTION_SX,
   width: PAY_ACTION_WIDTH_PX,
   minWidth: PAY_ACTION_WIDTH_PX,
   maxWidth: PAY_ACTION_WIDTH_PX,
   py: '8px',
-  px: PAY_CELL_PAD_X,
+  pl: 0,
+  pr: LISTING_EDGE_PAD,
   fontSize: 11,
   fontWeight: 600,
   color: 'text.secondary',
   borderBottom: `2px solid ${tokens.color.neutral[100]}`,
-  verticalAlign: 'bottom' as const,
+  verticalAlign: 'middle' as const,
   whiteSpace: 'nowrap' as const,
   boxSizing: 'border-box' as const,
+  textAlign: 'center' as const,
+  bgcolor: 'background.default',
+  zIndex: 2,
 }
 
 const PAY_CELL_SX = {
@@ -148,13 +167,16 @@ const PAY_CELL_CHIP_SX = {
 
 const PAY_CELL_ACTION_SX = {
   py: '7px',
-  px: PAY_CELL_PAD_X,
+  pl: 0,
+  pr: LISTING_EDGE_PAD,
   width: PAY_ACTION_WIDTH_PX,
   minWidth: PAY_ACTION_WIDTH_PX,
   maxWidth: PAY_ACTION_WIDTH_PX,
   verticalAlign: 'middle' as const,
   textAlign: 'center' as const,
   boxSizing: 'border-box' as const,
+  bgcolor: 'background.paper',
+  ...STICKY_ACTION_SX,
 }
 
 /** Vendor / Project — wrap like Vendors name column (wordBreak, no single-line ellipsis). */
@@ -666,8 +688,18 @@ export default function PaymentsPage() {
           onExport={() => showToast({ title: 'Export started (placeholder)', variant: 'success' })}
         >
           <>
-              <TableContainer sx={{ overflow: 'visible', width: '100%' }}>
+              <TableContainer sx={{ overflowX: 'auto', width: '100%' }}>
                 <Table size="small" sx={{ tableLayout: 'fixed', width: '100%', minWidth: 0 }}>
+                  <colgroup>
+                    <col style={{ width: PAY_COL_WIDTH }} />
+                    <col style={{ width: PAY_COL_WIDTH }} />
+                    <col style={{ width: PAY_COL_WIDTH }} />
+                    <col style={{ width: PAY_COL_WIDTH }} />
+                    <col style={{ width: PAY_COL_WIDTH }} />
+                    <col style={{ width: PAY_COL_WIDTH }} />
+                    <col style={{ width: PAY_COL_WIDTH }} />
+                    <col style={{ width: `${PAY_ACTION_WIDTH_PX}px` }} />
+                  </colgroup>
                   <TableHead>
                     <TableRow sx={{ bgcolor: alpha(theme.palette.text.primary, 0.02) }}>
                       <TableCell sx={PAY_HEADER_SX}>Vendor</TableCell>
@@ -683,7 +715,9 @@ export default function PaymentsPage() {
                       <TableCell sx={PAY_HEADER_SX}>
                         Payment Status
                       </TableCell>
-                      <TableCell sx={PAY_HEADER_ACTION_SX}>Action</TableCell>
+                      <TableCell sx={PAY_HEADER_ACTION_SX}>
+                        <Box sx={CENTER_CELL_CONTENT_SX}>Action</Box>
+                      </TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
@@ -778,14 +812,16 @@ export default function PaymentsPage() {
                             />
                           </TableCell>
                           <TableCell sx={PAY_CELL_ACTION_SX} onClick={(e) => e.stopPropagation()}>
-                            <IconButton
-                              size="small"
-                              aria-label="Row actions"
-                              onClick={(e) => openActionMenu(e, row.vendorKey, row.payableSt)}
-                              sx={{ p: 0.5 }}
+                            <Box sx={CENTER_CELL_CONTENT_SX}>
+                              <IconButton
+                                size="small"
+                                aria-label="Row actions"
+                                onClick={(e) => openActionMenu(e, row.vendorKey, row.payableSt)}
+                              sx={{ p: 0.25 }}
                             >
-                              <MoreVertIcon sx={{ fontSize: 16 }} />
-                            </IconButton>
+                              <MoreVertIcon sx={{ fontSize: 14 }} />
+                              </IconButton>
+                            </Box>
                           </TableCell>
                         </TableRow>
                       ))

@@ -27,6 +27,7 @@ import { formatCurrency, formatInr } from '@/utils/formatters'
 import { flattenBaselineMilestones, flattenBaselineServices } from '@/pages/Finance/utils/projectBillable'
 import { redistributeCommonPercents, vendorValueTotalsByVendorId } from '@/utils/pitchPlannedExpenses'
 import { computeCommonAllocationsFromVendorPOs, findServiceInBaseline } from '@/components/forms/expenseFormUtils'
+import { vendorPoEffectiveValue } from '@/pages/Projects/tabs/live/vendorPOHelpers'
 
 function findServiceInPitchVersion(
   version: PitchVersion | null | undefined,
@@ -131,14 +132,12 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
     { value: 'vendor_linked', label: 'Vendor Linked - Linked to a vendor' },
     { value: 'additional', label: 'Additional - Project cost, no vendor' },
     { value: 'office_expenses', label: 'Office Expenses - Internal office cost, not billable to client/vendor' },
-    { value: 'reimbursable_expenses', label: 'Reimbursable Expenses - Vendor paid amount to be reimbursed' },
   ]
   const pitchTypeOptions: { value: PitchExpenseType; label: string }[] = [
     { value: 'common', label: 'Common - Split across all vendors' },
     { value: 'vendor', label: 'Vendor Linked - Linked to a vendor' },
     { value: 'additional', label: 'Additional - Project cost, no vendor' },
     { value: 'office_expenses', label: 'Office Expenses - Internal office cost, not billable to client/vendor' },
-    { value: 'reimbursable_expenses', label: 'Reimbursable Expenses - Vendor paid amount to be reimbursed' },
   ]
 
   const baselineServices = useMemo(() => flattenBaselineServices(baseline ?? null), [baseline])
@@ -199,7 +198,7 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
   const totalPoWeight = useMemo(() => {
     const rows = projectVendorPOs
     const by = new Map<string, number>()
-    for (const p of rows) by.set(p.vendorId, (by.get(p.vendorId) ?? 0) + p.poValue)
+    for (const p of rows) by.set(p.vendorId, (by.get(p.vendorId) ?? 0) + vendorPoEffectiveValue(p))
     return [...by.values()].reduce((a, b) => a + b, 0)
   }, [projectVendorPOs])
 
@@ -328,15 +327,14 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
       const amtOk = amountNum > 0
       if (!nameOk || !amtOk) return false
       if (pitchType === 'additional' || pitchType === 'office_expenses') {
-        if (pitchType === 'office_expenses') return Boolean(date)
         return true
       }
       if (pitchType === 'vendor') return Boolean(serviceId && selectedMappingPitch)
-      if (pitchType === 'reimbursable_expenses') return Boolean(serviceId && selectedMappingPitch && date)
+      if (pitchType === 'reimbursable_expenses') return Boolean(serviceId && selectedMappingPitch)
       return commonSelectedIds.length > 0 && commonPctOk
     }
 
-    if (!description.trim() || !date || amountNum <= 0) return false
+    if (!description.trim() || amountNum <= 0) return false
     if (liveType === 'vendor_linked' || liveType === 'reimbursable_expenses') {
       return Boolean(serviceId && selectedMappingLive)
     }
@@ -431,7 +429,7 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
         type: liveType,
         description: description.trim(),
         amount: amountNum,
-        date,
+        date: date || '',
         documentUrl,
         serviceId,
         serviceName: svc?.name ?? '',
@@ -452,7 +450,7 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
         type: 'common',
         description: description.trim(),
         amount: amountNum,
-        date,
+        date: date || '',
         documentUrl,
         vendorAllocations: allocations,
         status: 'pending',
@@ -465,7 +463,7 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
       type: liveType === 'office_expenses' ? 'office_expenses' : 'additional',
       description: description.trim(),
       amount: amountNum,
-      date,
+      date: date || '',
       documentUrl,
       status: 'pending',
     }
@@ -574,7 +572,6 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
         {showDateDoc && (
           <FormField
             label={isReimbursable || isPitchReimbursable ? 'Date vendor made the payment' : 'Date'}
-            required
           >
             <Input type="date" value={date} onChange={setDate} size="sm" />
           </FormField>

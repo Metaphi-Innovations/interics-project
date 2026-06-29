@@ -1,6 +1,7 @@
 import type { VendorPO } from '@/slices/baseline/reducer'
 import type { Baseline } from '@/slices/baseline/reducer'
 import type { PitchService } from '@/slices/pitch/reducer'
+import { vendorPoEffectiveValue } from '@/pages/Projects/tabs/live/vendorPOHelpers'
 
 export function findServiceInBaseline(baseline: Baseline | null, serviceId: string): PitchService | undefined {
   if (!baseline) return undefined
@@ -19,7 +20,7 @@ export function computeCommonAllocationsFromVendorPOs(
   const byVendor = new Map<string, { name: string; sum: number }>()
   for (const p of rows) {
     const cur = byVendor.get(p.vendorId) ?? { name: p.vendorName, sum: 0 }
-    cur.sum += p.poValue
+    cur.sum += vendorPoEffectiveValue(p)
     byVendor.set(p.vendorId, cur)
   }
   const list = [...byVendor.entries()].map(([vendorId, v]) => ({

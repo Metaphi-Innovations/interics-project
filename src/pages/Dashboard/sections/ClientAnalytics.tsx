@@ -4,15 +4,13 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
-  Line,
-  LineChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from 'recharts'
 import { useMemo } from 'react'
-import { clientRetentionMonthly, industryDistribution, revenueByClient, sumInvoiceRevenue } from '../dashboardMetrics'
+import { industryDistribution, revenueByClient, sumInvoiceRevenue } from '../dashboardMetrics'
 import { chartFiltersFromGlobal } from '../chartFilterTypes'
 import { scopeForChart } from '../chartScopeUtils'
 import type { DashboardFilters } from '../types'
@@ -95,11 +93,11 @@ export function ClientAnalytics({
           globalFilters={globalFilters}
           data={chartData}
         >
-          {({ scope, chartHeight: h }) => (
+          {({ scope }) => (
             <DonutChartBlock
               data={industryDistribution(scope.filteredProjects, customers)}
               theme={theme}
-              height={h}
+              height={chartHeight}
               emptyMessage="No industry data for chart filters"
             />
           )}
@@ -113,13 +111,13 @@ export function ClientAnalytics({
           globalFilters={globalFilters}
           data={chartData}
         >
-          {({ scope, chartHeight: h }) => {
+          {({ scope }) => {
             const topClients = revenueByClient(scope.scopedInvoices, scope.filteredProjects)
             if (topClients.length === 0) {
-              return <EmptyChartState title="No client revenue for chart filters" height={h} />
+              return <EmptyChartState title="No client revenue for chart filters" />
             }
             return (
-              <ResponsiveContainer width="100%" height="100%" minHeight={h}>
+              <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={topClients} margin={CHART_MARGIN}>
                   <CartesianGrid {...ct.gridProps} vertical={false} />
                   <XAxis
@@ -152,28 +150,6 @@ export function ClientAnalytics({
           }}
         </ScopedChartPanel>
       </Box>
-
-      <ScopedChartPanel
-        title="Client Retention Trend"
-        subtitle="Share of returning clients per month"
-        chartHeight={chartHeight}
-        loading={loading}
-        showStatus={false}
-        globalFilters={globalFilters}
-        data={chartData}
-      >
-        {({ scope, monthBuckets, chartHeight: h }) => (
-          <ResponsiveContainer width="100%" height="100%" minHeight={h}>
-            <LineChart data={clientRetentionMonthly(monthBuckets, scope.filteredProjects)} margin={CHART_MARGIN}>
-              <CartesianGrid {...ct.gridProps} vertical={false} />
-              <XAxis dataKey="month" tick={ct.axisStyle} axisLine={false} tickLine={false} />
-              <YAxis tick={ct.axisStyle} unit="%" axisLine={false} tickLine={false} width={40} />
-              <Tooltip contentStyle={ct.tooltipStyle} formatter={(v) => [`${Math.round(Number(v ?? 0))}%`, 'Retention']} />
-              <Line type="monotone" dataKey="rate" name="Retention" stroke={theme.palette.primary.main} strokeWidth={2} dot={false} />
-            </LineChart>
-          </ResponsiveContainer>
-        )}
-      </ScopedChartPanel>
     </DashboardSection>
   )
 }

@@ -4,7 +4,13 @@ import type { PitchService, PitchVersion } from '@/slices/pitch/reducer'
 export interface ClientPOServiceOption {
   id: string
   label: string
+  categoryId: string
   categoryName: string
+}
+
+export interface ClientPOCategoryOption {
+  id: string
+  label: string
 }
 
 function serviceLabel(service: PitchService): string {
@@ -17,7 +23,7 @@ function isUsableService(service: PitchService): boolean {
 }
 
 function flattenFromCategories(
-  categories: { categoryName: string; services: PitchService[] }[],
+  categories: { id: string; categoryName: string; services: PitchService[] }[],
 ): ClientPOServiceOption[] {
   const out: ClientPOServiceOption[] = []
   for (const cat of categories) {
@@ -26,6 +32,7 @@ function flattenFromCategories(
       out.push({
         id: svc.id,
         label: serviceLabel(svc),
+        categoryId: cat.id,
         categoryName: cat.categoryName,
       })
     }
@@ -52,4 +59,24 @@ export function serviceNameForOption(
   serviceId: string,
 ): string {
   return options.find((o) => o.id === serviceId)?.label ?? ''
+}
+
+export function clientPOCategoryOptions(
+  serviceOptions: ClientPOServiceOption[],
+): ClientPOCategoryOption[] {
+  const map = new Map<string, string>()
+  for (const option of serviceOptions) {
+    map.set(option.categoryId, option.categoryName)
+  }
+  return Array.from(map.entries()).map(([id, label]) => ({ id, label }))
+}
+
+export function clientPOCardServiceOptions(
+  serviceOptions: ClientPOServiceOption[],
+): { id: string; label: string; categoryId: string }[] {
+  return serviceOptions.map((option) => ({
+    id: option.id,
+    label: option.label,
+    categoryId: option.categoryId,
+  }))
 }

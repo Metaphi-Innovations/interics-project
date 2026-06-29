@@ -60,6 +60,7 @@ export default function ReportSubModulePage() {
         },
       ]}
       hideToolbar={false}
+      clipCardContent={false}
     >
       <ReportListingTable
         reportName={report.name}

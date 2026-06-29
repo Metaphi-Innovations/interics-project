@@ -18,6 +18,7 @@ import {
   Tooltip,
   Divider,
   Link as MuiLink,
+  Rating,
 } from '@mui/material'
 import {
   VerifiedUser,
@@ -38,32 +39,29 @@ import { vendorsApi } from '../../api/vendorsApi'
 import { ListingTemplate } from '../../components/templates'
 import type { FilterField, ColumnItem } from '../../components/templates/ListingTemplate'
 import { VendorDrawer } from './VendorDrawer'
-import { StatusBadge, useToast, Modal, Button } from '@/design-system/components'
+import { useToast, Modal, Button } from '@/design-system/components'
 import { getInitials, getAvatarColor, toSlug } from '../../utils/formatters'
 import { getSpecializationTagSx } from '../../utils/specializationTagStyles'
 import { tokens } from '@/design-system/tokens'
-import { getPrimaryContact } from '../../utils/vendorContacts'
-import { getVendorListingCompliance } from '../../utils/vendorCompliance'
+import { formatVendorRating, normalizeVendorRating } from '../../utils/vendorRating'
 
-const VENDOR_ACTION_WIDTH_PX = 56
+const VENDOR_ACTION_WIDTH_PX = 60
 const VENDOR_CELL_PAD_X = '14px'
 
 type VendorTableVisibleColumns = {
-  primaryContact: boolean
   website: boolean
   location: boolean
   specialization: boolean
-  compliance: boolean
+  rating: boolean
 }
 
 function vendorDataColCount(visible: VendorTableVisibleColumns): number {
   return (
     1 +
-    (visible.primaryContact ? 1 : 0) +
     (visible.website ? 1 : 0) +
     (visible.location ? 1 : 0) +
     (visible.specialization ? 1 : 0) +
-    (visible.compliance ? 1 : 0)
+    (visible.rating ? 1 : 0)
   )
 }
 
@@ -97,11 +95,7 @@ const TABLE_CELL_SX = {
   boxSizing: 'border-box' as const,
 }
 
-const TABLE_CELL_COMPACT_SX = {
-  ...TABLE_CELL_SX,
-}
-
-const TABLE_CELL_COMPLIANCE_SX = {
+const TABLE_CELL_RATING_SX = {
   ...TABLE_CELL_SX,
   verticalAlign: 'middle' as const,
 }
@@ -141,9 +135,9 @@ function getTotalVendorProjectCount(vendor: Vendor): number {
   return vendor.activeProjects
 }
 
-function PrimaryVendorContactCell({ vendor }: { vendor: Vendor }) {
-  const primary = getPrimaryContact(vendor)
-  if (!primary) {
+function VendorRatingCell({ vendor }: { vendor: Vendor }) {
+  const rating = normalizeVendorRating(vendor.rating)
+  if (rating == null) {
     return (
       <Typography variant="body2" sx={{ fontSize: 12, color: 'text.disabled' }}>
         —
@@ -151,32 +145,23 @@ function PrimaryVendorContactCell({ vendor }: { vendor: Vendor }) {
     )
   }
   return (
-    <Box sx={{ minWidth: 0 }}>
-      <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 500, lineHeight: 1.35, wordBreak: 'break-word' }}>
-        {primary.name}
-        {primary.designation ? (
-          <Typography component="span" sx={{ fontSize: 12, fontWeight: 400, color: 'text.secondary' }}>
-            {' — '}{primary.designation}
-          </Typography>
-        ) : null}
+    <Stack direction="row" alignItems="center" gap={0.5} sx={{ minWidth: 0, maxWidth: '100%', overflow: 'hidden' }}>
+      <Rating
+        value={rating}
+        readOnly
+        size="small"
+        precision={0.1}
+        sx={{ fontSize: 14, color: tokens.color.warning[500], flexShrink: 0 }}
+      />
+      <Typography
+        variant="body2"
+        noWrap
+        sx={{ fontSize: 12, fontWeight: 500, color: 'text.secondary', minWidth: 0 }}
+      >
+        {formatVendorRating(rating)}
       </Typography>
-      {primary.phone ? (
-        <Typography variant="caption" sx={{ fontSize: 11, color: 'text.secondary', display: 'block', lineHeight: 1.35 }}>
-          {primary.phone}
-        </Typography>
-      ) : null}
-      {primary.email ? (
-        <Typography variant="caption" sx={{ fontSize: 11, color: 'text.secondary', display: 'block', lineHeight: 1.35, wordBreak: 'break-word' }}>
-          {primary.email}
-        </Typography>
-      ) : null}
-    </Box>
+    </Stack>
   )
-}
-
-function ComplianceStatusCell({ vendor }: { vendor: Vendor }) {
-  const { label, statusBadgeType } = getVendorListingCompliance(vendor)
-  return <StatusBadge status={statusBadgeType} label={label} />
 }
 
 function VendorAvatar({ name }: { name: string }) {
@@ -277,7 +262,7 @@ function SortHeader({ label, field, sortField, sortDirection, onSort, sx }: Sort
         fontWeight: isActive ? 700 : 600,
         color: isActive ? 'primary.main' : 'text.secondary',
         py: '8px',
-        px: '14px',
+        px: VENDOR_CELL_PAD_X,
         borderBottom: `2px solid ${tokens.color.neutral[100]}`,
         cursor: 'pointer',
         userSelect: 'none',
@@ -330,13 +315,21 @@ function VendorTable({
   const tagMode = theme.palette.mode === 'dark' ? 'dark' : 'light'
   const hoverBg = alpha(theme.palette.primary.main, 0.04)
   const colWidth = vendorColWidth(visibleColumns)
-  const headDataSx = { ...TABLE_HEADER_CELL_SX, width: colWidth }
-  const cellDataSx = { ...TABLE_CELL_SX, width: colWidth }
-  const cellCompactSx = { ...TABLE_CELL_COMPACT_SX, width: colWidth }
+  const headDataSx = { ...TABLE_HEADER_CELL_SX, width: colWidth, minWidth: 0 }
+  const cellDataSx = { ...TABLE_CELL_SX, width: colWidth, minWidth: 0, overflow: 'hidden' }
+  const colCount = vendorDataColCount(visibleColumns) + 1
 
   return (
-    <TableContainer sx={{ overflow: 'visible', width: '100%' }}>
+    <TableContainer sx={{ width: '100%', overflowX: 'auto' }}>
       <Table size="small" sx={{ tableLayout: 'fixed', width: '100%', minWidth: 0 }}>
+          <colgroup>
+            <col style={{ width: colWidth }} />
+            {visibleColumns.website && <col style={{ width: colWidth }} />}
+            {visibleColumns.location && <col style={{ width: colWidth }} />}
+            {visibleColumns.specialization && <col style={{ width: colWidth }} />}
+            {visibleColumns.rating && <col style={{ width: colWidth }} />}
+            <col style={{ width: `${VENDOR_ACTION_WIDTH_PX}px` }} />
+          </colgroup>
         <TableHead>
           <TableRow sx={{ bgcolor: alpha(theme.palette.text.primary, 0.02) }}>
             <SortHeader
@@ -347,9 +340,6 @@ function VendorTable({
               onSort={onSort}
               sx={{ ...headDataSx, verticalAlign: 'bottom' }}
             />
-            {visibleColumns.primaryContact && (
-              <TableCell sx={headDataSx}>Primary Contact</TableCell>
-            )}
             {visibleColumns.website && (
               <TableCell sx={{ ...headDataSx, display: { xs: 'none', sm: 'table-cell' } }}>
                 Website
@@ -370,10 +360,15 @@ function VendorTable({
                 Specialization
               </TableCell>
             )}
-            {visibleColumns.compliance && (
-              <TableCell sx={{ ...headDataSx, display: { xs: 'none', md: 'table-cell' } }}>
-                Compliance Status
-              </TableCell>
+            {visibleColumns.rating && (
+              <SortHeader
+                label="Rating"
+                field="rating"
+                sortField={sortField}
+                sortDirection={sortDirection}
+                onSort={onSort}
+                sx={{ ...headDataSx, display: { xs: 'none', md: 'table-cell' }, verticalAlign: 'bottom' }}
+              />
             )}
             <TableCell sx={TABLE_HEADER_ACTION_SX}>Action</TableCell>
           </TableRow>
@@ -382,7 +377,7 @@ function VendorTable({
           {loading &&
             [...Array(5)].map((_, i) => (
               <TableRow key={i}>
-                {[...Array(8)].map((__, j) => (
+                {[...Array(colCount)].map((__, j) => (
                   <TableCell key={j} sx={{ py: '10px', px: VENDOR_CELL_PAD_X }}>
                     <Skeleton variant="text" width="80%" height={20} />
                   </TableCell>
@@ -392,7 +387,7 @@ function VendorTable({
 
           {!loading && items.length === 0 && (
             <TableRow>
-              <TableCell colSpan={8} sx={{ border: 0 }}>
+              <TableCell colSpan={colCount} sx={{ border: 0 }}>
                 <Box sx={{ py: 6, textAlign: 'center' }}>
                   <Truck size={32} color={tokens.color.neutral[300]} />
                   <Typography variant="body2" sx={{ mt: 1.5, fontWeight: 500 }}>
@@ -428,12 +423,6 @@ function VendorTable({
                       </Typography>
                     </Stack>
                   </TableCell>
-
-                  {visibleColumns.primaryContact && (
-                    <TableCell sx={cellCompactSx}>
-                      <PrimaryVendorContactCell vendor={vendor} />
-                    </TableCell>
-                  )}
 
                   {visibleColumns.website && (
                     <TableCell
@@ -497,12 +486,17 @@ function VendorTable({
                     </TableCell>
                   )}
 
-                  {visibleColumns.compliance && (
+                  {visibleColumns.rating && (
                     <TableCell
-                      sx={{ ...TABLE_CELL_COMPLIANCE_SX, width: colWidth, display: { xs: 'none', md: 'table-cell' } }}
-                      onClick={(e) => e.stopPropagation()}
+                      sx={{
+                        ...TABLE_CELL_RATING_SX,
+                        width: colWidth,
+                        minWidth: 0,
+                        overflow: 'hidden',
+                        display: { xs: 'none', md: 'table-cell' },
+                      }}
                     >
-                      <ComplianceStatusCell vendor={vendor} />
+                      <VendorRatingCell vendor={vendor} />
                     </TableCell>
                   )}
 
@@ -518,7 +512,7 @@ function VendorTable({
               )
             })}
         </TableBody>
-      </Table>
+        </Table>
     </TableContainer>
   )
 }
@@ -598,10 +592,6 @@ function VendorGridCard({ vendor, onView, onProjects: _onProjects, onEdit, onDel
 
       <Divider sx={{ my: '10px' }} />
 
-      <Box sx={{ mb: 1.25 }}>
-        <PrimaryVendorContactCell vendor={vendor} />
-      </Box>
-
       {href && host ? (
         <MuiLink
           href={href}
@@ -638,7 +628,12 @@ function VendorGridCard({ vendor, onView, onProjects: _onProjects, onEdit, onDel
 
       <Divider sx={{ my: '10px' }} />
 
-      <ComplianceStatusCell vendor={vendor} />
+      <Box>
+        <Typography variant="overline" sx={{ fontSize: 10, color: 'text.secondary', display: 'block', mb: 0.5 }}>
+          Rating
+        </Typography>
+        <VendorRatingCell vendor={vendor} />
+      </Box>
     </MuiCard>
   )
 }
@@ -786,12 +781,11 @@ export default function VendorsPage() {
   const [counts, setCounts] = useState({ all: 0, active: 0, inactive: 0 })
   const [activeFilters, setActiveFilters] = useState<Record<string, unknown>>({})
   const [viewMode, setViewMode] = useState<'table' | 'grid'>('table')
-  const [visibleColumns, setVisibleColumns] = useState({
-    primaryContact: true,
+  const [visibleColumns, setVisibleColumns] = useState<VendorTableVisibleColumns>({
     website: true,
     location: true,
     specialization: true,
-    compliance: true,
+    rating: true,
   })
 
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -836,6 +830,11 @@ export default function VendorsPage() {
       const bv = getTotalVendorProjectCount(b)
       return sortConfig.direction === 'asc' ? av - bv : bv - av
     }
+    if (sortConfig.field === 'rating') {
+      const av = normalizeVendorRating(a.rating) ?? -1
+      const bv = normalizeVendorRating(b.rating) ?? -1
+      return sortConfig.direction === 'asc' ? av - bv : bv - av
+    }
     const field = sortConfig.field as keyof Vendor
     const aVal = a[field]
     const bVal = b[field]
@@ -850,11 +849,10 @@ export default function VendorsPage() {
   })
 
   const columnsConfig: ColumnItem[] = [
-    { field: 'primaryContact', label: 'Primary Contact', visible: visibleColumns.primaryContact },
     { field: 'website', label: 'Website', visible: visibleColumns.website },
     { field: 'location', label: 'Location', visible: visibleColumns.location },
     { field: 'specialization', label: 'Specialization', visible: visibleColumns.specialization },
-    { field: 'compliance', label: 'Compliance Status', visible: visibleColumns.compliance },
+    { field: 'rating', label: 'Rating', visible: visibleColumns.rating },
   ]
 
   // Filter config
@@ -964,7 +962,7 @@ export default function VendorsPage() {
   }
 
   function handleColumnVisibilityChange(field: string, visible: boolean) {
-    setVisibleColumns((prev) => ({ ...prev, [field]: visible }))
+    setVisibleColumns((prev) => ({ ...prev, [field]: visible } as VendorTableVisibleColumns))
   }
 
   function openAddDrawer() {
@@ -1034,6 +1032,7 @@ export default function VendorsPage() {
         onColumnVisibilityChange={handleColumnVisibilityChange}
         showViewToggle={true}
         onViewModeChange={(mode) => setViewMode(mode === 'grid' ? 'grid' : 'table')}
+        clipCardContent={false}
       >
         {viewMode === 'grid' ? (
           <VendorsGrid
