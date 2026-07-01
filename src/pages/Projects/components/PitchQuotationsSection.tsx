@@ -14,7 +14,7 @@ import { Delete, Upload as MuiUploadIcon } from '@mui/icons-material'
 import { alpha, useTheme } from '@mui/material/styles'
 import type { Theme } from '@mui/material/styles'
 import { FileText } from 'lucide-react'
-import { useToast } from '@/design-system/components'
+import { useToast, type Toast } from '@/design-system/components'
 import { DocumentUploadFormBody } from '@/components/forms/DocumentUploadFormBody'
 import { tokens } from '@/design-system/tokens'
 import { useAppSelector } from '@/store/hooks'
@@ -48,7 +48,7 @@ const QUOTATION_GRID_SX = {
 
 function viewQuotationDocument(
   doc: UploadedProjectDocument,
-  showToast: ReturnType<typeof useToast>['showToast'],
+  showToast: (toast: Omit<Toast, 'id'>) => void,
 ): void {
   const opened = openProjectUploadInNewTab(doc)
   if (!opened) {

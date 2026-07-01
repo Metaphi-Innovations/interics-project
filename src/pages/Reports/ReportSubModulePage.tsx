@@ -30,7 +30,8 @@ export default function ReportSubModulePage() {
     return <Navigate to="/reports/profitability" replace />
   }
 
-  const Icon = report.icon
+  const activeReport = report
+  const Icon = activeReport.icon
 
   function handleViewRow(row: ReportListingRow) {
     const label = String(row.project ?? row.vendor ?? row.month ?? row.id)
@@ -38,15 +39,15 @@ export default function ReportSubModulePage() {
   }
 
   function handleExport() {
-    downloadReportCsv(report.name, report.columns, filteredRows)
+    downloadReportCsv(activeReport.name, activeReport.columns, filteredRows)
     showToast({ title: 'Export started', variant: 'success' })
   }
 
   return (
     <ListingTemplate
       icon={<Icon size={20} strokeWidth={1.75} />}
-      title={report.name}
-      subtitle={report.description}
+      title={activeReport.name}
+      subtitle={activeReport.description}
       searchPlaceholder="Search report…"
       searchValue={search}
       onSearchChange={setSearch}
@@ -56,8 +57,8 @@ export default function ReportSubModulePage() {
       clipCardContent={false}
     >
       <ReportListingTable
-        reportName={report.name}
-        columns={report.columns}
+        reportName={activeReport.name}
+        columns={activeReport.columns}
         rows={filteredRows}
         onViewRow={handleViewRow}
       />

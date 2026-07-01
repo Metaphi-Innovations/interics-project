@@ -291,7 +291,7 @@ export function VendorPOMilestoneEditor({
   readOnly = false,
   milestoneStatuses,
   retentionStatus,
-  finalMilestoneStatus,
+  finalMilestoneStatus: _finalMilestoneStatus,
 }: VendorPOMilestoneEditorProps) {
   const theme = useTheme()
   const isCardMilestoneList = embedded && (regularOnly || cardWithRetention)
