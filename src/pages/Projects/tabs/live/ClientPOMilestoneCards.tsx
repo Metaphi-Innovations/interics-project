@@ -1,10 +1,11 @@
 import type { ClientPOMilestone } from '@/slices/baseline/reducer'
 import {
-  groupAllCardsByService,
+  createVendorOfferMilestoneCard,
   isGroupedServiceValid,
+  type CategoryOption,
   type GroupedServiceMilestones,
+  type ServiceOption,
   type VendorOfferMilestoneCard,
-  type VendorOfferRetentionCard,
 } from './VendorOfferMilestoneCards'
 import type { VendorPOMilestoneRow } from './VendorPOMilestoneEditor'
 import {
@@ -15,7 +16,6 @@ import {
 export {
   VendorOfferMilestoneCardEditor as ClientPOMilestoneCardEditor,
   VendorOfferRetentionCardEditor as ClientPORetentionCardEditor,
-  createVendorOfferMilestoneCard as createClientPOMilestoneCard,
   createVendorOfferRetentionCard as createClientPORetentionCard,
   isMilestoneCardConfigured,
   isRetentionCardConfigured,
@@ -23,15 +23,55 @@ export {
   type VendorOfferRetentionCard as ClientPORetentionCard,
 } from './VendorOfferMilestoneCards'
 
+export function createClientPOMilestoneCard(
+  categoryOptions: CategoryOption[],
+  serviceOptions: ServiceOption[],
+): VendorOfferMilestoneCard {
+  return {
+    ...createVendorOfferMilestoneCard(categoryOptions, serviceOptions),
+    retention: { percentage: 0, amount: 0 },
+  }
+}
+
 export function groupClientCardsByService(
   milestoneCards: VendorOfferMilestoneCard[],
-  retentionCards: VendorOfferRetentionCard[],
 ): GroupedServiceMilestones[] {
-  return groupAllCardsByService(
-    milestoneCards,
-    [],
-    retentionCards,
-  )
+  const map = new Map<string, GroupedServiceMilestones>()
+
+  function ensure(serviceId: string, categoryId: string): GroupedServiceMilestones {
+    const existing = map.get(serviceId)
+    if (existing) return existing
+    const group: GroupedServiceMilestones = {
+      serviceId,
+      categoryId,
+      milestones: [],
+      finalMilestones: [],
+      retentions: [],
+    }
+    map.set(serviceId, group)
+    return group
+  }
+
+  for (const card of milestoneCards) {
+    if (!card.serviceId || !card.categoryId) continue
+    const group = ensure(card.serviceId, card.categoryId)
+    group.milestones.push(...card.milestones)
+    if (
+      card.retention &&
+      (card.retention.percentage > 0 || card.retention.amount > 0)
+    ) {
+      group.retentions.push({
+        id: `ret-${card.id}`,
+        categoryId: card.categoryId,
+        serviceId: card.serviceId,
+        name: 'Retention',
+        percentage: card.retention.percentage,
+        value: card.retention.amount,
+      })
+    }
+  }
+
+  return Array.from(map.values())
 }
 
 export function isClientGroupedServiceValid(
@@ -89,36 +129,24 @@ export function clientPOCardsFromMilestones(
   serviceOptions: ClientPOServiceOption[],
 ): {
   milestoneCards: VendorOfferMilestoneCard[]
-  retentionCards: VendorOfferRetentionCard[]
 } {
   const milestoneCards: VendorOfferMilestoneCard[] = []
-  const retentionCards: VendorOfferRetentionCard[] = []
   const regularByService = new Map<string, VendorPOMilestoneRow[]>()
+  const retentionByService = new Map<string, { percentage: number; amount: number }>()
 
   for (const milestone of milestones) {
-    const serviceOption = serviceOptions.find((option) => option.id === milestone.serviceId)
-    const categoryId = serviceOption?.categoryId ?? ''
-
     if (isRetentionMilestoneRow(milestone)) {
-      retentionCards.push({
-        id: milestone.id.replace(/^cli-ret-/, 'ret-'),
-        categoryId,
-        serviceId: milestone.serviceId,
-        name: milestone.name,
+      retentionByService.set(milestone.serviceId, {
         percentage: milestone.percentage,
-        value: milestone.value,
+        amount: milestone.value,
       })
       continue
     }
 
     if (milestone.retention) {
-      retentionCards.push({
-        id: `ret-from-${milestone.id}`,
-        categoryId,
-        serviceId: milestone.serviceId,
-        name: 'Retention',
+      retentionByService.set(milestone.serviceId, {
         percentage: milestone.retention.percentage,
-        value: milestone.retention.value,
+        amount: milestone.retention.value,
       })
     }
 
@@ -140,8 +168,9 @@ export function clientPOCardsFromMilestones(
       categoryId: serviceOption?.categoryId ?? '',
       serviceId,
       milestones: rows,
+      retention: retentionByService.get(serviceId) ?? null,
     })
   }
 
-  return { milestoneCards, retentionCards }
+  return { milestoneCards }
 }

@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Box,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   Divider,
   MenuItem,
   Select as MuiSelect,
@@ -14,25 +18,51 @@ import {
   Typography,
   Button as MuiButton,
 } from '@mui/material'
-import { Download, Upload } from '@mui/icons-material'
+import { Upload } from '@mui/icons-material'
+import {
+  PODocumentLinkField,
+  poDocumentDisplayFileName,
+  poDocumentOpenUrl,
+} from '@/components/documents/PODocumentLinkField'
+import { UploadedDocumentLink } from '@/components/documents/UploadedDocumentLink'
+import { READONLY_DISABLED_TEXTFIELD_SX } from './readOnlyFieldStyles'
 import { Button, Checkbox, useToast } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { DrawerForm, FormField } from '../../../../components/templates'
 import { useAppDispatch, useAppSelector } from '../../../../store/hooks'
 import {
   createVendorPO,
+  deleteVendorPO,
   fetchVendorPOs,
   updateVendorPO,
 } from '../../../../slices/baseline/thunk'
+import { fetchVendorInvoices } from '../../../../slices/live/thunk'
+import type { VendorInvoice } from '../../../../slices/live/types'
 import { fetchVendors } from '../../../../slices/vendors/thunk'
-import type { VendorPO } from '../../../../slices/baseline/reducer'
+import type { Baseline, VendorPO } from '../../../../slices/baseline/reducer'
 import { formatFullAddress } from '../../../workspace/recordDetailTabUtils'
 import { formatCurrency, formatDate } from '../../../../utils/formatters'
 import type { VendorOption } from './vendorPOHelpers'
 import {
+  buildVendorPOExecutedValueUpdatePayload,
+  canUpdateExecutedValue,
+  effectiveExecutedValue,
+  recalculateVendorPOMilestonesForExecutedValue,
+} from './poExecutedValueRules'
+import {
+  vendorMilestonePaymentStatus,
+  type MilestonePaymentStatusLabel,
+} from './milestonePaymentStatus'
+import {
+  resolveVendorPOMilestoneKind,
+  vendorPOCategoryLabel,
+  vendorPOLinkedServiceLabel,
+} from './vendorPOHelpers'
+import {
   VendorPOMilestoneEditor,
   buildVendorPOMilestonePayload,
   isVendorPOMilestoneBreakdownValid,
+  vendorPOMilestoneEditorStateFromPo,
   type VendorPOMilestoneRow,
   type VendorPORetentionRow,
   type VendorPOFinalMilestoneRow,
@@ -68,13 +98,52 @@ const MILESTONE_TABLE_CELL_SX = {
   fontSize: 12,
   py: 1,
   px: 1.5,
+  boxSizing: 'border-box' as const,
 } as const
 
-function VendorPOMilestonesTable({ milestones }: { milestones: VendorPO['milestones'] }) {
+const VENDOR_PO_MILESTONE_COL_COUNT = 5
+const VENDOR_PO_MILESTONE_COL_WIDTH = `${100 / VENDOR_PO_MILESTONE_COL_COUNT}%`
+
+const MILESTONE_STATUS_HEADER_SX = {
+  ...MILESTONE_TABLE_HEADER_SX,
+  textAlign: 'center' as const,
+  verticalAlign: 'middle' as const,
+}
+
+const MILESTONE_STATUS_CELL_SX = {
+  ...MILESTONE_TABLE_CELL_SX,
+  textAlign: 'center' as const,
+  verticalAlign: 'middle' as const,
+}
+
+function MilestoneStatusCell({ status }: { status: MilestonePaymentStatusLabel }) {
+  return (
+    <Typography
+      variant="body2"
+      sx={{
+        fontSize: 12,
+        fontWeight: 600,
+        color: status === 'Paid' ? 'success.main' : 'text.secondary',
+      }}
+    >
+      {status}
+    </Typography>
+  )
+}
+
+function VendorPOMilestoneDetailTable({
+  milestones,
+  serviceLabel,
+  projectVendorInvoices,
+}: {
+  milestones: VendorPO['milestones']
+  serviceLabel: string
+  projectVendorInvoices: VendorInvoice[]
+}) {
   if (milestones.length === 0) {
     return (
       <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12, py: 2, textAlign: 'center' }}>
-        No milestones recorded for this PO.
+        No entries recorded.
       </Typography>
     )
   }
@@ -89,13 +158,20 @@ function VendorPOMilestonesTable({ milestones }: { milestones: VendorPO['milesto
       }}
     >
       <Table size="small" sx={{ width: '100%', tableLayout: 'fixed' }}>
+        <colgroup>
+          {Array.from({ length: VENDOR_PO_MILESTONE_COL_COUNT }, (_, index) => (
+            <col key={index} style={{ width: VENDOR_PO_MILESTONE_COL_WIDTH }} />
+          ))}
+        </colgroup>
         <TableHead>
           <TableRow sx={{ bgcolor: tokens.color.neutral[50] }}>
-            <TableCell sx={{ ...MILESTONE_TABLE_HEADER_SX, width: '36%' }}>Name</TableCell>
-            <TableCell align="right" sx={{ ...MILESTONE_TABLE_HEADER_SX, width: '22%' }}>
+            <TableCell sx={MILESTONE_TABLE_HEADER_SX}>Service</TableCell>
+            <TableCell sx={MILESTONE_TABLE_HEADER_SX}>Milestone Name</TableCell>
+            <TableCell align="right" sx={MILESTONE_TABLE_HEADER_SX}>
               Percentage (%)
             </TableCell>
-            <TableCell align="right" sx={{ ...MILESTONE_TABLE_HEADER_SX, width: '42%' }}>
+            <TableCell sx={MILESTONE_STATUS_HEADER_SX}>Status</TableCell>
+            <TableCell align="right" sx={MILESTONE_TABLE_HEADER_SX}>
               Value (₹)
             </TableCell>
           </TableRow>
@@ -104,12 +180,22 @@ function VendorPOMilestonesTable({ milestones }: { milestones: VendorPO['milesto
           {milestones.map((m) => (
             <TableRow key={m.id} hover>
               <TableCell sx={MILESTONE_TABLE_CELL_SX}>
+                <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary' }}>
+                  {serviceLabel}
+                </Typography>
+              </TableCell>
+              <TableCell sx={MILESTONE_TABLE_CELL_SX}>
                 <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 500 }}>
                   {m.name || '—'}
                 </Typography>
               </TableCell>
               <TableCell align="right" sx={MILESTONE_TABLE_CELL_SX}>
                 {m.percentage}%
+              </TableCell>
+              <TableCell sx={MILESTONE_STATUS_CELL_SX}>
+                <MilestoneStatusCell
+                  status={vendorMilestonePaymentStatus(projectVendorInvoices, m.id)}
+                />
               </TableCell>
               <TableCell align="right" sx={{ ...MILESTONE_TABLE_CELL_SX, fontWeight: 600 }}>
                 ₹{formatCurrency(m.value)}
@@ -119,6 +205,83 @@ function VendorPOMilestonesTable({ milestones }: { milestones: VendorPO['milesto
         </TableBody>
       </Table>
     </Box>
+  )
+}
+
+function VendorPOMilestonesReadOnlySections({
+  milestones,
+  serviceLabel,
+  projectVendorInvoices,
+}: {
+  milestones: VendorPO['milestones']
+  serviceLabel: string
+  projectVendorInvoices: VendorInvoice[]
+}) {
+  const regularMilestones = milestones.filter(
+    (m) => resolveVendorPOMilestoneKind(m) === 'regular',
+  )
+  const finalMilestones = milestones.filter((m) => resolveVendorPOMilestoneKind(m) === 'final')
+  const retentionMilestones = milestones.filter(
+    (m) => resolveVendorPOMilestoneKind(m) === 'retention',
+  )
+
+  if (milestones.length === 0) {
+    return (
+      <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12, py: 2, textAlign: 'center' }}>
+        No milestones recorded for this PO.
+      </Typography>
+    )
+  }
+
+  return (
+    <Stack spacing={2}>
+      <Box>
+        <Typography
+          component="span"
+          variant="overline"
+          sx={{ ...PO_SECTION_TITLE_SX, display: 'block', mb: 1.5 }}
+        >
+          Milestones
+        </Typography>
+        <VendorPOMilestoneDetailTable
+          milestones={regularMilestones}
+          serviceLabel={serviceLabel}
+          projectVendorInvoices={projectVendorInvoices}
+        />
+      </Box>
+      {finalMilestones.length > 0 ? (
+        <Box>
+          <Typography
+            component="span"
+            variant="overline"
+            sx={{ ...PO_SECTION_TITLE_SX, display: 'block', mb: 1.5 }}
+          >
+            Final Milestone
+          </Typography>
+          <VendorPOMilestoneDetailTable
+            milestones={finalMilestones}
+            serviceLabel={serviceLabel}
+            projectVendorInvoices={projectVendorInvoices}
+          />
+        </Box>
+      ) : null}
+      {retentionMilestones.length > 0 ? (
+        <Box>
+          <Typography
+            component="span"
+            variant="overline"
+            sx={{ ...PO_SECTION_TITLE_SX, display: 'block', mb: 1.5 }}
+          >
+            Retention
+          </Typography>
+          <VendorPOMilestoneDetailTable
+            milestones={retentionMilestones}
+            serviceLabel={serviceLabel}
+            projectVendorInvoices={projectVendorInvoices}
+          />
+        </Box>
+      ) : null}
+    </Stack>
   )
 }
 
@@ -555,224 +718,346 @@ export function AddVendorPODrawer({
   )
 }
 
-function formatExecutedValueLabel(poValue: number, executedValue?: number | null): string {
-  if (executedValue != null) return `₹${formatCurrency(executedValue)}`
-  return `₹${formatCurrency(poValue)}`
-}
-
 interface ViewVendorPODrawerProps {
   open: boolean
   onClose: () => void
   projectId: string
   po: VendorPO | null
+  baseline?: Baseline | null
 }
 
-export function ViewVendorPODrawer({ open, onClose, projectId, po }: ViewVendorPODrawerProps) {
+export function ViewVendorPODrawer({
+  open,
+  onClose,
+  projectId,
+  po,
+  baseline = null,
+}: ViewVendorPODrawerProps) {
   const dispatch = useAppDispatch()
-  const { saving } = useAppSelector((s) => s.baseline)
+  const { saving, vendorPOs } = useAppSelector((s) => s.baseline)
+  const { vendorInvoices } = useAppSelector((s) => s.live)
+  const vendorItems = useAppSelector((s) => s.vendors.items ?? [])
   const toast = useToast((s) => s.showToast)
-  const [editing, setEditing] = useState(false)
-  const [form, setForm] = useState({ poNumber: '', poDate: '', poValue: '', executedValue: '' })
-  const [newFile, setNewFile] = useState<File | null>(null)
+
+  const resolvedPo = useMemo(
+    () => (po ? vendorPOs.find((p) => p.id === po.id) ?? po : null),
+    [po, vendorPOs],
+  )
+  const [updatingExecutedValue, setUpdatingExecutedValue] = useState(false)
+  const [executedValueDraft, setExecutedValueDraft] = useState('')
+  const [deleteOpen, setDeleteOpen] = useState(false)
+
+  const projectVendorInvoices = useMemo(
+    () => vendorInvoices.filter((i) => i.projectId === projectId),
+    [vendorInvoices, projectId],
+  )
+
+  const serviceLabel = useMemo(
+    () => (resolvedPo ? vendorPOLinkedServiceLabel(resolvedPo, baseline) : '—'),
+    [resolvedPo, baseline],
+  )
+
+  const categoryLabel = useMemo(
+    () => (resolvedPo ? vendorPOCategoryLabel(resolvedPo, baseline) : '—'),
+    [resolvedPo, baseline],
+  )
+
+  const vendorRecord = useMemo(
+    () => (resolvedPo ? vendorItems.find((v) => v.id === resolvedPo.vendorId) : undefined),
+    [resolvedPo, vendorItems],
+  )
+
+  const vendorAddress = useMemo(() => {
+    if (!vendorRecord) return '—'
+    const formatted = formatFullAddress(
+      vendorRecord.address,
+      vendorRecord.city,
+      vendorRecord.state,
+      vendorRecord.pincode,
+    )
+    return formatted || '—'
+  }, [vendorRecord])
+
+  const vendorShippingAddress = useMemo(() => {
+    if (!vendorRecord) return '—'
+    const formatted = formatFullAddress(
+      vendorRecord.shippingAddress ?? null,
+      vendorRecord.shippingCity ?? '',
+      vendorRecord.shippingState ?? '',
+      vendorRecord.shippingPincode,
+    )
+    return formatted || vendorAddress
+  }, [vendorRecord, vendorAddress])
 
   useEffect(() => {
-    if (!open || !po) {
-      setEditing(false)
-      setNewFile(null)
-      return
+    if (open) {
+      void dispatch(fetchVendorInvoices(projectId))
+      void dispatch(fetchVendors({ pageSize: 500 }))
     }
-    setForm({
-      poNumber: po.poNumber,
-      poDate: po.poDate,
-      poValue: String(po.poValue),
-      executedValue: po.executedValue != null ? String(po.executedValue) : String(po.poValue),
-    })
-    setEditing(false)
-    setNewFile(null)
-  }, [open, po])
+  }, [open, projectId, dispatch])
 
-  async function handleSave() {
-    if (!po || !form.poNumber || !form.poDate) {
-      toast({ title: 'Please fill in all required fields', variant: 'error' })
+  useEffect(() => {
+    if (!open || !resolvedPo) {
+      setUpdatingExecutedValue(false)
+      setDeleteOpen(false)
       return
     }
-    const documentUrl = newFile ? URL.createObjectURL(newFile) : po.documentUrl
+    setExecutedValueDraft(String(effectiveExecutedValue(resolvedPo)))
+  }, [open, resolvedPo?.id])
+
+  const previewMilestones = useMemo(() => {
+    if (!resolvedPo || !updatingExecutedValue) return resolvedPo?.milestones ?? []
+    const nextValue = Number(executedValueDraft)
+    if (!Number.isFinite(nextValue) || nextValue <= 0) return resolvedPo.milestones
+    return recalculateVendorPOMilestonesForExecutedValue(
+      resolvedPo.milestones,
+      nextValue,
+      projectVendorInvoices,
+    )
+  }, [resolvedPo, updatingExecutedValue, executedValueDraft, projectVendorInvoices])
+
+  const previewEditorState = useMemo(
+    () => vendorPOMilestoneEditorStateFromPo({ milestones: previewMilestones }),
+    [previewMilestones],
+  )
+
+  function resetExecutedValueEdit() {
+    if (!resolvedPo) return
+    setExecutedValueDraft(String(effectiveExecutedValue(resolvedPo)))
+    setUpdatingExecutedValue(false)
+  }
+
+  async function handleSaveExecutedValue() {
+    if (!resolvedPo) return
+    if (!canUpdateExecutedValue(resolvedPo)) {
+      toast({ title: 'Executed value can no longer be updated', variant: 'error' })
+      return
+    }
+    const nextValue = Number(executedValueDraft)
+    if (!Number.isFinite(nextValue) || nextValue <= 0) {
+      toast({ title: 'Enter a valid executed value', variant: 'error' })
+      return
+    }
     try {
+      const nextMilestones = recalculateVendorPOMilestonesForExecutedValue(
+        resolvedPo.milestones,
+        nextValue,
+        projectVendorInvoices,
+      )
       await dispatch(
         updateVendorPO({
           projectId,
-          poId: po.id,
-          data: {
-            poNumber: form.poNumber,
-            poDate: form.poDate,
-            documentUrl,
-            fileName: newFile?.name ?? po.fileName,
-          },
+          poId: resolvedPo.id,
+          data: buildVendorPOExecutedValueUpdatePayload(nextValue, nextMilestones),
         }),
       ).unwrap()
-      void dispatch(fetchVendorPOs(projectId))
-      toast({ title: 'Vendor PO updated successfully', variant: 'success' })
-      setEditing(false)
-      setNewFile(null)
-    } catch {
-      toast({ title: 'Failed to update vendor PO', variant: 'error' })
+      await dispatch(fetchVendorPOs(projectId)).unwrap()
+      toast({ title: 'Executed value updated', variant: 'success' })
+      setUpdatingExecutedValue(false)
+    } catch (err) {
+      toast({
+        title: typeof err === 'string' ? err : 'Failed to update executed value',
+        variant: 'error',
+      })
     }
   }
 
-  const documentUrl = newFile ? URL.createObjectURL(newFile) : po?.documentUrl ?? null
-  const documentLabel = newFile?.name ?? po?.fileName
+  async function handleDelete() {
+    if (!resolvedPo) return
+    try {
+      await dispatch(deleteVendorPO({ projectId, poId: resolvedPo.id })).unwrap()
+      await dispatch(fetchVendorPOs(projectId)).unwrap()
+      toast({ title: 'Vendor PO deleted', variant: 'success' })
+      setDeleteOpen(false)
+      onClose()
+    } catch {
+      toast({ title: 'Failed to delete vendor PO', variant: 'error' })
+    }
+  }
+
+  const showExecutedValueUpdated = Boolean(resolvedPo?.executedValueLocked)
+
+  function handlePoDocumentOpenFailed() {
+    toast({
+      title: 'Unable to open document',
+      description: 'The PO file is no longer available in this session.',
+      variant: 'error',
+    })
+  }
 
   return (
-    <DrawerForm
-      open={open}
-      onClose={onClose}
-      title={po?.poNumber ?? 'Vendor PO'}
-      subtitle={editing ? 'Edit vendor purchase order' : 'Vendor purchase order details'}
-      footer={
-        <Stack
-          direction="row"
-          justifyContent="flex-end"
-          flexWrap="wrap"
-          gap={1}
-          sx={{ px: 2.5, py: 1.75 }}
-        >
-          {editing ? (
-            <>
-              <Button
-                variant="text"
-                size="sm"
-                label="Cancel"
-                onClick={() => {
-                  if (po) {
-                    setForm({
-                      poNumber: po.poNumber,
-                      poDate: po.poDate,
-                      poValue: String(po.poValue),
-                      executedValue:
-                        po.executedValue != null ? String(po.executedValue) : String(po.poValue),
-                    })
-                  }
-                  setNewFile(null)
-                  setEditing(false)
-                }}
-              />
-              <Button
-                size="sm"
-                variant="contained"
-                color="primary"
-                label={saving ? 'Saving…' : 'Save'}
-                onClick={() => void handleSave()}
-                disabled={saving}
-              />
-            </>
-          ) : (
-            <>
-              <Button variant="text" size="sm" label="Close" onClick={onClose} />
-              {documentUrl ? (
-                <Button
-                  size="sm"
-                  variant="outlined"
-                  color="primary"
-                  label="View"
-                  onClick={() => window.open(documentUrl, '_blank')}
-                />
-              ) : null}
-              <Button
-                size="sm"
-                variant="outlined"
-                color="primary"
-                label="Edit"
-                onClick={() => setEditing(true)}
-              />
-            </>
-          )}
-        </Stack>
-      }
-    >
-      {po ? (
-        <Stack spacing={2.5}>
-          <Box>
-            <Stack
-              direction="row"
-              alignItems="center"
-              justifyContent="space-between"
-              sx={{ mb: 1.5 }}
-            >
-              <Typography component="span" variant="overline" sx={PO_SECTION_TITLE_SX}>
-                PO Details
+    <>
+      <DrawerForm
+        open={open}
+        onClose={onClose}
+        title={resolvedPo?.poNumber ?? 'Vendor PO'}
+        subtitle={
+          updatingExecutedValue
+            ? 'Update the executed value (one-time change)'
+            : 'Vendor purchase order details'
+        }
+        footer={
+          <Stack
+            direction="row"
+            justifyContent="flex-end"
+            alignItems="center"
+            flexWrap="wrap"
+            gap={1}
+            sx={{ px: 2.5, py: 1.75, width: '100%' }}
+          >
+            {!updatingExecutedValue && showExecutedValueUpdated ? (
+              <Typography
+                variant="caption"
+                sx={{ color: 'text.secondary', fontSize: 11, mr: 'auto' }}
+              >
+                Executed Value Updated
               </Typography>
-              {(documentUrl || po.documentUrl) && !editing ? (
+            ) : null}
+            {updatingExecutedValue ? (
+              <>
+                <Button variant="text" size="sm" label="Cancel" onClick={resetExecutedValueEdit} />
                 <Button
                   size="sm"
-                  variant="outlined"
+                  variant="contained"
                   color="primary"
-                  label="Download Document"
-                  startIcon={<Download sx={{ fontSize: 16 }} />}
-                  onClick={() => window.open(documentUrl ?? po.documentUrl!, '_blank')}
+                  label={saving ? 'Saving…' : 'Save'}
+                  onClick={() => void handleSaveExecutedValue()}
+                  disabled={saving}
                 />
-              ) : null}
-              {editing ? (
-                <MuiButton
-                  variant="outlined"
-                  component="label"
-                  size="small"
-                  startIcon={<Upload />}
-                  sx={{ fontSize: 12 }}
-                >
-                  Upload PO Document
-                  <input
-                    type="file"
-                    hidden
-                    accept=".pdf,.doc,.docx"
-                    onChange={(e) => setNewFile(e.target.files?.[0] ?? null)}
-                  />
-                </MuiButton>
-              ) : null}
-            </Stack>
-            {editing ? (
-              <>
-                {documentLabel ? (
-                  <Typography
-                    variant="caption"
-                    color="text.secondary"
-                    sx={{ display: 'block', mb: 1, textAlign: 'right', fontSize: 11 }}
-                  >
-                    {documentLabel}
-                  </Typography>
-                ) : null}
-                <Box
-                  sx={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(2, 1fr)',
-                    gap: 1.5,
-                  }}
-                >
-                  <ReadOnlyField label="Vendor Name" value={po.vendorName} />
-                  <FormField label="PO Number" required>
-                    <TextField
-                      fullWidth
-                      size="small"
-                      value={form.poNumber}
-                      onChange={(e) => setForm((p) => ({ ...p, poNumber: e.target.value }))}
-                    />
-                  </FormField>
-                  <FormField label="PO Date" required>
-                    <TextField
-                      fullWidth
-                      size="small"
-                      type="date"
-                      value={form.poDate}
-                      onChange={(e) => setForm((p) => ({ ...p, poDate: e.target.value }))}
-                    />
-                  </FormField>
-                  <ReadOnlyField label="PO Value (₹)" value={`₹${formatCurrency(po.poValue)}`} />
-                  <ReadOnlyField
-                    label="Executed Value (₹)"
-                    value={formatExecutedValueLabel(po.poValue, po.executedValue)}
-                  />
-                </Box>
               </>
             ) : (
+              <>
+                {resolvedPo && canUpdateExecutedValue(resolvedPo) ? (
+                  <Button
+                    size="sm"
+                    variant="outlined"
+                    color="primary"
+                    label="Update Executed Value"
+                    onClick={() => setUpdatingExecutedValue(true)}
+                  />
+                ) : null}
+                <Button
+                  size="sm"
+                  variant="outlined"
+                  color="error"
+                  label="Delete"
+                  onClick={() => setDeleteOpen(true)}
+                />
+              </>
+            )}
+          </Stack>
+        }
+      >
+        {resolvedPo ? (
+          <Stack spacing={2.5}>
+            {updatingExecutedValue ? (
+              <>
+                <Box sx={{ mb: 3 }}>
+                  <Typography
+                    component="span"
+                    variant="overline"
+                    sx={{ ...PO_SECTION_TITLE_SX, display: 'block', mb: 1.5 }}
+                  >
+                    PO Details
+                  </Typography>
+                  <Box sx={PO_VENDOR_SUMMARY_SX}>
+                    <Box
+                      sx={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(2, 1fr)',
+                        gap: 1.5,
+                      }}
+                    >
+                      <Box sx={{ gridColumn: '1 / -1' }}>
+                        <ReadOnlyField label="Vendor Name" value={resolvedPo.vendorName} />
+                      </Box>
+                      <ReadOnlyField label="Category" value={categoryLabel} />
+                      <ReadOnlyField label="Service" value={serviceLabel} />
+                      <ReadOnlyField label="Billing Address" value={vendorAddress} multiline />
+                      <ReadOnlyField label="Shipping Address" value={vendorShippingAddress} multiline />
+                    </Box>
+                  </Box>
+                  <Divider sx={{ my: 1.5 }} />
+                  <Box
+                    sx={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(2, 1fr)',
+                      gap: 1.5,
+                      ...READONLY_DISABLED_TEXTFIELD_SX,
+                    }}
+                  >
+                    <FormField label="PO Number">
+                      <TextField
+                        fullWidth
+                        size="small"
+                        value={resolvedPo.poNumber}
+                        disabled
+                      />
+                    </FormField>
+                    <FormField label="PO Date" required>
+                      <TextField
+                        fullWidth
+                        size="small"
+                        type="date"
+                        value={resolvedPo.poDate}
+                        disabled
+                      />
+                    </FormField>
+                    <FormField label="PO Value (₹)" required>
+                      <TextField
+                        fullWidth
+                        size="small"
+                        type="number"
+                        value={resolvedPo.poValue}
+                        disabled
+                      />
+                    </FormField>
+                    {resolvedPo.fileName && poDocumentOpenUrl(resolvedPo.documentUrl) ? (
+                      <Box sx={{ display: 'flex', alignItems: 'flex-end', pb: 0.5 }}>
+                        <UploadedDocumentLink
+                          fileName={poDocumentDisplayFileName(resolvedPo.fileName)!}
+                          documentUrl={poDocumentOpenUrl(resolvedPo.documentUrl)}
+                          onOpenFailed={handlePoDocumentOpenFailed}
+                        />
+                      </Box>
+                    ) : null}
+                    <Box sx={{ gridColumn: '1 / -1' }}>
+                      <FormField label="Executed Value (₹)" required>
+                        <TextField
+                          fullWidth
+                          size="small"
+                          type="number"
+                          value={executedValueDraft}
+                          onChange={(e) => setExecutedValueDraft(e.target.value)}
+                        />
+                      </FormField>
+                    </Box>
+                  </Box>
+                </Box>
+
+                <Divider sx={{ my: 2 }} />
+
+                <VendorPOMilestoneEditor
+                  readOnly
+                  poValue={Number(executedValueDraft) || effectiveExecutedValue(resolvedPo)}
+                  milestones={previewEditorState.milestones}
+                  retention={previewEditorState.retention}
+                  finalMilestone={previewEditorState.finalMilestone}
+                  onMilestonesChange={() => undefined}
+                  onRetentionChange={() => undefined}
+                  onFinalMilestoneChange={() => undefined}
+                />
+              </>
+            ) : (
+              <>
+            <Box>
+              <Typography
+                component="span"
+                variant="overline"
+                sx={{ ...PO_SECTION_TITLE_SX, display: 'block', mb: 1.5 }}
+              >
+                PO Details
+              </Typography>
               <Box
                 sx={{
                   display: 'grid',
@@ -780,41 +1065,83 @@ export function ViewVendorPODrawer({ open, onClose, projectId, po }: ViewVendorP
                   gap: 1.5,
                 }}
               >
-                <ReadOnlyField label="Vendor Name" value={po.vendorName} />
-                <ReadOnlyField label="PO Number" value={po.poNumber} />
-                <ReadOnlyField label="PO Date" value={formatDate(po.poDate)} />
-                <ReadOnlyField label="PO Value" value={`₹${formatCurrency(po.poValue)}`} />
+                <ReadOnlyField label="PO Number" value={resolvedPo.poNumber} />
+                <ReadOnlyField label="PO Date" value={formatDate(resolvedPo.poDate)} />
+                <ReadOnlyField label="PO Value" value={`₹${formatCurrency(resolvedPo.poValue)}`} />
                 <ReadOnlyField
                   label="Executed Value"
-                  value={
-                    po.executedValue != null
-                      ? `₹${formatCurrency(po.executedValue)}`
-                      : `₹${formatCurrency(po.poValue)}`
-                  }
+                  value={`₹${formatCurrency(effectiveExecutedValue(resolvedPo))}`}
                 />
-                {po.fileName ? (
-                  <Box sx={{ gridColumn: '1 / -1' }}>
-                    <ReadOnlyField label="Uploaded PO Document" value={po.fileName} />
-                  </Box>
-                ) : null}
+                <PODocumentLinkField
+                  fileName={resolvedPo.fileName}
+                  documentUrl={resolvedPo.documentUrl}
+                  onOpenFailed={handlePoDocumentOpenFailed}
+                  emptyLabel="No document uploaded"
+                />
               </Box>
-            )}
-          </Box>
-          <Divider />
-          {!editing ? (
+            </Box>
+
+            <Divider sx={{ my: 0.5 }} />
             <Box>
               <Typography
                 component="span"
                 variant="overline"
                 sx={{ ...PO_SECTION_TITLE_SX, display: 'block', mb: 1.5 }}
               >
-                Milestones
+                Vendor Information
               </Typography>
-              <VendorPOMilestonesTable milestones={po.milestones} />
+              <Box sx={PO_VENDOR_SUMMARY_SX}>
+                <Box
+                  sx={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(2, 1fr)',
+                    gap: 1.5,
+                  }}
+                >
+                  <Box sx={{ gridColumn: '1 / -1' }}>
+                    <ReadOnlyField label="Vendor Name" value={resolvedPo.vendorName} />
+                  </Box>
+                  <ReadOnlyField label="Category" value={categoryLabel} />
+                  <ReadOnlyField label="Service" value={serviceLabel} />
+                  <ReadOnlyField label="Billing Address" value={vendorAddress} multiline />
+                  <ReadOnlyField label="Shipping Address" value={vendorShippingAddress} multiline />
+                </Box>
+              </Box>
             </Box>
-          ) : null}
-        </Stack>
-      ) : null}
-    </DrawerForm>
+            <Divider sx={{ my: 0.5 }} />
+              <VendorPOMilestonesReadOnlySections
+                milestones={resolvedPo.milestones}
+                serviceLabel={serviceLabel}
+                projectVendorInvoices={projectVendorInvoices}
+              />
+              </>
+            )}
+          </Stack>
+        ) : null}
+      </DrawerForm>
+
+      <Dialog open={deleteOpen} onClose={() => setDeleteOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontSize: 15, fontWeight: 600 }}>Delete vendor PO?</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ fontSize: 13 }}>
+            This will permanently remove {resolvedPo?.poNumber}. This action cannot be undone.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <MuiButton size="small" onClick={() => setDeleteOpen(false)}>
+            Cancel
+          </MuiButton>
+          <MuiButton
+            size="small"
+            variant="contained"
+            color="error"
+            disabled={saving}
+            onClick={() => void handleDelete()}
+          >
+            Delete
+          </MuiButton>
+        </DialogActions>
+      </Dialog>
+    </>
   )
 }

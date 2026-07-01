@@ -19,11 +19,11 @@ import {
 import { useTheme, alpha } from '@mui/material/styles'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import axios from 'axios'
-import { ArrowLeft, Banknote, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Banknote, ChevronLeft, ChevronRight } from 'lucide-react'
 import client from '@/api/client'
 import { ListingTemplate } from '@/components/templates'
 import type { FilterField } from '@/components/templates/ListingTemplate'
-import { Avatar, Badge, Button, useToast } from '@/design-system/components'
+import { Avatar, Badge, useToast } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import type { AppDispatch } from '@/store'
@@ -36,7 +36,6 @@ import {
   fetchVendorPayableControls,
 } from '@/slices/live/thunk'
 import type { Baseline, VendorPO } from '@/slices/baseline/reducer'
-import { formatCurrency } from '@/utils/formatters'
 import {
   baselineVendorMilestoneEntries,
   baselineVendorServiceRows,
@@ -44,10 +43,7 @@ import {
   vendorInvoiceMilestoneEntries,
   vendorPOVendorMilestoneEntries,
   clientPaymentLabel,
-  complianceDisplayLabel,
   computeMilestonePayableStatus,
-  computePayablePaymentStatus,
-  computeVendorCardCounts,
   findInvoiceForMilestone,
   getPayableControl,
   globalVendorContextKey,
@@ -55,11 +51,13 @@ import {
   invoiceUploadedLabel,
   payableStatusBadgeColor,
   payableStatusLabel,
-  SettlementRightPanel,
   SettlementSummaryStrip,
+  AddVendorInvoiceDrawer,
+  VendorPayableWorkflowDrawer,
   type PayablePaymentStatus,
   type VendorMilestoneEntry,
   type VendorServiceRow,
+  type VendorPayableDrawerFocus,
 } from '@/pages/Projects/tabs/live/vendorSettlement'
 
 type StatusTab =
@@ -68,7 +66,6 @@ type StatusTab =
   | 'pending_compliance'
   | 'ready_for_payment'
   | 'settled'
-type PageMode = 'listing' | 'settlement'
 
 interface CardEntry {
   projectId: string
@@ -83,7 +80,6 @@ interface PaymentTableRow {
   payableSt: PayablePaymentStatus
   invLabel: string
   clientLabel: string
-  complianceLabel: string
 }
 
 async function loadFinanceForAllProjects(dispatch: AppDispatch, projectIds: string[]): Promise<void> {
@@ -98,12 +94,10 @@ async function loadFinanceForAllProjects(dispatch: AppDispatch, projectIds: stri
   )
 }
 
-/** Equal-width data columns; action column fixed. Horizontal padding matches listing toolbar (14px). */
-const PAY_DATA_COL_COUNT = 7
-const PAY_ACTION_WIDTH_PX = 44
-const PAY_COL_WIDTH = `calc((100% - ${PAY_ACTION_WIDTH_PX}px) / ${PAY_DATA_COL_COUNT})`
+/** Equal-width columns (data + action); horizontal padding matches listing toolbar (14px). */
+const PAY_COLUMN_COUNT = 7
+const PAY_COL_WIDTH = `${100 / PAY_COLUMN_COUNT}%`
 const PAY_CELL_PAD_X = '14px'
-const LISTING_EDGE_PAD = PAY_CELL_PAD_X
 
 const CENTER_CELL_CONTENT_SX = {
   display: 'flex',
@@ -133,20 +127,11 @@ const PAY_HEADER_SX = {
 
 const PAY_HEADER_ACTION_SX = {
   ...STICKY_ACTION_SX,
-  width: PAY_ACTION_WIDTH_PX,
-  minWidth: PAY_ACTION_WIDTH_PX,
-  maxWidth: PAY_ACTION_WIDTH_PX,
-  py: '8px',
-  pl: 0,
-  pr: LISTING_EDGE_PAD,
-  fontSize: 11,
-  fontWeight: 600,
-  color: 'text.secondary',
-  borderBottom: `2px solid ${tokens.color.neutral[100]}`,
-  verticalAlign: 'middle' as const,
+  ...PAY_HEADER_SX,
+  width: PAY_COL_WIDTH,
   whiteSpace: 'nowrap' as const,
-  boxSizing: 'border-box' as const,
   textAlign: 'center' as const,
+  verticalAlign: 'middle' as const,
   bgcolor: 'background.default',
   zIndex: 2,
 }
@@ -163,18 +148,27 @@ const PAY_CELL_SX = {
 const PAY_CELL_CHIP_SX = {
   ...PAY_CELL_SX,
   verticalAlign: 'middle' as const,
+  textAlign: 'center' as const,
+}
+
+const PAY_HEADER_CHIP_SX = {
+  ...PAY_HEADER_SX,
+  textAlign: 'center' as const,
+  verticalAlign: 'middle' as const,
+}
+
+const PAY_HEADER_STATUS_SX = {
+  ...PAY_HEADER_CHIP_SX,
+}
+
+const PAY_CELL_STATUS_SX = {
+  ...PAY_CELL_CHIP_SX,
 }
 
 const PAY_CELL_ACTION_SX = {
-  py: '7px',
-  pl: 0,
-  pr: LISTING_EDGE_PAD,
-  width: PAY_ACTION_WIDTH_PX,
-  minWidth: PAY_ACTION_WIDTH_PX,
-  maxWidth: PAY_ACTION_WIDTH_PX,
+  ...PAY_CELL_SX,
   verticalAlign: 'middle' as const,
   textAlign: 'center' as const,
-  boxSizing: 'border-box' as const,
   bgcolor: 'background.paper',
   ...STICKY_ACTION_SX,
 }
@@ -198,9 +192,9 @@ const PAY_PAGE_SIZE = 10
 const menuItemSx = { fontSize: 12, minHeight: 32, py: 0.5 }
 
 const ACTION_MENU_BY_STATUS: Record<PayablePaymentStatus, string[]> = {
-  ready_for_payment: ['View Details', 'Release Payment', 'Upload Invoice', 'View Compliance'],
+  ready_for_payment: ['View Details', 'Release Payment', 'Upload Invoice'],
   waiting_for_client_payment: ['View Details', 'View Client Payment'],
-  pending_compliance: ['View Details', 'View Compliance'],
+  pending_compliance: ['View Details'],
   settled: ['View Details', 'View Settlement History'],
 }
 
@@ -264,8 +258,6 @@ export default function PaymentsPage() {
   const projects = rawProjects ?? []
   const vendorInvoices = useAppSelector((s) => s.live.vendorInvoices ?? [])
   const payments = useAppSelector((s) => s.live.payments ?? [])
-  const expenses = useAppSelector((s) => s.live.expenses ?? [])
-  const reimbursements = useAppSelector((s) => s.live.reimbursements ?? [])
   const vendorPayableControls = useAppSelector((s) => s.live.vendorPayableControls ?? [])
 
   const [baselinesByProject, setBaselinesByProject] = useState<Record<string, Baseline | null>>({})
@@ -286,14 +278,21 @@ export default function PaymentsPage() {
     dateTo: '',
   })
 
-  const [mode, setMode] = useState<PageMode>('listing')
-  const [selectedKey, setSelectedKey] = useState<string | null>(null)
-
   const [page, setPage] = useState(1)
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null)
-  const [menuContext, setMenuContext] = useState<{
-    vendorKey: string
-    status: PayablePaymentStatus
+  const [menuContext, setMenuContext] = useState<PaymentTableRow | null>(null)
+  const [workflowDrawer, setWorkflowDrawer] = useState<{
+    entry: VendorMilestoneEntry
+    focus: VendorPayableDrawerFocus
+    readOnly: boolean
+  } | null>(null)
+  const [uploadInvoiceDrawer, setUploadInvoiceDrawer] = useState<{
+    projectId: string
+    context: VendorServiceRow
+    milestoneId: string
+    baseline: Baseline | null
+    vendorPOs: VendorPO[]
+    editInvoiceId?: string
   } | null>(null)
 
   useEffect(() => {
@@ -347,12 +346,6 @@ export default function PaymentsPage() {
       cancelled = true
     }
   }, [dispatch, projectIdsKey, projects])
-
-  const projectNameById = useMemo(() => {
-    const m: Record<string, string> = {}
-    for (const p of projects) m[p.id] = p.name
-    return m
-  }, [projects])
 
   const allCards = useMemo((): CardEntry[] => {
     const out: CardEntry[] = []
@@ -411,7 +404,6 @@ export default function PaymentsPage() {
         payableSt,
         invLabel: invoiceUploadedLabel(milestoneInv),
         clientLabel: clientPaymentLabel(control),
-        complianceLabel: complianceDisplayLabel(control),
       }
     },
     [invoicesByProject, vendorPayableControls],
@@ -432,7 +424,6 @@ export default function PaymentsPage() {
         row.entry.milestone.name,
         row.invLabel,
         row.clientLabel,
-        row.complianceLabel,
         payableStatusLabel(row.payableSt),
       ]
         .join(' ')
@@ -509,52 +500,6 @@ export default function PaymentsPage() {
     return m
   }, [allCards])
 
-  const selectedEntry = useMemo(() => {
-    if (!selectedKey) return null
-    return allCards.find((c) => globalVendorContextKey(c.projectId, c.row) === selectedKey) ?? null
-  }, [selectedKey, allCards])
-
-  useEffect(() => {
-    if (mode !== 'settlement' || !selectedKey) return
-    const entry = allCards.find((c) => globalVendorContextKey(c.projectId, c.row) === selectedKey)
-    if (!entry) {
-      setMode('listing')
-      setSelectedKey(null)
-      return
-    }
-    const rail = allCards.filter(
-      (c) =>
-        c.projectId === entry.projectId &&
-        (!filterVendorId || c.row.vendorId === filterVendorId),
-    )
-    if (rail.length === 0) return
-    const stillValid = rail.some((c) => globalVendorContextKey(c.projectId, c.row) === selectedKey)
-    if (!stillValid) {
-      setSelectedKey(globalVendorContextKey(rail[0].projectId, rail[0].row))
-    }
-  }, [mode, selectedKey, allCards, filterVendorId])
-
-  const settlementRailCards = useMemo(() => {
-    if (!selectedEntry) return []
-    return allCards.filter(
-      (c) =>
-        c.projectId === selectedEntry.projectId &&
-        (!filterVendorId || c.row.vendorId === filterVendorId),
-    )
-  }, [allCards, selectedEntry, filterVendorId])
-
-  const settlementGroupedByProject = useMemo(() => {
-    const map = new Map<string, CardEntry[]>()
-    for (const c of settlementRailCards) {
-      const list = map.get(c.projectId) ?? []
-      list.push(c)
-      map.set(c.projectId, list)
-    }
-    return [...map.entries()].sort((a, b) =>
-      projectNameById[a[0]].localeCompare(projectNameById[b[0]]),
-    )
-  }, [settlementRailCards, projectNameById])
-
   const filterConfig: FilterField[] = useMemo(
     () => [
       { field: 'dateFrom', label: 'Date from (YYYY-MM-DD)', type: 'text' },
@@ -563,19 +508,10 @@ export default function PaymentsPage() {
     [],
   )
 
-  const goToSettlement = useCallback((key: string) => {
-    setSelectedKey(key)
-    setMode('settlement')
-  }, [])
-
-  function openActionMenu(
-    e: React.MouseEvent<HTMLElement>,
-    vendorKey: string,
-    status: PayablePaymentStatus,
-  ) {
+  function openActionMenu(e: React.MouseEvent<HTMLElement>, row: PaymentTableRow) {
     e.stopPropagation()
     setMenuAnchor(e.currentTarget)
-    setMenuContext({ vendorKey, status })
+    setMenuContext(row)
   }
 
   function closeActionMenu() {
@@ -585,26 +521,54 @@ export default function PaymentsPage() {
 
   function handleActionMenuItem(label: string) {
     if (!menuContext) return
+    const { entry } = menuContext
+    const projectId = entry.projectId
+    const baseline = baselinesByProject[projectId] ?? null
+    const vendorPOs = vendorPOsByProject[projectId] ?? []
+    const scopedInv = (invoicesByProject.get(projectId) ?? []).filter((inv) =>
+      invoiceMatchesRow(inv, entry.row),
+    )
+    const milestoneInv = findInvoiceForMilestone(scopedInv, entry.milestone)
+
     closeActionMenu()
-    goToSettlement(menuContext.vendorKey)
-    if (label !== 'View Details') {
-      showToast({ title: `${label} — open in settlement view`, variant: 'info' })
+
+    switch (label) {
+      case 'Upload Invoice':
+        setUploadInvoiceDrawer({
+          projectId,
+          context: entry.row,
+          milestoneId: entry.milestone.id,
+          baseline,
+          vendorPOs,
+          editInvoiceId: milestoneInv?.id,
+        })
+        break
+      case 'Release Payment':
+        setWorkflowDrawer({ entry, focus: 'payment', readOnly: false })
+        break
+      case 'View Client Payment':
+        setWorkflowDrawer({ entry, focus: 'client-payment', readOnly: false })
+        break
+      case 'View Settlement History':
+      case 'View Details':
+      default:
+        setWorkflowDrawer({ entry, focus: 'details', readOnly: true })
+        break
     }
   }
 
-  const handleSearchChange = useCallback((v: string) => {
-    setSearch(v)
-  }, [])
-
-  const backToListing = useCallback(() => {
-    setMode('listing')
-    setSelectedKey(null)
-  }, [])
-
-  const handlePaymentCreated = useCallback(() => {
-    setMode('listing')
-    setSelectedKey(null)
-  }, [])
+  function openUploadInvoiceFromWorkflow(milestoneId: string) {
+    if (!workflowDrawer) return
+    const { entry } = workflowDrawer
+    setWorkflowDrawer(null)
+    setUploadInvoiceDrawer({
+      projectId: entry.projectId,
+      context: entry.row,
+      milestoneId,
+      baseline: baselinesByProject[entry.projectId] ?? null,
+      vendorPOs: vendorPOsByProject[entry.projectId] ?? [],
+    })
+  }
 
   const tabs = [
     { label: 'All', value: 'all', count: statusCounts.all },
@@ -661,12 +625,14 @@ export default function PaymentsPage() {
     </Stack>
   )
 
+  const handleSearchChange = useCallback((v: string) => {
+    setSearch(v)
+  }, [])
+
   const hoverBg = alpha(theme.palette.primary.main, 0.04)
 
   return (
     <>
-      {mode === 'listing' && (
-        <>
         <ListingTemplate
           icon={<Banknote size={20} strokeWidth={1.75} />}
           title="Payable"
@@ -691,28 +657,22 @@ export default function PaymentsPage() {
               <TableContainer sx={{ overflowX: 'auto', width: '100%' }}>
                 <Table size="small" sx={{ tableLayout: 'fixed', width: '100%', minWidth: 0 }}>
                   <colgroup>
-                    <col style={{ width: PAY_COL_WIDTH }} />
-                    <col style={{ width: PAY_COL_WIDTH }} />
-                    <col style={{ width: PAY_COL_WIDTH }} />
-                    <col style={{ width: PAY_COL_WIDTH }} />
-                    <col style={{ width: PAY_COL_WIDTH }} />
-                    <col style={{ width: PAY_COL_WIDTH }} />
-                    <col style={{ width: PAY_COL_WIDTH }} />
-                    <col style={{ width: `${PAY_ACTION_WIDTH_PX}px` }} />
+                    {Array.from({ length: PAY_COLUMN_COUNT }, (_, index) => (
+                      <col key={index} style={{ width: PAY_COL_WIDTH }} />
+                    ))}
                   </colgroup>
                   <TableHead>
                     <TableRow sx={{ bgcolor: alpha(theme.palette.text.primary, 0.02) }}>
                       <TableCell sx={PAY_HEADER_SX}>Vendor</TableCell>
                       <TableCell sx={PAY_HEADER_SX}>Project</TableCell>
                       <TableCell sx={PAY_HEADER_SX}>Milestone</TableCell>
-                      <TableCell sx={PAY_HEADER_SX}>
+                      <TableCell sx={PAY_HEADER_CHIP_SX}>
                         Invoice Uploaded
                       </TableCell>
-                      <TableCell sx={PAY_HEADER_SX}>
+                      <TableCell sx={PAY_HEADER_CHIP_SX}>
                         Client Payment
                       </TableCell>
-                      <TableCell sx={PAY_HEADER_SX}>Compliance</TableCell>
-                      <TableCell sx={PAY_HEADER_SX}>
+                      <TableCell sx={PAY_HEADER_STATUS_SX}>
                         Payment Status
                       </TableCell>
                       <TableCell sx={PAY_HEADER_ACTION_SX}>
@@ -723,7 +683,7 @@ export default function PaymentsPage() {
                   <TableBody>
                     {isDataLoading ? (
                       <TableRow>
-                        <TableCell colSpan={8} sx={{ ...PAY_CELL_SX, color: 'text.secondary', py: 4 }}>
+                        <TableCell colSpan={7} sx={{ ...PAY_CELL_SX, color: 'text.secondary', py: 4 }}>
                           <Stack direction="row" alignItems="center" justifyContent="center" gap={1}>
                             <CircularProgress size={20} />
                             <Typography variant="body2" sx={{ fontSize: 12 }}>
@@ -734,7 +694,7 @@ export default function PaymentsPage() {
                       </TableRow>
                     ) : listingRows.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={8} sx={{ ...PAY_CELL_SX, color: 'text.secondary', py: 4 }}>
+                        <TableCell colSpan={7} sx={{ ...PAY_CELL_SX, color: 'text.secondary', py: 4 }}>
                           No vendor milestones match the filters. Finalize baselines or adjust filters.
                         </TableCell>
                       </TableRow>
@@ -743,7 +703,11 @@ export default function PaymentsPage() {
                         <TableRow
                           key={row.key}
                           hover
-                          sx={{ '&:hover': { bgcolor: hoverBg }, '&:last-child td': { border: 0 } }}
+                          sx={{
+                            '&:hover': { bgcolor: hoverBg },
+                            '&:hover td': { bgcolor: hoverBg },
+                            '&:last-child td': { border: 0 },
+                          }}
                         >
                           <TableCell sx={PAY_CELL_SX}>
                             <Stack direction="row" alignItems="center" gap={1.25} sx={{ minWidth: 0 }}>
@@ -769,14 +733,17 @@ export default function PaymentsPage() {
                             </Typography>
                           </TableCell>
                           <TableCell sx={PAY_CELL_CHIP_SX}>
+                            <Box sx={CENTER_CELL_CONTENT_SX}>
                             <Badge
                               label={row.invLabel}
                               variant="soft"
                               color={row.invLabel === 'Uploaded' ? 'success' : 'warning'}
                               size="sm"
                             />
+                            </Box>
                           </TableCell>
-                          <TableCell sx={PAY_CELL_SX}>
+                          <TableCell sx={PAY_CELL_CHIP_SX}>
+                            <Box sx={CENTER_CELL_CONTENT_SX}>
                             <Typography
                               variant="body2"
                               sx={{
@@ -787,36 +754,24 @@ export default function PaymentsPage() {
                             >
                               {row.clientLabel}
                             </Typography>
+                            </Box>
                           </TableCell>
-                          <TableCell sx={PAY_CELL_SX}>
-                            <Typography
-                              variant="body2"
-                              sx={{
-                                ...PAY_TEXT_BODY_SX,
-                                fontWeight: 600,
-                                color:
-                                  row.complianceLabel === 'Complete'
-                                    ? 'success.main'
-                                    : 'text.secondary',
-                              }}
-                            >
-                              {row.complianceLabel}
-                            </Typography>
-                          </TableCell>
-                          <TableCell sx={PAY_CELL_CHIP_SX}>
-                            <Badge
-                              label={payableStatusLabel(row.payableSt)}
-                              variant="soft"
-                              color={payableStatusBadgeColor(row.payableSt)}
-                              size="sm"
-                            />
+                          <TableCell sx={PAY_CELL_STATUS_SX}>
+                            <Box sx={CENTER_CELL_CONTENT_SX}>
+                              <Badge
+                                label={payableStatusLabel(row.payableSt)}
+                                variant="soft"
+                                color={payableStatusBadgeColor(row.payableSt)}
+                                size="sm"
+                              />
+                            </Box>
                           </TableCell>
                           <TableCell sx={PAY_CELL_ACTION_SX} onClick={(e) => e.stopPropagation()}>
                             <Box sx={CENTER_CELL_CONTENT_SX}>
                               <IconButton
                                 size="small"
                                 aria-label="Row actions"
-                                onClick={(e) => openActionMenu(e, row.vendorKey, row.payableSt)}
+                                onClick={(e) => openActionMenu(e, row)}
                               sx={{ p: 0.25 }}
                             >
                               <MoreVertIcon sx={{ fontSize: 14 }} />
@@ -847,192 +802,35 @@ export default function PaymentsPage() {
           onClick={(e) => e.stopPropagation()}
           slotProps={{ paper: { elevation: 2 } }}
         >
-          {(menuContext ? ACTION_MENU_BY_STATUS[menuContext.status] : []).map((label) => (
+          {(menuContext ? ACTION_MENU_BY_STATUS[menuContext.payableSt] : []).map((label) => (
             <MenuItem key={label} sx={menuItemSx} onClick={() => handleActionMenuItem(label)}>
               {label}
             </MenuItem>
           ))}
         </Menu>
-        </>
-      )}
 
-      {mode === 'settlement' && (
-        <Box sx={{ p: { xs: 2, md: 3, lg: 4 }, maxWidth: 1920, mx: 'auto' }}>
-          <Stack direction="row" alignItems="flex-start" gap={2} sx={{ mb: 3 }}>
-            <Box
-              sx={{
-                width: 40,
-                height: 40,
-                borderRadius: 2,
-                bgcolor: tokens.color.primary[100],
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0,
-              }}
-            >
-              <Banknote size={20} strokeWidth={1.75} color={tokens.color.primary[600]} />
-            </Box>
-            <Box>
-              <Typography variant="h5" sx={{ fontWeight: 700, fontSize: { xs: 20, md: 22 } }}>
-                Payable
-              </Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                Cross-project vendor payments and settlement workflow
-              </Typography>
-            </Box>
-          </Stack>
+        <VendorPayableWorkflowDrawer
+          open={workflowDrawer != null}
+          onClose={() => setWorkflowDrawer(null)}
+          entry={workflowDrawer?.entry ?? null}
+          baseline={
+            workflowDrawer ? baselinesByProject[workflowDrawer.entry.projectId] ?? null : null
+          }
+          focus={workflowDrawer?.focus}
+          readOnly={workflowDrawer?.readOnly}
+          onUploadInvoice={openUploadInvoiceFromWorkflow}
+        />
 
-          <Button
-            variant="text"
-            size="sm"
-            label="Back to payments"
-            startIcon={<ArrowLeft size={16} strokeWidth={1.75} />}
-            onClick={backToListing}
-            sx={{ mb: 2 }}
-          />
-
-          {selectedEntry && (
-            <Stack
-              direction={{ xs: 'column', md: 'row' }}
-              alignItems="stretch"
-              gap={2}
-              sx={{ mb: 3, minHeight: { md: 480 } }}
-            >
-              <Box
-                sx={{
-                  width: { xs: 1, md: 280 },
-                  flexShrink: 0,
-                  border: `1px solid ${tokens.color.neutral[100]}`,
-                  borderRadius: 2,
-                  bgcolor: 'background.paper',
-                  maxHeight: { md: '70vh' },
-                  overflow: 'auto',
-                }}
-              >
-                <Typography variant="overline" sx={{ px: 2, pt: 2, fontSize: 10, letterSpacing: 0.6 }}>
-                  Vendors by project
-                </Typography>
-                {!financeLoaded && (
-                  <Typography variant="body2" sx={{ p: 2, fontSize: 12, color: 'text.secondary' }}>
-                    Loading…
-                  </Typography>
-                )}
-                {financeLoaded && settlementGroupedByProject.length === 0 && (
-                  <Typography variant="body2" sx={{ p: 2, fontSize: 12, color: 'text.secondary' }}>
-                    No vendor mappings for this project.
-                  </Typography>
-                )}
-                {financeLoaded &&
-                  settlementGroupedByProject.map(([projectId, cards]) => (
-                    <Box key={projectId} sx={{ px: 2, pb: 1 }}>
-                      <Typography
-                        variant="overline"
-                        sx={{
-                          fontSize: 10,
-                          letterSpacing: 0.8,
-                          color: 'text.secondary',
-                          display: 'block',
-                          pt: 1,
-                          pb: 0.5,
-                        }}
-                      >
-                        {projectNameById[projectId]?.toUpperCase() ?? projectId}
-                      </Typography>
-                      <Stack gap={1}>
-                        {cards.map((c) => {
-                          const key = globalVendorContextKey(c.projectId, c.row)
-                          const selected = key === selectedKey
-                          const bl = baselinesByProject[c.projectId] ?? null
-                          const inv = vendorInvoices.filter((v) => v.projectId === c.projectId)
-                          const ex = expenses.filter((e) => e.projectId === c.projectId)
-                          const rb = reimbursements.filter((r) => r.projectId === c.projectId)
-                          const counts = computeVendorCardCounts(
-                            bl,
-                            inv,
-                            ex,
-                            rb,
-                            c.row,
-                            vendorPOsByProject[c.projectId] ?? [],
-                          )
-                          const controlRail = getPayableControl(vendorPayableControls, c.projectId, c.row)
-                          const railPayableSt = computePayablePaymentStatus(counts, controlRail)
-                          return (
-                            <Box
-                              key={key}
-                              role="button"
-                              tabIndex={0}
-                              onClick={() => setSelectedKey(key)}
-                              onKeyDown={(e) => e.key === 'Enter' && setSelectedKey(key)}
-                              sx={{
-                                p: 1.5,
-                                borderRadius: 2,
-                                border: '2px solid',
-                                borderColor: selected ? tokens.color.primary[500] : tokens.color.neutral[100],
-                                bgcolor: selected ? tokens.color.primary[50] : 'background.paper',
-                                cursor: 'pointer',
-                                transition: 'border-color 0.15s, background-color 0.15s',
-                              }}
-                            >
-                              <Stack direction="row" gap={1.5} alignItems="flex-start">
-                                <Avatar name={c.row.vendorName} size="sm" />
-                                <Box sx={{ flex: 1, minWidth: 0 }}>
-                                  <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 700 }}>
-                                    {c.row.vendorName}
-                                  </Typography>
-                                  <Typography variant="caption" sx={{ fontSize: 11, color: 'text.secondary' }}>
-                                    {c.projectName}
-                                  </Typography>
-                                  <Typography
-                                    variant="caption"
-                                    sx={{ fontSize: 11, color: 'text.secondary', display: 'block' }}
-                                  >
-                                    {c.row.serviceName}
-                                  </Typography>
-                                  <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 700, mt: 0.75 }}>
-                                    ₹{formatCurrency(counts.outstanding)}
-                                  </Typography>
-                                  <Stack direction="row" gap={0.5} flexWrap="wrap" sx={{ mt: 0.75 }}>
-                                    {counts.pendingInv > 0 && (
-                                      <Badge label={String(counts.pendingInv)} variant="soft" color="info" size="sm" />
-                                    )}
-                                    {counts.pendingExp > 0 && (
-                                      <Badge label={String(counts.pendingExp)} variant="soft" color="warning" size="sm" />
-                                    )}
-                                    {counts.pendingRmb > 0 && (
-                                      <Badge label={String(counts.pendingRmb)} variant="soft" color="primary" size="sm" />
-                                    )}
-                                  </Stack>
-                                  <Box sx={{ mt: 0.75 }}>
-                                    <Badge
-                                      label={payableStatusLabel(railPayableSt)}
-                                      variant="soft"
-                                      color={payableStatusBadgeColor(railPayableSt)}
-                                      size="sm"
-                                    />
-                                  </Box>
-                                </Box>
-                              </Stack>
-                            </Box>
-                          )
-                        })}
-                      </Stack>
-                    </Box>
-                  ))}
-              </Box>
-
-              <SettlementRightPanel
-                projectId={selectedEntry.projectId}
-                projectName={selectedEntry.projectName}
-                baseline={baselinesByProject[selectedEntry.projectId] ?? null}
-                selectedRow={selectedEntry.row}
-                showProjectCaption
-                onPaymentCreated={handlePaymentCreated}
-              />
-            </Stack>
-          )}
-        </Box>
-      )}
+        <AddVendorInvoiceDrawer
+          open={uploadInvoiceDrawer != null}
+          onClose={() => setUploadInvoiceDrawer(null)}
+          projectId={uploadInvoiceDrawer?.projectId ?? ''}
+          context={uploadInvoiceDrawer?.context ?? null}
+          presetMilestoneId={uploadInvoiceDrawer?.milestoneId}
+          baseline={uploadInvoiceDrawer?.baseline ?? null}
+          vendorPOs={uploadInvoiceDrawer?.vendorPOs ?? []}
+          editInvoiceId={uploadInvoiceDrawer?.editInvoiceId}
+        />
     </>
   )
 }

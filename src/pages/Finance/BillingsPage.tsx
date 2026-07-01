@@ -656,6 +656,7 @@ export default function BillingsPage() {
                             cursor: 'pointer',
                             '& td': { height: 44 },
                             '&:hover': { bgcolor: hoverBg },
+                            '&:hover td': { bgcolor: hoverBg },
                           }}
                           onClick={() => setDetailId(inv.id)}
                         >

@@ -69,6 +69,8 @@ export interface Invoice {
   payments: Payment[]
   notes?: string
   clientPoId?: string
+  documentUrl?: string | null
+  fileName?: string | null
   createdAt: string
   updatedAt: string
 }

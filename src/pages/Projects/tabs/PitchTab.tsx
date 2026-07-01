@@ -25,6 +25,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
+import { alpha } from '@mui/material/styles'
 import { Add, Delete, Edit as EditIcon, ExpandMore, Upload } from '@mui/icons-material'
 import { useToast } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
@@ -608,12 +609,6 @@ export default function PitchTab({ project }: { project: Project }) {
       return
     }
 
-    const totalAllocated = draft.rows.reduce((sum, row) => sum + (Number(row.amount) || 0), 0)
-    if (totalAllocated > serviceOpt.value) {
-      showToast({ title: 'Total vendor allocation cannot exceed service amount', variant: 'error' })
-      return
-    }
-
     let service =
       category.services.find((s) => s.id === serviceOpt.pitchServiceId) ??
       category.services.find((s) => s.subcategoryId === draft.serviceId)
@@ -869,6 +864,7 @@ export default function PitchTab({ project }: { project: Project }) {
                                           onClick={() =>
                                             void removeServiceRow(section.key, category, service.id)
                                           }
+                                          sx={{ color: (theme) => alpha(theme.palette.error.main, 0.54) }}
                                         >
                                           <Delete sx={{ fontSize: 16 }} />
                                         </MuiIconButton>

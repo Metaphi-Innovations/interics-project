@@ -13,6 +13,7 @@ export {
   computeMilestonePayableStatus,
   computePayablePaymentStatus,
   computeVendorCardCounts,
+  computeVendorPayableBreakdown,
   deriveVendorComplianceStatus,
   expenseRowsForVendor,
   findInvoiceForMilestone,
@@ -22,6 +23,8 @@ export {
   globalVendorContextKey,
   invoiceMatchesRow,
   invoiceUploadedLabel,
+  vendorInvoiceDocumentFileName,
+  vendorInvoiceDocumentOpenUrl,
   isPayableReleaseAllowed,
   itemsSummary,
   payableStatusBadgeColor,
@@ -33,12 +36,16 @@ export {
   TABLE_CELL_SX,
   TABLE_HEADER_SX,
   type CardCounts,
+  type VendorPayableBreakdown,
   type PayablePaymentStatus,
   type RowSettlementStatus,
   type VendorMilestoneEntry,
   type VendorServiceRow,
 } from './utils'
 export { SettlementSummaryStrip } from './SettlementSummaryStrip'
-export { SettlementRightPanel } from './SettlementRightPanel'
 export { AddVendorInvoiceDrawer } from './AddVendorInvoiceDrawer'
 export { PaymentDetailModal, VendorInvoiceDetailModal } from './SettlementModals'
+export {
+  VendorPayableWorkflowDrawer,
+  type VendorPayableDrawerFocus,
+} from './VendorPayableWorkflowDrawer'

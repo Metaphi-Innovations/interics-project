@@ -5,12 +5,14 @@ import {
   Card,
   IconButton,
   Stack,
+  Tab,
   Table,
   TableBody,
   TableCell,
   TableContainer,
   TableHead,
   TableRow,
+  Tabs,
   Typography,
 } from '@mui/material'
 import type { Theme } from '@mui/material/styles'
@@ -52,6 +54,7 @@ import {
   type RevenueServiceRow,
 } from './financialsAggregates'
 import { balancePending, totalReceivedBank } from './live/clientInvoiceUtils'
+import { TaxComplianceSection } from './live/TaxComplianceSection'
 
 const SUMMARY_COUNT = 4
 
@@ -60,6 +63,44 @@ const VARIANCE_NOTE_LINES = [
   'Baseline from locked project baseline.',
 ] as const
 const TRACKING_METRIC_COUNT = 6
+
+type FinancialSubTab = 'overview' | 'compliance'
+
+const FINANCIAL_SUB_TAB_SX = {
+  minHeight: 36,
+  '& .MuiTab-root': {
+    minHeight: 36,
+    fontSize: 12,
+    fontWeight: 500,
+    textTransform: 'none' as const,
+    px: 2,
+    py: 0,
+  },
+  '& .MuiTabs-indicator': {
+    height: 2,
+  },
+} as const
+
+function FinancialModuleSectionHeading({
+  title,
+  description,
+}: {
+  title: string
+  description?: string
+}) {
+  return (
+    <Box>
+      <Typography variant="h6" sx={{ fontSize: 16, fontWeight: 700 }}>
+        {title}
+      </Typography>
+      {description != null && (
+        <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12, mt: 0.25 }}>
+          {description}
+        </Typography>
+      )}
+    </Box>
+  )
+}
 
 const METRIC_CELL_ALIGN_SX = {
   display: 'flex',
@@ -272,9 +313,11 @@ function RevenueCategorySection({
 
 export default function FinancialsTab({ project }: FinancialsTabProps) {
   const theme = useTheme()
+  const [activeSubTab, setActiveSubTab] = useState<FinancialSubTab>('overview')
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set())
   const dispatch = useAppDispatch()
   const canViewFinancialMetrics = usePermission('financial', 'view')
+  const canViewCompliance = usePermission('compliance', 'view')
   const selected = useAppSelector((s) => s.projects.selectedItem)
   const { baseline: baselineState, clientPOs } = useAppSelector((s) => s.baseline)
   const { invoices, vendorInvoices, payments, expenses } = useAppSelector((s) => s.live)
@@ -425,8 +468,48 @@ export default function FinancialsTab({ project }: FinancialsTabProps) {
     })
   }
 
+  const subTabs = useMemo(() => {
+    const tabs: { label: string; value: FinancialSubTab }[] = [
+      { label: 'Financial Overview', value: 'overview' },
+    ]
+    if (canViewCompliance) {
+      tabs.push({ label: 'Tax & Compliance', value: 'compliance' })
+    }
+    return tabs
+  }, [canViewCompliance])
+
+  useEffect(() => {
+    if (!canViewCompliance && activeSubTab === 'compliance') {
+      setActiveSubTab('overview')
+    }
+  }, [canViewCompliance, activeSubTab])
+
   return (
-    <Stack gap={2}>
+    <Box>
+      <Box
+        sx={{
+          borderBottom: `1px solid ${tokens.color.neutral[100]}`,
+          mb: 2,
+        }}
+      >
+        <Tabs
+          value={activeSubTab}
+          onChange={(_, value: FinancialSubTab) => setActiveSubTab(value)}
+          sx={FINANCIAL_SUB_TAB_SX}
+        >
+          {subTabs.map((tab) => (
+            <Tab key={tab.value} value={tab.value} label={tab.label} />
+          ))}
+        </Tabs>
+      </Box>
+
+      {activeSubTab === 'overview' ? (
+        <Stack gap={2}>
+          <FinancialModuleSectionHeading
+            title="Financial Overview"
+            description="Project revenue, cost, collections, and variance against baseline."
+          />
+
       {canViewFinancialMetrics ? <CommercialRatesSection project={projectForSummary} /> : null}
 
       {/* Section 1 — Summary strip */}
@@ -839,6 +922,21 @@ export default function FinancialsTab({ project }: FinancialsTabProps) {
           </>
         )}
       </WorkspaceSection>
-    </Stack>
+        </Stack>
+      ) : null}
+
+      {activeSubTab === 'compliance' && canViewCompliance ? (
+        <Stack gap={2}>
+          <FinancialModuleSectionHeading
+            title="Tax & Compliance"
+            description="GST, labour cess, and TDS position for this project."
+          />
+          <TaxComplianceSection
+            projectId={projectId}
+            clientName={projectForSummary.customerName}
+          />
+        </Stack>
+      ) : null}
+    </Box>
   )
 }

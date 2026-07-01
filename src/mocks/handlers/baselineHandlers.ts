@@ -2,6 +2,11 @@ import { http, HttpResponse } from 'msw'
 import type { ClientPO, Baseline, VendorPO } from '../../slices/baseline/reducer'
 import type { PitchCategory, PlannedExpense } from '../../slices/pitch/reducer'
 import { recalcTransitionDraft } from '../../utils/transitionDraft'
+import {
+  mergeClientPOUpdate,
+  mergeVendorPOUpdate,
+} from '../../pages/Projects/tabs/live/poExecutedValueRules'
+import { invoices as clientInvoices } from '../liveFinanceMockState'
 
 // ─── Seed: pitch-shaped baseline for p-001 (matches pitch mock + quotations) ─
 
@@ -469,7 +474,12 @@ export const baselineHandlers = [
     const idx = clientPOs.findIndex((p) => p.id === poId)
     if (idx === -1) return HttpResponse.json({ message: 'PO not found' }, { status: 404 })
     const body = await request.json() as Partial<ClientPO>
-    clientPOs[idx] = { ...clientPOs[idx], ...body }
+    const existing = clientPOs[idx]
+    const result = mergeClientPOUpdate(existing, body, {
+      invoices: clientInvoices.filter((i) => i.projectId === existing.projectId),
+    })
+    if (!result.ok) return HttpResponse.json({ message: result.message }, { status: 400 })
+    clientPOs[idx] = result.po
     return HttpResponse.json(clientPOs[idx])
   }),
 
@@ -589,7 +599,17 @@ export const baselineHandlers = [
     const idx = vendorPOs.findIndex((p) => p.id === poId)
     if (idx === -1) return HttpResponse.json({ message: 'Vendor PO not found' }, { status: 404 })
     const body = await request.json() as Partial<VendorPO>
-    vendorPOs[idx] = { ...vendorPOs[idx], ...body }
+    const result = mergeVendorPOUpdate(vendorPOs[idx], body)
+    if (!result.ok) return HttpResponse.json({ message: result.message }, { status: 400 })
+    vendorPOs[idx] = result.po
     return HttpResponse.json(vendorPOs[idx])
+  }),
+
+  http.delete('/api/projects/:projectId/vendor-pos/:poId', ({ params }) => {
+    const poId = params.poId as string
+    const idx = vendorPOs.findIndex((p) => p.id === poId)
+    if (idx === -1) return HttpResponse.json({ message: 'Vendor PO not found' }, { status: 404 })
+    vendorPOs.splice(idx, 1)
+    return HttpResponse.json({ success: true })
   }),
 ]

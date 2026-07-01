@@ -103,6 +103,19 @@ function linkedServiceLabels(po: VendorPO, baseline: Baseline | null): string {
     .join(', ')
 }
 
+export function vendorPOLinkedServiceLabel(po: VendorPO, baseline: Baseline | null): string {
+  return linkedServiceLabels(po, baseline)
+}
+
+export function vendorPOCategoryLabel(po: VendorPO, baseline: Baseline | null): string {
+  const serviceId = po.linkedBaselineServiceIds?.[0]
+  if (!serviceId || !baseline) return '—'
+  for (const cat of baseline.categories) {
+    if (cat.services.some((s) => s.id === serviceId)) return cat.categoryName
+  }
+  return '—'
+}
+
 export function buildVendorPOMilestoneOverviewRows(
   vendorPOs: VendorPO[],
   projectId: string,
@@ -207,12 +220,30 @@ export function vendorOfferHasPo(
   projectId: string,
   options?: VendorOfferHasPoOptions,
 ): boolean {
+  return findVendorPOForOfferRow(row, vendorPOs, projectId, options) != null
+}
+
+/** Resolves the vendor PO linked to an offer row, if one exists. */
+export function findVendorPOForOfferRow(
+  row: VendorOfferRow,
+  vendorPOs: VendorPO[],
+  projectId: string,
+  options?: VendorOfferHasPoOptions,
+): VendorPO | undefined {
   const rowKey = vendorOfferRowKey(row)
-  if (options?.confirmedRowKeys?.has(rowKey)) return true
+  if (options?.confirmedRowKeys?.has(rowKey)) {
+    const byMapping = vendorPOs.find(
+      (po) =>
+        po.projectId === projectId &&
+        po.vendorId === row.mapping.vendorId &&
+        po.linkedVendorMappingId === row.mapping.id,
+    )
+    if (byMapping) return byMapping
+  }
 
   const serviceIds = new Set([row.serviceId, ...(options?.alternateServiceIds ?? [])])
 
-  return vendorPOs.some((po) => {
+  return vendorPOs.find((po) => {
     if (po.projectId !== projectId) return false
     if (po.vendorId !== row.mapping.vendorId) return false
     if (po.linkedVendorMappingId && po.linkedVendorMappingId === row.mapping.id) return true

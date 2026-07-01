@@ -392,13 +392,6 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
         }
 
         const existing = target.service.vendorMappings ?? []
-        if (existing.some((m) => m.vendorId === form.vendorId)) {
-          toast({
-            title: `This vendor already has an offer on ${serviceDisplayName(target.service)}`,
-            variant: 'error',
-          })
-          return
-        }
 
         const milestonePayload = buildVendorPOMilestonePayloadFromGroup(group)
         const { milestones: pitchMilestones, retention, finalMilestone } = pitchMappingFromGroup(group)

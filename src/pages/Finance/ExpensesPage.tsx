@@ -106,9 +106,16 @@ const CELL_SX = {
   boxSizing: 'border-box' as const,
 }
 
+const HEADER_STATUS_SX = {
+  ...HEADER_SX,
+  textAlign: 'center' as const,
+  verticalAlign: 'middle' as const,
+}
+
 const CELL_STATUS_SX = {
   ...CELL_SX,
   verticalAlign: 'middle' as const,
+  textAlign: 'center' as const,
 }
 
 const CELL_ACTION_SX = {
@@ -510,7 +517,7 @@ export default function ExpensesPage() {
                 {visibleColumns.service && <TableCell sx={HEADER_SX}>Service</TableCell>}
                 {visibleColumns.amount && <TableCell sx={HEADER_SX}>Amount</TableCell>}
                 {visibleColumns.date && <TableCell sx={HEADER_SX}>Date</TableCell>}
-                {visibleColumns.status && <TableCell sx={HEADER_SX}>Status</TableCell>}
+                {visibleColumns.status && <TableCell sx={HEADER_STATUS_SX}>Status</TableCell>}
                 <TableCell sx={HEADER_ACTION_SX}>
                   <Box sx={CENTER_CELL_CONTENT_SX}>Action</Box>
                 </TableCell>
@@ -559,6 +566,7 @@ export default function ExpensesPage() {
                       sx={{
                         '& td': { height: 44 },
                         '&:hover': { bgcolor: hoverBg },
+                        '&:hover td': { bgcolor: hoverBg },
                       }}
                     >
                       {visibleColumns.type && (
@@ -594,7 +602,9 @@ export default function ExpensesPage() {
                       )}
                       {visibleColumns.status && (
                         <TableCell sx={CELL_STATUS_SX}>
-                          <StatusBadge status={st.status} label={st.label} size="small" />
+                          <Box sx={CENTER_CELL_CONTENT_SX}>
+                            <StatusBadge status={st.status} label={st.label} size="small" />
+                          </Box>
                         </TableCell>
                       )}
                       <TableCell sx={CELL_ACTION_SX} onClick={(e) => e.stopPropagation()}>

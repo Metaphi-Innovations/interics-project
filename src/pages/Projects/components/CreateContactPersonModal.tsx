@@ -13,16 +13,21 @@ import {
   Select as MuiSelect,
   MenuItem,
 } from '@mui/material'
-import { useAppDispatch } from '@/store/hooks'
+import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { createCustomerContact } from '@/slices/customers/thunk'
-import { createVendorContact } from '@/slices/vendors/thunk'
+import { createVendorContact, fetchVendors } from '@/slices/vendors/thunk'
+import { fetchProjects } from '@/slices/projects/thunk'
 import type { Contact } from '@/slices/customers/reducer'
-import type { Vendor } from '@/slices/vendors/reducer'
 import { useToast } from '@/design-system/components'
 import { getVendorContactsList } from '@/utils/vendorContacts'
 import {
+  fetchLinkedVendorsForProjects,
+  projectIdsForLinkedVendors,
+  type LinkedVendorOption,
+} from '@/utils/linkedCustomerVendors'
+import {
   contactPhoneExists,
-  type ProjectContactOption,
+  FORM_CONTROL_INPUT_SX,
   type ProjectContactSource,
 } from '../projectCreateHelpers'
 
@@ -30,10 +35,11 @@ interface CreateContactPersonModalProps {
   open: boolean
   onClose: () => void
   customerId: string
-  customerName: string
-  vendors: Vendor[]
+  /** When set, linked vendors are resolved for this project (and customer). */
+  projectId?: string
   existingCustomerContacts: Contact[]
-  onSaved: (contact: ProjectContactOption) => void
+  /** Called only when a customer contact is saved (added to project dropdown). */
+  onSaved?: (contact: Contact) => void
 }
 
 interface FormState {
@@ -50,7 +56,7 @@ interface FormErrors {
   phone?: string
   email?: string
   contactType?: string
-  vendorId?: string
+  vendor?: string
 }
 
 const EMPTY_FORM: FormState = {
@@ -70,19 +76,18 @@ const CONTACT_TYPE_OPTIONS: { value: ProjectContactSource; label: string }[] = [
 function validateForm(
   form: FormState,
   existingCustomerContacts: Contact[],
-  vendors: Vendor[],
+  existingVendorContacts: Contact[],
 ): FormErrors {
   const errors: FormErrors = {}
   if (!form.name.trim()) errors.name = 'Contact person name is required'
   if (!form.contactType) errors.contactType = 'Contact type is required'
 
+  if (form.contactType === 'vendor' && !form.vendorId.trim()) {
+    errors.vendor = 'Vendor is required.'
+  }
+
   const existingContacts =
-    form.contactType === 'vendor'
-      ? (() => {
-          const vendor = vendors.find((v) => v.id === form.vendorId)
-          return vendor ? normalizeContacts(getVendorContactsList(vendor)) : []
-        })()
-      : existingCustomerContacts
+    form.contactType === 'vendor' ? existingVendorContacts : existingCustomerContacts
 
   if (!form.phone.trim()) {
     errors.phone = 'Mobile number is required'
@@ -98,35 +103,36 @@ function validateForm(
     errors.email = 'Enter a valid email address'
   }
 
-  if (form.contactType === 'vendor' && !form.vendorId) {
-    errors.vendorId = 'Please select a vendor'
-  }
-
   return errors
-}
-
-function normalizeContacts(contacts: Contact[] | undefined): Contact[] {
-  return contacts ?? []
 }
 
 export function CreateContactPersonModal({
   open,
   onClose,
   customerId,
-  customerName,
-  vendors,
+  projectId,
   existingCustomerContacts,
   onSaved,
 }: CreateContactPersonModalProps) {
   const dispatch = useAppDispatch()
   const { showToast } = useToast()
+  const projects = useAppSelector((s) => s.projects.items ?? [])
+  const vendors = useAppSelector((s) => s.vendors.items ?? [])
+
   const [form, setForm] = useState<FormState>(EMPTY_FORM)
   const [errors, setErrors] = useState<FormErrors>({})
   const [saving, setSaving] = useState(false)
+  const [linkedVendors, setLinkedVendors] = useState<LinkedVendorOption[]>([])
+  const [loadingLinkedVendors, setLoadingLinkedVendors] = useState(false)
 
   const selectedVendor = useMemo(
     () => vendors.find((v) => v.id === form.vendorId) ?? null,
     [vendors, form.vendorId],
+  )
+
+  const existingVendorContacts = useMemo(
+    () => (selectedVendor ? getVendorContactsList(selectedVendor) : []),
+    [selectedVendor],
   )
 
   useEffect(() => {
@@ -134,18 +140,63 @@ export function CreateContactPersonModal({
       setForm(EMPTY_FORM)
       setErrors({})
       setSaving(false)
+      setLinkedVendors([])
+      setLoadingLinkedVendors(false)
+      return
     }
-  }, [open])
+
+    void dispatch(fetchProjects({ pageSize: 500 }))
+    void dispatch(fetchVendors({ pageSize: 500 }))
+  }, [open, dispatch])
+
+  useEffect(() => {
+    if (!open || !customerId) {
+      setLinkedVendors([])
+      return
+    }
+
+    const ids = projectIdsForLinkedVendors(customerId, projects, projectId)
+    if (ids.length === 0) {
+      setLinkedVendors([])
+      return
+    }
+
+    let cancelled = false
+    setLoadingLinkedVendors(true)
+    void fetchLinkedVendorsForProjects(ids)
+      .then((options) => {
+        if (!cancelled) setLinkedVendors(options)
+      })
+      .catch(() => {
+        if (!cancelled) setLinkedVendors([])
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingLinkedVendors(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [open, customerId, projectId, projects])
 
   function setField<K extends keyof FormState>(key: K, value: FormState[K]) {
-    setForm((prev) => ({ ...prev, [key]: value }))
+    setForm((prev) => {
+      const next = { ...prev, [key]: value }
+      if (key === 'contactType' && value !== 'vendor') {
+        next.vendorId = ''
+      }
+      return next
+    })
     if (errors[key as keyof FormErrors]) {
       setErrors((prev) => ({ ...prev, [key]: undefined }))
+    }
+    if (key === 'contactType' || key === 'vendorId') {
+      setErrors((prev) => ({ ...prev, vendor: undefined }))
     }
   }
 
   async function handleSave() {
-    const nextErrors = validateForm(form, existingCustomerContacts, vendors)
+    const nextErrors = validateForm(form, existingCustomerContacts, existingVendorContacts)
     if (Object.keys(nextErrors).length > 0) {
       setErrors(nextErrors)
       return
@@ -171,32 +222,17 @@ export function CreateContactPersonModal({
             },
           }),
         ).unwrap()
-        onSaved({
-          ...result.contact,
-          sourceType: 'customer',
-          entityId: customerId,
-          entityName: customerName,
-        })
+        onSaved?.(result.contact)
       } else {
-        const vendor = selectedVendor
-        if (!vendor) return
-
-        const vendorContacts = normalizeContacts(getVendorContactsList(vendor))
-        const result = await dispatch(
+        await dispatch(
           createVendorContact({
-            vendorId: vendor.id,
+            vendorId: form.vendorId,
             data: {
               ...payload,
-              isPrimary: vendorContacts.length === 0,
+              isPrimary: existingVendorContacts.length === 0,
             },
           }),
         ).unwrap()
-        onSaved({
-          ...result.contact,
-          sourceType: 'vendor',
-          entityId: vendor.id,
-          entityName: vendor.name,
-        })
       }
 
       showToast({ title: 'Contact person saved', variant: 'success' })
@@ -214,6 +250,10 @@ export function CreateContactPersonModal({
     }
   }
 
+  const showVendorField = form.contactType === 'vendor'
+  const vendorFieldDisabled =
+    loadingLinkedVendors || linkedVendors.length === 0 || !customerId
+
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
       <DialogTitle sx={{ fontSize: 15, fontWeight: 600 }}>Add Contact Person</DialogTitle>
@@ -222,14 +262,22 @@ export function CreateContactPersonModal({
           display="grid"
           sx={{ gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.5, mt: 1 }}
         >
-          <Box sx={{ gridColumn: { xs: '1', sm: '1 / -1' } }}>
-            <TypographyField
-              label="Contact Person Name"
+          <TypographyField
+            label="Contact Person Name"
+            required
+            value={form.name}
+            onChange={(v) => setField('name', v)}
+            error={errors.name}
+            placeholder="Full name"
+          />
+          <Box>
+            <SelectField
+              label="Contact Type"
               required
-              value={form.name}
-              onChange={(v) => setField('name', v)}
-              error={errors.name}
-              placeholder="Full name"
+              value={form.contactType}
+              onChange={(v) => setField('contactType', v as ProjectContactSource)}
+              error={errors.contactType}
+              options={CONTACT_TYPE_OPTIONS}
             />
           </Box>
           <TypographyField
@@ -247,61 +295,31 @@ export function CreateContactPersonModal({
             error={errors.email}
             placeholder="name@company.com"
           />
-          <Box sx={{ gridColumn: { xs: '1', sm: '1 / -1' } }}>
+          <Box
+            sx={{
+              gridColumn: { xs: '1', sm: '1 / -1' },
+              display: 'grid',
+              gridTemplateColumns: { xs: '1fr', sm: showVendorField ? '1fr 1fr' : '1fr' },
+              gap: 1.5,
+            }}
+          >
             <TypographyField
               label="Designation"
               value={form.designation}
               onChange={(v) => setField('designation', v)}
               placeholder="e.g. Managing Director"
             />
-          </Box>
-          <Box sx={{ gridColumn: { xs: '1', sm: '1 / -1' } }}>
-            <SelectField
-              label="Contact Type"
-              required
-              value={form.contactType}
-              onChange={(v) => {
-                setField('contactType', v as ProjectContactSource)
-                if (v === 'customer') {
-                  setField('vendorId', '')
-                }
-              }}
-              error={errors.contactType}
-              options={CONTACT_TYPE_OPTIONS}
-            />
-          </Box>
-          {form.contactType === 'vendor' ? (
-            <Box sx={{ gridColumn: { xs: '1', sm: '1 / -1' } }}>
-              <Box
-                component="span"
-                sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}
-              >
-                Vendor
-                <Box component="span" sx={{ color: 'error.main' }}>
-                  {' '}
-                  *
-                </Box>
-              </Box>
-              <Autocomplete
-                fullWidth
-                size="small"
-                options={vendors}
-                getOptionLabel={(v) => v.name}
-                isOptionEqualToValue={(a, b) => a.id === b.id}
-                value={selectedVendor}
-                onChange={(_, val) => setField('vendorId', val?.id ?? '')}
-                renderInput={(params) => (
-                  <TextField
-                    {...params}
-                    placeholder="Search vendors…"
-                    error={Boolean(errors.vendorId)}
-                    helperText={errors.vendorId}
-                    sx={{ '& input': { fontSize: 13 } }}
-                  />
-                )}
+            {showVendorField ? (
+              <VendorSelectField
+                value={form.vendorId}
+                options={linkedVendors}
+                onChange={(vendorId) => setField('vendorId', vendorId)}
+                error={errors.vendor}
+                disabled={vendorFieldDisabled}
+                loading={loadingLinkedVendors}
               />
-            </Box>
-          ) : null}
+            ) : null}
+          </Box>
         </Box>
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2 }}>
@@ -413,6 +431,59 @@ function SelectField({
           </Box>
         ) : null}
       </FormControl>
+    </Box>
+  )
+}
+
+function VendorSelectField({
+  value,
+  options,
+  onChange,
+  error,
+  disabled,
+  loading,
+}: {
+  value: string
+  options: LinkedVendorOption[]
+  onChange: (vendorId: string) => void
+  error?: string
+  disabled?: boolean
+  loading?: boolean
+}) {
+  const selected = options.find((opt) => opt.id === value) ?? null
+
+  return (
+    <Box>
+      <Box
+        component="span"
+        sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}
+      >
+        Vendor
+        <Box component="span" sx={{ color: 'error.main' }}>
+          {' '}
+          *
+        </Box>
+      </Box>
+      <Autocomplete
+        size="small"
+        fullWidth
+        disabled={disabled}
+        loading={loading}
+        options={options}
+        value={selected}
+        onChange={(_, next) => onChange(next?.id ?? '')}
+        getOptionLabel={(opt) => opt.label}
+        isOptionEqualToValue={(opt, val) => opt.id === val.id}
+        renderInput={(params) => (
+          <TextField
+            {...params}
+            placeholder="Select Linked Vendor"
+            error={Boolean(error)}
+            helperText={error}
+            sx={FORM_CONTROL_INPUT_SX}
+          />
+        )}
+      />
     </Box>
   )
 }

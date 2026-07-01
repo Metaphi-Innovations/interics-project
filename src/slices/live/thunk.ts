@@ -133,6 +133,19 @@ export const uploadVendorInvoice = createAsyncThunk<
   }
 })
 
+export const updateVendorInvoice = createAsyncThunk<
+  VendorInvoice,
+  { projectId: string; invoiceId: string; data: Partial<Omit<VendorInvoice, 'id' | 'projectId'>> },
+  { rejectValue: string }
+>('live/updateVendorInvoice', async ({ projectId, invoiceId, data }, { rejectWithValue }) => {
+  try {
+    const res = await liveApi.updateVendorInvoice(projectId, invoiceId, data)
+    return res.data
+  } catch (err) {
+    return rejectWithValue(errMessage(err, 'Failed to update vendor invoice'))
+  }
+})
+
 export const fetchVendorPayableControls = createAsyncThunk<
   VendorPayableControl[],
   string,

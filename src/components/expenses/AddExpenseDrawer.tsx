@@ -1,7 +1,8 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Box, Stack, Typography, IconButton as MuiIconButton } from '@mui/material'
 import Close from '@mui/icons-material/Close'
-import { useAppDispatch } from '@/store/hooks'
+import { useAppDispatch, useAppSelector } from '@/store/hooks'
+import { fetchVendorPOs } from '@/slices/baseline/thunk'
 import { updatePlannedExpenses } from '@/slices/pitch/thunk'
 import {
   createExpense,
@@ -41,9 +42,16 @@ export function AddExpenseDrawer({
   onCommit,
 }: AddExpenseDrawerProps) {
   const dispatch = useAppDispatch()
+  const vendorPOs = useAppSelector((s) => s.baseline.vendorPOs)
   const formRef = useRef<ExpenseFormHandle>(null)
   const [formValid, setFormValid] = useState(false)
   const [submitLabel, setSubmitLabel] = useState('Save')
+
+  useEffect(() => {
+    if (open && projectId) {
+      void dispatch(fetchVendorPOs(projectId))
+    }
+  }, [open, projectId, dispatch])
 
   const handleSubmit = useCallback(
     async (data: ExpenseFormData) => {
@@ -129,6 +137,7 @@ export function AddExpenseDrawer({
             projectId={projectId}
             pitchVersionId={version?.id}
             pitchVersion={version}
+            vendorPOs={vendorPOs}
             editingPlannedExpense={editingExpense}
             open={open}
             onSubmit={handleSubmit}

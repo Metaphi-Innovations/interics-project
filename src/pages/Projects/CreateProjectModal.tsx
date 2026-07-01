@@ -33,7 +33,6 @@ import {
 import { useNavigate } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { fetchCustomers, createCustomer } from '../../slices/customers/thunk'
-import { fetchVendors } from '../../slices/vendors/thunk'
 import { fetchUsers } from '../../slices/users/thunk'
 import { fetchRoles } from '../../slices/roles/thunk'
 import { isProjectManagerRole } from './projectManagerRoles'
@@ -46,21 +45,20 @@ import { useToast } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { toSlug, getInitials, getAvatarColor } from '../../utils/formatters'
 import { SECTOR_OPTIONS } from '../../constants/sectors'
-import type { Customer } from '../../slices/customers/reducer'
+import type { Contact, Customer } from '../../slices/customers/reducer'
 import {
   PROJECT_SETUP_GRID_SX,
   CUSTOMER_STEP_GRID_SX,
   FORM_CONTROL_INPUT_SX,
   getContactsForCustomer,
   getDefaultContactIds,
-  buildProjectContactOptions,
-  findProjectContactsByIds,
+  findContactsByIds,
   clientTeamFromContacts,
   buildProjectDocumentsFromForm,
   buildProjectSetupPayload,
   validateProjectSetupFields,
-  type ProjectContactOption,
 } from './projectCreateHelpers'
+import { buildAssignedTeamPayload } from '@/utils/projectAssignedTeam'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -173,7 +171,6 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
 
   const customers = useAppSelector((s) => s.customers.items ?? [])
   const loadingCustomers = useAppSelector((s) => s.customers.loading)
-  const vendors = useAppSelector((s) => s.vendors.items ?? [])
   const users = useAppSelector((s) => s.users.items ?? [])
   const roles = useAppSelector((s) => s.roles.items ?? [])
   const saving = useAppSelector((s) => s.projects.saving)
@@ -198,7 +195,6 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
   useEffect(() => {
     if (open) {
       dispatch(fetchCustomers({}))
-      dispatch(fetchVendors({ pageSize: 500 }))
       dispatch(fetchUsers({}))
       dispatch(fetchRoles(undefined))
     }
@@ -263,10 +259,7 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
   async function handleSubmit() {
     if (!validateStep(activeStep)) return
 
-    const selectedContacts = findProjectContactsByIds(
-      buildProjectContactOptions(selectedCustomer, vendors),
-      formData.contactIds,
-    )
+    const selectedContacts = findContactsByIds(selectedCustomer, formData.contactIds)
     const payload = {
       customerId: formData.customerId,
       customerName: formData.customerName,
@@ -281,6 +274,12 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
       clientTeam: clientTeamFromContacts(selectedContacts, formData.customerName),
       projectManagerId: formData.projectManagerId,
       projectManager: formData.projectManagerName,
+      assignedTeam: buildAssignedTeamPayload(
+        formData.projectManagerId,
+        formData.projectManagerName,
+        formData.teamMembers,
+        getRoleLabel,
+      ),
       startDate: formData.startDate || null,
       expectedEndDate: formData.expectedEndDate || null,
       status: 'Pitch' as const,
@@ -347,7 +346,7 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
     }
   }
 
-  function handleContactSaved(contact: ProjectContactOption) {
+  function handleContactSaved(contact: Contact) {
     setFormData((prev) => ({
       ...prev,
       contactIds: [...new Set([...prev.contactIds, contact.id])],
@@ -356,14 +355,14 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
   }
 
   const selectedCustomer = customers.find((c) => c.id === formData.customerId) ?? null
-  const projectContactOptions = useMemo(
-    () => buildProjectContactOptions(selectedCustomer, vendors),
-    [selectedCustomer, vendors],
+  const customerContacts = useMemo(
+    () => getContactsForCustomer(selectedCustomer),
+    [selectedCustomer],
   )
 
   const selectedContacts = useMemo(
-    () => projectContactOptions.filter((c) => formData.contactIds.includes(c.id)),
-    [projectContactOptions, formData.contactIds],
+    () => customerContacts.filter((c) => formData.contactIds.includes(c.id)),
+    [customerContacts, formData.contactIds],
   )
 
   function filterCustomers(options: Customer[], { inputValue }: { inputValue: string }) {
@@ -461,7 +460,7 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
               Contact Person <Box component="span" sx={{ color: 'error.main' }}>*</Box>
             </Typography>
             <ContactPersonAutocomplete
-              contacts={formData.customerId ? projectContactOptions : []}
+              contacts={formData.customerId ? customerContacts : []}
               value={formData.customerId ? selectedContacts : []}
               error={errors.contactId}
               placeholder={
@@ -1170,8 +1169,6 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
         open={createContactOpen}
         onClose={() => setCreateContactOpen(false)}
         customerId={formData.customerId}
-        customerName={formData.customerName}
-        vendors={vendors}
         existingCustomerContacts={getContactsForCustomer(selectedCustomer)}
         onSaved={handleContactSaved}
       />

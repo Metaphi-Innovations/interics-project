@@ -13,6 +13,7 @@ import {
   fetchVendorPOs,
   createVendorPO,
   updateVendorPO,
+  deleteVendorPO,
 } from './thunk'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -44,6 +45,8 @@ export interface ClientPO {
   poValue: number
   /** Contracted executed value (may differ from PO value). */
   executedValue?: number | null
+  /** When true, executed value was updated once post-creation and the PO is locked. */
+  executedValueLocked?: boolean
   documentUrl: string | null
   /** Display name for documents section */
   fileName?: string
@@ -74,6 +77,8 @@ export interface VendorPO {
   poValue: number
   /** Latest agreed execution amount (may differ from contractual PO value). */
   executedValue?: number | null
+  /** When true, executed value was updated once post-creation and the PO is locked. */
+  executedValueLocked?: boolean
   milestones: VendorPOMilestone[]
   paymentTerms?: string
   status: VendorPOExecutionStatus
@@ -264,6 +269,19 @@ const baselineSlice = createSlice({
       .addCase(updateVendorPO.fulfilled, (state, action) => {
         const idx = state.vendorPOs.findIndex((p) => p.id === action.payload.id)
         if (idx !== -1) state.vendorPOs[idx] = action.payload
+      })
+
+      // deleteVendorPO
+      .addCase(deleteVendorPO.pending, (state) => {
+        state.saving = true
+      })
+      .addCase(deleteVendorPO.fulfilled, (state, action) => {
+        state.saving = false
+        state.vendorPOs = state.vendorPOs.filter((p) => p.id !== action.payload)
+      })
+      .addCase(deleteVendorPO.rejected, (state, action) => {
+        state.saving = false
+        state.error = action.payload as string
       })
   },
 })

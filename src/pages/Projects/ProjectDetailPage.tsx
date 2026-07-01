@@ -46,6 +46,7 @@ import { fetchUsers } from '../../slices/users/thunk'
 import { isProjectManagerRole } from './projectManagerRoles'
 import { ProjectTypesField } from './components/ProjectTypesField'
 import { ProjectDetailsSections } from './components/ProjectDetailsSections'
+import { getProjectAdditionalTeamMembers } from '@/utils/projectAssignedTeam'
 import { clearSelected } from '../../slices/projects/reducer'
 import type { Project } from '../../slices/projects/reducer'
 import {
@@ -205,7 +206,7 @@ const TEAM_SECTION_CARD_SX = {
 function OverviewTab({ project }: { project: Project }) {
   const theme = useTheme()
 
-  const teamMembers = [project.projectManager]
+  const additionalTeamMembers = getProjectAdditionalTeamMembers(project)
   const clientTeamMembers = project.clientTeam ?? []
 
   const TeamsRow = (
@@ -256,33 +257,37 @@ function OverviewTab({ project }: { project: Project }) {
             <Typography variant="caption" sx={{ fontSize: 10, color: 'text.secondary', letterSpacing: 0.5, display: 'block', mb: 0.75 }}>
               TEAM MEMBERS
             </Typography>
-            <Stack direction="row" alignItems="center" gap={0.75}>
-              {teamMembers.slice(0, 5).map((name) => (
-                <Box
-                  key={name}
-                  title={name}
-                  sx={{
-                    width: 28,
-                    height: 28,
-                    borderRadius: '50%',
-                    bgcolor: alpha(getAvatarColor(name).bg, 0.15),
-                    color: getAvatarColor(name).text,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: 9,
-                    fontWeight: 700,
-                    border: '1px solid white',
-                  }}
-                >
-                  {getInitials(name)}
-                </Box>
-              ))}
-              {teamMembers.length > 5 ? (
-                <Typography variant="caption" sx={{ fontSize: 11, color: 'text.secondary' }}>
-                  +{teamMembers.length - 5} more
+            <Stack direction="row" alignItems="center" gap={2} flexWrap="wrap" useFlexGap>
+              {additionalTeamMembers.length === 0 ? (
+                <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary' }}>
+                  No additional team members
                 </Typography>
-              ) : null}
+              ) : (
+                additionalTeamMembers.map((member) => (
+                  <Stack key={member.userId} direction="row" alignItems="center" gap={1}>
+                    <Box
+                      sx={{
+                        width: 28,
+                        height: 28,
+                        borderRadius: '50%',
+                        bgcolor: alpha(getAvatarColor(member.name).bg, 0.15),
+                        color: getAvatarColor(member.name).text,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: 10,
+                        fontWeight: 700,
+                        flexShrink: 0,
+                      }}
+                    >
+                      {getInitials(member.name)}
+                    </Box>
+                    <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap' }}>
+                      {member.name}
+                    </Typography>
+                  </Stack>
+                ))
+              )}
             </Stack>
           </Box>
         </Stack>
@@ -300,14 +305,23 @@ function OverviewTab({ project }: { project: Project }) {
             No client team contacts added.
           </Typography>
         ) : (
-          <Stack gap={1.25} sx={{ flex: 1 }}>
+          <Box
+            sx={{
+              flex: 1,
+              display: 'grid',
+              gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' },
+              gap: 1.25,
+              alignItems: 'stretch',
+            }}
+          >
             {clientTeamMembers.map((member, idx) => (
               <Box
                 key={`${member.name ?? 'client'}-${idx}`}
                 sx={{
-                  flex: clientTeamMembers.length === 1 ? 1 : undefined,
                   display: 'flex',
                   flexDirection: 'column',
+                  minWidth: 0,
+                  height: '100%',
                   border: '1px solid',
                   borderColor: idx === 0 ? 'primary.light' : 'divider',
                   borderRadius: 2,
@@ -377,7 +391,7 @@ function OverviewTab({ project }: { project: Project }) {
                 </Stack>
               </Box>
             ))}
-          </Stack>
+          </Box>
         )}
       </Box>
     </Box>
@@ -687,11 +701,16 @@ export default function ProjectDetailPage() {
   useEffect(() => {
     if (!project) return
     const hash = location.hash.replace('#', '')
-    if (!hash || hash === 'transition') return
-    if (isTabAccessible(hash, project.status)) {
+    if (hash && hash !== 'transition' && isTabAccessible(hash, project.status)) {
       setActiveTab(hash)
+      return
     }
-  }, [location.hash, project?.status, project?.id])
+    const params = new URLSearchParams(location.search)
+    const tab = params.get('tab')
+    if (tab && isTabAccessible(tab, project.status)) {
+      setActiveTab(tab)
+    }
+  }, [location.hash, location.search, project?.status, project?.id])
 
   // Reset active tab when it becomes hidden or locked
   useEffect(() => {

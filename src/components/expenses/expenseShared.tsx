@@ -1,9 +1,49 @@
-import { Box, Stack, Typography } from '@mui/material'
+import type { ReactNode } from 'react'
+import {
+  Box,
+  Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  Typography,
+} from '@mui/material'
+import { FileText } from 'lucide-react'
 import { Modal, StatusBadge } from '@/design-system/components'
 import type { StatusType } from '@/design-system/components'
+import { UploadedDocumentLink } from '@/components/documents/UploadedDocumentLink'
 import { tokens } from '@/design-system/tokens'
-import type { Expense, ExpenseType } from '@/slices/live/types'
+import type { CommonExpenseSplitMethod, Expense, ExpenseType } from '@/slices/live/types'
 import { formatCurrency, formatDate } from '@/utils/formatters'
+
+const SECTION_TITLE_SX = {
+  fontSize: 10,
+  fontWeight: 600,
+  letterSpacing: '0.8px',
+  color: 'text.secondary',
+  textTransform: 'uppercase' as const,
+  display: 'block',
+  mb: 1,
+} as const
+
+const ALLOCATION_HEADER_SX = {
+  fontSize: 10,
+  fontWeight: 700,
+  color: tokens.color.neutral[500],
+  letterSpacing: 0.5,
+  py: 0.75,
+  px: 1.25,
+  borderBottom: `1px solid ${tokens.color.neutral[100]}`,
+} as const
+
+const ALLOCATION_CELL_SX = {
+  fontSize: 12,
+  py: 0.75,
+  px: 1.25,
+  borderBottom: `1px solid ${tokens.color.neutral[50]}`,
+  verticalAlign: 'middle' as const,
+} as const
 
 export function expenseStatusDisplay(
   status: Expense['status'],
@@ -43,6 +83,82 @@ export function expenseVendorCell(e: Expense): string {
 export function expenseServiceCell(e: Expense): string {
   if (e.type === 'vendor_linked' || e.type === 'reimbursable_expenses') return e.serviceName ?? '—'
   return '—'
+}
+
+function splitMethodLabel(method?: CommonExpenseSplitMethod): string {
+  if (!method) return '—'
+  return method === 'equal' ? 'Equal Split' : 'Proportional by PO Value'
+}
+
+function expenseVendorServiceDetail(expense: Expense): string {
+  if (expense.type === 'vendor_linked' || expense.type === 'reimbursable_expenses') {
+    return `${expense.vendorName ?? '—'} · ${expense.serviceName ?? '—'}`
+  }
+  if (expense.type === 'common') {
+    const count = expense.vendorAllocations?.length ?? 0
+    return count === 0 ? '—' : `${count} vendors (common split)`
+  }
+  return '—'
+}
+
+function expenseDocumentDisplayName(documentUrl?: string): string | null {
+  if (!documentUrl) return null
+  if (documentUrl.startsWith('local://')) {
+    return documentUrl.slice('local://'.length) || null
+  }
+  try {
+    const path = new URL(documentUrl).pathname
+    const name = path.split('/').filter(Boolean).pop()
+    return name || documentUrl
+  } catch {
+    return documentUrl
+  }
+}
+
+function expenseDocumentOpenUrl(documentUrl: string): string | null {
+  if (documentUrl.startsWith('local://')) return null
+  return documentUrl
+}
+
+function DetailField({
+  label,
+  value,
+  multiline,
+}: {
+  label: string
+  value: string
+  multiline?: boolean
+}) {
+  return (
+    <Box sx={{ minWidth: 0 }}>
+      <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11, display: 'block' }}>
+        {label}
+      </Typography>
+      <Typography
+        variant="body2"
+        sx={{
+          fontSize: 13,
+          fontWeight: 500,
+          mt: 0.25,
+          color: value === '—' ? 'text.secondary' : 'text.primary',
+          ...(multiline ? { whiteSpace: 'pre-wrap' as const } : {}),
+        }}
+      >
+        {value}
+      </Typography>
+    </Box>
+  )
+}
+
+function ExpenseSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <Box>
+      <Typography component="span" variant="overline" sx={SECTION_TITLE_SX}>
+        {title}
+      </Typography>
+      {children}
+    </Box>
+  )
 }
 
 export function ExpenseSummaryStrip({ expenses }: { expenses: Expense[] }) {
@@ -109,126 +225,176 @@ export function ViewExpenseModal({
   if (!expense) return null
 
   const locked = expense.status === 'included_in_payment' || expense.status === 'adjusted'
+  const statusDisplay = expenseStatusDisplay(expense.status)
+  const documentName = expenseDocumentDisplayName(expense.documentUrl)
+  const documentOpenUrl = expense.documentUrl ? expenseDocumentOpenUrl(expense.documentUrl) : null
+  const showVendorService =
+    expense.type === 'vendor_linked' ||
+    expense.type === 'reimbursable_expenses' ||
+    expense.type === 'common'
+  const showPaidByOrSplit = expense.type === 'common'
+  const milestoneLabel = expense.milestoneName ?? expense.milestoneId ?? null
+  const allocationRows = expense.vendorAllocations ?? []
 
   return (
     <Modal open={open} onClose={onClose} title="Expense details" size="sm">
-      <Stack gap={2} sx={{ py: 1 }}>
-        {locked && (
-          <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary' }}>
+      <Stack gap={1.25} sx={{ py: 0 }}>
+        {locked ? (
+          <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary', lineHeight: 1.45 }}>
             This expense is included in a payment run and cannot be edited.
           </Typography>
-        )}
-        {projectName != null && projectName !== '' && (
-          <Stack gap={0.5}>
-            <Typography variant="caption" color="text.secondary">
-              Project
-            </Typography>
-            <Typography variant="body2" sx={{ fontSize: 13 }}>
-              {projectName}
-            </Typography>
-          </Stack>
-        )}
-        <Stack gap={0.5}>
-          <Typography variant="caption" color="text.secondary">
-            Type
-          </Typography>
-          <Box>
+        ) : null}
+
+        <Box
+          sx={{
+            border: `1px solid ${tokens.color.neutral[100]}`,
+            borderRadius: 2,
+            bgcolor: tokens.color.neutral[50],
+            p: 1.5,
+          }}
+        >
+          <Box sx={{ mb: 1 }}>
             <ExpenseTypeBadge type={expense.type} />
           </Box>
-        </Stack>
-        <Stack gap={0.5}>
-          <Typography variant="caption" color="text.secondary">
-            Description
-          </Typography>
-          <Typography variant="body2" sx={{ fontSize: 13 }}>
-            {expense.description}
-          </Typography>
-        </Stack>
-        <Stack direction="row" gap={4} flexWrap="wrap">
-          <Stack gap={0.5}>
-            <Typography variant="caption" color="text.secondary">
-              Amount
-            </Typography>
-            <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 600 }}>
-              ₹{formatCurrency(expense.amount)}
-            </Typography>
-          </Stack>
-          <Stack gap={0.5}>
-            <Typography variant="caption" color="text.secondary">
-              Date
-            </Typography>
-            <Typography variant="body2" sx={{ fontSize: 13 }}>
-              {formatDate(expense.date)}
-            </Typography>
-          </Stack>
-        </Stack>
-        {(expense.type === 'vendor_linked' ||
-          expense.type === 'reimbursable_expenses' ||
-          expense.type === 'common') && (
-          <Stack gap={0.5}>
-            <Typography variant="caption" color="text.secondary">
-              Vendor / Service
-            </Typography>
-            <Typography variant="body2" sx={{ fontSize: 13 }}>
-              {expense.type === 'vendor_linked' || expense.type === 'reimbursable_expenses' ? (
-                <>
-                  {expense.vendorName ?? '—'} · {expense.serviceName ?? '—'}
-                </>
-              ) : (
-                `${expense.vendorAllocations?.length ?? 0} vendors (common split)`
-              )}
-            </Typography>
-          </Stack>
-        )}
-        {(expense.milestoneName || expense.milestoneId) && (
-          <Stack gap={0.5}>
-            <Typography variant="caption" color="text.secondary">
-              Milestone (reference)
-            </Typography>
-            <Typography variant="body2" sx={{ fontSize: 13 }}>
-              {expense.milestoneName ?? expense.milestoneId}
-            </Typography>
-          </Stack>
-        )}
-        {expense.type === 'common' && expense.vendorAllocations && expense.vendorAllocations.length > 0 && (
-          <Box
+          <Typography
+            variant="body1"
             sx={{
-              border: `1px solid ${tokens.color.neutral[100]}`,
-              borderRadius: 2,
-              p: 2,
-              bgcolor: tokens.color.neutral[50],
+              fontSize: 14,
+              fontWeight: 600,
+              lineHeight: 1.35,
+              color: 'text.primary',
+              mb: 1,
             }}
           >
-            <Typography variant="overline" sx={{ fontSize: 10, fontWeight: 700 }}>
-              Allocation
-            </Typography>
-            {expense.vendorAllocations.map((row) => (
-              <Stack
-                key={row.vendorId}
-                direction="row"
-                justifyContent="space-between"
-                sx={{ mt: 1 }}
-              >
-                <Typography variant="body2" sx={{ fontSize: 12 }}>
-                  {row.vendorName}
-                </Typography>
-                <Typography variant="body2" sx={{ fontSize: 12 }}>
-                  {row.allocationPercent}% · ₹{formatCurrency(row.allocationAmount)}
-                </Typography>
-              </Stack>
-            ))}
-          </Box>
-        )}
-        <Stack gap={0.5}>
-          <Typography variant="caption" color="text.secondary">
-            Status
+            {expense.description}
           </Typography>
-          <StatusBadge
-            status={expenseStatusDisplay(expense.status).status}
-            label={expenseStatusDisplay(expense.status).label}
-            size="small"
-          />
-        </Stack>
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+              gap: 1.25,
+              mb: 1,
+            }}
+          >
+            <Box>
+              <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11, display: 'block' }}>
+                Amount
+              </Typography>
+              <Typography variant="body2" sx={{ fontSize: 14, fontWeight: 700, mt: 0.25 }}>
+                ₹{formatCurrency(expense.amount)}
+              </Typography>
+            </Box>
+            <DetailField label="Date" value={formatDate(expense.date)} />
+          </Box>
+          <StatusBadge status={statusDisplay.status} label={statusDisplay.label} size="small" />
+        </Box>
+
+        <ExpenseSection title="Expense Information">
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+              gap: 1.25,
+              rowGap: 1,
+            }}
+          >
+            {projectName != null && projectName !== '' ? (
+              <DetailField label="Project" value={projectName} />
+            ) : null}
+            {showPaidByOrSplit ? (
+              <DetailField label="Paid By" value={expense.paidByVendorName ?? '—'} />
+            ) : null}
+            {showPaidByOrSplit ? (
+              <DetailField label="Split Method" value={splitMethodLabel(expense.splitMethod)} />
+            ) : null}
+            {showVendorService ? (
+              <DetailField label="Vendor / Service" value={expenseVendorServiceDetail(expense)} />
+            ) : null}
+            {milestoneLabel ? (
+              <DetailField label="Milestone (reference)" value={milestoneLabel} />
+            ) : null}
+          </Box>
+        </ExpenseSection>
+
+        {expense.type === 'common' && allocationRows.length > 0 ? (
+          <ExpenseSection title="Allocation">
+            <Box
+              sx={{
+                border: `1px solid ${tokens.color.neutral[100]}`,
+                borderRadius: 2,
+                overflow: 'hidden',
+                bgcolor: 'background.paper',
+              }}
+            >
+              <Table size="small" sx={{ tableLayout: 'fixed', width: '100%' }}>
+                <colgroup>
+                  <col style={{ width: '44%' }} />
+                  <col style={{ width: '22%' }} />
+                  <col style={{ width: '34%' }} />
+                </colgroup>
+                <TableHead>
+                  <TableRow sx={{ bgcolor: tokens.color.neutral[50] }}>
+                    <TableCell sx={ALLOCATION_HEADER_SX}>Vendor</TableCell>
+                    <TableCell align="right" sx={ALLOCATION_HEADER_SX}>
+                      Share (%)
+                    </TableCell>
+                    <TableCell align="right" sx={ALLOCATION_HEADER_SX}>
+                      Allocated Amount
+                    </TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {allocationRows.map((row) => (
+                    <TableRow key={row.vendorId} hover>
+                      <TableCell sx={ALLOCATION_CELL_SX}>
+                        <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 500 }}>
+                          {row.vendorName}
+                        </Typography>
+                      </TableCell>
+                      <TableCell align="right" sx={ALLOCATION_CELL_SX}>
+                        {row.allocationPercent}%
+                      </TableCell>
+                      <TableCell align="right" sx={{ ...ALLOCATION_CELL_SX, fontWeight: 600 }}>
+                        ₹{formatCurrency(row.allocationAmount)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </Box>
+          </ExpenseSection>
+        ) : null}
+
+        <ExpenseSection title="Document">
+          {documentName && documentOpenUrl ? (
+            <UploadedDocumentLink fileName={documentName} documentUrl={documentOpenUrl} />
+          ) : documentName ? (
+            <Stack direction="row" alignItems="center" gap={1} sx={{ minWidth: 0 }}>
+              <Box sx={{ color: tokens.color.primary[500], flexShrink: 0, display: 'flex' }}>
+                <FileText size={16} strokeWidth={2} color={tokens.color.primary[500]} />
+              </Box>
+              <Typography
+                variant="body2"
+                title={documentName}
+                sx={{
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: 'text.primary',
+                  minWidth: 0,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {documentName}
+              </Typography>
+            </Stack>
+          ) : (
+            <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12 }}>
+              No document uploaded.
+            </Typography>
+          )}
+        </ExpenseSection>
       </Stack>
     </Modal>
   )

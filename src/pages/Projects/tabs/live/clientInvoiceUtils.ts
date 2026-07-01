@@ -107,3 +107,15 @@ export function effectiveGstPercent(inv: ClientInvoice): string {
   const pct = (100 * roll.gstAmount) / roll.taxableAmount
   return `${Math.round(pct * 10) / 10}%`
 }
+
+/** Blended labour cess % across invoice lines (null when base is zero). */
+export function effectiveLabourCessPercent(inv: ClientInvoice): string {
+  const roll = rollupsFromLineItems(inv.lineItems)
+  if (roll.labourCessRatePercent == null) return '—'
+  return `${roll.labourCessRatePercent}%`
+}
+
+export function invoiceLabourCessAmount(inv: ClientInvoice): number {
+  if (inv.labourCessAmount != null) return inv.labourCessAmount
+  return rollupsFromLineItems(inv.lineItems).labourCessAmount
+}

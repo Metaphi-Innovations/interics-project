@@ -31,14 +31,14 @@ import {
   type FinancialSummaryWorkstreamRow,
 } from './financialSummaryAggregates'
 
-const COLUMN_DEFS: { key: FinancialSummarySortField; label: string; align: 'left' | 'right' }[] = [
-  { key: 'workstream', label: 'Category / Workstream', align: 'left' },
-  { key: 'clientPOAmount', label: 'Client PO Amount (₹)', align: 'right' },
-  { key: 'clientReceived', label: 'Client Received (₹)', align: 'right' },
-  { key: 'vendorPOAmount', label: 'Vendor PO Amount (₹)', align: 'right' },
-  { key: 'vendorPaid', label: 'Vendor Paid (₹)', align: 'right' },
-  { key: 'projectedProfitPct', label: 'Projected Profit (%)', align: 'right' },
-  { key: 'actualProfitPct', label: 'Actual Profit (%)', align: 'right' },
+const COLUMN_DEFS: { key: FinancialSummarySortField; label: string }[] = [
+  { key: 'workstream', label: 'Category / Workstream' },
+  { key: 'clientPOAmount', label: 'Client PO Amount (₹)' },
+  { key: 'clientReceived', label: 'Client Received (₹)' },
+  { key: 'vendorPOAmount', label: 'Vendor PO Amount (₹)' },
+  { key: 'vendorPaid', label: 'Vendor Paid (₹)' },
+  { key: 'projectedProfitPct', label: 'Projected Profit (%)' },
+  { key: 'actualProfitPct', label: 'Actual Profit (%)' },
 ]
 
 function fmtInr(amount: number): string {
@@ -58,19 +58,19 @@ function fmtProfitPct(value: number | null): string {
 function MetricCells({ metrics }: { metrics: FinancialSummaryMetrics }) {
   return (
     <>
-      <TableCell align="right" sx={NUM_CELL_SX}>
+      <TableCell align="left" sx={NUM_CELL_SX}>
         {fmtInr(metrics.clientPOAmount)}
       </TableCell>
-      <TableCell align="right" sx={NUM_CELL_SX}>
+      <TableCell align="left" sx={NUM_CELL_SX}>
         {fmtInr(metrics.clientReceived)}
       </TableCell>
-      <TableCell align="right" sx={NUM_CELL_SX}>
+      <TableCell align="left" sx={NUM_CELL_SX}>
         {fmtInr(metrics.vendorPOAmount)}
       </TableCell>
-      <TableCell align="right" sx={NUM_CELL_SX}>
+      <TableCell align="left" sx={NUM_CELL_SX}>
         {fmtInr(metrics.vendorPaid)}
       </TableCell>
-      <TableCell align="right" sx={NUM_CELL_SX}>
+      <TableCell align="left" sx={NUM_CELL_SX}>
         <Typography
           component="span"
           sx={{ fontSize: 12, fontWeight: 600, color: profitColor(metrics.projectedProfitPct) }}
@@ -78,7 +78,7 @@ function MetricCells({ metrics }: { metrics: FinancialSummaryMetrics }) {
           {fmtProfitPct(metrics.projectedProfitPct)}
         </Typography>
       </TableCell>
-      <TableCell align="right" sx={NUM_CELL_SX}>
+      <TableCell align="left" sx={NUM_CELL_SX}>
         <Typography
           component="span"
           sx={{ fontSize: 12, fontWeight: 600, color: profitColor(metrics.actualProfitPct) }}
@@ -222,7 +222,7 @@ export default function FinancialSummaryTab({ projectId }: FinancialSummaryTabPr
                 {COLUMN_DEFS.map((col) => (
                   <TableCell
                     key={col.key}
-                    align={col.align}
+                    align="left"
                     sx={{
                       ...TABLE_HEADER_SX,
                       cursor: col.key === 'workstream' ? 'default' : 'pointer',
@@ -235,7 +235,7 @@ export default function FinancialSummaryTab({ projectId }: FinancialSummaryTabPr
                     <Stack
                       direction="row"
                       alignItems="center"
-                      justifyContent={col.align === 'right' ? 'flex-end' : 'flex-start'}
+                      justifyContent="flex-start"
                       gap={0.5}
                     >
                       <span>{col.label}</span>
@@ -281,7 +281,7 @@ export default function FinancialSummaryTab({ projectId }: FinancialSummaryTabPr
               }}
             >
               <TableRow>
-                <TableCell sx={{ ...TABLE_CELL_SX, fontSize: 13 }}>Total</TableCell>
+                <TableCell align="left" sx={{ ...TABLE_CELL_SX, fontSize: 13 }}>Total</TableCell>
                 <MetricCells metrics={total} />
               </TableRow>
             </TableBody>
@@ -317,8 +317,8 @@ function CategorySection({
           '& .MuiTableCell-root': { fontWeight: 700, borderBottom: `1px solid ${tokens.color.neutral[100]}` },
         }}
       >
-        <TableCell sx={TABLE_CELL_SX}>
-          <Stack direction="row" alignItems="center" gap={0.5}>
+        <TableCell align="left" sx={TABLE_CELL_SX}>
+          <Stack direction="row" alignItems="center" justifyContent="flex-start" gap={0.5}>
             <IconButton
               size="small"
               aria-label={isCollapsed ? `Expand ${groupName}` : `Collapse ${groupName}`}
@@ -347,7 +347,7 @@ function CategorySection({
                 bgcolor: idx % 2 === 0 ? 'background.paper' : tokens.color.neutral[50],
               }}
             >
-              <TableCell sx={{ ...TABLE_CELL_SX, pl: 5 }}>
+              <TableCell align="left" sx={{ ...TABLE_CELL_SX, pl: 5 }}>
                 <Typography variant="body2" sx={{ fontSize: 12 }}>
                   {row.workstreamName}
                 </Typography>

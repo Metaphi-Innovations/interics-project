@@ -1,5 +1,6 @@
 import { createSlice } from '@reduxjs/toolkit'
 import type { PayloadAction } from '@reduxjs/toolkit'
+import type { CommonExpenseSplitMethod } from '@/slices/live/types'
 import {
   fetchVersions,
   fetchVersionById,
@@ -95,6 +96,11 @@ export interface PlannedExpense {
   milestoneName?: string
   date?: string
   documentUrl?: string
+  /** How a common expense is split across build vendors. */
+  splitMethod?: CommonExpenseSplitMethod
+  /** Vendor who initially paid a common expense out of pocket. */
+  paidByVendorId?: string
+  paidByVendorName?: string
 }
 
 export interface PitchService {

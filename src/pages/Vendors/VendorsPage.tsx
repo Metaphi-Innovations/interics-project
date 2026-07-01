@@ -35,7 +35,6 @@ import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { fetchVendors, deleteVendor } from '../../slices/vendors/thunk'
 import { setFilters, resetFilters, setPage, setSortConfig } from '../../slices/vendors/reducer'
 import type { Vendor } from '../../slices/vendors/reducer'
-import { vendorsApi } from '../../api/vendorsApi'
 import { ListingTemplate } from '../../components/templates'
 import type { FilterField, ColumnItem } from '../../components/templates/ListingTemplate'
 import { VendorDrawer } from './VendorDrawer'
@@ -778,7 +777,6 @@ export default function VendorsPage() {
   const [drawerMode, setDrawerMode] = useState<'add' | 'edit'>('add')
   const [editingVendor, setEditingVendor] = useState<Vendor | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Vendor | null>(null)
-  const [counts, setCounts] = useState({ all: 0, active: 0, inactive: 0 })
   const [activeFilters, setActiveFilters] = useState<Record<string, unknown>>({})
   const [viewMode, setViewMode] = useState<'table' | 'grid'>('table')
   const [visibleColumns, setVisibleColumns] = useState<VendorTableVisibleColumns>({
@@ -793,17 +791,6 @@ export default function VendorsPage() {
   // ── Initial fetch ──────────────────────────────────────────────────
   useEffect(() => {
     dispatch(fetchVendors({ page: 1, pageSize: pagination.pageSize }))
-    void Promise.all([
-      vendorsApi.getAll({ pageSize: 1 }),
-      vendorsApi.getAll({ pageSize: 1, status: 'Active' }),
-      vendorsApi.getAll({ pageSize: 1, status: 'Inactive' }),
-    ]).then(([all, active, inactive]) => {
-      setCounts({
-        all: (all.data as { total: number }).total,
-        active: (active.data as { total: number }).total,
-        inactive: (inactive.data as { total: number }).total,
-      })
-    }).catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -814,13 +801,6 @@ export default function VendorsPage() {
   }, [])
 
   // ── Computed ──────────────────────────────────────────────────────
-  const activeTabKey = !filters.status ? 'all' : filters.status === 'Active' ? 'Active' : 'inactive'
-
-  const tabs = [
-    { label: 'All Vendors', value: 'all', count: counts.all },
-    { label: 'Active', value: 'Active', count: counts.active },
-    { label: 'Inactive', value: 'inactive', count: counts.inactive },
-  ]
 
   // Sort items client-side
   const sortedItems = [...items].sort((a, b) => {
@@ -895,21 +875,6 @@ export default function VendorsPage() {
   ]
 
   // ── Handlers ──────────────────────────────────────────────────────
-  function handleTabChange(value: string) {
-    const statusMap: Record<string, string> = { all: '', Active: 'Active', inactive: 'Inactive' }
-    const status = statusMap[value] ?? ''
-    setActiveFilters({})
-    dispatch(resetFilters())
-    dispatch(setFilters({ status }))
-    dispatch(setPage(1))
-    dispatch(fetchVendors({
-      page: 1,
-      pageSize: pagination.pageSize,
-      search: filters.search || undefined,
-      status: status || undefined,
-    }))
-  }
-
   function handleSearchChange(value: string) {
     dispatch(setFilters({ search: value }))
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
@@ -1021,9 +986,6 @@ export default function VendorsPage() {
         searchPlaceholder="Search by name, contact, or specialization..."
         searchValue={filters.search}
         onSearchChange={handleSearchChange}
-        tabs={tabs}
-        activeTab={activeTabKey}
-        onTabChange={handleTabChange}
         filterConfig={filterConfig}
         activeFilters={activeFilters}
         onFilterChange={handleFilterChange}

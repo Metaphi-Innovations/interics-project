@@ -6,6 +6,9 @@ export interface BillableMilestone {
   serviceId: string
   serviceName: string
   baseAmount: number
+  /** Uploaded Client PO document for this milestone row. */
+  poDocumentUrl: string | null
+  poFileName: string | null
 }
 
 /** Build billable rows from Client PO milestones (live billing). */
@@ -25,6 +28,8 @@ export function buildBillableFromClientPOs(
           serviceId: m.serviceId,
           serviceName: m.serviceName?.trim() || m.serviceId,
           baseAmount: m.value,
+          poDocumentUrl: po.documentUrl,
+          poFileName: po.fileName ?? null,
         })
         continue
       }
@@ -35,6 +40,8 @@ export function buildBillableFromClientPOs(
         serviceId: m.serviceId,
         serviceName: m.serviceName?.trim() || m.serviceId,
         baseAmount: m.value,
+        poDocumentUrl: po.documentUrl,
+        poFileName: po.fileName ?? null,
       })
       if (m.retention && (m.retention.value > 0 || m.retention.percentage > 0)) {
         rows.push({
@@ -43,6 +50,8 @@ export function buildBillableFromClientPOs(
           serviceId: m.serviceId,
           serviceName: m.serviceName?.trim() || m.serviceId,
           baseAmount: m.retention.value,
+          poDocumentUrl: po.documentUrl,
+          poFileName: po.fileName ?? null,
         })
       }
     }

@@ -13,8 +13,13 @@ import { tokens } from '@/design-system/tokens'
 import { VENDOR_MILESTONE_PCT_EPS } from '@/utils/vendorMilestones'
 import {
   VendorPOMilestoneEditor,
+  CardAlignedRow,
+  CARD_CATEGORY_ALIGN_GRID,
+  CARD_FIELD_GAP,
+  cardMilestoneRowGrid,
   createEmptyVendorPOMilestoneRow,
   type VendorPOMilestoneRow,
+  type VendorPORetentionRow,
 } from './VendorPOMilestoneEditor'
 import type { VendorPOMilestone } from '@/slices/baseline/reducer'
 
@@ -37,6 +42,7 @@ interface ServiceScopedCard {
 
 export interface VendorOfferMilestoneCard extends ServiceScopedCard {
   milestones: VendorPOMilestoneRow[]
+  retention?: VendorPORetentionRow | null
 }
 
 export interface VendorOfferFinalMilestoneCard extends ServiceScopedCard {
@@ -59,8 +65,6 @@ const CARD_SX = {
   overflow: 'hidden',
 } as const
 
-const CARD_VALUE_ROW_GRID = 'minmax(0, 1fr) minmax(0, 1.4fr) 28px'
-
 const MILESTONE_FIELD_HEADER_SX = {
   fontSize: 10,
   fontWeight: 700,
@@ -70,36 +74,27 @@ const MILESTONE_FIELD_HEADER_SX = {
 
 function CardValueFieldHeader({ nameLabel }: { nameLabel: string }) {
   return (
-    <Box
-      sx={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-        gap: 1.5,
-        alignItems: 'end',
-        mb: 0.5,
-      }}
-    >
-      <Typography variant="caption" sx={MILESTONE_FIELD_HEADER_SX}>
-        {nameLabel}
-      </Typography>
+    <CardAlignedRow>
       <Box
         sx={{
           display: 'grid',
-          gridTemplateColumns: CARD_VALUE_ROW_GRID,
-          gap: 1,
+          gridTemplateColumns: cardMilestoneRowGrid(false),
+          gap: CARD_FIELD_GAP,
           alignItems: 'end',
-          minWidth: 0,
+          mb: 0.5,
         }}
       >
+        <Typography variant="caption" sx={MILESTONE_FIELD_HEADER_SX}>
+          {nameLabel}
+        </Typography>
         <Typography variant="caption" sx={MILESTONE_FIELD_HEADER_SX}>
           %
         </Typography>
         <Typography variant="caption" sx={MILESTONE_FIELD_HEADER_SX}>
           Value (₹)
         </Typography>
-        <Box aria-hidden sx={{ width: 28 }} />
       </Box>
-    </Box>
+    </CardAlignedRow>
   )
 }
 
@@ -136,6 +131,7 @@ export function createVendorOfferMilestoneCard(
     categoryId,
     serviceId,
     milestones: [createEmptyVendorPOMilestoneRow()],
+    retention: null,
   }
 }
 
@@ -169,6 +165,19 @@ export function createVendorOfferRetentionCard(
   }
 }
 
+function ReadOnlyCategoryServiceField({ label, value }: { label: string; value: string }) {
+  return (
+    <Box>
+      <Typography variant="caption" color="text.secondary" sx={{ fontSize: 10 }}>
+        {label}
+      </Typography>
+      <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 500, mt: 0.25 }}>
+        {value}
+      </Typography>
+    </Box>
+  )
+}
+
 function CategoryServiceFields({
   categoryId,
   serviceId,
@@ -176,6 +185,7 @@ function CategoryServiceFields({
   serviceOptions,
   onCategoryChange,
   onServiceChange,
+  readOnly = false,
 }: {
   categoryId: string
   serviceId: string
@@ -183,17 +193,35 @@ function CategoryServiceFields({
   serviceOptions: ServiceOption[]
   onCategoryChange: (categoryId: string, serviceId: string) => void
   onServiceChange: (serviceId: string) => void
+  readOnly?: boolean
 }) {
   const servicesForCategory = serviceOptions.filter((s) => s.categoryId === categoryId)
   const selectedCategory = categoryOptions.find((c) => c.id === categoryId)
   const selectedService = servicesForCategory.find((s) => s.id === serviceId)
 
+  if (readOnly) {
+    return (
+      <Box
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: CARD_CATEGORY_ALIGN_GRID,
+          gap: CARD_FIELD_GAP,
+          flex: 1,
+          minWidth: 0,
+        }}
+      >
+        <ReadOnlyCategoryServiceField label="Category" value={selectedCategory?.label ?? '—'} />
+        <ReadOnlyCategoryServiceField label="Service" value={selectedService?.label ?? '—'} />
+      </Box>
+    )
+  }
+
   return (
     <Box
       sx={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(2, 1fr)',
-        gap: 1.5,
+        gridTemplateColumns: CARD_CATEGORY_ALIGN_GRID,
+        gap: CARD_FIELD_GAP,
         flex: 1,
         minWidth: 0,
       }}
@@ -300,6 +328,8 @@ interface MilestoneCardEditorProps {
   categoryOptions: CategoryOption[]
   serviceOptions: ServiceOption[]
   milestoneBaseValue: number
+  includeRetention?: boolean
+  readOnly?: boolean
   onChange: (patch: Partial<VendorOfferMilestoneCard>) => void
   onRemove: () => void
 }
@@ -309,31 +339,57 @@ export function VendorOfferMilestoneCardEditor({
   categoryOptions,
   serviceOptions,
   milestoneBaseValue,
+  includeRetention = false,
+  readOnly = false,
   onChange,
   onRemove,
 }: MilestoneCardEditorProps) {
   return (
     <Box sx={CARD_SX}>
-      <CardHeader onRemove={onRemove} removeLabel="Remove milestone card">
-        <CategoryServiceFields
-          categoryId={card.categoryId}
-          serviceId={card.serviceId}
-          categoryOptions={categoryOptions}
-          serviceOptions={serviceOptions}
-          onCategoryChange={(categoryId, serviceId) => onChange({ categoryId, serviceId })}
-          onServiceChange={(serviceId) => onChange({ serviceId })}
-        />
-      </CardHeader>
+      {readOnly ? (
+        <Box
+          sx={{
+            px: 1.5,
+            py: 1.25,
+            bgcolor: tokens.color.neutral[50],
+            borderBottom: '1px solid',
+            borderColor: 'divider',
+          }}
+        >
+          <CategoryServiceFields
+            categoryId={card.categoryId}
+            serviceId={card.serviceId}
+            categoryOptions={categoryOptions}
+            serviceOptions={serviceOptions}
+            onCategoryChange={() => undefined}
+            onServiceChange={() => undefined}
+            readOnly
+          />
+        </Box>
+      ) : (
+        <CardHeader onRemove={onRemove} removeLabel="Remove milestone card">
+          <CategoryServiceFields
+            categoryId={card.categoryId}
+            serviceId={card.serviceId}
+            categoryOptions={categoryOptions}
+            serviceOptions={serviceOptions}
+            onCategoryChange={(categoryId, serviceId) => onChange({ categoryId, serviceId })}
+            onServiceChange={(serviceId) => onChange({ serviceId })}
+          />
+        </CardHeader>
+      )}
       <Box sx={{ p: 1.5 }}>
         <VendorPOMilestoneEditor
           embedded
-          regularOnly
+          readOnly={readOnly}
+          regularOnly={!includeRetention}
+          cardWithRetention={includeRetention}
           poValue={milestoneBaseValue}
           milestones={card.milestones}
-          retention={null}
+          retention={card.retention ?? null}
           finalMilestone={null}
           onMilestonesChange={(milestones) => onChange({ milestones })}
-          onRetentionChange={() => undefined}
+          onRetentionChange={(retention) => onChange({ retention })}
           onFinalMilestoneChange={() => undefined}
         />
       </Box>
@@ -394,31 +450,23 @@ function ValueRowCardEditor({
       </CardHeader>
       <Box sx={{ p: 1.5 }}>
         <CardValueFieldHeader nameLabel="Milestone Name" />
-        <Box
-          sx={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-            gap: 1.5,
-            alignItems: 'center',
-          }}
-        >
-          <TextField
-            size="small"
-            fullWidth
-            value={card.name}
-            onChange={(e) => updateField('name', e.target.value)}
-            placeholder={nameLabel}
-            sx={{ '& .MuiInputBase-input': { fontSize: 11 }, '& .MuiInputBase-root': { width: '100%' } }}
-          />
+        <CardAlignedRow>
           <Box
             sx={{
               display: 'grid',
-              gridTemplateColumns: CARD_VALUE_ROW_GRID,
-              gap: 1,
+              gridTemplateColumns: cardMilestoneRowGrid(false),
+              gap: CARD_FIELD_GAP,
               alignItems: 'center',
-              minWidth: 0,
             }}
           >
+            <TextField
+              size="small"
+              fullWidth
+              value={card.name}
+              onChange={(e) => updateField('name', e.target.value)}
+              placeholder={nameLabel}
+              sx={{ '& .MuiInputBase-input': { fontSize: 11 }, '& .MuiInputBase-root': { width: '100%' } }}
+            />
             <TextField
               size="small"
               fullWidth
@@ -437,9 +485,8 @@ function ValueRowCardEditor({
               placeholder="₹ VALUE"
               sx={{ '& .MuiInputBase-input': { fontSize: 11 }, '& .MuiInputBase-root': { width: '100%' } }}
             />
-            <Box aria-hidden sx={{ width: 28, height: 28 }} />
           </Box>
-        </Box>
+        </CardAlignedRow>
       </Box>
     </Box>
   )

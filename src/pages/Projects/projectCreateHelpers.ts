@@ -1,22 +1,14 @@
 import { tokens } from '@/design-system/tokens'
 import type { Contact, Customer } from '../../slices/customers/reducer'
-import type { Vendor } from '../../slices/vendors/reducer'
 import type {
   ContactInfo,
   ProjectDocumentFile,
   ProjectDocuments,
 } from '../../slices/projects/reducer'
 import { getCustomerContactsList } from '../../utils/customerContacts'
-import { getVendorContactsList } from '../../utils/vendorContacts'
 import { normalizeContacts } from '../../utils/entityContacts'
 
 export type ProjectContactSource = 'customer' | 'vendor'
-
-export interface ProjectContactOption extends Contact {
-  sourceType: ProjectContactSource
-  entityId: string
-  entityName: string
-}
 
 export const PROJECT_SETUP_GRID_SX = {
   display: 'grid',
@@ -141,44 +133,6 @@ export function getContactsForCustomer(customer: Customer | null | undefined): C
   return normalizeContacts(getCustomerContactsList(customer))
 }
 
-export function buildProjectContactOptions(
-  customer: Customer | null | undefined,
-  vendors: Vendor[],
-): ProjectContactOption[] {
-  const options: ProjectContactOption[] = []
-  if (customer) {
-    for (const contact of getContactsForCustomer(customer)) {
-      options.push({
-        ...contact,
-        sourceType: 'customer',
-        entityId: customer.id,
-        entityName: customer.name,
-      })
-    }
-  }
-  for (const vendor of vendors) {
-    for (const contact of normalizeContacts(getVendorContactsList(vendor))) {
-      options.push({
-        ...contact,
-        sourceType: 'vendor',
-        entityId: vendor.id,
-        entityName: vendor.name,
-      })
-    }
-  }
-  return options
-}
-
-export function findProjectContactsByIds(
-  options: ProjectContactOption[],
-  contactIds: string[],
-): ProjectContactOption[] {
-  if (!contactIds.length) return []
-  return contactIds
-    .map((id) => options.find((c) => c.id === id))
-    .filter((c): c is ProjectContactOption => Boolean(c))
-}
-
 /** Compare phone numbers ignoring spaces, dashes, and country-code formatting. */
 export function normalizePhoneNumber(phone: string): string {
   return phone.replace(/\D/g, '')
@@ -202,8 +156,8 @@ export function getDefaultContactIds(contacts: Contact[]): string[] {
 }
 
 export function clientTeamFromContacts(
-  contacts: ProjectContactOption[],
-  defaultCompanyName: string,
+  contacts: Contact[],
+  companyName: string,
 ): ContactInfo[] | undefined {
   if (!contacts.length) return undefined
   return contacts.map((contact) => ({
@@ -211,20 +165,19 @@ export function clientTeamFromContacts(
     designation: contact.designation,
     email: contact.email,
     phone: contact.phone,
-    company:
-      contact.sourceType === 'vendor' ? contact.entityName : defaultCompanyName,
+    company: companyName,
   }))
 }
 
-/** @deprecated Use findProjectContactsByIds with buildProjectContactOptions */
 export function findContactsByIds(
   customer: Customer | null | undefined,
   contactIds: string[],
-): ProjectContactOption[] {
-  return findProjectContactsByIds(
-    buildProjectContactOptions(customer, []),
-    contactIds,
-  )
+): Contact[] {
+  if (!customer || !contactIds.length) return []
+  const all = getContactsForCustomer(customer)
+  return contactIds
+    .map((id) => all.find((c) => c.id === id))
+    .filter((c): c is Contact => Boolean(c))
 }
 
 /** Returns a trimmed http(s) URL when the field contains a valid URL. */

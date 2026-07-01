@@ -362,7 +362,7 @@ export const projectsHandlers = [
       createdAt: new Date().toISOString().split('T')[0],
     }
     projects.unshift(newProject)
-    return HttpResponse.json(newProject, { status: 201 })
+    return HttpResponse.json(ensureAssignedTeam(newProject), { status: 201 })
   }),
 
   http.put('/api/projects/:id', async ({ params, request }) => {

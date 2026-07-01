@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Box,
   Chip,
@@ -10,10 +10,10 @@ import {
   Typography,
 } from '@mui/material'
 import { WorkspaceSection } from '@/components/templates'
-import { Button } from '@/design-system/components'
+import { Button, useToast } from '@/design-system/components'
+import { UploadedDocumentLink } from '@/components/documents/UploadedDocumentLink'
 import { tokens } from '@/design-system/tokens'
 import type { Baseline, VendorPO } from '@/slices/baseline/reducer'
-import type { VendorInvoice } from '@/slices/live/types'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { fetchExpenses, fetchVendorInvoices } from '@/slices/live/thunk'
 import { formatCurrency } from '@/utils/formatters'
@@ -23,12 +23,15 @@ import {
   type VendorPOMilestoneOverviewRow,
 } from '@/pages/Projects/tabs/live/vendorPOHelpers'
 import { AddVendorInvoiceDrawer } from '@/pages/Projects/tabs/live/vendorSettlement/AddVendorInvoiceDrawer'
-import { VendorInvoiceDetailModal } from '@/pages/Projects/tabs/live/vendorSettlement/SettlementModals'
 import {
   findInvoiceForMilestone,
   invoiceMatchesRow,
+  vendorInvoiceDocumentFileName,
+  vendorInvoiceDocumentOpenUrl,
   type VendorServiceRow,
 } from '@/pages/Projects/tabs/live/vendorSettlement/utils'
+import { vendorMilestonePaymentStatus } from '@/pages/Projects/tabs/live/milestonePaymentStatus'
+import type { ParsedPayableContext } from '@/utils/payableNavigation'
 
 const TABLE_HEADER_SX = {
   fontSize: 10,
@@ -46,18 +49,23 @@ const TABLE_CELL_SX = {
   borderBottom: `1px solid ${tokens.color.neutral[50]}`,
   py: 1.5,
   px: 2,
+  boxSizing: 'border-box' as const,
 } as const
 
-const ACTION_COL_WIDTH = 148
+const VENDOR_MILESTONE_COL_COUNT = 9
+const VENDOR_MILESTONE_COL_WIDTH = `${100 / VENDOR_MILESTONE_COL_COUNT}%`
 
-const ACTION_CELL_SX = {
+const CENTER_CELL_SX = {
   ...TABLE_CELL_SX,
-  width: ACTION_COL_WIDTH,
-  minWidth: ACTION_COL_WIDTH,
   textAlign: 'center' as const,
   verticalAlign: 'middle' as const,
-  px: 1,
-}
+} as const
+
+const CENTER_HEADER_SX = {
+  ...TABLE_HEADER_SX,
+  textAlign: 'center' as const,
+  verticalAlign: 'middle' as const,
+} as const
 
 const ACTION_BUTTON_SX = {
   minWidth: 132,
@@ -80,20 +88,22 @@ export interface VendorMilestonesSectionProps {
   projectId: string
   vendorPOs: VendorPO[]
   baseline: Baseline | null
+  payableContext?: ParsedPayableContext
 }
 
 export function VendorMilestonesSection({
   projectId,
   vendorPOs,
   baseline,
+  payableContext,
 }: VendorMilestonesSectionProps) {
   const dispatch = useAppDispatch()
-  const { vendorInvoices, expenses } = useAppSelector((s) => s.live)
+  const showToast = useToast((s) => s.showToast)
+  const { vendorInvoices } = useAppSelector((s) => s.live)
 
   const [addInvoiceOpen, setAddInvoiceOpen] = useState(false)
   const [invoiceContext, setInvoiceContext] = useState<VendorServiceRow | null>(null)
   const [presetMilestoneId, setPresetMilestoneId] = useState<string | undefined>(undefined)
-  const [viewInvoice, setViewInvoice] = useState<VendorInvoice | null>(null)
 
   useEffect(() => {
     void dispatch(fetchVendorInvoices(projectId))
@@ -101,6 +111,7 @@ export function VendorMilestonesSection({
   }, [dispatch, projectId])
 
   const milestoneRows = buildVendorPOMilestoneOverviewRows(vendorPOs, projectId, baseline)
+  const payableFocusHandled = useRef(false)
 
   const projectScopedInvoices = useMemo(
     () => vendorInvoices.filter((v) => v.projectId === projectId),
@@ -121,9 +132,34 @@ export function VendorMilestonesSection({
     setPresetMilestoneId(undefined)
   }
 
+  useEffect(() => {
+    if (payableFocusHandled.current) return
+    if (payableContext?.focus !== 'invoice' || !payableContext.milestoneId) return
+    const row = milestoneRows.find((r) => r.milestoneId === payableContext.milestoneId)
+    if (!row) return
+    payableFocusHandled.current = true
+    openUploadInvoice(row)
+    window.setTimeout(() => {
+      document.getElementById('vendor-milestones-section')?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      })
+    }, 200)
+  }, [payableContext, milestoneRows])
+
+  useEffect(() => {
+    if (!payableContext?.focus || payableContext.focus === 'invoice') return
+    window.setTimeout(() => {
+      document.getElementById('vendor-milestones-section')?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      })
+    }, 200)
+  }, [payableContext?.focus])
+
   return (
     <WorkspaceSection title="Vendor Milestones" noPadding>
-      <Box sx={{ width: '100%', overflow: 'hidden' }}>
+      <Box id="vendor-milestones-section" sx={{ width: '100%', overflow: 'hidden' }}>
         <Table
           size="small"
           sx={{
@@ -132,6 +168,11 @@ export function VendorMilestonesSection({
             '& .MuiTableCell-root': { verticalAlign: 'middle', wordBreak: 'break-word' },
           }}
         >
+          <colgroup>
+            {Array.from({ length: VENDOR_MILESTONE_COL_COUNT }, (_, index) => (
+              <col key={index} style={{ width: VENDOR_MILESTONE_COL_WIDTH }} />
+            ))}
+          </colgroup>
           <TableHead>
             <TableRow>
               {[
@@ -140,18 +181,18 @@ export function VendorMilestonesSection({
                 'Service',
                 'Milestone',
                 'Percentage',
-                'Value',
                 'Status',
+                'Value',
+                'Invoice',
                 'Action',
               ].map((col) => (
                 <TableCell
                   key={col}
-                  sx={{
-                    ...TABLE_HEADER_SX,
-                    ...(col === 'Action'
-                      ? { width: ACTION_COL_WIDTH, minWidth: ACTION_COL_WIDTH, textAlign: 'center' }
-                      : {}),
-                  }}
+                  sx={
+                    col === 'Status' || col === 'Action'
+                      ? CENTER_HEADER_SX
+                      : TABLE_HEADER_SX
+                  }
                 >
                   {col}
                 </TableCell>
@@ -162,7 +203,7 @@ export function VendorMilestonesSection({
             {milestoneRows.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={8}
+                  colSpan={9}
                   sx={{
                     ...TABLE_CELL_SX,
                     textAlign: 'center',
@@ -190,6 +231,9 @@ export function VendorMilestonesSection({
                     milestoneVm,
                   )
                 const canUpload = Boolean(context) && !existingInvoice
+                const milestoneStatus = existingInvoice
+                  ? vendorMilestonePaymentStatus([existingInvoice], row.milestoneId)
+                  : 'Unpaid'
 
                 return (
                   <TableRow key={row.key} hover>
@@ -218,11 +262,45 @@ export function VendorMilestonesSection({
                       />
                     </TableCell>
                     <TableCell sx={TABLE_CELL_SX}>{row.pct}%</TableCell>
+                    <TableCell sx={CENTER_CELL_SX}>
+                      <Typography
+                        variant="body2"
+                        sx={{
+                          fontSize: 12,
+                          fontWeight: 600,
+                          color: milestoneStatus === 'Paid' ? 'success.main' : 'text.secondary',
+                        }}
+                      >
+                        {milestoneStatus}
+                      </Typography>
+                    </TableCell>
                     <TableCell sx={{ ...TABLE_CELL_SX, fontWeight: 600 }}>
                       ₹{formatCurrency(row.amount)}
                     </TableCell>
-                    <TableCell sx={TABLE_CELL_SX}>{row.status}</TableCell>
-                    <TableCell sx={ACTION_CELL_SX}>
+                    <TableCell sx={TABLE_CELL_SX}>
+                      <Box sx={{ display: 'flex', justifyContent: 'flex-start' }}>
+                        {existingInvoice?.documentUrl &&
+                        vendorInvoiceDocumentFileName(existingInvoice) ? (
+                          <UploadedDocumentLink
+                            fileName={vendorInvoiceDocumentFileName(existingInvoice)!}
+                            documentUrl={vendorInvoiceDocumentOpenUrl(existingInvoice.documentUrl)}
+                            onOpenFailed={() =>
+                              showToast({
+                                title: 'Unable to open document',
+                                description:
+                                  'The invoice file is no longer available in this session. Upload it again.',
+                                variant: 'error',
+                              })
+                            }
+                          />
+                        ) : (
+                          <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
+                            —
+                          </Typography>
+                        )}
+                      </Box>
+                    </TableCell>
+                    <TableCell sx={CENTER_CELL_SX}>
                       <Box sx={{ display: 'flex', justifyContent: 'center' }}>
                         {canUpload ? (
                           <Button
@@ -231,15 +309,6 @@ export function VendorMilestonesSection({
                             color="primary"
                             label="Upload Invoice"
                             onClick={() => openUploadInvoice(row)}
-                            sx={ACTION_BUTTON_SX}
-                          />
-                        ) : existingInvoice ? (
-                          <Button
-                            size="sm"
-                            variant="outlined"
-                            color="primary"
-                            label="View Invoice"
-                            onClick={() => setViewInvoice(existingInvoice)}
                             sx={ACTION_BUTTON_SX}
                           />
                         ) : (
@@ -267,12 +336,6 @@ export function VendorMilestonesSection({
         vendorPOs={vendorPOs}
       />
 
-      <VendorInvoiceDetailModal
-        open={!!viewInvoice}
-        invoice={viewInvoice}
-        expenses={expenses}
-        onClose={() => setViewInvoice(null)}
-      />
     </WorkspaceSection>
   )
 }

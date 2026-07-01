@@ -17,7 +17,14 @@ import {
   Typography,
   Button as MuiButton,
 } from '@mui/material'
-import { Add, Download, Upload } from '@mui/icons-material'
+import { Add, Upload } from '@mui/icons-material'
+import {
+  PODocumentLinkField,
+  poDocumentDisplayFileName,
+  poDocumentOpenUrl,
+} from '@/components/documents/PODocumentLinkField'
+import { UploadedDocumentLink } from '@/components/documents/UploadedDocumentLink'
+import { READONLY_DISABLED_TEXTFIELD_SX } from './readOnlyFieldStyles'
 import { useTheme, alpha } from '@mui/material/styles'
 import { Button, useToast } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
@@ -29,6 +36,8 @@ import {
   updateClientPO,
   uploadClientPO,
 } from '../../../../slices/baseline/thunk'
+import { fetchInvoices } from '../../../../slices/live/thunk'
+import type { ClientInvoice } from '../../../../slices/live/types'
 import { fetchVersions } from '../../../../slices/pitch/thunk'
 import type { ClientPO, ClientPOMilestone } from '../../../../slices/baseline/reducer'
 import { formatCurrency } from '../../../../utils/formatters'
@@ -41,17 +50,23 @@ import {
 import {
   buildClientPOMilestonePayload,
   ClientPOMilestoneCardEditor,
-  ClientPORetentionCardEditor,
-  clientPOCardsFromMilestones,
   createClientPOMilestoneCard,
-  createClientPORetentionCard,
   groupClientCardsByService,
   isClientGroupedServiceValid,
   isMilestoneCardConfigured,
-  isRetentionCardConfigured,
+  clientPOCardsFromMilestones,
   type ClientPOMilestoneCard,
-  type ClientPORetentionCard,
 } from './ClientPOMilestoneCards'
+import {
+  buildClientPOExecutedValueUpdatePayload,
+  canUpdateExecutedValue,
+  effectiveExecutedValue,
+  recalculateClientPOMilestonesForExecutedValue,
+} from './poExecutedValueRules'
+import {
+  clientMilestonePaymentStatus,
+  type MilestonePaymentStatusLabel,
+} from './milestonePaymentStatus'
 
 const PO_SECTION_TITLE_SX = {
   fontSize: '10px',
@@ -74,7 +89,23 @@ const TABLE_CELL_SX = {
   fontSize: 12,
   py: 1,
   px: 1.5,
+  boxSizing: 'border-box' as const,
 } as const
+
+const CLIENT_PO_MILESTONE_COL_COUNT = 5
+const CLIENT_PO_MILESTONE_COL_WIDTH = `${100 / CLIENT_PO_MILESTONE_COL_COUNT}%`
+
+const MILESTONE_STATUS_HEADER_SX = {
+  ...TABLE_HEADER_SX,
+  textAlign: 'center' as const,
+  verticalAlign: 'middle' as const,
+}
+
+const MILESTONE_STATUS_CELL_SX = {
+  ...TABLE_CELL_SX,
+  textAlign: 'center' as const,
+  verticalAlign: 'middle' as const,
+}
 
 function useClientPOServiceOptions(projectId: string, open: boolean): ClientPOServiceOption[] {
   const dispatch = useAppDispatch()
@@ -94,19 +125,6 @@ function useClientPOServiceOptions(projectId: string, open: boolean): ClientPOSe
       ),
     [activeVersion, baseline, projectId],
   )
-}
-
-function mapMilestonesFromPo(milestones: ClientPOMilestone[]): ClientPOMilestone[] {
-  return milestones.map((m) => ({
-    id: m.id,
-    serviceId: m.serviceId ?? '',
-    serviceName: m.serviceName ?? '',
-    name: m.name,
-    percentage: m.percentage,
-    value: m.value,
-    ...(m.kind ? { kind: m.kind } : {}),
-    ...(m.retention ? { retention: { ...m.retention } } : {}),
-  }))
 }
 
 function isRetentionRow(milestone: ClientPOMilestone): boolean {
@@ -177,7 +195,28 @@ function MilestoneSectionPanel({
   )
 }
 
-function ClientPOMilestonesTable({ milestones }: { milestones: ClientPOMilestone[] }) {
+function MilestoneStatusCell({ status }: { status: MilestonePaymentStatusLabel }) {
+  return (
+    <Typography
+      variant="body2"
+      sx={{
+        fontSize: 12,
+        fontWeight: 600,
+        color: status === 'Paid' ? 'success.main' : 'text.secondary',
+      }}
+    >
+      {status}
+    </Typography>
+  )
+}
+
+function ClientPOMilestonesTable({
+  milestones,
+  projectInvoices,
+}: {
+  milestones: ClientPOMilestone[]
+  projectInvoices: ClientInvoice[]
+}) {
   if (milestones.length === 0) {
     return (
       <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12, py: 2, textAlign: 'center' }}>
@@ -196,14 +235,20 @@ function ClientPOMilestonesTable({ milestones }: { milestones: ClientPOMilestone
       }}
     >
       <Table size="small" sx={{ width: '100%', tableLayout: 'fixed' }}>
+        <colgroup>
+          {Array.from({ length: CLIENT_PO_MILESTONE_COL_COUNT }, (_, index) => (
+            <col key={index} style={{ width: CLIENT_PO_MILESTONE_COL_WIDTH }} />
+          ))}
+        </colgroup>
         <TableHead>
           <TableRow sx={{ bgcolor: tokens.color.neutral[50] }}>
-            <TableCell sx={{ ...TABLE_HEADER_SX, width: '24%' }}>Service</TableCell>
-            <TableCell sx={{ ...TABLE_HEADER_SX, width: '28%' }}>Name</TableCell>
-            <TableCell align="right" sx={{ ...TABLE_HEADER_SX, width: '18%' }}>
+            <TableCell sx={TABLE_HEADER_SX}>Service Name</TableCell>
+            <TableCell sx={TABLE_HEADER_SX}>Name</TableCell>
+            <TableCell align="right" sx={TABLE_HEADER_SX}>
               Percentage (%)
             </TableCell>
-            <TableCell align="right" sx={{ ...TABLE_HEADER_SX, width: '30%' }}>
+            <TableCell sx={MILESTONE_STATUS_HEADER_SX}>Status</TableCell>
+            <TableCell align="right" sx={TABLE_HEADER_SX}>
               Value (₹)
             </TableCell>
           </TableRow>
@@ -225,6 +270,15 @@ function ClientPOMilestonesTable({ milestones }: { milestones: ClientPOMilestone
                 <TableCell align="right" sx={TABLE_CELL_SX}>
                   {m.percentage}%
                 </TableCell>
+                <TableCell sx={MILESTONE_STATUS_CELL_SX}>
+                  <MilestoneStatusCell
+                    status={clientMilestonePaymentStatus(
+                      projectInvoices,
+                      m.id,
+                      m.serviceId,
+                    )}
+                  />
+                </TableCell>
                 <TableCell align="right" sx={{ ...TABLE_CELL_SX, fontWeight: 600 }}>
                   ₹{formatCurrency(m.value)}
                 </TableCell>
@@ -243,6 +297,9 @@ function ClientPOMilestonesTable({ milestones }: { milestones: ClientPOMilestone
                   </TableCell>
                   <TableCell align="right" sx={TABLE_CELL_SX}>
                     {m.retention.percentage}%
+                  </TableCell>
+                  <TableCell sx={MILESTONE_STATUS_CELL_SX}>
+                    <MilestoneStatusCell status="Unpaid" />
                   </TableCell>
                   <TableCell align="right" sx={{ ...TABLE_CELL_SX, fontWeight: 600 }}>
                     ₹{formatCurrency(m.retention.value)}
@@ -283,13 +340,11 @@ export function AddClientPODrawer({ open, onClose, projectId }: AddClientPODrawe
     file: null as File | null,
   })
   const [milestoneCards, setMilestoneCards] = useState<ClientPOMilestoneCard[]>([])
-  const [retentionCards, setRetentionCards] = useState<ClientPORetentionCard[]>([])
 
   useEffect(() => {
     if (!open) {
       setPoFormData({ poNumber: '', poValue: '', executedValue: '', file: null })
       setMilestoneCards([])
-      setRetentionCards([])
     }
   }, [open])
 
@@ -300,19 +355,16 @@ export function AddClientPODrawer({ open, onClose, projectId }: AddClientPODrawe
   const milestoneBaseValue = executedValueNumber
 
   const hasConfiguredEntries = useMemo(
-    () =>
-      milestoneCards.some(isMilestoneCardConfigured) ||
-      retentionCards.some(isRetentionCardConfigured),
-    [milestoneCards, retentionCards],
+    () => milestoneCards.some(isMilestoneCardConfigured),
+    [milestoneCards],
   )
 
   const groupedForSave = useMemo(
     () =>
       groupClientCardsByService(
         milestoneCards.filter(isMilestoneCardConfigured),
-        retentionCards.filter(isRetentionCardConfigured),
       ),
-    [milestoneCards, retentionCards],
+    [milestoneCards],
   )
 
   const groupedSaveValid = useMemo(
@@ -322,13 +374,14 @@ export function AddClientPODrawer({ open, onClose, projectId }: AddClientPODrawe
 
   useEffect(() => {
     if (milestoneBaseValue <= 0) return
-    setRetentionCards((prev) => {
+    setMilestoneCards((prev) => {
       let changed = false
-      const next = prev.map((row) => {
-        const amount = Math.round((row.percentage / 100) * milestoneBaseValue)
-        if (row.value === amount) return row
+      const next = prev.map((card) => {
+        if (!card.retention) return card
+        const amount = Math.round((card.retention.percentage / 100) * milestoneBaseValue)
+        if (card.retention.amount === amount) return card
         changed = true
-        return { ...row, value: amount }
+        return { ...card, retention: { ...card.retention, amount } }
       })
       return changed ? next : prev
     })
@@ -360,7 +413,7 @@ export function AddClientPODrawer({ open, onClose, projectId }: AddClientPODrawe
       return
     }
     if (!hasConfiguredEntries || groupedForSave.length === 0) {
-      toast({ title: 'Add at least one milestone or retention entry', variant: 'error' })
+      toast({ title: 'Add at least one milestone entry', variant: 'error' })
       return
     }
     if (!groupedSaveValid) {
@@ -513,41 +566,13 @@ export function AddClientPODrawer({ open, onClose, projectId }: AddClientPODrawe
             categoryOptions={categoryOptions}
             serviceOptions={cardServiceOptions}
             milestoneBaseValue={milestoneBaseValue}
+            includeRetention
             onChange={(patch) =>
               setMilestoneCards((prev) =>
                 prev.map((c) => (c.id === card.id ? { ...c, ...patch } : c)),
               )
             }
             onRemove={() => setMilestoneCards((prev) => prev.filter((c) => c.id !== card.id))}
-          />
-        ))}
-      </MilestoneSectionPanel>
-
-      <MilestoneSectionPanel
-        title="Retention"
-        addLabel="Add Retention"
-        onAdd={() =>
-          setRetentionCards([
-            createClientPORetentionCard(categoryOptions, cardServiceOptions),
-          ])
-        }
-        addDisabled={cardsDisabled}
-        isEmpty={retentionCards.length === 0}
-        showAddButton={retentionCards.length === 0}
-      >
-        {retentionCards.map((card) => (
-          <ClientPORetentionCardEditor
-            key={card.id}
-            card={card}
-            categoryOptions={categoryOptions}
-            serviceOptions={cardServiceOptions}
-            milestoneBaseValue={milestoneBaseValue}
-            onChange={(patch) =>
-              setRetentionCards((prev) =>
-                prev.map((c) => (c.id === card.id ? { ...c, ...patch } : c)),
-              )
-            }
-            onRemove={() => setRetentionCards((prev) => prev.filter((c) => c.id !== card.id))}
           />
         ))}
       </MilestoneSectionPanel>
@@ -568,11 +593,6 @@ function ReadOnlyField({ label, value }: { label: string; value: string }) {
   )
 }
 
-function formatExecutedValueLabel(poValue: number, executedValue?: number | null): string {
-  if (executedValue != null) return `₹${formatCurrency(executedValue)}`
-  return `₹${formatCurrency(poValue)}`
-}
-
 interface ViewClientPODrawerProps {
   open: boolean
   onClose: () => void
@@ -583,7 +603,43 @@ interface ViewClientPODrawerProps {
 export function ViewClientPODrawer({ open, onClose, projectId, po }: ViewClientPODrawerProps) {
   const dispatch = useAppDispatch()
   const { saving } = useAppSelector((s) => s.baseline)
+  const { invoices } = useAppSelector((s) => s.live)
   const toast = useToast((s) => s.showToast)
+  const [updatingExecutedValue, setUpdatingExecutedValue] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [executedValueDraft, setExecutedValueDraft] = useState('')
+
+  const projectInvoices = useMemo(
+    () => invoices.filter((i) => i.projectId === projectId),
+    [invoices, projectId],
+  )
+
+  useEffect(() => {
+    if (open) {
+      void dispatch(fetchInvoices(projectId))
+    }
+  }, [open, projectId, dispatch])
+
+  useEffect(() => {
+    if (!open || !po) {
+      setUpdatingExecutedValue(false)
+      setDeleteOpen(false)
+      return
+    }
+    setExecutedValueDraft(String(effectiveExecutedValue(po)))
+  }, [open, po?.id])
+
+  const previewMilestones = useMemo(() => {
+    if (!po || !updatingExecutedValue) return po?.milestones ?? []
+    const nextValue = Number(executedValueDraft)
+    if (!Number.isFinite(nextValue) || nextValue <= 0) return po.milestones ?? []
+    return recalculateClientPOMilestonesForExecutedValue(
+      po.milestones ?? [],
+      nextValue,
+      projectInvoices,
+    )
+  }, [po, updatingExecutedValue, executedValueDraft, projectInvoices])
+
   const serviceOptions = useClientPOServiceOptions(projectId, open)
   const categoryOptions = useMemo(
     () => clientPOCategoryOptions(serviceOptions),
@@ -593,144 +649,56 @@ export function ViewClientPODrawer({ open, onClose, projectId, po }: ViewClientP
     () => clientPOCardServiceOptions(serviceOptions),
     [serviceOptions],
   )
-  const [editing, setEditing] = useState(false)
-  const [deleteOpen, setDeleteOpen] = useState(false)
-  const [poFormData, setPoFormData] = useState({
-    poNumber: '',
-    poValue: '',
-    executedValue: '',
-  })
-  const [milestoneCards, setMilestoneCards] = useState<ClientPOMilestoneCard[]>([])
-  const [retentionCards, setRetentionCards] = useState<ClientPORetentionCard[]>([])
-  const [newFile, setNewFile] = useState<File | null>(null)
 
-  const poValueNumber = Number(poFormData.poValue) || 0
-  const lockedExecutedValue =
-    po != null
-      ? po.executedValue ?? (Number(poFormData.poValue) || po.poValue)
-      : poValueNumber
-  const milestoneBaseValue = lockedExecutedValue
+  const previewMilestoneCards = useMemo(() => {
+    if (!updatingExecutedValue) return []
+    return clientPOCardsFromMilestones(previewMilestones, serviceOptions).milestoneCards
+  }, [updatingExecutedValue, previewMilestones, serviceOptions])
 
-  const hasConfiguredEntries = useMemo(
-    () =>
-      milestoneCards.some(isMilestoneCardConfigured) ||
-      retentionCards.some(isRetentionCardConfigured),
-    [milestoneCards, retentionCards],
-  )
+  const milestoneBaseValue = useMemo(() => {
+    const nextValue = Number(executedValueDraft)
+    if (updatingExecutedValue && Number.isFinite(nextValue) && nextValue > 0) return nextValue
+    return po ? effectiveExecutedValue(po) : 0
+  }, [updatingExecutedValue, executedValueDraft, po])
 
-  const groupedForSave = useMemo(
-    () =>
-      groupClientCardsByService(
-        milestoneCards.filter(isMilestoneCardConfigured),
-        retentionCards.filter(isRetentionCardConfigured),
-      ),
-    [milestoneCards, retentionCards],
-  )
-
-  const groupedSaveValid = useMemo(
-    () => groupedForSave.every((group) => isClientGroupedServiceValid(milestoneBaseValue, group)),
-    [groupedForSave, milestoneBaseValue],
-  )
-
-  useEffect(() => {
-    if (!open || !po) {
-      setEditing(false)
-      setDeleteOpen(false)
-      setNewFile(null)
-      return
-    }
-    setPoFormData({
-      poNumber: po.poNumber,
-      poValue: String(po.poValue),
-      executedValue: po.executedValue != null ? String(po.executedValue) : '',
-    })
-    const cards = clientPOCardsFromMilestones(mapMilestonesFromPo(po.milestones ?? []), serviceOptions)
-    setMilestoneCards(cards.milestoneCards)
-    setRetentionCards(cards.retentionCards)
-    setEditing(false)
-    setNewFile(null)
-  }, [open, po, serviceOptions])
-
-  useEffect(() => {
-    if (!editing || milestoneBaseValue <= 0) return
-    setRetentionCards((prev) => {
-      let changed = false
-      const next = prev.map((row) => {
-        const amount = Math.round((row.percentage / 100) * milestoneBaseValue)
-        if (row.value === amount) return row
-        changed = true
-        return { ...row, value: amount }
-      })
-      return changed ? next : prev
-    })
-  }, [editing, milestoneBaseValue])
-
-  const handlePoChange = (field: string) => (e: React.ChangeEvent<HTMLInputElement>) => {
-    setPoFormData((prev) => ({ ...prev, [field]: e.target.value }))
-  }
-
-  function handlePoValueChange(value: string) {
-    setPoFormData((prev) => ({ ...prev, poValue: value }))
-  }
-
-  function resetEditState() {
+  function resetExecutedValueEdit() {
     if (!po) return
-    setPoFormData({
-      poNumber: po.poNumber,
-      poValue: String(po.poValue),
-      executedValue: po.executedValue != null ? String(po.executedValue) : '',
-    })
-    const cards = clientPOCardsFromMilestones(mapMilestonesFromPo(po.milestones ?? []), serviceOptions)
-    setMilestoneCards(cards.milestoneCards)
-    setRetentionCards(cards.retentionCards)
-    setNewFile(null)
-    setEditing(false)
+    setExecutedValueDraft(String(effectiveExecutedValue(po)))
+    setUpdatingExecutedValue(false)
   }
 
-  async function handleSave() {
-    if (!po || !poFormData.poNumber || !poFormData.poValue) {
-      toast({ title: 'Please fill in all required fields', variant: 'error' })
+  async function handleSaveExecutedValue() {
+    if (!po) return
+    if (!canUpdateExecutedValue(po)) {
+      toast({ title: 'Executed value can no longer be updated', variant: 'error' })
       return
     }
-    if (!hasConfiguredEntries || groupedForSave.length === 0) {
-      toast({ title: 'Add at least one milestone or retention entry', variant: 'error' })
+    const nextValue = Number(executedValueDraft)
+    if (!Number.isFinite(nextValue) || nextValue <= 0) {
+      toast({ title: 'Enter a valid executed value', variant: 'error' })
       return
     }
-    if (!groupedSaveValid) {
-      toast({
-        title: 'Combined milestones per service must equal 100%',
-        variant: 'error',
-      })
-      return
-    }
-
-    const milestonePayload = buildClientPOMilestonePayload(groupedForSave, serviceOptions)
-
-    const documentUrl = newFile
-      ? URL.createObjectURL(newFile)
-      : po.documentUrl
-
     try {
+      const nextMilestones = recalculateClientPOMilestonesForExecutedValue(
+        po.milestones ?? [],
+        nextValue,
+        projectInvoices,
+      )
       await dispatch(
         updateClientPO({
           projectId,
           poId: po.id,
-          data: {
-            poNumber: poFormData.poNumber,
-            poValue: poValueNumber,
-            executedValue: po.executedValue,
-            milestones: milestonePayload,
-            documentUrl,
-            fileName: newFile?.name ?? po.fileName,
-          },
+          data: buildClientPOExecutedValueUpdatePayload(nextValue, nextMilestones),
         }),
       ).unwrap()
       void dispatch(fetchClientPO(projectId))
-      toast({ title: 'PO updated successfully', variant: 'success' })
-      setEditing(false)
-      setNewFile(null)
-    } catch {
-      toast({ title: 'Failed to update PO', variant: 'error' })
+      toast({ title: 'Executed value updated', variant: 'success' })
+      setUpdatingExecutedValue(false)
+    } catch (err) {
+      toast({
+        title: typeof err === 'string' ? err : 'Failed to update executed value',
+        variant: 'error',
+      })
     }
   }
 
@@ -747,8 +715,15 @@ export function ViewClientPODrawer({ open, onClose, projectId, po }: ViewClientP
     }
   }
 
-  const documentUrl = newFile ? URL.createObjectURL(newFile) : po?.documentUrl ?? null
-  const documentLabel = newFile?.name ?? po?.fileName
+  const showExecutedValueUpdated = Boolean(po?.executedValueLocked)
+
+  function handlePoDocumentOpenFailed() {
+    toast({
+      title: 'Unable to open document',
+      description: 'The PO file is no longer available in this session.',
+      variant: 'error',
+    })
+  }
 
   return (
     <>
@@ -756,51 +731,51 @@ export function ViewClientPODrawer({ open, onClose, projectId, po }: ViewClientP
         open={open}
         onClose={onClose}
         title={po?.poNumber ?? 'Client PO'}
-        subtitle={editing ? 'Edit purchase order' : 'Purchase order details'}
+        subtitle={
+          updatingExecutedValue
+            ? 'Update the executed value (one-time change)'
+            : 'Purchase order details'
+        }
         footer={
           <Stack
             direction="row"
             justifyContent="flex-end"
+            alignItems="center"
             flexWrap="wrap"
             gap={1}
-            sx={{ px: 2.5, py: 1.75 }}
+            sx={{ px: 2.5, py: 1.75, width: '100%' }}
           >
-            {editing ? (
+            {!updatingExecutedValue && showExecutedValueUpdated ? (
+              <Typography
+                variant="caption"
+                sx={{ color: 'text.secondary', fontSize: 11, mr: 'auto' }}
+              >
+                Executed Value Updated
+              </Typography>
+            ) : null}
+            {updatingExecutedValue ? (
               <>
-                <Button
-                  variant="text"
-                  size="sm"
-                  label="Cancel"
-                  onClick={resetEditState}
-                />
+                <Button variant="text" size="sm" label="Cancel" onClick={resetExecutedValueEdit} />
                 <Button
                   size="sm"
                   variant="contained"
                   color="primary"
                   label={saving ? 'Saving…' : 'Save'}
-                  onClick={() => void handleSave()}
-                  disabled={saving || serviceOptions.length === 0}
+                  onClick={() => void handleSaveExecutedValue()}
+                  disabled={saving}
                 />
               </>
             ) : (
               <>
-                <Button variant="text" size="sm" label="Close" onClick={onClose} />
-                {po?.documentUrl ? (
+                {po && canUpdateExecutedValue(po) ? (
                   <Button
                     size="sm"
                     variant="outlined"
                     color="primary"
-                    label="Open document"
-                    onClick={() => window.open(po.documentUrl!, '_blank')}
+                    label="Update Executed Value"
+                    onClick={() => setUpdatingExecutedValue(true)}
                   />
                 ) : null}
-                <Button
-                  size="sm"
-                  variant="outlined"
-                  color="primary"
-                  label="Edit"
-                  onClick={() => setEditing(true)}
-                />
                 <Button
                   size="sm"
                   variant="outlined"
@@ -815,68 +790,30 @@ export function ViewClientPODrawer({ open, onClose, projectId, po }: ViewClientP
       >
         {po ? (
           <Stack spacing={2.5}>
-            <Box>
-              <Stack
-                direction="row"
-                alignItems="center"
-                justifyContent="space-between"
-                sx={{ mb: 1.5 }}
-              >
-                <Typography component="span" variant="overline" sx={PO_SECTION_TITLE_SX}>
-                  PO Details
-                </Typography>
-                {(documentUrl || po.documentUrl) && !editing ? (
-                  <Button
-                    size="sm"
-                    variant="outlined"
-                    color="primary"
-                    label="Download Document"
-                    startIcon={<Download sx={{ fontSize: 16 }} />}
-                    onClick={() => window.open(documentUrl ?? po.documentUrl!, '_blank')}
-                  />
-                ) : null}
-                {editing ? (
-                  <MuiButton
-                    variant="outlined"
-                    component="label"
-                    size="small"
-                    startIcon={<Upload />}
-                    sx={{ fontSize: 12 }}
+            {updatingExecutedValue ? (
+              <>
+                <Box sx={{ mb: 0 }}>
+                  <Typography
+                    component="span"
+                    variant="overline"
+                    sx={{ ...PO_SECTION_TITLE_SX, display: 'block', mb: 1.5 }}
                   >
-                    Upload PO Document
-                    <input
-                      type="file"
-                      hidden
-                      accept=".pdf,.doc,.docx"
-                      onChange={(e) => setNewFile(e.target.files?.[0] ?? null)}
-                    />
-                  </MuiButton>
-                ) : null}
-              </Stack>
-              {editing ? (
-                <>
-                  {documentLabel ? (
-                    <Typography
-                      variant="caption"
-                      color="text.secondary"
-                      sx={{ display: 'block', mb: 1, textAlign: 'right', fontSize: 11 }}
-                    >
-                      {documentLabel}
-                    </Typography>
-                  ) : null}
+                    PO Details
+                  </Typography>
                   <Box
                     sx={{
                       display: 'grid',
                       gridTemplateColumns: 'repeat(2, 1fr)',
                       gap: '12px',
+                      ...READONLY_DISABLED_TEXTFIELD_SX,
                     }}
                   >
                     <FormField label="PO Number" required>
                       <TextField
                         fullWidth
                         size="small"
-                        value={poFormData.poNumber}
-                        onChange={handlePoChange('poNumber')}
+                        value={po?.poNumber ?? ''}
+                        disabled
                       />
                     </FormField>
                     <FormField label="PO Value (₹)" required>
@@ -884,127 +821,103 @@ export function ViewClientPODrawer({ open, onClose, projectId, po }: ViewClientP
                         fullWidth
                         size="small"
                         type="number"
-                        value={poFormData.poValue}
-                        onChange={(e) => handlePoValueChange(e.target.value)}
+                        value={po?.poValue ?? ''}
+                        disabled
                       />
                     </FormField>
-                    <ReadOnlyField
-                      label="Executed Value (₹)"
-                      value={formatExecutedValueLabel(poValueNumber, po.executedValue)}
-                    />
+                    {po?.fileName && poDocumentOpenUrl(po.documentUrl) ? (
+                      <Box sx={{ gridColumn: '1 / -1' }}>
+                        <UploadedDocumentLink
+                          fileName={poDocumentDisplayFileName(po.fileName)!}
+                          documentUrl={poDocumentOpenUrl(po.documentUrl)}
+                          onOpenFailed={handlePoDocumentOpenFailed}
+                        />
+                      </Box>
+                    ) : null}
+                    <FormField label="Executed Value (₹)" required>
+                      <TextField
+                        fullWidth
+                        size="small"
+                        type="number"
+                        value={executedValueDraft}
+                        onChange={(e) => setExecutedValueDraft(e.target.value)}
+                      />
+                    </FormField>
                   </Box>
-                </>
-              ) : (
-                <>
-                  <Box
-                    sx={{
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(2, 1fr)',
-                      gap: '12px',
-                    }}
-                  >
-                    <ReadOnlyField label="PO Number" value={po.poNumber} />
-                    <ReadOnlyField label="PO Value" value={`₹${formatCurrency(po.poValue)}`} />
-                    <ReadOnlyField
-                      label="Executed Value"
-                      value={
-                        po.executedValue != null
-                          ? `₹${formatCurrency(po.executedValue)}`
-                          : '—'
-                      }
-                    />
-                  </Box>
-                  {po.fileName ? (
-                    <Box sx={{ mt: 1 }}>
-                      <ReadOnlyField label="Document" value={po.fileName} />
-                    </Box>
-                  ) : null}
-                </>
-              )}
-            </Box>
+                </Box>
 
-            <Divider sx={{ my: 0.5 }} />
+                <Divider sx={{ my: 2 }} />
 
-            {editing ? (
-              <>
-                {serviceOptions.length === 0 ? (
-                  <Alert severity="warning" sx={{ fontSize: 12 }}>
-                    Add client offer services on the Pitch tab before adding PO milestones.
-                  </Alert>
-                ) : null}
                 <MilestoneSectionPanel
                   title="Milestones"
                   addLabel="Add Milestone"
-                  onAdd={() =>
-                    setMilestoneCards((prev) => [
-                      ...prev,
-                      createClientPOMilestoneCard(categoryOptions, cardServiceOptions),
-                    ])
-                  }
-                  addDisabled={categoryOptions.length === 0}
-                  isEmpty={milestoneCards.length === 0}
+                  onAdd={() => undefined}
+                  isEmpty={previewMilestoneCards.length === 0}
+                  showAddButton={false}
                 >
-                  {milestoneCards.map((card) => (
+                  {previewMilestoneCards.map((card) => (
                     <ClientPOMilestoneCardEditor
                       key={card.id}
                       card={card}
                       categoryOptions={categoryOptions}
                       serviceOptions={cardServiceOptions}
                       milestoneBaseValue={milestoneBaseValue}
-                      onChange={(patch) =>
-                        setMilestoneCards((prev) =>
-                          prev.map((c) => (c.id === card.id ? { ...c, ...patch } : c)),
-                        )
-                      }
-                      onRemove={() =>
-                        setMilestoneCards((prev) => prev.filter((c) => c.id !== card.id))
-                      }
-                    />
-                  ))}
-                </MilestoneSectionPanel>
-
-                <MilestoneSectionPanel
-                  title="Retention"
-                  addLabel="Add Retention"
-                  onAdd={() =>
-                    setRetentionCards([
-                      createClientPORetentionCard(categoryOptions, cardServiceOptions),
-                    ])
-                  }
-                  addDisabled={categoryOptions.length === 0}
-                  isEmpty={retentionCards.length === 0}
-                  showAddButton={retentionCards.length === 0}
-                >
-                  {retentionCards.map((card) => (
-                    <ClientPORetentionCardEditor
-                      key={card.id}
-                      card={card}
-                      categoryOptions={categoryOptions}
-                      serviceOptions={cardServiceOptions}
-                      milestoneBaseValue={milestoneBaseValue}
-                      onChange={(patch) =>
-                        setRetentionCards((prev) =>
-                          prev.map((c) => (c.id === card.id ? { ...c, ...patch } : c)),
-                        )
-                      }
-                      onRemove={() =>
-                        setRetentionCards((prev) => prev.filter((c) => c.id !== card.id))
-                      }
+                      includeRetention
+                      readOnly
+                      onChange={() => undefined}
+                      onRemove={() => undefined}
                     />
                   ))}
                 </MilestoneSectionPanel>
               </>
             ) : (
-              <Box>
-                <Typography
-                  component="span"
-                  variant="overline"
-                  sx={{ ...PO_SECTION_TITLE_SX, display: 'block', mb: 1.5 }}
+              <>
+            <Box>
+              <Typography
+                component="span"
+                variant="overline"
+                sx={{ ...PO_SECTION_TITLE_SX, display: 'block', mb: 1.5 }}
+              >
+                PO Details
+              </Typography>
+                <Box
+                  sx={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(2, 1fr)',
+                    gap: '12px',
+                  }}
                 >
-                  Milestones
-                </Typography>
-                <ClientPOMilestonesTable milestones={po.milestones ?? []} />
-              </Box>
+                  <ReadOnlyField label="PO Number" value={po.poNumber} />
+                  <ReadOnlyField label="PO Value" value={`₹${formatCurrency(po.poValue)}`} />
+                  <ReadOnlyField
+                    label="Executed Value"
+                    value={`₹${formatCurrency(effectiveExecutedValue(po))}`}
+                  />
+                  <PODocumentLinkField
+                    fileName={po.fileName}
+                    documentUrl={po.documentUrl}
+                    onOpenFailed={handlePoDocumentOpenFailed}
+                    emptyLabel="No document uploaded"
+                  />
+                </Box>
+            </Box>
+
+            <Divider sx={{ my: 0.5 }} />
+
+            <Box>
+              <Typography
+                component="span"
+                variant="overline"
+                sx={{ ...PO_SECTION_TITLE_SX, display: 'block', mb: 1.5 }}
+              >
+                Milestones
+              </Typography>
+              <ClientPOMilestonesTable
+                milestones={po.milestones ?? []}
+                projectInvoices={projectInvoices}
+              />
+            </Box>
+              </>
             )}
           </Stack>
         ) : null}

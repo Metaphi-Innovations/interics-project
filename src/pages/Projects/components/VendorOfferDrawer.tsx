@@ -192,7 +192,6 @@ export function VendorOfferDrawer({
     draft.rows.length > 0 &&
     draft.rows.every((r) => r.vendorId && Number(r.amount) > 0) &&
     totalAllocated > 0 &&
-    !overAllocated &&
     !duplicateVendors
 
   function handleSubmit() {
@@ -357,14 +356,14 @@ export function VendorOfferDrawer({
                 color: remaining < 0 ? 'error.main' : remaining === 0 ? 'success.main' : 'text.primary',
               }}
             >
-              ₹{formatInr(Math.max(0, remaining))}
+              ₹{formatInr(remaining)}
             </Typography>
           </Box>
         </Stack>
 
         {overAllocated ? (
-          <Typography variant="caption" sx={{ fontSize: 11, color: 'error.main' }}>
-            Total vendor allocation cannot exceed the service amount.
+          <Typography variant="caption" sx={{ fontSize: 11, color: 'warning.main' }}>
+            Total vendor allocation exceeds the service amount.
           </Typography>
         ) : null}
 

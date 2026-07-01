@@ -1,3 +1,5 @@
+import type { ClientPO, VendorPO } from '../../slices/baseline/reducer'
+import type { PitchVersion, VendorMapping } from '../../slices/pitch/reducer'
 import type { Project, ProjectDocumentFile } from '../../slices/projects/reducer'
 import { formatDate } from '../../utils/formatters'
 import { parseHttpUrl } from './projectCreateHelpers'
@@ -269,4 +271,110 @@ export function filterProjectDocumentSectionsBySearch(
       matchesSearch(`${row.name} ${row.typeLabel} ${section.title}`, q),
     ),
   }))
+}
+
+function poDocumentLabel(poNumber: string, fileName?: string | null): string {
+  if (fileName?.trim()) return fileName.trim()
+  return poNumber
+}
+
+function openExternalDocument(url: string): void {
+  window.open(url, '_blank', 'noopener,noreferrer')
+}
+
+/** Client PO file from Live / Transition baseline. */
+export function clientPOToDocumentRow(po: ClientPO): ProjectDocumentColumnRow | null {
+  if (!po.documentUrl) return null
+  return {
+    id: `baseline-client-po-${po.id}`,
+    name: poDocumentLabel(po.poNumber, po.fileName),
+    typeLabel: 'Client PO',
+    uploadedBy: 'System',
+    dateStr: formatDate(po.uploadedAt ?? po.startDate),
+    sizeStr: null,
+    isUpload: false,
+    href: po.documentUrl,
+    canDelete: false,
+    onView: () => openExternalDocument(po.documentUrl!),
+  }
+}
+
+/** Vendor PO file from Live baseline. */
+export function vendorPOToDocumentRow(po: VendorPO): ProjectDocumentColumnRow | null {
+  if (!po.documentUrl) return null
+  return {
+    id: `baseline-vendor-po-${po.id}`,
+    name: poDocumentLabel(po.poNumber, po.fileName),
+    typeLabel: 'Vendor PO',
+    uploadedBy: 'System',
+    dateStr: formatDate(po.poDate),
+    sizeStr: null,
+    isUpload: false,
+    href: po.documentUrl,
+    canDelete: false,
+    onView: () => openExternalDocument(po.documentUrl!),
+  }
+}
+
+/** Vendor quotation uploaded on the Pitch tab. */
+export function vendorQuotationToDocumentRow(
+  mapping: VendorMapping,
+  serviceName: string,
+): ProjectDocumentColumnRow | null {
+  const quotation = mapping.quotation
+  if (!quotation?.fileUrl) return null
+  return {
+    id: `pitch-vendor-quotation-${mapping.id}`,
+    name: quotation.fileName || `${mapping.vendorName} — ${serviceName}`,
+    typeLabel: 'Vendor Quotation',
+    uploadedBy: 'System',
+    dateStr: formatDate(quotation.uploadedAt),
+    sizeStr: null,
+    isUpload: false,
+    href: quotation.fileUrl,
+    canDelete: false,
+    onView: () => openExternalDocument(quotation.fileUrl),
+  }
+}
+
+export function collectPitchVendorQuotationRows(
+  version: PitchVersion | null | undefined,
+  projectId: string,
+): ProjectDocumentColumnRow[] {
+  if (!version || version.projectId !== projectId) return []
+  const rows: ProjectDocumentColumnRow[] = []
+  for (const category of version.categories) {
+    for (const service of category.services) {
+      for (const mapping of service.vendorMappings) {
+        const row = vendorQuotationToDocumentRow(mapping, service.name)
+        if (row) rows.push(row)
+      }
+    }
+  }
+  return rows
+}
+
+/** Merge document rows without duplicating the same file URL or blob. */
+export function mergeDocumentRows(
+  ...groups: ProjectDocumentColumnRow[][]
+): ProjectDocumentColumnRow[] {
+  const seen = new Set<string>()
+  const merged: ProjectDocumentColumnRow[] = []
+  for (const group of groups) {
+    for (const row of group) {
+      const key = row.href ?? row.blobUrl ?? row.id
+      if (seen.has(key)) continue
+      seen.add(key)
+      merged.push(row)
+    }
+  }
+  return merged
+}
+
+export function filterDocumentRowsBySearch(
+  rows: ProjectDocumentColumnRow[],
+  search: string,
+  matchesSearch: (text: string, q: string) => boolean,
+): ProjectDocumentColumnRow[] {
+  return rows.filter((row) => matchesSearch(`${row.name} ${row.typeLabel}`, search))
 }

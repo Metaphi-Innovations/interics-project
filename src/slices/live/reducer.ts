@@ -6,6 +6,7 @@ import {
   recordInvoicePayment,
   fetchVendorInvoices,
   uploadVendorInvoice,
+  updateVendorInvoice,
   fetchPayments,
   createPayment,
   fetchExpenses,
@@ -130,7 +131,10 @@ const liveSlice = createSlice({
         state.saving = false
         state.vendorInvoices.push(action.payload)
         const inv = action.payload
-        for (const expId of inv.linkedExpenseIds ?? []) {
+        for (const expId of [
+          ...(inv.linkedExpenseIds ?? []),
+          ...(inv.linkedAdditionExpenseIds ?? []),
+        ]) {
           const idx = state.expenses.findIndex((e) => e.id === expId)
           if (idx !== -1 && state.expenses[idx].status === 'pending') {
             state.expenses[idx] = {
@@ -142,6 +146,47 @@ const liveSlice = createSlice({
         }
       })
       .addCase(uploadVendorInvoice.rejected, (state) => {
+        state.saving = false
+      })
+
+      .addCase(updateVendorInvoice.pending, (state) => {
+        state.saving = true
+      })
+      .addCase(updateVendorInvoice.fulfilled, (state, action) => {
+        state.saving = false
+        const idx = state.vendorInvoices.findIndex((v) => v.id === action.payload.id)
+        if (idx !== -1) {
+          const prev = state.vendorInvoices[idx]
+          for (const expId of [
+            ...(prev.linkedExpenseIds ?? []),
+            ...(prev.linkedAdditionExpenseIds ?? []),
+          ]) {
+            const expIdx = state.expenses.findIndex((e) => e.id === expId)
+            if (expIdx !== -1 && state.expenses[expIdx].linkedVendorInvoiceId === prev.id) {
+              state.expenses[expIdx] = {
+                ...state.expenses[expIdx],
+                status: 'pending',
+                linkedVendorInvoiceId: undefined,
+              }
+            }
+          }
+          state.vendorInvoices[idx] = action.payload
+          for (const expId of [
+            ...(action.payload.linkedExpenseIds ?? []),
+            ...(action.payload.linkedAdditionExpenseIds ?? []),
+          ]) {
+            const expIdx = state.expenses.findIndex((e) => e.id === expId)
+            if (expIdx !== -1 && state.expenses[expIdx].status === 'pending') {
+              state.expenses[expIdx] = {
+                ...state.expenses[expIdx],
+                status: 'adjusted',
+                linkedVendorInvoiceId: action.payload.id,
+              }
+            }
+          }
+        }
+      })
+      .addCase(updateVendorInvoice.rejected, (state) => {
         state.saving = false
       })
 

@@ -54,6 +54,12 @@ export const liveApi = {
   uploadVendorInvoice: (projectId: string, data: CreateVendorInvoiceBody) =>
     client.post<VendorInvoice>(`${root(projectId)}/vendor-invoices`, data),
 
+  updateVendorInvoice: (
+    projectId: string,
+    invoiceId: string,
+    data: Partial<CreateVendorInvoiceBody>,
+  ) => client.put<VendorInvoice>(`${root(projectId)}/vendor-invoices/${invoiceId}`, data),
+
   getVendorPayableControls: (projectId: string) =>
     client.get<VendorPayableControl[]>(`${root(projectId)}/vendor-payable-controls`),
 

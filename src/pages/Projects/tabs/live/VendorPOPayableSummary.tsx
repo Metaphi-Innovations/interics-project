@@ -1,17 +1,23 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Stack } from '@mui/material'
 import { useAppDispatch, useAppSelector } from '../../../../store/hooks'
-import { fetchVendorPOs } from '../../../../slices/baseline/thunk'
+import { fetchBaseline, fetchVendorPOs } from '../../../../slices/baseline/thunk'
+import { fetchExpenses, fetchVendorInvoices } from '../../../../slices/live/thunk'
 import { VendorOffersSection } from '../../components/VendorOffersSection'
 import { VendorMilestonesSection } from '../../components/VendorMilestonesSection'
 import { AddVendorOfferDrawer } from './AddVendorOfferDrawer'
 import { useLiveOfferVersion } from './useLiveOfferVersion'
+import type { ParsedPayableContext } from '@/utils/payableNavigation'
 
 interface VendorPOPayableSummaryProps {
   projectId: string
+  payableContext?: ParsedPayableContext
 }
 
-export function VendorPOPayableSummary({ projectId }: VendorPOPayableSummaryProps) {
+export function VendorPOPayableSummary({
+  projectId,
+  payableContext,
+}: VendorPOPayableSummaryProps) {
   const dispatch = useAppDispatch()
   const { vendorPOs, baseline } = useAppSelector((s) => s.baseline)
   const { offerVersion, loading } = useLiveOfferVersion(projectId)
@@ -20,6 +26,9 @@ export function VendorPOPayableSummary({ projectId }: VendorPOPayableSummaryProp
 
   useEffect(() => {
     void dispatch(fetchVendorPOs(projectId))
+    void dispatch(fetchBaseline(projectId))
+    void dispatch(fetchVendorInvoices(projectId))
+    void dispatch(fetchExpenses(projectId))
   }, [dispatch, projectId])
 
   const projectVendorPOs = useMemo(
@@ -39,12 +48,16 @@ export function VendorPOPayableSummary({ projectId }: VendorPOPayableSummaryProp
           offerVersion={offerVersion}
           loading={loading}
           onAddOffer={() => setAddOfferOpen(true)}
+          projectId={projectId}
+          vendorPOs={projectVendorPOs}
+          baseline={baselineForProject}
         />
 
         <VendorMilestonesSection
           projectId={projectId}
           vendorPOs={projectVendorPOs}
           baseline={baselineForProject}
+          payableContext={payableContext}
         />
       </Stack>
 

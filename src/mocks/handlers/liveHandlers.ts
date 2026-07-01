@@ -52,7 +52,10 @@ export const liveHandlers = [
       ...body,
     }
     vendorInvoices.push(newVI)
-    for (const expId of newVI.linkedExpenseIds ?? []) {
+    for (const expId of [
+      ...(newVI.linkedExpenseIds ?? []),
+      ...(newVI.linkedAdditionExpenseIds ?? []),
+    ]) {
       const ex = expenses.find((e) => e.id === expId)
       if (ex && ex.status === 'pending') {
         ex.status = 'adjusted'
@@ -60,6 +63,40 @@ export const liveHandlers = [
       }
     }
     return HttpResponse.json(newVI, { status: 201 })
+  }),
+
+  http.put('/api/projects/:id/vendor-invoices/:invoiceId', async ({ params, request }) => {
+    const projectId = params.id as string
+    const invoiceId = params.invoiceId as string
+    const body = await request.json() as Partial<Omit<VendorInvoice, 'id' | 'projectId'>>
+    const idx = vendorInvoices.findIndex((v) => v.id === invoiceId && v.projectId === projectId)
+    if (idx === -1) {
+      return HttpResponse.json({ message: 'Invoice not found' }, { status: 404 })
+    }
+    const prev = vendorInvoices[idx]
+    for (const expId of [
+      ...(prev.linkedExpenseIds ?? []),
+      ...(prev.linkedAdditionExpenseIds ?? []),
+    ]) {
+      const ex = expenses.find((e) => e.id === expId)
+      if (ex && ex.linkedVendorInvoiceId === prev.id) {
+        ex.status = 'pending'
+        ex.linkedVendorInvoiceId = undefined
+      }
+    }
+    const updated: VendorInvoice = { ...prev, ...body, id: prev.id, projectId }
+    vendorInvoices[idx] = updated
+    for (const expId of [
+      ...(updated.linkedExpenseIds ?? []),
+      ...(updated.linkedAdditionExpenseIds ?? []),
+    ]) {
+      const ex = expenses.find((e) => e.id === expId)
+      if (ex && ex.status === 'pending') {
+        ex.status = 'adjusted'
+        ex.linkedVendorInvoiceId = updated.id
+      }
+    }
+    return HttpResponse.json(updated)
   }),
 
   http.get('/api/projects/:id/payments', ({ params }) => {

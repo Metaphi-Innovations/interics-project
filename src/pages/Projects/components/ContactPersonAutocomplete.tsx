@@ -4,19 +4,13 @@ import {
   TextField,
   Chip as MuiChip,
   Box,
-  Stack,
   Divider,
   Button as MuiButton,
   Typography,
 } from '@mui/material'
-import { alpha, useTheme } from '@mui/material/styles'
-import { tokens } from '@/design-system/tokens'
+import type { Contact } from '@/slices/customers/reducer'
 import { getInitials, getAvatarColor } from '@/utils/formatters'
-import {
-  FORM_CONTROL_INPUT_SX,
-  type ProjectContactOption,
-  type ProjectContactSource,
-} from '../projectCreateHelpers'
+import { FORM_CONTROL_INPUT_SX } from '../projectCreateHelpers'
 
 interface ContactListboxProps extends HTMLAttributes<HTMLUListElement> {
   children?: ReactNode
@@ -61,39 +55,8 @@ const ContactListbox = forwardRef<HTMLUListElement, ContactListboxProps>(
   },
 )
 
-function contactTypeLabel(sourceType: ProjectContactSource): string {
-  return sourceType === 'customer' ? 'Customer' : 'Vendor'
-}
-
-function ContactTypeBadge({ sourceType }: { sourceType: ProjectContactSource }) {
-  const theme = useTheme()
-  const isCustomer = sourceType === 'customer'
-  const color = isCustomer ? theme.palette.info.main : theme.palette.warning.main
-
-  return (
-    <Box
-      component="span"
-      sx={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        px: 0.75,
-        py: 0.125,
-        borderRadius: '4px',
-        fontSize: 10,
-        fontWeight: 600,
-        lineHeight: 1.4,
-        color,
-        bgcolor: alpha(color, 0.12),
-        flexShrink: 0,
-      }}
-    >
-      {contactTypeLabel(sourceType)}
-    </Box>
-  )
-}
-
 export function filterContacts(
-  options: ProjectContactOption[],
+  options: Contact[],
   { inputValue }: { inputValue: string },
 ) {
   const q = inputValue.trim().toLowerCase()
@@ -101,7 +64,6 @@ export function filterContacts(
   return options.filter(
     (c) =>
       c.name.toLowerCase().includes(q) ||
-      c.entityName.toLowerCase().includes(q) ||
       (c.designation ?? '').toLowerCase().includes(q) ||
       (c.phone ?? '').toLowerCase().includes(q) ||
       (c.email ?? '').toLowerCase().includes(q),
@@ -110,14 +72,9 @@ export function filterContacts(
 
 export function renderContactAutocompleteOption(
   props: HTMLAttributes<HTMLLIElement>,
-  option: ProjectContactOption,
+  option: Contact,
 ) {
   const colors = getAvatarColor(option.name)
-  const detail =
-    option.designation?.trim() ||
-    option.phone?.trim() ||
-    option.email?.trim() ||
-    ''
 
   return (
     <Box
@@ -127,7 +84,7 @@ export function renderContactAutocompleteOption(
         display: 'flex !important',
         flexDirection: 'row !important',
         gap: 1,
-        alignItems: 'flex-start !important',
+        alignItems: 'center !important',
         py: '8px !important',
       }}
     >
@@ -144,38 +101,32 @@ export function renderContactAutocompleteOption(
           fontSize: '10px',
           fontWeight: 700,
           flexShrink: 0,
-          mt: '2px',
         }}
       >
         {getInitials(option.name)}
       </Box>
-      <Stack sx={{ minWidth: 0, flex: 1 }} gap={0.25}>
-        <Stack direction="row" alignItems="center" gap={0.75} flexWrap="wrap">
-          <Typography sx={{ fontSize: 13, fontWeight: 500, lineHeight: 1.35 }}>
-            {option.name}
-          </Typography>
-          <ContactTypeBadge sourceType={option.sourceType} />
-        </Stack>
-        <Typography sx={{ fontSize: 11, color: 'text.secondary', lineHeight: 1.35 }}>
-          {option.entityName}
-          {detail ? ` · ${detail}` : ''}
+      <Box sx={{ minWidth: 0 }}>
+        <Typography sx={{ fontSize: 13, fontWeight: 500, lineHeight: 1.35 }}>
+          {option.name}
         </Typography>
-      </Stack>
+        {option.designation ? (
+          <Typography sx={{ fontSize: 11, color: 'text.secondary', lineHeight: 1.35 }}>
+            {option.designation}
+          </Typography>
+        ) : null}
+      </Box>
     </Box>
   )
 }
 
 export interface ContactPersonAutocompleteProps {
-  contacts: ProjectContactOption[]
-  value: ProjectContactOption[]
+  contacts: Contact[]
+  value: Contact[]
   error?: string
   placeholder?: string
-  onChange: (contacts: ProjectContactOption[]) => void
+  onChange: (contacts: Contact[]) => void
   onCreateClick?: () => void
-  renderOption?: (
-    props: HTMLAttributes<HTMLLIElement>,
-    option: ProjectContactOption,
-  ) => React.ReactNode
+  renderOption?: (props: HTMLAttributes<HTMLLIElement>, option: Contact) => React.ReactNode
 }
 
 export function ContactPersonAutocomplete({
@@ -226,7 +177,7 @@ export function ContactPersonAutocomplete({
             '& .MuiAutocomplete-option': {
               display: 'flex !important',
               flexDirection: 'row !important',
-              alignItems: 'flex-start !important',
+              alignItems: 'center !important',
             },
           },
         },
@@ -238,31 +189,7 @@ export function ContactPersonAutocomplete({
             key={option.id}
             label={option.name}
             size="small"
-            sx={{
-              height: 22,
-              fontSize: 11,
-              maxWidth: '100%',
-              '& .MuiChip-label': {
-                display: 'flex',
-                alignItems: 'center',
-                gap: 0.5,
-              },
-            }}
-            icon={
-              <Box
-                component="span"
-                sx={{
-                  width: 6,
-                  height: 6,
-                  borderRadius: '50%',
-                  bgcolor:
-                    option.sourceType === 'customer'
-                      ? tokens.color.info[500]
-                      : tokens.color.warning[500],
-                  ml: 0.5,
-                }}
-              />
-            }
+            sx={{ height: 22, fontSize: 11 }}
           />
         ))
       }

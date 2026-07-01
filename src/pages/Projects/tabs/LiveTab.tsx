@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Box, Tabs, Tab } from '@mui/material'
+import { useSearchParams } from 'react-router-dom'
 import { tokens } from '@/design-system/tokens'
 import { useAppDispatch } from '../../../store/hooks'
 import {
@@ -10,6 +11,7 @@ import {
   fetchReimbursements,
 } from '../../../slices/live/thunk'
 import type { Project } from '../../../slices/projects/reducer'
+import { parsePayableContext } from '@/utils/payableNavigation'
 import FinancialSummaryTab from './live/FinancialSummaryTab'
 import BillingTab from './live/BillingTab'
 import PaymentsTab from './live/PaymentsTab'
@@ -21,11 +23,13 @@ interface LiveTabProps {
 
 export default function LiveTab({ project }: LiveTabProps) {
   const dispatch = useAppDispatch()
+  const [searchParams] = useSearchParams()
   const [activeSubTab, setActiveSubTab] = useState('financial-summary')
 
   useEffect(() => {
-    setActiveSubTab('financial-summary')
-  }, [project.id])
+    const sub = searchParams.get('liveSubTab')
+    setActiveSubTab(sub ?? 'financial-summary')
+  }, [project.id, searchParams])
 
   useEffect(() => {
     dispatch(fetchInvoices(project.id))
@@ -34,6 +38,8 @@ export default function LiveTab({ project }: LiveTabProps) {
     dispatch(fetchExpenses(project.id))
     dispatch(fetchReimbursements(project.id))
   }, [dispatch, project.id])
+
+  const payableContext = parsePayableContext(searchParams)
 
   const subTabs = [
     { label: 'Overview', value: 'financial-summary' },
@@ -86,7 +92,7 @@ export default function LiveTab({ project }: LiveTabProps) {
         />
       )}
       {activeSubTab === 'payments' && (
-        <PaymentsTab projectId={project.id} />
+        <PaymentsTab projectId={project.id} payableContext={payableContext} />
       )}
       {activeSubTab === 'expenses' && <ExpensesTab projectId={project.id} />}
     </Box>

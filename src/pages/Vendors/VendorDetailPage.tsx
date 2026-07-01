@@ -11,6 +11,7 @@ import {
   TableHead,
   TableRow,
   IconButton as MuiIconButton,
+  Rating,
 } from '@mui/material'
 import {
   VerifiedUser,
@@ -38,6 +39,7 @@ import { WorkspaceDetail, WorkspaceSection } from '../../components/templates'
 import { VendorDrawer } from './VendorDrawer'
 import { ContactDrawer } from '../../components/ContactDrawer'
 import { ComplianceDocumentsUploadModal } from './ComplianceDocumentsUploadModal'
+import { EditVendorRatingModal } from './EditVendorRatingModal'
 import type { ComplianceDocumentUploadValues } from './ComplianceDocumentsUploadModal'
 import {
   createUploadedCompliancePreview,
@@ -78,6 +80,10 @@ import {
   formatActivityTimestamp,
   RecordDetailTaxDocCard,
 } from '../workspace/recordDetailTabUtils'
+import {
+  formatVendorRating,
+  normalizeVendorRating,
+} from '../../utils/vendorRating'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -100,6 +106,44 @@ function LabelValue({ label, children }: { label: string; children: React.ReactN
       </Typography>
       <Box sx={{ mt: theme.spacing(0.25) }}>{children}</Box>
     </Box>
+  )
+}
+
+function VendorProfileRating({
+  vendor,
+  onEdit,
+}: {
+  vendor: Vendor
+  onEdit?: () => void
+}) {
+  const rating = normalizeVendorRating(vendor.rating)
+
+  if (rating == null) {
+    return (
+      <Stack direction="row" alignItems="center" gap={1} flexWrap="wrap">
+        <Typography variant="body2" sx={{ color: 'text.disabled', fontSize: 12 }}>
+          Not Rated
+        </Typography>
+        {onEdit ? (
+          <Button variant="text" size="sm" label="Add rating" onClick={onEdit} />
+        ) : null}
+      </Stack>
+    )
+  }
+
+  return (
+    <Stack direction="row" alignItems="center" gap={1} flexWrap="wrap">
+      <Rating
+        value={rating}
+        readOnly
+        precision={0.1}
+        size="small"
+        sx={{ fontSize: 18, color: tokens.color.warning[500] }}
+      />
+      <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 500, color: 'text.secondary' }}>
+        {formatVendorRating(rating)}
+      </Typography>
+    </Stack>
   )
 }
 
@@ -173,6 +217,7 @@ export default function VendorDetailPage() {
   const [activityFilter, setActivityFilter] = useState<ActivityFilterCategory>('all')
   const [uploadModalOpen, setUploadModalOpen] = useState(false)
   const [localUploadedDocs, setLocalUploadedDocs] = useState<UploadedCompliancePreview[]>([])
+  const [ratingModalOpen, setRatingModalOpen] = useState(false)
 
   useEffect(() => {
     if (!slug) return
@@ -248,6 +293,21 @@ export default function VendorDetailPage() {
     } catch {
       showToast({ title: 'Failed to update status', variant: 'error' })
     }
+  }
+
+  async function handleRatingSave(newRating: number) {
+    if (!vendor) return
+    try {
+      await dispatch(updateVendor({ id: vendor.id, data: { rating: newRating } })).unwrap()
+      showToast({ title: 'Vendor rating updated successfully.', variant: 'success' })
+      setRatingModalOpen(false)
+    } catch {
+      showToast({ title: 'Failed to update rating', variant: 'error' })
+    }
+  }
+
+  function handleEditRating() {
+    setRatingModalOpen(true)
   }
 
   function openTaxDocument(url: string) {
@@ -443,6 +503,9 @@ export default function VendorDetailPage() {
                 <Typography variant="body2" sx={{ color: 'text.primary', fontWeight: 500, fontSize: theme.typography.body2.fontSize }}>
                   {vendor!.financialDetails?.vendorType ?? '—'}
                 </Typography>
+              </LabelValue>
+              <LabelValue label="Rating">
+                <VendorProfileRating vendor={vendor!} onEdit={() => setRatingModalOpen(true)} />
               </LabelValue>
             </Box>
           </Box>
@@ -930,6 +993,10 @@ export default function VendorDetailPage() {
         }}
         secondaryActions={[
           {
+            label: 'Edit Rating',
+            onClick: handleEditRating,
+          },
+          {
             label: vendor.status === 'Active' ? 'Deactivate Vendor' : 'Activate Vendor',
             onClick: handleToggleStatus,
             destructive: vendor.status === 'Active',
@@ -962,6 +1029,15 @@ export default function VendorDetailPage() {
         onClose={() => setUploadModalOpen(false)}
         saving={saving}
         onSubmit={handleComplianceUpload}
+      />
+
+      <EditVendorRatingModal
+        open={ratingModalOpen}
+        onClose={() => setRatingModalOpen(false)}
+        vendorName={vendor.name}
+        currentRating={normalizeVendorRating(vendor.rating)}
+        saving={saving}
+        onSave={handleRatingSave}
       />
 
     </>

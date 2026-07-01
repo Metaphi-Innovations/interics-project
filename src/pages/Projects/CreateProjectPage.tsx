@@ -16,7 +16,6 @@ import { Add, PersonOutline } from '@mui/icons-material'
 import { useNavigate } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { fetchCustomers } from '../../slices/customers/thunk'
-import { fetchVendors } from '../../slices/vendors/thunk'
 import { fetchUsers } from '../../slices/users/thunk'
 import { fetchRoles } from '../../slices/roles/thunk'
 import { isProjectManagerRole } from './projectManagerRoles'
@@ -24,8 +23,7 @@ import { ProjectTypesField } from './components/ProjectTypesField'
 import { ContactPersonAutocomplete } from './components/ContactPersonAutocomplete'
 import { CreateContactPersonModal } from './components/CreateContactPersonModal'
 import { createProject } from '../../slices/projects/thunk'
-import type { Customer } from '../../slices/customers/reducer'
-import type { Vendor } from '../../slices/vendors/reducer'
+import type { Contact, Customer } from '../../slices/customers/reducer'
 import type { User } from '../../slices/users/reducer'
 import { FullPageForm, FullPageFormSection } from '../../components/templates/FullPageForm'
 import { FormField } from '../../components/templates/DrawerForm'
@@ -37,15 +35,14 @@ import { SECTOR_OPTIONS } from '../../constants/sectors'
 import {
   getContactsForCustomer,
   getDefaultContactIds,
-  buildProjectContactOptions,
-  findProjectContactsByIds,
+  findContactsByIds,
   clientTeamFromContacts,
   buildProjectDocumentsFromForm,
   buildProjectSetupPayload,
   validateProjectSetupFields,
   FORM_CONTROL_INPUT_SX,
-  type ProjectContactOption,
 } from './projectCreateHelpers'
+import { buildAssignedTeamPayload } from '@/utils/projectAssignedTeam'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -155,7 +152,6 @@ function Step1Customer({
   formData,
   setFormData,
   customers,
-  vendors,
   loadingCustomers,
   errors,
   setErrors,
@@ -163,7 +159,6 @@ function Step1Customer({
   formData: WizardFormData
   setFormData: React.Dispatch<React.SetStateAction<WizardFormData>>
   customers: Customer[]
-  vendors: Vendor[]
   loadingCustomers: boolean
   errors: StepErrors
   setErrors: React.Dispatch<React.SetStateAction<StepErrors>>
@@ -171,16 +166,16 @@ function Step1Customer({
   const [createContactOpen, setCreateContactOpen] = useState(false)
   const selectedCustomer =
     customers.find((c) => c.id === formData.customerId) ?? null
-  const projectContactOptions = useMemo(
-    () => buildProjectContactOptions(selectedCustomer, vendors),
-    [selectedCustomer, vendors],
+  const customerContacts = useMemo(
+    () => getContactsForCustomer(selectedCustomer),
+    [selectedCustomer],
   )
   const selectedContacts = useMemo(
-    () => projectContactOptions.filter((c) => formData.contactIds.includes(c.id)),
-    [projectContactOptions, formData.contactIds],
+    () => customerContacts.filter((c) => formData.contactIds.includes(c.id)),
+    [customerContacts, formData.contactIds],
   )
 
-  function handleContactSaved(contact: ProjectContactOption) {
+  function handleContactSaved(contact: Contact) {
     setFormData((prev) => ({
       ...prev,
       contactIds: [...new Set([...prev.contactIds, contact.id])],
@@ -229,7 +224,7 @@ function Step1Customer({
 
       <FormField label="Contact Person" required error={errors.contactId}>
         <ContactPersonAutocomplete
-          contacts={formData.customerId ? projectContactOptions : []}
+          contacts={formData.customerId ? customerContacts : []}
           value={formData.customerId ? selectedContacts : []}
           error={errors.contactId}
           placeholder={
@@ -262,8 +257,6 @@ function Step1Customer({
       open={createContactOpen}
       onClose={() => setCreateContactOpen(false)}
       customerId={formData.customerId}
-      customerName={formData.customerName}
-      vendors={vendors}
       existingCustomerContacts={getContactsForCustomer(selectedCustomer)}
       onSaved={handleContactSaved}
     />
@@ -715,7 +708,6 @@ export default function CreateProjectPage() {
 
   const customers = useAppSelector((s) => s.customers.items ?? [])
   const loadingCustomers = useAppSelector((s) => s.customers.loading)
-  const vendors = useAppSelector((s) => s.vendors.items ?? [])
   const users = useAppSelector((s) => s.users.items ?? [])
   const roles = useAppSelector((s) => s.roles.items ?? [])
   const saving = useAppSelector((s) => s.projects.saving)
@@ -726,7 +718,6 @@ export default function CreateProjectPage() {
 
   useEffect(() => {
     dispatch(fetchCustomers({}))
-    dispatch(fetchVendors({ pageSize: 500 }))
     dispatch(fetchUsers({}))
     dispatch(fetchRoles(undefined))
   }, [dispatch])
@@ -779,11 +770,7 @@ export default function CreateProjectPage() {
     if (!validateStep(activeStep)) return
 
     const customer = customers.find((c) => c.id === formData.customerId) ?? null
-    const projectContactOptions = buildProjectContactOptions(customer, vendors)
-    const selectedContacts = findProjectContactsByIds(
-      projectContactOptions,
-      formData.contactIds,
-    )
+    const selectedContacts = findContactsByIds(customer, formData.contactIds)
     const payload = {
       customerId: formData.customerId,
       customerName: formData.customerName,
@@ -798,6 +785,12 @@ export default function CreateProjectPage() {
       clientTeam: clientTeamFromContacts(selectedContacts, formData.customerName),
       projectManagerId: formData.projectManagerId,
       projectManager: formData.projectManagerName,
+      assignedTeam: buildAssignedTeamPayload(
+        formData.projectManagerId,
+        formData.projectManagerName,
+        formData.teamMembers,
+        getRoleLabel,
+      ),
       startDate: formData.startDate || null,
       expectedEndDate: formData.expectedEndDate || null,
       status: 'Pitch' as const,
@@ -829,7 +822,6 @@ export default function CreateProjectPage() {
             formData={formData}
             setFormData={setFormData}
             customers={customers}
-            vendors={vendors}
             loadingCustomers={loadingCustomers}
             errors={errors}
             setErrors={setErrors}
