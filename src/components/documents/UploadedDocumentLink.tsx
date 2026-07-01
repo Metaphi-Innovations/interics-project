@@ -7,6 +7,8 @@ export interface UploadedDocumentLinkProps {
   documentUrl?: string | null
   onOpen?: () => void
   onOpenFailed?: () => void
+  /** Match read-only field value typography (13px) instead of compact link style (12px). */
+  compact?: boolean
 }
 
 export function UploadedDocumentLink({
@@ -14,6 +16,7 @@ export function UploadedDocumentLink({
   documentUrl,
   onOpen,
   onOpenFailed,
+  compact = true,
 }: UploadedDocumentLinkProps) {
   function handleOpen(): void {
     if (onOpen) {
@@ -52,15 +55,16 @@ export function UploadedDocumentLink({
       aria-label={`View ${fileName}`}
     >
       <Box sx={{ color: tokens.color.primary[500], flexShrink: 0, display: 'flex' }}>
-        <FileText size={16} strokeWidth={2} color={tokens.color.primary[500]} />
+        <FileText size={compact ? 16 : 14} strokeWidth={2} color={tokens.color.primary[500]} />
       </Box>
       <Typography
         className="uploaded-document-link-label"
         variant="body2"
         title={fileName}
         sx={{
-          fontSize: 12,
-          fontWeight: 600,
+          fontSize: compact ? 12 : 13,
+          fontWeight: compact ? 600 : 500,
+          lineHeight: compact ? undefined : 1.5,
           color: 'primary.main',
           minWidth: 0,
           flex: 1,

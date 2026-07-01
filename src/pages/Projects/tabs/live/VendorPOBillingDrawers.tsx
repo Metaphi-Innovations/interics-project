@@ -21,10 +21,8 @@ import {
 import { Upload } from '@mui/icons-material'
 import {
   PODocumentLinkField,
-  poDocumentDisplayFileName,
   poDocumentOpenUrl,
 } from '@/components/documents/PODocumentLinkField'
-import { UploadedDocumentLink } from '@/components/documents/UploadedDocumentLink'
 import { READONLY_DISABLED_TEXTFIELD_SX } from './readOnlyFieldStyles'
 import { Button, Checkbox, useToast } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
@@ -1012,26 +1010,23 @@ export function ViewVendorPODrawer({
                         disabled
                       />
                     </FormField>
+                    <FormField label="Executed Value (₹)" required>
+                      <TextField
+                        fullWidth
+                        size="small"
+                        type="number"
+                        value={executedValueDraft}
+                        onChange={(e) => setExecutedValueDraft(e.target.value)}
+                      />
+                    </FormField>
                     {resolvedPo.fileName && poDocumentOpenUrl(resolvedPo.documentUrl) ? (
-                      <Box sx={{ display: 'flex', alignItems: 'flex-end', pb: 0.5 }}>
-                        <UploadedDocumentLink
-                          fileName={poDocumentDisplayFileName(resolvedPo.fileName)!}
-                          documentUrl={poDocumentOpenUrl(resolvedPo.documentUrl)}
-                          onOpenFailed={handlePoDocumentOpenFailed}
-                        />
-                      </Box>
+                      <PODocumentLinkField
+                        fileName={resolvedPo.fileName}
+                        documentUrl={resolvedPo.documentUrl}
+                        onOpenFailed={handlePoDocumentOpenFailed}
+                        alignWithInput
+                      />
                     ) : null}
-                    <Box sx={{ gridColumn: '1 / -1' }}>
-                      <FormField label="Executed Value (₹)" required>
-                        <TextField
-                          fullWidth
-                          size="small"
-                          type="number"
-                          value={executedValueDraft}
-                          onChange={(e) => setExecutedValueDraft(e.target.value)}
-                        />
-                      </FormField>
-                    </Box>
                   </Box>
                 </Box>
 
@@ -1067,7 +1062,9 @@ export function ViewVendorPODrawer({
               >
                 <ReadOnlyField label="PO Number" value={resolvedPo.poNumber} />
                 <ReadOnlyField label="PO Date" value={formatDate(resolvedPo.poDate)} />
-                <ReadOnlyField label="PO Value" value={`₹${formatCurrency(resolvedPo.poValue)}`} />
+                <Box sx={{ gridColumn: '1 / -1' }}>
+                  <ReadOnlyField label="PO Value" value={`₹${formatCurrency(resolvedPo.poValue)}`} />
+                </Box>
                 <ReadOnlyField
                   label="Executed Value"
                   value={`₹${formatCurrency(effectiveExecutedValue(resolvedPo))}`}

@@ -77,9 +77,7 @@ export function InvoiceDetailDrawer({
   const canPay = inv && inv.status !== 'paid' && inv.status !== 'draft'
   const canSend = inv?.status === 'draft'
 
-  const hasFooterActions = Boolean(canEdit || canSend)
-
-  const footerBar = hasFooterActions ? (
+  const footerBar = inv ? (
     <Stack direction="row" justifyContent="flex-end" gap={1} sx={{ px: '20px', py: '14px' }}>
       {canEdit ? (
         <Button variant="outlined" size="sm" onClick={() => onEdit(inv)}>
@@ -91,6 +89,9 @@ export function InvoiceDetailDrawer({
           Send
         </Button>
       ) : null}
+      <Button variant="outlined" size="sm" onClick={() => onDownloadPdf(inv)}>
+        Download Invoice
+      </Button>
     </Stack>
   ) : null
 
@@ -101,7 +102,7 @@ export function InvoiceDetailDrawer({
       title="Invoice"
       subtitle={inv?.clientName}
       width={560}
-      hideFooter={!inv || !hasFooterActions}
+      hideFooter={!inv}
       footer={footerBar ?? undefined}
     >
       {detailLoading && !inv ? (
@@ -115,9 +116,6 @@ export function InvoiceDetailDrawer({
               </Typography>
               <StatusBadge status={invoiceStatusToBadgeType(inv.status)} />
             </Stack>
-            <Button variant="outlined" size="sm" onClick={() => onDownloadPdf(inv)}>
-              Download PDF
-            </Button>
           </Stack>
 
           <FormSection title="Invoice details">

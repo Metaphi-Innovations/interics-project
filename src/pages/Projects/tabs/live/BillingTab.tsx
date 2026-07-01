@@ -388,6 +388,13 @@ function GenerateInvoiceDrawer({
 
   const roll = useMemo(() => rollupsFromLineItems(lineItemsToPayload(lines)), [lines])
 
+  function handleDownloadDraft() {
+    showToast({
+      title: 'Draft invoice download (placeholder)',
+      variant: 'info',
+    })
+  }
+
   async function handleSubmit() {
     if (!preset) return
     const invDate = toIsoDate(invoiceDate)
@@ -474,7 +481,14 @@ function GenerateInvoiceDrawer({
       width={680}
       footer={
         <Stack direction="row" justifyContent="flex-end" gap={1} sx={{ px: 2.5, py: 1.75 }}>
-          <Button variant="text" size="sm" label="Cancel" onClick={onClose} disabled={saving} />
+          <Button
+            size="sm"
+            variant="outlined"
+            color="primary"
+            label="Download Invoice"
+            onClick={handleDownloadDraft}
+            disabled={saving}
+          />
           <Button
             variant="contained"
             color="primary"
@@ -649,20 +663,24 @@ function ViewInvoiceDrawer({
         </Stack>
       }
       width={560}
-      headerActions={
-        <Button size="sm" variant="outlined" color="primary" label="Download PDF" onClick={onDownloadPdf} />
-      }
       footer={
         <Stack direction="row" justifyContent="flex-end" gap={1} sx={{ px: 2.5, py: 1.75 }}>
+          {showPay ? (
+            <Button
+              size="sm"
+              variant="contained"
+              color="primary"
+              label="Record Invoice"
+              onClick={onRecordPayment}
+            />
+          ) : null}
           <Button
             size="sm"
-            variant="contained"
+            variant="text"
             color="primary"
-            label="Record Invoice"
-            onClick={onRecordPayment}
-            disabled={!showPay}
+            label="Download Invoice"
+            onClick={onDownloadPdf}
           />
-          <Button size="sm" variant="outlined" color="primary" label="Cancel" onClick={onClose} />
         </Stack>
       }
     >

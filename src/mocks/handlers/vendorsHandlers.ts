@@ -93,6 +93,7 @@ interface Vendor {
   paymentTerms?: string | null
   notes: string | null
   status: 'Active' | 'Inactive'
+  profileStatus?: 'pending' | 'complete'
   rating?: number | null
   activeProjects: number
   totalPayables: number
@@ -123,7 +124,74 @@ function toSlug(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 }
 
-let vendors: Vendor[] = [
+function mergeVendorUpdate(prev: Vendor, data: Partial<Vendor>): Vendor {
+  const merged: Vendor = { ...prev, ...data }
+  const complianceDocFields = [
+    'gstDocument',
+    'panDocument',
+    'bankChequeDocument',
+    'insuranceDocument',
+  ] as const
+
+  for (const field of complianceDocFields) {
+    if (Object.prototype.hasOwnProperty.call(data, field)) {
+      merged[field] = data[field] ?? null
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(data, 'documents')) {
+    merged.documents = data.documents ?? []
+  }
+
+  if (Object.prototype.hasOwnProperty.call(data, 'compliance')) {
+    merged.compliance = data.compliance
+  }
+
+  if (Object.prototype.hasOwnProperty.call(data, 'activityLog') && data.activityLog) {
+    merged.activityLog = data.activityLog
+  }
+
+  return merged
+}
+
+const VENDORS_SESSION_KEY = 'interics:msw:vendors:v3'
+
+function stripComplianceRegistrationDocs(vendor: Vendor): Vendor {
+  return {
+    ...vendor,
+    gstDocument: null,
+    panDocument: null,
+    bankChequeDocument: null,
+    insuranceDocument: null,
+    documents: (vendor.documents ?? []).filter((d) => d.type !== 'Catalogue'),
+    compliance: {
+      gst: 'missing',
+      pan: 'missing',
+      bankCheque: 'missing',
+      insurance: { status: 'missing', expiryDate: null },
+    },
+  }
+}
+
+function loadPersistedVendors(seed: Vendor[]): Vendor[] {
+  try {
+    const raw = sessionStorage.getItem(VENDORS_SESSION_KEY)
+    if (raw) return JSON.parse(raw) as Vendor[]
+  } catch {
+    // ignore corrupt session storage
+  }
+  return seed.map(stripComplianceRegistrationDocs)
+}
+
+function persistVendorsSnapshot() {
+  try {
+    sessionStorage.setItem(VENDORS_SESSION_KEY, JSON.stringify(vendors))
+  } catch {
+    // ignore quota errors
+  }
+}
+
+const seedVendors: Vendor[] = [
   {
     id: 'v-001',
     name: 'BuildWell Constructions',
@@ -634,6 +702,8 @@ let vendors: Vendor[] = [
   },
 ]
 
+let vendors: Vendor[] = loadPersistedVendors(seedVendors)
+
 const VENDOR_SEED_RATINGS: Record<string, number> = {
   'v-001': 4.7,
   'v-002': 4.3,
@@ -664,6 +734,7 @@ export const vendorsHandlers = [
     const status = url.searchParams.get('status') ?? ''
     const gstStatus = url.searchParams.get('gstStatus') ?? ''
     const state = url.searchParams.get('state') ?? ''
+    const profileStatus = url.searchParams.get('profileStatus') ?? ''
     const page = parseInt(url.searchParams.get('page') ?? '1', 10)
     const pageSize = parseInt(url.searchParams.get('pageSize') ?? '10', 10)
 
@@ -689,6 +760,11 @@ export const vendorsHandlers = [
     if (status) filtered = filtered.filter((v) => v.status === status)
     if (gstStatus) filtered = filtered.filter((v) => v.gstStatus === gstStatus)
     if (state) filtered = filtered.filter((v) => v.state === state)
+    if (profileStatus === 'pending') {
+      filtered = filtered.filter((v) => v.profileStatus === 'pending')
+    } else if (profileStatus === 'complete') {
+      filtered = filtered.filter((v) => v.profileStatus !== 'pending')
+    }
 
     const total = filtered.length
     const items = filtered.slice((page - 1) * pageSize, page * pageSize).map((v) => ({
@@ -711,6 +787,17 @@ export const vendorsHandlers = [
 
   http.post('/api/vendors', async ({ request }) => {
     const data = await request.json() as Omit<Vendor, 'id' | 'createdAt'>
+    const normalizePhone = (phone: string) => phone.replace(/\D/g, '')
+    const nextPhone = normalizePhone(data.phone ?? '')
+    if (
+      nextPhone &&
+      vendors.some((v) => normalizePhone(v.phone) === nextPhone)
+    ) {
+      return HttpResponse.json(
+        { message: 'A contact with this mobile number already exists' },
+        { status: 409 },
+      )
+    }
     const defaultFinancial: VendorFinancialDetails = {
       totalPayables: 0,
       amountPaid: 0,
@@ -739,6 +826,7 @@ export const vendorsHandlers = [
     }
     vendors.unshift(newVendor)
     contactsStore[newVendor.id] = newVendor.contacts ?? []
+    persistVendorsSnapshot()
     return HttpResponse.json(newVendor, { status: 201 })
   }),
 
@@ -749,7 +837,7 @@ export const vendorsHandlers = [
     }
     const data = await request.json() as Partial<Vendor>
     const prev = vendors[idx]
-    const merged: Vendor = { ...prev, ...data }
+    const merged: Vendor = mergeVendorUpdate(prev, data)
     if (data.gstStatus !== undefined && prev.financialDetails) {
       merged.financialDetails = {
         ...prev.financialDetails,
@@ -768,6 +856,7 @@ export const vendorsHandlers = [
         merged.designation = primary.designation ?? null
       }
     }
+    persistVendorsSnapshot()
     return HttpResponse.json(vendors[idx])
   }),
 
@@ -783,6 +872,7 @@ export const vendorsHandlers = [
       )
     }
     vendors = vendors.filter((v) => v.id !== params.id)
+    persistVendorsSnapshot()
     return HttpResponse.json({ success: true })
   }),
 

@@ -30,7 +30,7 @@ import { FileUp, History } from 'lucide-react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { fetchVendorById, updateVendor } from '../../slices/vendors/thunk'
-import { clearSelected } from '../../slices/vendors/reducer'
+import { applyVendorPatch, clearSelected } from '../../slices/vendors/reducer'
 import type {
   Vendor,
 } from '../../slices/vendors/reducer'
@@ -63,6 +63,7 @@ import { useTheme, alpha } from '@mui/material/styles'
 import {
   buildComplianceDeletePatch,
   buildGenericComplianceUploadPatch,
+  COMPLIANCE_EMPTY_DOC_MESSAGES,
   getInsuranceExpiryDate,
   getVendorComplianceRegistrationDoc,
   resolveComplianceDocKeyFromDocumentName,
@@ -253,14 +254,26 @@ export default function VendorDetailPage() {
   async function handleComplianceUpload(values: ComplianceDocumentUploadValues) {
     if (!vendor) return
 
-    const preview = createUploadedCompliancePreview(values)
-    setLocalUploadedDocs((prev) => [preview, ...prev])
-
     const uploadedBy = authUser?.name ?? 'Current User'
     const docKey = resolveComplianceDocKeyFromDocumentName(values.documentName)
     const hadExisting = docKey
       ? getVendorComplianceRegistrationDoc(vendor, docKey) !== null
       : false
+
+    const patch = buildGenericComplianceUploadPatch(vendor, {
+      documentName: values.documentName,
+      file: values.file,
+      notes: values.notes,
+      uploadedBy,
+      expiryDate: values.expiryDate,
+    })
+
+    if (docKey) {
+      dispatch(applyVendorPatch({ id: vendor.id, patch }))
+    } else {
+      const preview = createUploadedCompliancePreview(values)
+      setLocalUploadedDocs((prev) => [preview, ...prev])
+    }
 
     setUploadModalOpen(false)
     showToast({
@@ -271,16 +284,11 @@ export default function VendorDetailPage() {
     })
 
     try {
-      const patch = buildGenericComplianceUploadPatch(vendor, {
-        documentName: values.documentName,
-        file: values.file,
-        notes: values.notes,
-        uploadedBy,
-        expiryDate: values.expiryDate,
-      })
       await dispatch(updateVendor({ id: vendor.id, data: patch })).unwrap()
     } catch {
-      // Session preview already shown — mock API failure does not block the demo flow.
+      if (docKey) {
+        void dispatch(fetchVendorById(vendor.id))
+      }
     }
   }
 
@@ -318,22 +326,50 @@ export default function VendorDetailPage() {
     if (!vendor || !getVendorComplianceRegistrationDoc(vendor, docKey)) return
 
     const deletedBy = authUser?.name ?? 'Current User'
+    const patch = buildComplianceDeletePatch(vendor, docKey, deletedBy)
+
+    dispatch(applyVendorPatch({ id: vendor.id, patch }))
+    setLocalUploadedDocs((prev) => {
+      const next = prev.filter(
+        (item) => resolveComplianceDocKeyFromDocumentName(item.name) !== docKey,
+      )
+      for (const item of prev) {
+        if (
+          resolveComplianceDocKeyFromDocumentName(item.name) === docKey &&
+          item.blobUrl
+        ) {
+          URL.revokeObjectURL(item.blobUrl)
+        }
+      }
+      return next
+    })
+
     try {
-      const patch = buildComplianceDeletePatch(vendor, docKey, deletedBy)
       await dispatch(updateVendor({ id: vendor.id, data: patch })).unwrap()
-      showToast({ title: 'Document removed', variant: 'success' })
+      showToast({ title: 'Document removed successfully.', variant: 'success' })
     } catch {
+      void dispatch(fetchVendorById(vendor.id))
       showToast({ title: 'Failed to remove document', variant: 'error' })
     }
   }
 
   function handleDeleteUploadedPreview(id: string) {
+    const preview = localUploadedDocs.find((item) => item.id === id)
+    const docKey = preview
+      ? resolveComplianceDocKeyFromDocumentName(preview.name)
+      : null
+
+    if (docKey && vendor && getVendorComplianceRegistrationDoc(vendor, docKey)) {
+      void handleDeleteComplianceDoc(docKey)
+      return
+    }
+
     setLocalUploadedDocs((prev) => {
       const doc = prev.find((item) => item.id === id)
       if (doc?.blobUrl) URL.revokeObjectURL(doc.blobUrl)
       return prev.filter((item) => item.id !== id)
     })
-    showToast({ title: 'Document removed', variant: 'success' })
+    showToast({ title: 'Document removed successfully.', variant: 'success' })
   }
 
   function complianceDocDeleteHandler(docKey: ComplianceRegistrationDocKey) {
@@ -598,6 +634,10 @@ export default function VendorDetailPage() {
       }
     }
 
+    const hasRegistrationDocs =
+      Boolean(gstDoc || panDoc || bankDoc || catalogueDoc || insuranceDoc) ||
+      localUploadedDocs.length > 0
+
     return (
       <Stack gap={theme.spacing(2)}>
         <WorkspaceSection
@@ -613,85 +653,95 @@ export default function VendorDetailPage() {
             />
           }
         >
-          <Box
-            sx={{
-              display: 'grid',
-              gap: theme.spacing(1.5),
-              gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
-              alignItems: 'start',
-            }}
-          >
-            <RecordDetailTaxDocCard
-              variant="gst"
-              title="GST Registration"
-              showHeaderIcon={false}
-              showUploadMeta={false}
-              fieldLabel="GSTIN"
-              fieldValue={vendor!.gstin}
-              document={gstDoc}
-              emptyDocMessage="No certificate uploaded"
-              onView={openTaxDocument}
-              onDownload={openTaxDocument}
-              onCopySuccess={onCopy}
-              onDelete={complianceDocDeleteHandler('gst')}
-            />
-            <RecordDetailTaxDocCard
-              variant="pan"
-              title="PAN / Income Tax"
-              showHeaderIcon={false}
-              showUploadMeta={false}
-              fieldLabel="PAN"
-              fieldValue={vendor!.pan}
-              document={panDoc}
-              emptyDocMessage="No document uploaded"
-              onView={openTaxDocument}
-              onDownload={openTaxDocument}
-              onCopySuccess={onCopy}
-              onDelete={complianceDocDeleteHandler('pan')}
-            />
-            <RecordDetailTaxDocCard
-              variant="cheque"
-              title="Bank Cancelled Cheque"
-              showHeaderIcon={false}
-              showUploadMeta={false}
-              fieldLabel="Verification document"
-              fieldValue="—"
-              document={bankDoc}
-              emptyDocMessage="No cancelled cheque uploaded"
-              onView={openTaxDocument}
-              onDownload={openTaxDocument}
-              onCopySuccess={onCopy}
-              onDelete={complianceDocDeleteHandler('bank_cheque')}
-            />
-            <RecordDetailTaxDocCard
-              variant="catalogue"
-              title="Catalogue"
-              showHeaderIcon={false}
-              showUploadMeta={false}
-              fieldLabel="Uploaded"
-              fieldValue={catalogueDoc?.uploadedOn ? fmtTs(catalogueDoc.uploadedOn) : null}
-              document={catalogueDoc}
-              emptyDocMessage="No catalogue uploaded"
-              onView={openTaxDocument}
-              onDownload={openTaxDocument}
-              onCopySuccess={onCopy}
-              onDelete={complianceDocDeleteHandler('catalogue')}
-            />
-            <RecordDetailTaxDocCard
-              variant="insurance"
-              title="Insurance"
-              showHeaderIcon={false}
-              showUploadMeta={false}
-              fieldLabel={insExpiry ? 'Policy expiry' : 'Coverage'}
-              fieldValue={insExpiry ? fmtTs(insExpiry) : 'General liability'}
-              document={insuranceDoc}
-              emptyDocMessage="No insurance document uploaded"
-              onView={openTaxDocument}
-              onDownload={openTaxDocument}
-              onCopySuccess={onCopy}
-              onDelete={complianceDocDeleteHandler('insurance')}
-            />
-            <Box>
+          {hasRegistrationDocs ? (
+            <Box
+              sx={{
+                display: 'grid',
+                gap: theme.spacing(1.5),
+                gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
+                alignItems: 'start',
+              }}
+            >
+              {gstDoc ? (
+                <RecordDetailTaxDocCard
+                  variant="gst"
+                  title="GST Registration"
+                  showHeaderIcon={false}
+                  showUploadMeta={false}
+                  fieldLabel="GSTIN"
+                  fieldValue={vendor!.gstin}
+                  document={gstDoc}
+                  emptyDocMessage={COMPLIANCE_EMPTY_DOC_MESSAGES.gst}
+                  onView={openTaxDocument}
+                  onDownload={openTaxDocument}
+                  onCopySuccess={onCopy}
+                  onDelete={complianceDocDeleteHandler('gst')}
+                />
+              ) : null}
+              {panDoc ? (
+                <RecordDetailTaxDocCard
+                  variant="pan"
+                  title="PAN / Income Tax"
+                  showHeaderIcon={false}
+                  showUploadMeta={false}
+                  fieldLabel="PAN Number"
+                  fieldValue={vendor!.pan}
+                  document={panDoc}
+                  emptyDocMessage={COMPLIANCE_EMPTY_DOC_MESSAGES.pan}
+                  onView={openTaxDocument}
+                  onDownload={openTaxDocument}
+                  onCopySuccess={onCopy}
+                  onDelete={complianceDocDeleteHandler('pan')}
+                />
+              ) : null}
+              {bankDoc ? (
+                <RecordDetailTaxDocCard
+                  variant="cheque"
+                  title="Bank Cancelled Cheque"
+                  showHeaderIcon={false}
+                  showUploadMeta={false}
+                  fieldLabel="Verification document"
+                  fieldValue="—"
+                  document={bankDoc}
+                  emptyDocMessage={COMPLIANCE_EMPTY_DOC_MESSAGES.bank_cheque}
+                  onView={openTaxDocument}
+                  onDownload={openTaxDocument}
+                  onCopySuccess={onCopy}
+                  onDelete={complianceDocDeleteHandler('bank_cheque')}
+                />
+              ) : null}
+              {catalogueDoc ? (
+                <RecordDetailTaxDocCard
+                  variant="catalogue"
+                  title="Catalogue"
+                  showHeaderIcon={false}
+                  showUploadMeta={false}
+                  fieldLabel="Uploaded"
+                  fieldValue={catalogueDoc.uploadedOn ? fmtTs(catalogueDoc.uploadedOn) : null}
+                  document={catalogueDoc}
+                  emptyDocMessage={COMPLIANCE_EMPTY_DOC_MESSAGES.catalogue}
+                  onView={openTaxDocument}
+                  onDownload={openTaxDocument}
+                  onCopySuccess={onCopy}
+                  onDelete={complianceDocDeleteHandler('catalogue')}
+                />
+              ) : null}
+              {insuranceDoc ? (
+                <RecordDetailTaxDocCard
+                  variant="insurance"
+                  title="Insurance"
+                  showHeaderIcon={false}
+                  showUploadMeta={false}
+                  fieldLabel={insExpiry ? 'Policy expiry' : 'Coverage'}
+                  fieldValue={insExpiry ? fmtTs(insExpiry) : 'General liability'}
+                  document={insuranceDoc}
+                  emptyDocMessage={COMPLIANCE_EMPTY_DOC_MESSAGES.insurance}
+                  onView={openTaxDocument}
+                  onDownload={openTaxDocument}
+                  onCopySuccess={onCopy}
+                  onDelete={complianceDocDeleteHandler('insurance')}
+                />
+              ) : null}
               <UploadedCompliancePreviewStack
                 documents={localUploadedDocs}
                 onView={openTaxDocument}
@@ -701,7 +751,16 @@ export default function VendorDetailPage() {
                 stackTopSpacing={false}
               />
             </Box>
-          </Box>
+          ) : (
+            <Box sx={{ py: 5, textAlign: 'center' }}>
+              <Typography variant="body2" color="text.secondary">
+                No compliance documents uploaded yet.
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                Use Upload Document to add GST, PAN, and other compliance records.
+              </Typography>
+            </Box>
+          )}
         </WorkspaceSection>
       </Stack>
     )

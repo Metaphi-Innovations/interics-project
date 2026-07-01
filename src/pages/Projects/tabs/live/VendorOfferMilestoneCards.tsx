@@ -21,6 +21,7 @@ import {
   type VendorPOMilestoneRow,
   type VendorPORetentionRow,
 } from './VendorPOMilestoneEditor'
+import type { MilestonePaymentStatusLabel } from './milestonePaymentStatus'
 import type { VendorPOMilestone } from '@/slices/baseline/reducer'
 
 export interface CategoryOption {
@@ -330,6 +331,8 @@ interface MilestoneCardEditorProps {
   milestoneBaseValue: number
   includeRetention?: boolean
   readOnly?: boolean
+  milestoneStatuses?: Record<string, MilestonePaymentStatusLabel>
+  retentionStatus?: MilestonePaymentStatusLabel
   onChange: (patch: Partial<VendorOfferMilestoneCard>) => void
   onRemove: () => void
 }
@@ -341,6 +344,8 @@ export function VendorOfferMilestoneCardEditor({
   milestoneBaseValue,
   includeRetention = false,
   readOnly = false,
+  milestoneStatuses,
+  retentionStatus,
   onChange,
   onRemove,
 }: MilestoneCardEditorProps) {
@@ -388,6 +393,8 @@ export function VendorOfferMilestoneCardEditor({
           milestones={card.milestones}
           retention={card.retention ?? null}
           finalMilestone={null}
+          milestoneStatuses={milestoneStatuses}
+          retentionStatus={retentionStatus}
           onMilestonesChange={(milestones) => onChange({ milestones })}
           onRetentionChange={(retention) => onChange({ retention })}
           onFinalMilestoneChange={() => undefined}

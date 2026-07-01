@@ -145,7 +145,7 @@ const ACTIVITY_FILTER_OPTIONS: { id: ActivityFilterCategory; label: string }[] =
 
 // ─── CustomerDetailPage ───────────────────────────────────────────────────────
 
-const CUSTOMER_DETAIL_TABS = ['overview', 'docs-tax', 'contacts', 'projects', 'billing', 'financial', 'activity'] as const
+const CUSTOMER_DETAIL_TABS = ['overview', 'contacts', 'projects', 'billing', 'financial', 'activity'] as const
 
 export default function CustomerDetailPage() {
   const { id: slug } = useParams<{ id: string }>()
@@ -190,6 +190,10 @@ export default function CustomerDetailPage() {
 
   useEffect(() => {
     const tab = searchParams.get('tab')
+    if (tab === 'docs-tax') {
+      setActiveTab('overview')
+      return
+    }
     if (tab && (CUSTOMER_DETAIL_TABS as readonly string[]).includes(tab)) {
       setActiveTab(tab)
     }
@@ -279,13 +283,53 @@ export default function CustomerDetailPage() {
 
   const tabs = [
     { label: 'Overview', value: 'overview' },
-    { label: 'Documents & Tax', value: 'docs-tax' },
     { label: 'Contacts', value: 'contacts' },
     { label: 'Linked Projects', value: 'projects' },
     { label: 'Billing History', value: 'billing' },
     { label: 'Financial Details', value: 'financial' },
     { label: 'Activity', value: 'activity' },
   ]
+
+  function renderDocumentsAndTax() {
+    const onCopy = () => showToast({ title: 'Copied to clipboard', variant: 'success' })
+    return (
+      <Box
+        sx={{
+          display: 'grid',
+          gap: theme.spacing(1.5),
+          gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
+          alignItems: 'start',
+        }}
+      >
+        <RecordDetailTaxDocCard
+          variant="gst"
+          title="GST Registration"
+          statusChip={{
+            label: customer!.gstStatus,
+            isRegistered: customer!.gstStatus === 'Registered',
+          }}
+          fieldLabel="GSTIN"
+          fieldValue={customer!.gstin}
+          document={customer!.gstDocument ?? null}
+          emptyDocMessage="No document uploaded"
+          onView={openTaxDocument}
+          onDownload={openTaxDocument}
+          onCopySuccess={onCopy}
+        />
+        <RecordDetailTaxDocCard
+          variant="pan"
+          title="PAN / Income Tax"
+          fieldLabel="PAN Number"
+          fieldValue={customer!.pan}
+          document={customer!.panDocument ?? null}
+          emptyDocMessage="No document uploaded"
+          onView={openTaxDocument}
+          onDownload={openTaxDocument}
+          onCopySuccess={onCopy}
+        />
+      </Box>
+    )
+  }
 
   // ── renderOverview ─────────────────────────────────────────────────────────
 
@@ -398,6 +442,11 @@ export default function CustomerDetailPage() {
         </Box>
 
         <Box sx={getRecordDetailFlatSectionSx(theme, { isLast: false })}>
+          <RecordDetailSectionTitle>Documents & Tax</RecordDetailSectionTitle>
+          {renderDocumentsAndTax()}
+        </Box>
+
+        <Box sx={getRecordDetailFlatSectionSx(theme, { isLast: false })}>
           <RecordDetailSectionTitle>Address & location</RecordDetailSectionTitle>
           {addressStr ? (
             <Typography
@@ -450,49 +499,6 @@ export default function CustomerDetailPage() {
           ) : null}
         </Box>
       </Stack>
-    )
-  }
-
-  // ── renderDocsTax ──────────────────────────────────────────────────────────
-
-  function renderDocsTax() {
-    const onCopy = () => showToast({ title: 'Copied to clipboard', variant: 'success' })
-    return (
-      <Box
-        sx={{
-          display: 'grid',
-          gap: theme.spacing(1.5),
-          gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
-          alignItems: 'start',
-        }}
-      >
-        <RecordDetailTaxDocCard
-          variant="gst"
-          title="GST Registration"
-          statusChip={{
-            label: customer!.gstStatus,
-            isRegistered: customer!.gstStatus === 'Registered',
-          }}
-          fieldLabel="GSTIN"
-          fieldValue={customer!.gstin}
-          document={customer!.gstDocument ?? null}
-          emptyDocMessage="No certificate uploaded"
-          onView={openTaxDocument}
-          onDownload={openTaxDocument}
-          onCopySuccess={onCopy}
-        />
-        <RecordDetailTaxDocCard
-          variant="pan"
-          title="PAN / Income Tax"
-          fieldLabel="PAN"
-          fieldValue={customer!.pan}
-          document={customer!.panDocument ?? null}
-          emptyDocMessage="No document uploaded"
-          onView={openTaxDocument}
-          onDownload={openTaxDocument}
-          onCopySuccess={onCopy}
-        />
-      </Box>
     )
   }
 
@@ -824,7 +830,6 @@ export default function CustomerDetailPage() {
   function renderTabContent() {
     switch (activeTab) {
       case 'overview':   return renderOverview()
-      case 'docs-tax':   return renderDocsTax()
       case 'contacts':   return renderContacts()
       case 'projects':   return renderProjects()
       case 'billing':    return renderPlaceholder(<Receipt sx={{ fontSize: 36 }} />, 'Billing history will appear here once invoices are created')

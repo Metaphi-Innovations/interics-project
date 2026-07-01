@@ -37,6 +37,46 @@ export const COMPLIANCE_REGISTRATION_DOC_KEYS: ComplianceRegistrationDocKey[] = 
   'catalogue',
 ]
 
+export const COMPLIANCE_EMPTY_DOC_MESSAGES: Record<ComplianceRegistrationDocKey, string> = {
+  gst: 'No GST certificate uploaded.',
+  pan: 'No PAN card uploaded.',
+  bank_cheque: 'No cancelled cheque uploaded.',
+  catalogue: 'No catalogue uploaded.',
+  insurance: 'No insurance document uploaded.',
+}
+
+const COMPLIANCE_DOCUMENT_FIELDS = [
+  'gstDocument',
+  'panDocument',
+  'bankChequeDocument',
+  'insuranceDocument',
+] as const
+
+/** Apply a partial vendor update, honouring explicit `null` document clears. */
+export function applyVendorRecordPatch(vendor: Vendor, patch: Partial<Vendor>): Vendor {
+  const next: Vendor = { ...vendor, ...patch }
+
+  for (const field of COMPLIANCE_DOCUMENT_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(patch, field)) {
+      next[field] = patch[field] ?? null
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(patch, 'documents')) {
+    next.documents = patch.documents ?? []
+  }
+
+  if (Object.prototype.hasOwnProperty.call(patch, 'compliance')) {
+    next.compliance = patch.compliance
+  }
+
+  if (Object.prototype.hasOwnProperty.call(patch, 'activityLog')) {
+    next.activityLog = patch.activityLog
+  }
+
+  return next
+}
+
 /** Same file types as Project Documents → Upload Document drawer. */
 export const COMPLIANCE_UPLOAD_ACCEPT =
   '.pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,image/jpeg,image/png'

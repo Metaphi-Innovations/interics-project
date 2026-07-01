@@ -20,10 +20,8 @@ import {
 import { Add, Upload } from '@mui/icons-material'
 import {
   PODocumentLinkField,
-  poDocumentDisplayFileName,
   poDocumentOpenUrl,
 } from '@/components/documents/PODocumentLinkField'
-import { UploadedDocumentLink } from '@/components/documents/UploadedDocumentLink'
 import { READONLY_DISABLED_TEXTFIELD_SX } from './readOnlyFieldStyles'
 import { useTheme, alpha } from '@mui/material/styles'
 import { Button, useToast } from '@/design-system/components'
@@ -65,6 +63,7 @@ import {
 } from './poExecutedValueRules'
 import {
   clientMilestonePaymentStatus,
+  clientMilestoneStatusesForCard,
   type MilestonePaymentStatusLabel,
 } from './milestonePaymentStatus'
 
@@ -825,15 +824,6 @@ export function ViewClientPODrawer({ open, onClose, projectId, po }: ViewClientP
                         disabled
                       />
                     </FormField>
-                    {po?.fileName && poDocumentOpenUrl(po.documentUrl) ? (
-                      <Box sx={{ gridColumn: '1 / -1' }}>
-                        <UploadedDocumentLink
-                          fileName={poDocumentDisplayFileName(po.fileName)!}
-                          documentUrl={poDocumentOpenUrl(po.documentUrl)}
-                          onOpenFailed={handlePoDocumentOpenFailed}
-                        />
-                      </Box>
-                    ) : null}
                     <FormField label="Executed Value (₹)" required>
                       <TextField
                         fullWidth
@@ -843,6 +833,14 @@ export function ViewClientPODrawer({ open, onClose, projectId, po }: ViewClientP
                         onChange={(e) => setExecutedValueDraft(e.target.value)}
                       />
                     </FormField>
+                    {po?.fileName && poDocumentOpenUrl(po.documentUrl) ? (
+                      <PODocumentLinkField
+                        fileName={po.fileName}
+                        documentUrl={po.documentUrl}
+                        onOpenFailed={handlePoDocumentOpenFailed}
+                        alignWithInput
+                      />
+                    ) : null}
                   </Box>
                 </Box>
 
@@ -855,19 +853,28 @@ export function ViewClientPODrawer({ open, onClose, projectId, po }: ViewClientP
                   isEmpty={previewMilestoneCards.length === 0}
                   showAddButton={false}
                 >
-                  {previewMilestoneCards.map((card) => (
-                    <ClientPOMilestoneCardEditor
-                      key={card.id}
-                      card={card}
-                      categoryOptions={categoryOptions}
-                      serviceOptions={cardServiceOptions}
-                      milestoneBaseValue={milestoneBaseValue}
-                      includeRetention
-                      readOnly
-                      onChange={() => undefined}
-                      onRemove={() => undefined}
-                    />
-                  ))}
+                  {previewMilestoneCards.map((card) => {
+                    const { milestoneStatuses, retentionStatus } = clientMilestoneStatusesForCard(
+                      previewMilestones,
+                      card.serviceId,
+                      projectInvoices,
+                    )
+                    return (
+                      <ClientPOMilestoneCardEditor
+                        key={card.id}
+                        card={card}
+                        categoryOptions={categoryOptions}
+                        serviceOptions={cardServiceOptions}
+                        milestoneBaseValue={milestoneBaseValue}
+                        includeRetention
+                        readOnly
+                        milestoneStatuses={milestoneStatuses}
+                        retentionStatus={retentionStatus}
+                        onChange={() => undefined}
+                        onRemove={() => undefined}
+                      />
+                    )
+                  })}
                 </MilestoneSectionPanel>
               </>
             ) : (

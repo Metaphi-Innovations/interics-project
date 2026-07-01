@@ -2,6 +2,7 @@ import { createSlice } from '@reduxjs/toolkit'
 import type { PayloadAction } from '@reduxjs/toolkit'
 import type { ActivityEntry, Contact } from '../customers/reducer'
 import { getVendorContactsList } from '@/utils/vendorContacts'
+import { applyVendorRecordPatch } from '@/utils/vendorComplianceDocuments'
 import {
   fetchVendors,
   fetchVendorById,
@@ -9,6 +10,7 @@ import {
   updateVendor,
   deleteVendor,
   createVendorContact,
+  createPendingVendor,
 } from './thunk'
 
 export interface VendorFinancialDetails {
@@ -106,6 +108,8 @@ export interface Vendor {
   paymentTerms?: string | null
   notes: string | null
   status: 'Active' | 'Inactive'
+  /** When pending, only basic contact fields are captured until the vendor profile is completed. */
+  profileStatus?: 'pending' | 'complete'
   /** Performance rating on a 0–5 scale; null when not yet rated. */
   rating: number | null
   activeProjects: number
@@ -182,6 +186,19 @@ const vendorsSlice = createSlice({
     clearSelected(state) {
       state.selectedItem = null
     },
+    applyVendorPatch(
+      state,
+      action: PayloadAction<{ id: string; patch: Partial<Vendor> }>,
+    ) {
+      const { id, patch } = action.payload
+      const idx = state.items.findIndex((v) => v.id === id)
+      if (idx !== -1) {
+        state.items[idx] = applyVendorRecordPatch(state.items[idx], patch)
+      }
+      if (state.selectedItem?.id === id) {
+        state.selectedItem = applyVendorRecordPatch(state.selectedItem, patch)
+      }
+    },
     reset() {
       return initialState
     },
@@ -221,10 +238,13 @@ const vendorsSlice = createSlice({
       })
       .addCase(updateVendor.fulfilled, (state, action) => {
         state.saving = false
-        const idx = state.items.findIndex((v) => v.id === action.payload.id)
-        if (idx !== -1) state.items[idx] = action.payload
-        if (state.selectedItem?.id === action.payload.id) {
-          state.selectedItem = action.payload
+        const updated = action.payload
+        const idx = state.items.findIndex((v) => v.id === updated.id)
+        if (idx !== -1) {
+          state.items[idx] = updated
+        }
+        if (state.selectedItem?.id === updated.id) {
+          state.selectedItem = updated
         }
       })
       .addCase(updateVendor.rejected, (state, action) => {
@@ -256,9 +276,28 @@ const vendorsSlice = createSlice({
           state.selectedItem = { ...vendor, contacts: [...baseContacts, contact] }
         }
       })
+      .addCase(createPendingVendor.pending, (state) => {
+        state.saving = true
+      })
+      .addCase(createPendingVendor.fulfilled, (state, action) => {
+        state.saving = false
+        state.items.unshift(action.payload)
+        state.pagination.total += 1
+      })
+      .addCase(createPendingVendor.rejected, (state, action) => {
+        state.saving = false
+        state.error = action.payload as string
+      })
   },
 })
 
-export const { setFilters, resetFilters, setPage, setSortConfig, clearSelected, reset } =
-  vendorsSlice.actions
+export const {
+  setFilters,
+  resetFilters,
+  setPage,
+  setSortConfig,
+  clearSelected,
+  applyVendorPatch,
+  reset,
+} = vendorsSlice.actions
 export default vendorsSlice.reducer

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import {
   Box,
   Stack,
@@ -38,7 +38,12 @@ import type { Vendor } from '../../slices/vendors/reducer'
 import { ListingTemplate } from '../../components/templates'
 import type { FilterField, ColumnItem } from '../../components/templates/ListingTemplate'
 import { VendorDrawer } from './VendorDrawer'
+import { PendingVendorContactsTable } from './PendingVendorContactsTable'
+import { PendingVendorViewDrawer } from './PendingVendorViewDrawer'
 import { useToast, Modal, Button } from '@/design-system/components'
+import { vendorsApi } from '@/api/vendorsApi'
+import { normalizeListResponse } from '@/utils/normalizeListResponse'
+import { isPendingVendor } from '@/utils/vendorProfileStatus'
 import { getInitials, getAvatarColor, toSlug } from '../../utils/formatters'
 import { getSpecializationTagSx } from '../../utils/specializationTagStyles'
 import { tokens } from '@/design-system/tokens'
@@ -46,6 +51,8 @@ import { formatVendorRating, normalizeVendorRating } from '../../utils/vendorRat
 
 const VENDOR_ACTION_WIDTH_PX = 60
 const VENDOR_CELL_PAD_X = '14px'
+
+type ContactsTab = 'active' | 'pending'
 
 type VendorTableVisibleColumns = {
   website: boolean
@@ -785,12 +792,50 @@ export default function VendorsPage() {
     specialization: true,
     rating: true,
   })
+  const [contactsTab, setContactsTab] = useState<ContactsTab>('active')
+  const [pendingViewVendor, setPendingViewVendor] = useState<Vendor | null>(null)
+  const [pendingViewOpen, setPendingViewOpen] = useState(false)
+  const [tabCounts, setTabCounts] = useState({ active: 0, pending: 0 })
 
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  const refreshTabCounts = useCallback(async () => {
+    try {
+      const [activeRes, pendingRes] = await Promise.all([
+        vendorsApi.getAll({ page: 1, pageSize: 1, profileStatus: 'complete' }),
+        vendorsApi.getAll({ page: 1, pageSize: 1, profileStatus: 'pending' }),
+      ])
+      setTabCounts({
+        active: normalizeListResponse<Vendor>(activeRes.data).total,
+        pending: normalizeListResponse<Vendor>(pendingRes.data).total,
+      })
+    } catch {
+      // Tab counts are non-blocking; listing fetch still drives the table.
+    }
+  }, [])
+
+  const profileStatusFilter = contactsTab === 'pending' ? 'pending' : 'complete'
+
+  function buildFetchParams(page = pagination.page) {
+    return {
+      page,
+      pageSize: pagination.pageSize,
+      search: filters.search || undefined,
+      profileStatus: profileStatusFilter as 'pending' | 'complete',
+      ...(contactsTab === 'active'
+        ? {
+            status: filters.status || undefined,
+            gstStatus: filters.gstStatus || undefined,
+            state: filters.state || undefined,
+          }
+        : {}),
+    }
+  }
+
   // ── Initial fetch ──────────────────────────────────────────────────
   useEffect(() => {
-    dispatch(fetchVendors({ page: 1, pageSize: pagination.pageSize }))
+    dispatch(fetchVendors(buildFetchParams(1)))
+    void refreshTabCounts()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -803,7 +848,7 @@ export default function VendorsPage() {
   // ── Computed ──────────────────────────────────────────────────────
 
   // Sort items client-side
-  const sortedItems = [...items].sort((a, b) => {
+  const sortedItems = useMemo(() => [...items].sort((a, b) => {
     if (!sortConfig.field) return 0
     if (sortConfig.field === 'projects') {
       const av = getTotalVendorProjectCount(a)
@@ -826,7 +871,15 @@ export default function VendorsPage() {
     const bStr = String(bVal ?? '').toLowerCase()
     const cmp = aStr < bStr ? -1 : 1
     return sortConfig.direction === 'asc' ? cmp : -cmp
-  })
+  }), [items, sortConfig])
+
+  const contactsTabs = useMemo(
+    () => [
+      { label: 'Active Contacts', value: 'active', count: tabCounts.active },
+      { label: 'Pending Contacts', value: 'pending', count: tabCounts.pending },
+    ],
+    [tabCounts],
+  )
 
   const columnsConfig: ColumnItem[] = [
     { field: 'website', label: 'Website', visible: visibleColumns.website },
@@ -880,12 +933,7 @@ export default function VendorsPage() {
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
     searchTimeoutRef.current = setTimeout(() => {
       dispatch(setPage(1))
-      dispatch(fetchVendors({
-        page: 1,
-        pageSize: pagination.pageSize,
-        search: value || undefined,
-        status: filters.status || undefined,
-      }))
+      dispatch(fetchVendors(buildFetchParams(1)))
     }, 300)
   }
 
@@ -897,19 +945,14 @@ export default function VendorsPage() {
     }
     dispatch(setFilters(params as { search?: string; status?: string; gstStatus?: string; state?: string }))
     dispatch(setPage(1))
-    dispatch(fetchVendors({ page: 1, pageSize: pagination.pageSize, search: filters.search || undefined, ...params }))
+    dispatch(fetchVendors({ ...buildFetchParams(1), ...params }))
   }
 
   function handleFilterReset() {
     setActiveFilters({})
     dispatch(resetFilters())
     dispatch(setPage(1))
-    dispatch(fetchVendors({
-      page: 1,
-      pageSize: pagination.pageSize,
-      search: filters.search || undefined,
-      status: filters.status || undefined,
-    }))
+    dispatch(fetchVendors(buildFetchParams(1)))
   }
 
   function handleSortChange(field: string, direction: 'asc' | 'desc') {
@@ -918,12 +961,45 @@ export default function VendorsPage() {
 
   function handlePageChange(p: number) {
     dispatch(setPage(p))
-    dispatch(fetchVendors({
-      page: p,
-      pageSize: pagination.pageSize,
-      search: filters.search || undefined,
-      status: filters.status || undefined,
-    }))
+    dispatch(fetchVendors(buildFetchParams(p)))
+  }
+
+  function handleContactsTabChange(tab: string) {
+    const next = tab as ContactsTab
+    setContactsTab(next)
+    dispatch(setPage(1))
+    dispatch(
+      fetchVendors({
+        page: 1,
+        pageSize: pagination.pageSize,
+        search: filters.search || undefined,
+        profileStatus: next === 'pending' ? 'pending' : 'complete',
+        ...(next === 'active'
+          ? {
+              status: filters.status || undefined,
+              gstStatus: filters.gstStatus || undefined,
+              state: filters.state || undefined,
+            }
+          : {}),
+      }),
+    )
+  }
+
+  function handleVendorCompleted() {
+    setContactsTab('active')
+    dispatch(setPage(1))
+    void refreshTabCounts()
+    dispatch(
+      fetchVendors({
+        page: 1,
+        pageSize: pagination.pageSize,
+        search: filters.search || undefined,
+        profileStatus: 'complete',
+        status: filters.status || undefined,
+        gstStatus: filters.gstStatus || undefined,
+        state: filters.state || undefined,
+      }),
+    )
   }
 
   function handleColumnVisibilityChange(field: string, visible: boolean) {
@@ -945,6 +1021,7 @@ export default function VendorsPage() {
   function handleDrawerClose() {
     setDrawerOpen(false)
     setEditingVendor(null)
+    void refreshTabCounts()
   }
 
   function handleNavigateToVendor(id: string) {
@@ -965,6 +1042,7 @@ export default function VendorsPage() {
     try {
       await dispatch(deleteVendor(deleteTarget.id)).unwrap()
       showToast({ title: 'Vendor deleted', variant: 'success' })
+      void refreshTabCounts()
     } catch (err) {
       showToast({ title: (err as string) || 'Failed to delete vendor', variant: 'error' })
     }
@@ -978,25 +1056,48 @@ export default function VendorsPage() {
         icon={<Truck size={20} />}
         title="Vendors"
         subtitle="Vendor directory and procurement relationships"
-        primaryAction={{
-          label: 'Add Vendor',
-          onClick: openAddDrawer,
-          startIcon: <Plus size={16} strokeWidth={2} />,
-        }}
-        searchPlaceholder="Search by name, contact, or specialization..."
+        tabs={contactsTabs}
+        activeTab={contactsTab}
+        onTabChange={handleContactsTabChange}
+        primaryAction={
+          contactsTab === 'active'
+            ? {
+                label: 'Add Vendor',
+                onClick: openAddDrawer,
+                startIcon: <Plus size={16} strokeWidth={2} />,
+              }
+            : undefined
+        }
+        searchPlaceholder={
+          contactsTab === 'pending'
+            ? 'Search by name, mobile, or email…'
+            : 'Search by name, contact, or specialization...'
+        }
         searchValue={filters.search}
         onSearchChange={handleSearchChange}
-        filterConfig={filterConfig}
-        activeFilters={activeFilters}
-        onFilterChange={handleFilterChange}
-        onFilterReset={handleFilterReset}
-        columns={columnsConfig}
-        onColumnVisibilityChange={handleColumnVisibilityChange}
-        showViewToggle={true}
+        filterConfig={contactsTab === 'active' ? filterConfig : undefined}
+        activeFilters={contactsTab === 'active' ? activeFilters : undefined}
+        onFilterChange={contactsTab === 'active' ? handleFilterChange : undefined}
+        onFilterReset={contactsTab === 'active' ? handleFilterReset : undefined}
+        columns={contactsTab === 'active' ? columnsConfig : undefined}
+        onColumnVisibilityChange={
+          contactsTab === 'active' ? handleColumnVisibilityChange : undefined
+        }
+        showViewToggle={contactsTab === 'active'}
         onViewModeChange={(mode) => setViewMode(mode === 'grid' ? 'grid' : 'table')}
         clipCardContent={false}
       >
-        {viewMode === 'grid' ? (
+        {contactsTab === 'pending' ? (
+          <PendingVendorContactsTable
+            items={sortedItems}
+            loading={loading}
+            onView={(vendor) => {
+              setPendingViewVendor(vendor)
+              setPendingViewOpen(true)
+            }}
+            onUpdate={openEditDrawer}
+          />
+        ) : viewMode === 'grid' ? (
           <VendorsGrid
             items={sortedItems}
             loading={loading}
@@ -1035,6 +1136,18 @@ export default function VendorsPage() {
         onClose={handleDrawerClose}
         mode={drawerMode}
         vendor={editingVendor}
+        onCompleted={
+          editingVendor && isPendingVendor(editingVendor) ? handleVendorCompleted : undefined
+        }
+      />
+
+      <PendingVendorViewDrawer
+        open={pendingViewOpen}
+        vendor={pendingViewVendor}
+        onClose={() => {
+          setPendingViewOpen(false)
+          setPendingViewVendor(null)
+        }}
       />
 
       <ConfirmDeleteDialog

@@ -1,10 +1,10 @@
-import { useState, useEffect } from 'react'
-import { Box, TextField, MenuItem, Autocomplete, Chip as MuiChip } from '@mui/material'
+import { useState, useEffect, useRef } from 'react'
+import { Box, Stack, TextField, MenuItem, Autocomplete, Chip as MuiChip, Typography } from '@mui/material'
 import { DrawerForm, FormSection, FormField } from '../../components/templates'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { createVendor, updateVendor } from '../../slices/vendors/thunk'
-import { useToast } from '@/design-system/components'
-import type { Vendor } from '../../slices/vendors/reducer'
+import { useToast, Button } from '@/design-system/components'
+import type { Vendor, VendorComplianceDocument } from '../../slices/vendors/reducer'
 import { buildVendorComplianceSnapshot } from '../../utils/vendorCompliance'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -81,6 +81,7 @@ export interface VendorDrawerProps {
   onClose: () => void
   mode: 'add' | 'edit'
   vendor?: Vendor | null
+  onCompleted?: () => void
 }
 
 // ─── Validation ───────────────────────────────────────────────────────────────
@@ -107,18 +108,42 @@ function validate(form: FormState): Record<string, string> {
   return errors
 }
 
+function complianceDocFromFile(
+  documentType: 'gst' | 'pan',
+  file: File,
+  existing?: VendorComplianceDocument | null,
+): VendorComplianceDocument {
+  const now = new Date().toISOString()
+  return {
+    documentType,
+    name: file.name,
+    url: URL.createObjectURL(file),
+    description: existing?.description ?? null,
+    uploadedBy: existing?.uploadedBy ?? null,
+    uploadedOn: existing?.uploadedOn ?? now,
+    lastUpdatedOn: now,
+    expiryDate: null,
+  }
+}
+
 // ─── VendorDrawer ─────────────────────────────────────────────────────────────
 
-export function VendorDrawer({ open, onClose, mode, vendor }: VendorDrawerProps) {
+export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: VendorDrawerProps) {
   const dispatch = useAppDispatch()
   const saving = useAppSelector((s) => s.vendors.saving)
   const { showToast } = useToast()
 
   const [form, setForm] = useState<FormState>(defaultForm)
   const [errors, setErrors] = useState<Record<string, string>>({})
+  const [gstCertFile, setGstCertFile] = useState<File | null>(null)
+  const [panDocFile, setPanDocFile] = useState<File | null>(null)
+  const gstFileInputRef = useRef<HTMLInputElement>(null)
+  const panFileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (open) {
+      setGstCertFile(null)
+      setPanDocFile(null)
       if (vendor && mode === 'edit') {
         setForm({
           name: vendor.name,
@@ -158,8 +183,18 @@ export function VendorDrawer({ open, onClose, mode, vendor }: VendorDrawerProps)
     setErrors(errs)
     if (Object.keys(errs).length > 0) return
 
-    const gstDocument = mode === 'edit' ? (vendor?.gstDocument ?? null) : null
-    const panDocument = mode === 'edit' ? (vendor?.panDocument ?? null) : null
+    const gstDocument =
+      gstCertFile !== null
+        ? complianceDocFromFile('gst', gstCertFile, vendor?.gstDocument)
+        : mode === 'edit'
+          ? (vendor?.gstDocument ?? null)
+          : null
+    const panDocument =
+      panDocFile !== null
+        ? complianceDocFromFile('pan', panDocFile, vendor?.panDocument)
+        : mode === 'edit'
+          ? (vendor?.panDocument ?? null)
+          : null
     const bankChequeDocument = mode === 'edit' ? (vendor?.bankChequeDocument ?? null) : null
     const insuranceDocument = mode === 'edit' ? (vendor?.insuranceDocument ?? null) : null
     const insuranceExpiryIso =
@@ -182,6 +217,8 @@ export function VendorDrawer({ open, onClose, mode, vendor }: VendorDrawerProps)
       mode === 'edit' && vendor?.documents && vendor.documents.length > 0
         ? vendor.documents
         : undefined
+
+    const wasPending = vendor?.profileStatus === 'pending'
 
     const payload = {
       name: form.name.trim(),
@@ -209,32 +246,45 @@ export function VendorDrawer({ open, onClose, mode, vendor }: VendorDrawerProps)
       tags: form.tags,
       paymentTerms: form.paymentTerms || null,
       notes: form.notes.trim() || null,
-      status: (vendor?.status ?? 'Active') as 'Active' | 'Inactive',
+      status: (wasPending ? 'Active' : (vendor?.status ?? 'Active')) as 'Active' | 'Inactive',
       rating: vendor?.rating ?? null,
       activeProjects: vendor?.activeProjects ?? 0,
       totalPayables: vendor?.totalPayables ?? 0,
+      ...(wasPending ? { profileStatus: 'complete' as const } : {}),
       ...(documents ? { documents } : {}),
     }
 
     try {
       if (mode === 'add') {
         await dispatch(createVendor(payload)).unwrap()
+        showToast({ title: 'Vendor saved', variant: 'success' })
       } else {
         await dispatch(updateVendor({ id: vendor!.id, data: payload })).unwrap()
+        if (wasPending) {
+          showToast({ title: 'Vendor contact updated successfully.', variant: 'success' })
+          onCompleted?.()
+        } else {
+          showToast({ title: 'Vendor saved', variant: 'success' })
+        }
       }
-      showToast({ title: 'Vendor saved', variant: 'success' })
       onClose()
     } catch {
       showToast({ title: 'Failed to save vendor', variant: 'error' })
     }
   }
 
+  const completingPending = mode === 'edit' && vendor?.profileStatus === 'pending'
+
   return (
     <DrawerForm
       open={open}
       onClose={onClose}
-      title={mode === 'add' ? 'Add Vendor' : 'Edit Vendor'}
-      subtitle="Fill in vendor details and tax information"
+      title={mode === 'add' ? 'Add Vendor' : completingPending ? 'Update Vendor' : 'Edit Vendor'}
+      subtitle={
+        completingPending
+          ? 'Complete the remaining vendor details'
+          : 'Fill in vendor details and tax information'
+      }
       onSubmit={handleSubmit}
       submitLabel={mode === 'add' ? 'Save Vendor' : 'Update Vendor'}
       submitLoading={saving}
@@ -457,6 +507,38 @@ export function VendorDrawer({ open, onClose, mode, vendor }: VendorDrawerProps)
           />
         </FormField>
 
+        <Box sx={{ gridColumn: 'span 2' }}>
+          <FormField label="Upload GST Certificate" hint="PDF or image (optional)">
+            <Stack direction="row" alignItems="center" gap={2} flexWrap="wrap">
+              <input
+                ref={gstFileInputRef}
+                type="file"
+                accept=".pdf,application/pdf,image/*"
+                hidden
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  if (file) setGstCertFile(file)
+                  e.target.value = ''
+                }}
+              />
+              <Button
+                type="button"
+                variant="outlined"
+                color="secondary"
+                size="sm"
+                onClick={() => gstFileInputRef.current?.click()}
+              >
+                {gstCertFile || (mode === 'edit' && vendor?.gstDocument) ? 'Replace' : 'Upload'}
+              </Button>
+              {(gstCertFile?.name ?? (mode === 'edit' ? vendor?.gstDocument?.name : undefined)) && (
+                <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12 }}>
+                  {gstCertFile?.name ?? vendor?.gstDocument?.name}
+                </Typography>
+              )}
+            </Stack>
+          </FormField>
+        </Box>
+
         <FormField label="PAN Number" hint="10-character PAN">
           <TextField
             fullWidth
@@ -465,6 +547,36 @@ export function VendorDrawer({ open, onClose, mode, vendor }: VendorDrawerProps)
             onChange={(e) => update('pan', e.target.value.toUpperCase())}
             placeholder="ABCDE1234F"
           />
+        </FormField>
+
+        <FormField label="Upload PAN / Income Tax" hint="PDF or image (optional)">
+          <Stack direction="row" alignItems="center" gap={2} flexWrap="wrap">
+            <input
+              ref={panFileInputRef}
+              type="file"
+              accept=".pdf,application/pdf,image/*"
+              hidden
+              onChange={(e) => {
+                const file = e.target.files?.[0]
+                if (file) setPanDocFile(file)
+                e.target.value = ''
+              }}
+            />
+            <Button
+              type="button"
+              variant="outlined"
+              color="secondary"
+              size="sm"
+              onClick={() => panFileInputRef.current?.click()}
+            >
+              {panDocFile || (mode === 'edit' && vendor?.panDocument) ? 'Replace' : 'Upload'}
+            </Button>
+            {(panDocFile?.name ?? (mode === 'edit' ? vendor?.panDocument?.name : undefined)) && (
+              <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12 }}>
+                {panDocFile?.name ?? vendor?.panDocument?.name}
+              </Typography>
+            )}
+          </Stack>
         </FormField>
       </FormSection>
 

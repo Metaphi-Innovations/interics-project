@@ -24,7 +24,15 @@ import type { ReportColumn, ReportListingRow } from '../reportsConfig'
 
 const ACTION_WIDTH_PX = 60
 const CELL_PAD_X = '14px'
+const LISTING_EDGE_PAD = CELL_PAD_X
 const DEFAULT_PAGE_SIZE = 10
+
+const CENTER_CELL_CONTENT_SX = {
+  display: 'flex',
+  justifyContent: 'center',
+  alignItems: 'center',
+  width: 1,
+} as const
 
 function dataColWidth(columnCount: number): string {
   return `calc((100% - ${ACTION_WIDTH_PX}px) / ${Math.max(columnCount, 1)})`
@@ -47,12 +55,13 @@ const TABLE_HEADER_ACTION_SX = {
   minWidth: ACTION_WIDTH_PX,
   maxWidth: ACTION_WIDTH_PX,
   py: '8px',
-  px: CELL_PAD_X,
+  pl: 0,
+  pr: LISTING_EDGE_PAD,
   fontSize: 11,
   fontWeight: 600,
   color: 'text.secondary',
   borderBottom: `2px solid ${tokens.color.neutral[100]}`,
-  verticalAlign: 'bottom' as const,
+  verticalAlign: 'middle' as const,
   whiteSpace: 'nowrap' as const,
   boxSizing: 'border-box' as const,
   textAlign: 'center' as const,
@@ -68,7 +77,8 @@ const TABLE_CELL_SX = {
 
 const TABLE_CELL_ACTION_SX = {
   py: '7px',
-  px: CELL_PAD_X,
+  pl: 0,
+  pr: LISTING_EDGE_PAD,
   width: ACTION_WIDTH_PX,
   minWidth: ACTION_WIDTH_PX,
   maxWidth: ACTION_WIDTH_PX,
@@ -110,7 +120,7 @@ function formatCellValue(
   return String(value ?? '—')
 }
 
-function downloadReportCsv(reportName: string, columns: ReportColumn[], rows: ReportListingRow[]) {
+export function downloadReportCsv(reportName: string, columns: ReportColumn[], rows: ReportListingRow[]) {
   const headers = columns.map((c) => c.label)
   const dataRows = rows.map((row) =>
     columns.map((col) => {
@@ -191,9 +201,9 @@ function RowActions({
           setAnchor(e.currentTarget)
         }}
         aria-label="More actions"
-        sx={{ color: tokens.color.neutral[500], p: 0.5 }}
+        sx={{ color: tokens.color.neutral[500], p: 0.25 }}
       >
-        <MoreVertIcon sx={{ fontSize: 16 }} />
+        <MoreVertIcon sx={{ fontSize: 14 }} />
       </MuiIconButton>
       <Menu
         anchorEl={anchor}
@@ -284,7 +294,7 @@ export function ReportListingTable({
                 </TableCell>
               ))}
               <TableCell align="center" sx={TABLE_HEADER_ACTION_SX}>
-                Action
+                <Box sx={CENTER_CELL_CONTENT_SX}>Action</Box>
               </TableCell>
             </TableRow>
           </TableHead>
@@ -319,10 +329,12 @@ export function ReportListingTable({
                   )
                 })}
                 <TableCell align="center" sx={TABLE_CELL_ACTION_SX} onClick={(e) => e.stopPropagation()}>
-                  <RowActions
-                    onView={() => onViewRow(row)}
-                    onDownload={() => downloadReportCsv(reportName, columns, [row])}
-                  />
+                  <Box sx={CENTER_CELL_CONTENT_SX}>
+                    <RowActions
+                      onView={() => onViewRow(row)}
+                      onDownload={() => downloadReportCsv(reportName, columns, [row])}
+                    />
+                  </Box>
                 </TableCell>
               </TableRow>
             ))}

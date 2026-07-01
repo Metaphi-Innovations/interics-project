@@ -72,11 +72,20 @@ export const CARD_CATEGORY_ALIGN_GRID = 'repeat(2, minmax(0, 1fr))'
 /** Milestone row: equal-width name | % | value columns. */
 export const CARD_MILESTONE_ROW_GRID = 'repeat(3, minmax(0, 1fr))'
 const CARD_MILESTONE_ROW_GRID_WITH_ACTION = 'repeat(3, minmax(0, 1fr)) 28px'
+const CARD_STATUS_COL = '56px'
+const CARD_MILESTONE_ROW_GRID_WITH_STATUS = `repeat(3, minmax(0, 1fr)) ${CARD_STATUS_COL}`
+const CARD_MILESTONE_ROW_GRID_WITH_STATUS_AND_ACTION =
+  `repeat(3, minmax(0, 1fr)) ${CARD_STATUS_COL} 28px`
 export const CARD_FIELD_GAP = 1.5
 /** Matches CardHeader delete IconButton slot so fields line up with category row. */
 export const CARD_HEADER_ACTION_SLOT = 34
 
-export function cardMilestoneRowGrid(showAction: boolean): string {
+export function cardMilestoneRowGrid(showAction: boolean, showStatus = false): string {
+  if (showStatus) {
+    return showAction
+      ? CARD_MILESTONE_ROW_GRID_WITH_STATUS_AND_ACTION
+      : CARD_MILESTONE_ROW_GRID_WITH_STATUS
+  }
   return showAction ? CARD_MILESTONE_ROW_GRID_WITH_ACTION : CARD_MILESTONE_ROW_GRID
 }
 
@@ -165,13 +174,45 @@ export function CardAlignedRow({ children }: { children: ReactNode }) {
   )
 }
 
-function CardMilestoneFieldHeader({ showActionColumn }: { showActionColumn: boolean }) {
+function MilestoneStatusDisplay({
+  status,
+}: {
+  status?: import('./milestonePaymentStatus').MilestonePaymentStatusLabel
+}) {
+  if (!status) {
+    return (
+      <Typography variant="body2" sx={{ fontSize: 11, color: 'text.secondary' }}>
+        —
+      </Typography>
+    )
+  }
+  return (
+    <Typography
+      variant="body2"
+      sx={{
+        fontSize: 11,
+        fontWeight: 600,
+        color: status === 'Paid' ? 'success.main' : 'text.secondary',
+      }}
+    >
+      {status}
+    </Typography>
+  )
+}
+
+function CardMilestoneFieldHeader({
+  showActionColumn,
+  showStatusColumn,
+}: {
+  showActionColumn: boolean
+  showStatusColumn: boolean
+}) {
   return (
     <CardAlignedRow>
       <Box
         sx={{
           display: 'grid',
-          gridTemplateColumns: cardMilestoneRowGrid(showActionColumn),
+          gridTemplateColumns: cardMilestoneRowGrid(showActionColumn, showStatusColumn),
           gap: CARD_FIELD_GAP,
           alignItems: 'end',
           mb: 0.5,
@@ -186,19 +227,30 @@ function CardMilestoneFieldHeader({ showActionColumn }: { showActionColumn: bool
         <Typography variant="caption" sx={MILESTONE_FIELD_HEADER_SX}>
           Value (₹)
         </Typography>
+        {showStatusColumn ? (
+          <Typography variant="caption" sx={MILESTONE_FIELD_HEADER_SX}>
+            Status
+          </Typography>
+        ) : null}
         {showActionColumn ? <Box aria-hidden sx={{ width: 28 }} /> : null}
       </Box>
     </CardAlignedRow>
   )
 }
 
-function CardRetentionFieldHeader({ showActionColumn }: { showActionColumn: boolean }) {
+function CardRetentionFieldHeader({
+  showActionColumn,
+  showStatusColumn,
+}: {
+  showActionColumn: boolean
+  showStatusColumn: boolean
+}) {
   return (
     <CardAlignedRow>
       <Box
         sx={{
           display: 'grid',
-          gridTemplateColumns: cardMilestoneRowGrid(showActionColumn),
+          gridTemplateColumns: cardMilestoneRowGrid(showActionColumn, showStatusColumn),
           gap: CARD_FIELD_GAP,
           alignItems: 'end',
           mb: 0.5,
@@ -214,6 +266,11 @@ function CardRetentionFieldHeader({ showActionColumn }: { showActionColumn: bool
         <Typography variant="caption" sx={MILESTONE_FIELD_HEADER_SX}>
           Value (₹)
         </Typography>
+        {showStatusColumn ? (
+          <Typography variant="caption" sx={MILESTONE_FIELD_HEADER_SX}>
+            Status
+          </Typography>
+        ) : null}
         {showActionColumn ? <Box aria-hidden sx={{ width: 28 }} /> : null}
       </Box>
     </CardAlignedRow>
@@ -232,8 +289,9 @@ export function VendorPOMilestoneEditor({
   regularOnly = false,
   cardWithRetention = false,
   readOnly = false,
-  retentionStatus: _retentionStatus,
-  finalMilestoneStatus: _finalMilestoneStatus,
+  milestoneStatuses,
+  retentionStatus,
+  finalMilestoneStatus,
 }: VendorPOMilestoneEditorProps) {
   const theme = useTheme()
   const isCardMilestoneList = embedded && (regularOnly || cardWithRetention)
@@ -255,6 +313,7 @@ export function VendorPOMilestoneEditor({
   const showActionColumn = !readOnly && isCardMilestoneList && milestones.length > 1
   const showRetentionActionColumn =
     !readOnly && (showActionColumn || (cardWithRetention && Boolean(retention)))
+  const showStatusColumn = milestoneStatuses !== undefined
   const standaloneGridColumns = readOnly ? 'repeat(3, minmax(0, 1fr))' : GRID_COLUMNS
 
   function updateMilestone(idx: number, field: keyof VendorPOMilestoneRow, val: string | number) {
@@ -335,7 +394,10 @@ export function VendorPOMilestoneEditor({
 
       {isCardMilestoneList ? (
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-          <CardMilestoneFieldHeader showActionColumn={showActionColumn} />
+          <CardMilestoneFieldHeader
+            showActionColumn={showActionColumn}
+            showStatusColumn={showStatusColumn}
+          />
           {milestones.map((m, idx) => {
             const isLast = idx === milestones.length - 1
 
@@ -344,7 +406,7 @@ export function VendorPOMilestoneEditor({
                 <Box
                   sx={{
                     display: 'grid',
-                    gridTemplateColumns: cardMilestoneRowGrid(showActionColumn),
+                    gridTemplateColumns: cardMilestoneRowGrid(showActionColumn, showStatusColumn),
                     gap: CARD_FIELD_GAP,
                     alignItems: 'center',
                   }}
@@ -378,6 +440,9 @@ export function VendorPOMilestoneEditor({
                     disabled={readOnly}
                     sx={MILESTONE_INPUT_SX}
                   />
+                  {showStatusColumn ? (
+                    <MilestoneStatusDisplay status={milestoneStatuses?.[m.id]} />
+                  ) : null}
                   {showActionColumn ? (
                     <Box sx={CARD_ACTION_CELL_SX}>
                       {isLast ? (
@@ -407,7 +472,10 @@ export function VendorPOMilestoneEditor({
           })}
           {cardWithRetention ? (
             <>
-              <CardRetentionFieldHeader showActionColumn={showRetentionActionColumn} />
+              <CardRetentionFieldHeader
+                showActionColumn={showRetentionActionColumn}
+                showStatusColumn={showStatusColumn}
+              />
               {!readOnly && !retention ? (
                 <CardAlignedRow>
                   <MuiButton
@@ -431,7 +499,10 @@ export function VendorPOMilestoneEditor({
                   <Box
                     sx={{
                       display: 'grid',
-                      gridTemplateColumns: cardMilestoneRowGrid(showRetentionActionColumn),
+                      gridTemplateColumns: cardMilestoneRowGrid(
+                        showRetentionActionColumn,
+                        showStatusColumn,
+                      ),
                       gap: CARD_FIELD_GAP,
                       alignItems: 'center',
                     }}
@@ -463,6 +534,9 @@ export function VendorPOMilestoneEditor({
                       disabled={readOnly}
                       sx={MILESTONE_INPUT_SX}
                     />
+                    {showStatusColumn ? (
+                      <MilestoneStatusDisplay status={retentionStatus} />
+                    ) : null}
                     {showRetentionActionColumn ? (
                       <Box sx={CARD_ACTION_CELL_SX}>
                         <MuiIconButton

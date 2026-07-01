@@ -15,16 +15,11 @@ import {
 } from '@mui/material'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { createCustomerContact } from '@/slices/customers/thunk'
-import { createVendorContact, fetchVendors } from '@/slices/vendors/thunk'
-import { fetchProjects } from '@/slices/projects/thunk'
+import { createPendingVendor, fetchVendors } from '@/slices/vendors/thunk'
 import type { Contact } from '@/slices/customers/reducer'
 import { useToast } from '@/design-system/components'
 import { getVendorContactsList } from '@/utils/vendorContacts'
-import {
-  fetchLinkedVendorsForProjects,
-  projectIdsForLinkedVendors,
-  type LinkedVendorOption,
-} from '@/utils/linkedCustomerVendors'
+import { isActiveVendorContact } from '@/utils/vendorProfileStatus'
 import {
   contactPhoneExists,
   FORM_CONTROL_INPUT_SX,
@@ -40,6 +35,11 @@ interface CreateContactPersonModalProps {
   existingCustomerContacts: Contact[]
   /** Called only when a customer contact is saved (added to project dropdown). */
   onSaved?: (contact: Contact) => void
+}
+
+interface VendorOption {
+  id: string
+  label: string
 }
 
 interface FormState {
@@ -77,6 +77,7 @@ function validateForm(
   form: FormState,
   existingCustomerContacts: Contact[],
   existingVendorContacts: Contact[],
+  existingVendorPhones: string[],
 ): FormErrors {
   const errors: FormErrors = {}
   if (!form.name.trim()) errors.name = 'Contact person name is required'
@@ -86,16 +87,18 @@ function validateForm(
     errors.vendor = 'Vendor is required.'
   }
 
-  const existingContacts =
-    form.contactType === 'vendor' ? existingVendorContacts : existingCustomerContacts
-
-  if (!form.phone.trim()) {
+  const trimmedPhone = form.phone.trim()
+  if (!trimmedPhone) {
     errors.phone = 'Mobile number is required'
-  } else if (contactPhoneExists(existingContacts, form.phone)) {
-    errors.phone =
-      form.contactType === 'vendor'
-        ? 'A contact with this mobile number already exists for this vendor'
-        : 'A contact with this mobile number already exists for this customer'
+  } else if (form.contactType === 'vendor') {
+    if (
+      existingVendorPhones.some((p) => p === trimmedPhone) ||
+      contactPhoneExists(existingVendorContacts, trimmedPhone)
+    ) {
+      errors.phone = 'A contact with this mobile number already exists'
+    }
+  } else if (contactPhoneExists(existingCustomerContacts, trimmedPhone)) {
+    errors.phone = 'A contact with this mobile number already exists for this customer'
   }
 
   const email = form.email.trim()
@@ -110,20 +113,27 @@ export function CreateContactPersonModal({
   open,
   onClose,
   customerId,
-  projectId,
+  projectId: _projectId,
   existingCustomerContacts,
   onSaved,
 }: CreateContactPersonModalProps) {
   const dispatch = useAppDispatch()
   const { showToast } = useToast()
-  const projects = useAppSelector((s) => s.projects.items ?? [])
   const vendors = useAppSelector((s) => s.vendors.items ?? [])
+  const vendorsLoading = useAppSelector((s) => s.vendors.loading)
 
   const [form, setForm] = useState<FormState>(EMPTY_FORM)
   const [errors, setErrors] = useState<FormErrors>({})
   const [saving, setSaving] = useState(false)
-  const [linkedVendors, setLinkedVendors] = useState<LinkedVendorOption[]>([])
-  const [loadingLinkedVendors, setLoadingLinkedVendors] = useState(false)
+
+  const activeVendorOptions = useMemo<VendorOption[]>(
+    () =>
+      vendors
+        .filter((v) => v.status === 'Active' && isActiveVendorContact(v))
+        .map((v) => ({ id: v.id, label: v.name }))
+        .sort((a, b) => a.label.localeCompare(b.label)),
+    [vendors],
+  )
 
   const selectedVendor = useMemo(
     () => vendors.find((v) => v.id === form.vendorId) ?? null,
@@ -135,49 +145,27 @@ export function CreateContactPersonModal({
     [selectedVendor],
   )
 
+  const existingVendorPhones = useMemo(
+    () => vendors.map((v) => v.phone.trim()).filter(Boolean),
+    [vendors],
+  )
+
   useEffect(() => {
     if (!open) {
       setForm(EMPTY_FORM)
       setErrors({})
       setSaving(false)
-      setLinkedVendors([])
-      setLoadingLinkedVendors(false)
       return
     }
 
-    void dispatch(fetchProjects({ pageSize: 500 }))
-    void dispatch(fetchVendors({ pageSize: 500 }))
+    void dispatch(
+      fetchVendors({
+        pageSize: 500,
+        status: 'Active',
+        profileStatus: 'complete',
+      }),
+    )
   }, [open, dispatch])
-
-  useEffect(() => {
-    if (!open || !customerId) {
-      setLinkedVendors([])
-      return
-    }
-
-    const ids = projectIdsForLinkedVendors(customerId, projects, projectId)
-    if (ids.length === 0) {
-      setLinkedVendors([])
-      return
-    }
-
-    let cancelled = false
-    setLoadingLinkedVendors(true)
-    void fetchLinkedVendorsForProjects(ids)
-      .then((options) => {
-        if (!cancelled) setLinkedVendors(options)
-      })
-      .catch(() => {
-        if (!cancelled) setLinkedVendors([])
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingLinkedVendors(false)
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [open, customerId, projectId, projects])
 
   function setField<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => {
@@ -196,7 +184,12 @@ export function CreateContactPersonModal({
   }
 
   async function handleSave() {
-    const nextErrors = validateForm(form, existingCustomerContacts, existingVendorContacts)
+    const nextErrors = validateForm(
+      form,
+      existingCustomerContacts,
+      existingVendorContacts,
+      existingVendorPhones,
+    )
     if (Object.keys(nextErrors).length > 0) {
       setErrors(nextErrors)
       return
@@ -224,13 +217,20 @@ export function CreateContactPersonModal({
         ).unwrap()
         onSaved?.(result.contact)
       } else {
+        const vendor = selectedVendor
+        if (!vendor) {
+          setErrors((prev) => ({ ...prev, vendor: 'Vendor is required.' }))
+          return
+        }
+
         await dispatch(
-          createVendorContact({
-            vendorId: form.vendorId,
-            data: {
-              ...payload,
-              isPrimary: existingVendorContacts.length === 0,
-            },
+          createPendingVendor({
+            vendorId: vendor.id,
+            vendorName: vendor.name,
+            name: payload.name,
+            phone: payload.phone,
+            email: payload.email,
+            designation: payload.designation,
           }),
         ).unwrap()
       }
@@ -251,8 +251,6 @@ export function CreateContactPersonModal({
   }
 
   const showVendorField = form.contactType === 'vendor'
-  const vendorFieldDisabled =
-    loadingLinkedVendors || linkedVendors.length === 0 || !customerId
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
@@ -312,11 +310,10 @@ export function CreateContactPersonModal({
             {showVendorField ? (
               <VendorSelectField
                 value={form.vendorId}
-                options={linkedVendors}
+                options={activeVendorOptions}
                 onChange={(vendorId) => setField('vendorId', vendorId)}
                 error={errors.vendor}
-                disabled={vendorFieldDisabled}
-                loading={loadingLinkedVendors}
+                loading={vendorsLoading}
               />
             ) : null}
           </Box>
@@ -440,14 +437,12 @@ function VendorSelectField({
   options,
   onChange,
   error,
-  disabled,
   loading,
 }: {
   value: string
-  options: LinkedVendorOption[]
+  options: VendorOption[]
   onChange: (vendorId: string) => void
   error?: string
-  disabled?: boolean
   loading?: boolean
 }) {
   const selected = options.find((opt) => opt.id === value) ?? null
@@ -467,7 +462,6 @@ function VendorSelectField({
       <Autocomplete
         size="small"
         fullWidth
-        disabled={disabled}
         loading={loading}
         options={options}
         value={selected}
@@ -477,7 +471,7 @@ function VendorSelectField({
         renderInput={(params) => (
           <TextField
             {...params}
-            placeholder="Select Linked Vendor"
+            placeholder="Select Vendor"
             error={Boolean(error)}
             helperText={error}
             sx={FORM_CONTROL_INPUT_SX}
