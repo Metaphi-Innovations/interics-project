@@ -3,8 +3,8 @@ import { Box, Stack, TextField, MenuItem, Autocomplete, Chip as MuiChip, Typogra
 import { DrawerForm, FormSection, FormField } from '../../components/templates'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { createVendor, updateVendor } from '../../slices/vendors/thunk'
-import { useToast, Button, DatePicker } from '@/design-system/components'
-import type { Vendor, VendorDocument } from '../../slices/vendors/reducer'
+import { useToast, Button } from '@/design-system/components'
+import type { Vendor, VendorComplianceDocument } from '../../slices/vendors/reducer'
 import { buildVendorComplianceSnapshot } from '../../utils/vendorCompliance'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -27,8 +27,6 @@ const VENDOR_TAGS = [
 ]
 
 const GSTIN_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/
-
-const COMPLIANCE_ACCEPT = '.pdf,application/pdf,image/*'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -78,29 +76,12 @@ const defaultForm: FormState = {
   notes: '',
 }
 
-function fileToDoc(file: File): { name: string; url: string } {
-  return { name: file.name, url: URL.createObjectURL(file) }
-}
-
-function toIsoDate(d: Date | null): string | null {
-  if (!d) return null
-  const y = d.getFullYear()
-  const mo = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${mo}-${day}`
-}
-
-function parseIsoDate(iso?: string | null): Date | null {
-  if (!iso) return null
-  const d = new Date(iso)
-  return Number.isNaN(d.getTime()) ? null : d
-}
-
 export interface VendorDrawerProps {
   open: boolean
   onClose: () => void
   mode: 'add' | 'edit'
   vendor?: Vendor | null
+  onCompleted?: () => void
 }
 
 // ─── Validation ───────────────────────────────────────────────────────────────
@@ -127,157 +108,27 @@ function validate(form: FormState): Record<string, string> {
   return errors
 }
 
-function getExistingCatalogue(vendor?: Vendor | null): { name: string; url: string } | null {
-  const doc = vendor?.documents?.find((d) => d.type === 'Catalogue')
-  return doc ? { name: doc.name, url: doc.url } : null
-}
-
-function buildCatalogueDocuments(
-  catalogueFile: File | null,
-  vendor: Vendor | null | undefined,
-  mode: 'add' | 'edit',
-): VendorDocument[] | undefined {
-  const existing = mode === 'edit' ? (vendor?.documents ?? []) : []
-  const withoutCatalogue = existing.filter((d) => d.type !== 'Catalogue')
-  const keptCatalogue = existing.find((d) => d.type === 'Catalogue')
-
-  if (!catalogueFile) {
-    return existing.length > 0 ? existing : undefined
+function complianceDocFromFile(
+  documentType: 'gst' | 'pan',
+  file: File,
+  existing?: VendorComplianceDocument | null,
+): VendorComplianceDocument {
+  const now = new Date().toISOString()
+  return {
+    documentType,
+    name: file.name,
+    url: URL.createObjectURL(file),
+    description: existing?.description ?? null,
+    uploadedBy: existing?.uploadedBy ?? null,
+    uploadedOn: existing?.uploadedOn ?? now,
+    lastUpdatedOn: now,
+    expiryDate: null,
   }
-
-  const catalogueDoc: VendorDocument = {
-    id: keptCatalogue?.id ?? `vd-cat-${Date.now()}`,
-    name: catalogueFile.name,
-    type: 'Catalogue',
-    uploadedAt: new Date().toISOString(),
-    url: URL.createObjectURL(catalogueFile),
-  }
-
-  return [...withoutCatalogue, catalogueDoc]
-}
-
-interface CompactComplianceDocRowProps {
-  label: string
-  file: File | null
-  existing?: { name: string; url: string } | null
-  onFileSelect: (file: File | null) => void
-}
-
-function CompactComplianceDocRow({
-  label,
-  file,
-  existing,
-  onFileSelect,
-}: CompactComplianceDocRowProps) {
-  const inputRef = useRef<HTMLInputElement>(null)
-  const displayName = file?.name ?? existing?.name ?? null
-  const [fileBlobUrl, setFileBlobUrl] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!file) {
-      setFileBlobUrl(null)
-      return undefined
-    }
-    const url = URL.createObjectURL(file)
-    setFileBlobUrl(url)
-    return () => URL.revokeObjectURL(url)
-  }, [file])
-
-  const viewUrl = file ? fileBlobUrl : (existing?.url ?? null)
-
-  function openDocument() {
-    if (!viewUrl) return
-    window.open(viewUrl, '_blank', 'noopener,noreferrer')
-  }
-
-  function downloadDocument() {
-    if (!viewUrl || !displayName) return
-    const a = document.createElement('a')
-    a.href = viewUrl
-    a.download = displayName
-    a.rel = 'noopener noreferrer'
-    a.click()
-  }
-
-  return (
-    <FormField label={label}>
-      <input
-        ref={inputRef}
-        type="file"
-        accept={COMPLIANCE_ACCEPT}
-        hidden
-        onChange={(e) => {
-          const picked = e.target.files?.[0] ?? null
-          onFileSelect(picked)
-          e.target.value = ''
-        }}
-      />
-      {!displayName ? (
-        <Button
-          type="button"
-          variant="outlined"
-          color="secondary"
-          size="sm"
-          label="Upload"
-          onClick={() => inputRef.current?.click()}
-        />
-      ) : (
-        <Stack
-          direction="row"
-          alignItems="center"
-          justifyContent="space-between"
-          gap={1}
-          sx={{ minHeight: 28 }}
-        >
-          <Typography
-            variant="body2"
-            color="text.secondary"
-            sx={{
-              fontSize: 12,
-              flex: 1,
-              minWidth: 0,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {displayName}
-          </Typography>
-          <Stack direction="row" gap={0.25} flexShrink={0}>
-            <Button
-              type="button"
-              variant="text"
-              color="primary"
-              size="sm"
-              label="View"
-              onClick={openDocument}
-            />
-            <Button
-              type="button"
-              variant="text"
-              color="primary"
-              size="sm"
-              label="Download"
-              onClick={downloadDocument}
-            />
-            <Button
-              type="button"
-              variant="text"
-              color="secondary"
-              size="sm"
-              label="Replace"
-              onClick={() => inputRef.current?.click()}
-            />
-          </Stack>
-        </Stack>
-      )}
-    </FormField>
-  )
 }
 
 // ─── VendorDrawer ─────────────────────────────────────────────────────────────
 
-export function VendorDrawer({ open, onClose, mode, vendor }: VendorDrawerProps) {
+export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: VendorDrawerProps) {
   const dispatch = useAppDispatch()
   const saving = useAppSelector((s) => s.vendors.saving)
   const { showToast } = useToast()
@@ -286,18 +137,13 @@ export function VendorDrawer({ open, onClose, mode, vendor }: VendorDrawerProps)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [gstCertFile, setGstCertFile] = useState<File | null>(null)
   const [panDocFile, setPanDocFile] = useState<File | null>(null)
-  const [bankChequeFile, setBankChequeFile] = useState<File | null>(null)
-  const [insuranceFile, setInsuranceFile] = useState<File | null>(null)
-  const [catalogueFile, setCatalogueFile] = useState<File | null>(null)
-  const [insuranceExpiry, setInsuranceExpiry] = useState<Date | null>(null)
+  const gstFileInputRef = useRef<HTMLInputElement>(null)
+  const panFileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (open) {
       setGstCertFile(null)
       setPanDocFile(null)
-      setBankChequeFile(null)
-      setInsuranceFile(null)
-      setCatalogueFile(null)
       if (vendor && mode === 'edit') {
         setForm({
           name: vendor.name,
@@ -321,10 +167,8 @@ export function VendorDrawer({ open, onClose, mode, vendor }: VendorDrawerProps)
           paymentTerms: vendor.paymentTerms ?? '',
           notes: vendor.notes ?? '',
         })
-        setInsuranceExpiry(parseIsoDate(vendor.compliance?.insurance?.expiryDate))
       } else {
         setForm(defaultForm)
-        setInsuranceExpiry(null)
       }
       setErrors({})
     }
@@ -341,33 +185,20 @@ export function VendorDrawer({ open, onClose, mode, vendor }: VendorDrawerProps)
 
     const gstDocument =
       gstCertFile !== null
-        ? fileToDoc(gstCertFile)
+        ? complianceDocFromFile('gst', gstCertFile, vendor?.gstDocument)
         : mode === 'edit'
           ? (vendor?.gstDocument ?? null)
           : null
-
     const panDocument =
       panDocFile !== null
-        ? fileToDoc(panDocFile)
+        ? complianceDocFromFile('pan', panDocFile, vendor?.panDocument)
         : mode === 'edit'
           ? (vendor?.panDocument ?? null)
           : null
-
-    const bankChequeDocument =
-      bankChequeFile !== null
-        ? fileToDoc(bankChequeFile)
-        : mode === 'edit'
-          ? (vendor?.bankChequeDocument ?? null)
-          : null
-
-    const insuranceDocument =
-      insuranceFile !== null
-        ? fileToDoc(insuranceFile)
-        : mode === 'edit'
-          ? (vendor?.insuranceDocument ?? null)
-          : null
-
-    const insuranceExpiryIso = toIsoDate(insuranceExpiry)
+    const bankChequeDocument = mode === 'edit' ? (vendor?.bankChequeDocument ?? null) : null
+    const insuranceDocument = mode === 'edit' ? (vendor?.insuranceDocument ?? null) : null
+    const insuranceExpiryIso =
+      mode === 'edit' ? (vendor?.compliance?.insurance?.expiryDate ?? null) : null
 
     const compliance = buildVendorComplianceSnapshot(
       {
@@ -382,7 +213,12 @@ export function VendorDrawer({ open, onClose, mode, vendor }: VendorDrawerProps)
       insuranceExpiryIso,
     )
 
-    const documents = buildCatalogueDocuments(catalogueFile, vendor, mode)
+    const documents =
+      mode === 'edit' && vendor?.documents && vendor.documents.length > 0
+        ? vendor.documents
+        : undefined
+
+    const wasPending = vendor?.profileStatus === 'pending'
 
     const payload = {
       name: form.name.trim(),
@@ -410,31 +246,45 @@ export function VendorDrawer({ open, onClose, mode, vendor }: VendorDrawerProps)
       tags: form.tags,
       paymentTerms: form.paymentTerms || null,
       notes: form.notes.trim() || null,
-      status: (vendor?.status ?? 'Active') as 'Active' | 'Inactive',
+      status: (wasPending ? 'Active' : (vendor?.status ?? 'Active')) as 'Active' | 'Inactive',
+      rating: vendor?.rating ?? null,
       activeProjects: vendor?.activeProjects ?? 0,
       totalPayables: vendor?.totalPayables ?? 0,
+      ...(wasPending ? { profileStatus: 'complete' as const } : {}),
       ...(documents ? { documents } : {}),
     }
 
     try {
       if (mode === 'add') {
         await dispatch(createVendor(payload)).unwrap()
+        showToast({ title: 'Vendor saved', variant: 'success' })
       } else {
         await dispatch(updateVendor({ id: vendor!.id, data: payload })).unwrap()
+        if (wasPending) {
+          showToast({ title: 'Vendor contact updated successfully.', variant: 'success' })
+          onCompleted?.()
+        } else {
+          showToast({ title: 'Vendor saved', variant: 'success' })
+        }
       }
-      showToast({ title: 'Vendor saved', variant: 'success' })
       onClose()
     } catch {
       showToast({ title: 'Failed to save vendor', variant: 'error' })
     }
   }
 
+  const completingPending = mode === 'edit' && vendor?.profileStatus === 'pending'
+
   return (
     <DrawerForm
       open={open}
       onClose={onClose}
-      title={mode === 'add' ? 'Add Vendor' : 'Edit Vendor'}
-      subtitle="Fill in vendor details and compliance information"
+      title={mode === 'add' ? 'Add Vendor' : completingPending ? 'Update Vendor' : 'Edit Vendor'}
+      subtitle={
+        completingPending
+          ? 'Complete the remaining vendor details'
+          : 'Fill in vendor details and tax information'
+      }
       onSubmit={handleSubmit}
       submitLabel={mode === 'add' ? 'Save Vendor' : 'Update Vendor'}
       submitLoading={saving}
@@ -657,6 +507,38 @@ export function VendorDrawer({ open, onClose, mode, vendor }: VendorDrawerProps)
           />
         </FormField>
 
+        <Box sx={{ gridColumn: 'span 2' }}>
+          <FormField label="Upload GST Certificate" hint="PDF or image (optional)">
+            <Stack direction="row" alignItems="center" gap={2} flexWrap="wrap">
+              <input
+                ref={gstFileInputRef}
+                type="file"
+                accept=".pdf,application/pdf,image/*"
+                hidden
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  if (file) setGstCertFile(file)
+                  e.target.value = ''
+                }}
+              />
+              <Button
+                type="button"
+                variant="outlined"
+                color="secondary"
+                size="sm"
+                onClick={() => gstFileInputRef.current?.click()}
+              >
+                {gstCertFile || (mode === 'edit' && vendor?.gstDocument) ? 'Replace' : 'Upload'}
+              </Button>
+              {(gstCertFile?.name ?? (mode === 'edit' ? vendor?.gstDocument?.name : undefined)) && (
+                <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12 }}>
+                  {gstCertFile?.name ?? vendor?.gstDocument?.name}
+                </Typography>
+              )}
+            </Stack>
+          </FormField>
+        </Box>
+
         <FormField label="PAN Number" hint="10-character PAN">
           <TextField
             fullWidth
@@ -666,46 +548,36 @@ export function VendorDrawer({ open, onClose, mode, vendor }: VendorDrawerProps)
             placeholder="ABCDE1234F"
           />
         </FormField>
-      </FormSection>
 
-      <FormSection title="Compliance Documents" columns={2}>
-        <CompactComplianceDocRow
-          label="GST Certificate"
-          file={gstCertFile}
-          existing={mode === 'edit' ? vendor?.gstDocument : null}
-          onFileSelect={setGstCertFile}
-        />
-        <CompactComplianceDocRow
-          label="PAN Card"
-          file={panDocFile}
-          existing={mode === 'edit' ? vendor?.panDocument : null}
-          onFileSelect={setPanDocFile}
-        />
-        <CompactComplianceDocRow
-          label="Cancelled Cheque"
-          file={bankChequeFile}
-          existing={mode === 'edit' ? vendor?.bankChequeDocument : null}
-          onFileSelect={setBankChequeFile}
-        />
-        <CompactComplianceDocRow
-          label="Insurance Document"
-          file={insuranceFile}
-          existing={mode === 'edit' ? vendor?.insuranceDocument : null}
-          onFileSelect={setInsuranceFile}
-        />
-
-        <FormField
-          label="Insurance Expiry Date"
-          hint="Track insurance expiry when a policy is uploaded"
-        >
-          <DatePicker value={insuranceExpiry} onChange={setInsuranceExpiry} fullWidth size="sm" />
+        <FormField label="Upload PAN / Income Tax" hint="PDF or image (optional)">
+          <Stack direction="row" alignItems="center" gap={2} flexWrap="wrap">
+            <input
+              ref={panFileInputRef}
+              type="file"
+              accept=".pdf,application/pdf,image/*"
+              hidden
+              onChange={(e) => {
+                const file = e.target.files?.[0]
+                if (file) setPanDocFile(file)
+                e.target.value = ''
+              }}
+            />
+            <Button
+              type="button"
+              variant="outlined"
+              color="secondary"
+              size="sm"
+              onClick={() => panFileInputRef.current?.click()}
+            >
+              {panDocFile || (mode === 'edit' && vendor?.panDocument) ? 'Replace' : 'Upload'}
+            </Button>
+            {(panDocFile?.name ?? (mode === 'edit' ? vendor?.panDocument?.name : undefined)) && (
+              <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12 }}>
+                {panDocFile?.name ?? vendor?.panDocument?.name}
+              </Typography>
+            )}
+          </Stack>
         </FormField>
-        <CompactComplianceDocRow
-          label="Catalogue"
-          file={catalogueFile}
-          existing={mode === 'edit' ? getExistingCatalogue(vendor) : null}
-          onFileSelect={setCatalogueFile}
-        />
       </FormSection>
 
       <FormSection title="Vendor Profile" columns={2}>

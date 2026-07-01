@@ -31,7 +31,7 @@ import {
   Phone,
   Star,
 } from '@mui/icons-material'
-import LinearProgress from '@mui/material/LinearProgress'
+
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import PitchTab from './tabs/PitchTab'
 import LiveTab from './tabs/LiveTab'
@@ -46,7 +46,7 @@ import { fetchUsers } from '../../slices/users/thunk'
 import { isProjectManagerRole } from './projectManagerRoles'
 import { ProjectTypesField } from './components/ProjectTypesField'
 import { ProjectDetailsSections } from './components/ProjectDetailsSections'
-import { getProgressStyle } from './projectOverviewHelpers'
+import { getProjectAdditionalTeamMembers } from '@/utils/projectAssignedTeam'
 import { clearSelected } from '../../slices/projects/reducer'
 import type { Project } from '../../slices/projects/reducer'
 import {
@@ -54,7 +54,7 @@ import {
   WorkspaceSection,
 } from '../../components/templates'
 import { DrawerForm, FormField, FormSection } from '../../components/templates/DrawerForm'
-import { StatusBadge, useToast, Input, Button, Toggle } from '@/design-system/components'
+import { StatusBadge, useToast, Input, Toggle } from '@/design-system/components'
 import type { StatusType } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { useTheme, alpha } from '@mui/material/styles'
@@ -62,7 +62,6 @@ import {
   getInitials,
   getAvatarColor,
   formatCurrency,
-  formatDate,
   fromSlug,
 } from '../../utils/formatters'
 
@@ -197,388 +196,228 @@ const OVERVIEW_CARD_SX = {
   p: 2,
 } as const
 
-const STAGE_STEPS = ['Pitch', 'Transition', 'Live', 'Completed']
+const TEAM_SECTION_CARD_SX = {
+  ...OVERVIEW_CARD_SX,
+  height: '100%',
+  display: 'flex',
+  flexDirection: 'column',
+} as const
 
 function OverviewTab({ project }: { project: Project }) {
   const theme = useTheme()
-  const revenue = project.totalClientPOValue
 
-  const totalReceivable = revenue
-  const collected = project.invoicedAmount
-  const outstanding = totalReceivable - collected
-  const collectionPct = totalReceivable > 0 ? Math.round((collected / totalReceivable) * 100) : 0
-
-  const stageIndex = project.status === 'Pitch' ? 1 :
-    project.status === 'Live' ? 2 :
-    project.status === 'Completed' || project.status === 'Archived' ? 3 : 0
-
-  const completion = project.status === 'Completed' || project.status === 'Archived' ? 100 :
-    project.status === 'Live' ? 55 :
-    project.status === 'Pitch' ? 15 : 30
-
-  const teamMembers = [project.projectManager]
+  const additionalTeamMembers = getProjectAdditionalTeamMembers(project)
   const clientTeamMembers = project.clientTeam ?? []
-  const docs = project.projectDocuments
-  const projectDocumentItems = [
-    {
-      name: 'Final Layout',
-      description: docs?.finalLayoutDescription,
-      link: docs?.finalLayoutLink,
-      file: docs?.finalLayoutFile,
-    },
-    {
-      name: 'Final RCP',
-      description: docs?.finalRcpDescription,
-      link: docs?.finalRcpLink,
-      file: docs?.finalRcpFile,
-    },
-    {
-      name: 'Final Views',
-      description: docs?.finalViewsDescription,
-      link: docs?.finalViewsLink,
-      file: docs?.finalViewsFile,
-    },
-    {
-      name: 'Final Photographs',
-      description: docs?.finalPhotographsDescription,
-      link: docs?.finalPhotographsLink,
-      file: docs?.finalPhotographsFile,
-    },
-    {
-      name: 'Final Handover Documents',
-      description: docs?.finalHandoverDescription,
-      link: docs?.finalHandoverLink,
-      file: docs?.finalHandoverFile ?? docs?.finalHandoverDocuments?.[0],
-    },
-  ]
-  const hasProjectDocuments = projectDocumentItems.some((d) => d.description || d.link || d.file)
 
-  const TeamCard = (
-    <Box sx={OVERVIEW_CARD_SX}>
-      <Typography variant="overline" sx={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.6, color: 'text.secondary', display: 'block', mb: 1.5 }}>
-        Team
-      </Typography>
-      <Stack gap={1.5}>
-        <Box>
-          <Typography variant="caption" sx={{ fontSize: 10, color: 'text.secondary', letterSpacing: 0.5, display: 'block', mb: 0.75 }}>
-            PROJECT LEAD
-          </Typography>
-          <Stack direction="row" alignItems="center" gap={1}>
-            <Box
-              sx={{
-                width: 28, height: 28, borderRadius: '50%',
-                bgcolor: alpha(getAvatarColor(project.projectManager).bg, 0.15),
-                color: getAvatarColor(project.projectManager).text,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 10, fontWeight: 700,
-              }}
-            >
-              {getInitials(project.projectManager)}
-            </Box>
-            <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 500 }}>{project.projectManager}</Typography>
-          </Stack>
-        </Box>
-        <Box>
-          <Typography variant="caption" sx={{ fontSize: 10, color: 'text.secondary', letterSpacing: 0.5, display: 'block', mb: 0.75 }}>
-            TEAM MEMBERS
-          </Typography>
-          <Stack direction="row" alignItems="center" gap={0.75}>
-            {teamMembers.slice(0, 5).map((name) => (
+  const TeamsRow = (
+    <Box
+      sx={{
+        mt: 2,
+        display: 'grid',
+        gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
+        gap: 2,
+        alignItems: 'stretch',
+      }}
+    >
+      <Box sx={TEAM_SECTION_CARD_SX}>
+        <Typography
+          variant="overline"
+          sx={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.6, color: 'text.secondary', display: 'block', mb: 1.5 }}
+        >
+          Team
+        </Typography>
+        <Stack gap={1.5} sx={{ flex: 1 }}>
+          <Box>
+            <Typography variant="caption" sx={{ fontSize: 10, color: 'text.secondary', letterSpacing: 0.5, display: 'block', mb: 0.75 }}>
+              PROJECT LEAD
+            </Typography>
+            <Stack direction="row" alignItems="center" gap={1}>
               <Box
-                key={name}
-                title={name}
                 sx={{
-                  width: 28, height: 28, borderRadius: '50%',
-                  bgcolor: alpha(getAvatarColor(name).bg, 0.15),
-                  color: getAvatarColor(name).text,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 9, fontWeight: 700, border: '1px solid white',
+                  width: 28,
+                  height: 28,
+                  borderRadius: '50%',
+                  bgcolor: alpha(getAvatarColor(project.projectManager).bg, 0.15),
+                  color: getAvatarColor(project.projectManager).text,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: 10,
+                  fontWeight: 700,
                 }}
               >
-                {getInitials(name)}
+                {getInitials(project.projectManager)}
+              </Box>
+              <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 500 }}>
+                {project.projectManager}
+              </Typography>
+            </Stack>
+          </Box>
+          <Box>
+            <Typography variant="caption" sx={{ fontSize: 10, color: 'text.secondary', letterSpacing: 0.5, display: 'block', mb: 0.75 }}>
+              TEAM MEMBERS
+            </Typography>
+            <Stack direction="row" alignItems="center" gap={2} flexWrap="wrap" useFlexGap>
+              {additionalTeamMembers.length === 0 ? (
+                <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary' }}>
+                  No additional team members
+                </Typography>
+              ) : (
+                additionalTeamMembers.map((member) => (
+                  <Stack key={member.userId} direction="row" alignItems="center" gap={1}>
+                    <Box
+                      sx={{
+                        width: 28,
+                        height: 28,
+                        borderRadius: '50%',
+                        bgcolor: alpha(getAvatarColor(member.name).bg, 0.15),
+                        color: getAvatarColor(member.name).text,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: 10,
+                        fontWeight: 700,
+                        flexShrink: 0,
+                      }}
+                    >
+                      {getInitials(member.name)}
+                    </Box>
+                    <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap' }}>
+                      {member.name}
+                    </Typography>
+                  </Stack>
+                ))
+              )}
+            </Stack>
+          </Box>
+        </Stack>
+      </Box>
+
+      <Box sx={TEAM_SECTION_CARD_SX}>
+        <Typography
+          variant="overline"
+          sx={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.6, color: 'text.secondary', display: 'block', mb: 1.5 }}
+        >
+          Client Team
+        </Typography>
+        {clientTeamMembers.length === 0 ? (
+          <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary', flex: 1 }}>
+            No client team contacts added.
+          </Typography>
+        ) : (
+          <Box
+            sx={{
+              flex: 1,
+              display: 'grid',
+              gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' },
+              gap: 1.25,
+              alignItems: 'stretch',
+            }}
+          >
+            {clientTeamMembers.map((member, idx) => (
+              <Box
+                key={`${member.name ?? 'client'}-${idx}`}
+                sx={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  minWidth: 0,
+                  height: '100%',
+                  border: '1px solid',
+                  borderColor: idx === 0 ? 'primary.light' : 'divider',
+                  borderRadius: 2,
+                  px: 1.5,
+                  py: 1.25,
+                  bgcolor: idx === 0 ? alpha(theme.palette.primary.main, 0.03) : 'transparent',
+                }}
+              >
+                <Stack direction="row" alignItems="flex-start" justifyContent="space-between" gap={1.5}>
+                  <Stack direction="row" alignItems="flex-start" gap={1.5} sx={{ minWidth: 0, flex: 1 }}>
+                    <Box
+                      sx={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: '50%',
+                        bgcolor: alpha(getAvatarColor(member.name || 'Client').bg, 0.15),
+                        color: getAvatarColor(member.name || 'Client').text,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: 12,
+                        fontWeight: 700,
+                        flexShrink: 0,
+                      }}
+                    >
+                      {getInitials(member.name || 'Client')}
+                    </Box>
+                    <Box sx={{ minWidth: 0, flex: 1 }}>
+                      <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 600 }}>
+                        {member.name || '—'}
+                      </Typography>
+                      <Typography variant="caption" sx={{ fontSize: 11, color: 'text.secondary', display: 'block', mb: 0.75 }}>
+                        {member.designation || '—'}
+                      </Typography>
+                      <Stack gap={0.75}>
+                        <Stack direction="row" alignItems="center" gap={0.5} sx={{ minWidth: 0 }}>
+                          <Phone sx={{ fontSize: 12, color: 'text.secondary' }} />
+                          <Typography variant="caption" sx={{ fontSize: 11, color: 'text.secondary' }}>
+                            {member.phone || member.contact || '—'}
+                          </Typography>
+                        </Stack>
+                        <Stack direction="row" alignItems="center" gap={0.5} sx={{ minWidth: 0 }}>
+                          <Email sx={{ fontSize: 12, color: 'text.secondary' }} />
+                          <Typography variant="caption" sx={{ fontSize: 11, color: 'primary.main', wordBreak: 'break-word' }}>
+                            {member.email || '—'}
+                          </Typography>
+                        </Stack>
+                      </Stack>
+                    </Box>
+                  </Stack>
+                  {idx === 0 ? (
+                    <MuiChip
+                      size="small"
+                      icon={<Star sx={{ fontSize: '12px !important' }} />}
+                      label="Primary"
+                      sx={{
+                        height: 20,
+                        fontSize: 10,
+                        borderRadius: '6px',
+                        bgcolor: alpha(theme.palette.primary.main, 0.12),
+                        color: 'primary.main',
+                        '& .MuiChip-label': { px: 1 },
+                        '& .MuiChip-icon': { color: 'primary.main', ml: '4px' },
+                      }}
+                    />
+                  ) : null}
+                </Stack>
               </Box>
             ))}
-            {teamMembers.length > 5 && (
-              <Typography variant="caption" sx={{ fontSize: 11, color: 'text.secondary' }}>
-                +{teamMembers.length - 5} more
-              </Typography>
-            )}
-          </Stack>
-        </Box>
-      </Stack>
-    </Box>
-  )
-
-  const ClientTeamCard = (
-    <Box sx={{ ...OVERVIEW_CARD_SX, mt: 2 }}>
-      <Typography variant="overline" sx={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.6, color: 'text.secondary', display: 'block', mb: 1.5 }}>
-        Client Team
-      </Typography>
-      {clientTeamMembers.length === 0 ? (
-        <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary' }}>
-          No client team contacts added.
-        </Typography>
-      ) : (
-        <Stack gap={1.25}>
-          {clientTeamMembers.map((member, idx) => (
-            <Box
-              key={`${member.name ?? 'client'}-${idx}`}
-              sx={{
-                border: '1px solid',
-                borderColor: idx === 0 ? 'primary.light' : 'divider',
-                borderRadius: 2,
-                px: 1.5,
-                py: 1.25,
-                bgcolor: idx === 0 ? alpha(theme.palette.primary.main, 0.03) : 'transparent',
-              }}
-            >
-              <Stack direction="row" alignItems="flex-start" justifyContent="space-between" gap={1.5}>
-                <Stack direction="row" alignItems="flex-start" gap={1.5} sx={{ minWidth: 0, flex: 1 }}>
-                  <Box
-                    sx={{
-                      width: 40,
-                      height: 40,
-                      borderRadius: '50%',
-                      bgcolor: alpha(getAvatarColor(member.name || 'Client').bg, 0.15),
-                      color: getAvatarColor(member.name || 'Client').text,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: 12,
-                      fontWeight: 700,
-                      flexShrink: 0,
-                    }}
-                  >
-                    {getInitials(member.name || 'Client')}
-                  </Box>
-                  <Box sx={{ minWidth: 0, flex: 1 }}>
-                    <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 600 }}>
-                      {member.name || '—'}
-                    </Typography>
-                    <Typography variant="caption" sx={{ fontSize: 11, color: 'text.secondary', display: 'block', mb: 0.75 }}>
-                      {member.designation || '—'}
-                    </Typography>
-                    <Stack direction={{ xs: 'column', sm: 'row' }} gap={1.5}>
-                      <Stack direction="row" alignItems="center" gap={0.5} sx={{ minWidth: 0 }}>
-                        <Phone sx={{ fontSize: 12, color: 'text.secondary' }} />
-                        <Typography variant="caption" sx={{ fontSize: 11, color: 'text.secondary' }}>
-                          {member.phone || member.contact || '—'}
-                        </Typography>
-                      </Stack>
-                      <Stack direction="row" alignItems="center" gap={0.5} sx={{ minWidth: 0 }}>
-                        <Email sx={{ fontSize: 12, color: 'text.secondary' }} />
-                        <Typography variant="caption" sx={{ fontSize: 11, color: 'primary.main', wordBreak: 'break-word' }}>
-                          {member.email || '—'}
-                        </Typography>
-                      </Stack>
-                    </Stack>
-                  </Box>
-                </Stack>
-                {idx === 0 ? (
-                  <MuiChip
-                    size="small"
-                    icon={<Star sx={{ fontSize: '12px !important' }} />}
-                    label="Primary"
-                    sx={{
-                      height: 20,
-                      fontSize: 10,
-                      borderRadius: '6px',
-                      bgcolor: alpha(theme.palette.primary.main, 0.12),
-                      color: 'primary.main',
-                      '& .MuiChip-label': { px: 1 },
-                      '& .MuiChip-icon': { color: 'primary.main', ml: '4px' },
-                    }}
-                  />
-                ) : null}
-              </Stack>
-            </Box>
-          ))}
-        </Stack>
-      )}
-    </Box>
-  )
-
-  const ProjectDocumentsCard = (
-    <Box sx={OVERVIEW_CARD_SX}>
-      <Typography variant="overline" sx={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.6, color: 'text.secondary', display: 'block', mb: 1.5 }}>
-        Project Documents
-      </Typography>
-      {!hasProjectDocuments ? (
-        <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary' }}>
-          No project documents added yet.
-        </Typography>
-      ) : (
-        <Stack gap={1}>
-          {projectDocumentItems.map((doc) => (
-            <Box key={doc.name} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1.5, p: 1.25 }}>
-              <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600 }}>
-                {doc.name}
-              </Typography>
-              <Typography variant="caption" sx={{ fontSize: 11, color: 'text.secondary', display: 'block', mt: 0.25 }}>
-                {doc.description?.trim() || '—'}
-              </Typography>
-              <Stack direction="row" gap={1} sx={{ mt: 0.75 }}>
-                {doc.link ? (
-                  <Button size="sm" variant="outlined" color="primary" label="Open Link" onClick={() => window.open(doc.link!, '_blank', 'noopener,noreferrer')} />
-                ) : null}
-                {doc.file ? (
-                  <Button size="sm" variant="outlined" color="primary" label="Open File" onClick={() => window.open(doc.file!.blobUrl, '_blank', 'noopener,noreferrer')} />
-                ) : null}
-              </Stack>
-            </Box>
-          ))}
-        </Stack>
-      )}
+          </Box>
+        )}
+      </Box>
     </Box>
   )
 
   return (
-    <Box
+    <Stack
       sx={{
-        display: 'grid',
-        gridTemplateColumns: { xs: '1fr', md: '1fr 340px' },
-        gap: '24px',
-        alignItems: { xs: 'start', md: 'stretch' },
-      }}
-    >
-      <Stack
-        sx={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignSelf: 'stretch',
+        '& > .MuiCard-root': {
           display: 'flex',
           flexDirection: 'column',
-          alignSelf: 'stretch',
-          '& > .MuiCard-root': {
-            display: 'flex',
-            flexDirection: 'column',
-            mb: 2,
-          },
-          '& > .MuiCard-root > :last-child': {
-            flex: 1,
-            display: 'flex',
-            flexDirection: 'column',
-          },
-        }}
-      >
-        <ProjectDetailsSections project={project} />
-        {ProjectDocumentsCard}
-        {ClientTeamCard}
-      </Stack>
-
-      <Box sx={{ position: 'sticky', top: 80, display: 'flex', flexDirection: 'column', gap: 2, alignSelf: 'stretch' }}>
-
-        <Box sx={OVERVIEW_CARD_SX}>
-          <Typography variant="overline" sx={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.6, color: 'text.secondary', display: 'block', mb: 1.5 }}>
-            Status & Progress
-          </Typography>
-          <Stack gap={1.5}>
-            <Stack direction="row" justifyContent="space-between" alignItems="center">
-              <Typography variant="caption" sx={{ fontSize: 11, color: 'text.secondary' }}>Current Status</Typography>
-              <StatusBadge status={project.status.toLowerCase() as StatusType} />
-            </Stack>
-            <Stack direction="row" justifyContent="space-between" alignItems="center">
-              <Typography variant="caption" sx={{ fontSize: 11, color: 'text.secondary' }}>Progress</Typography>
-              <MuiChip
-                label={project.progress}
-                size="small"
-                sx={{
-                  height: 18, fontSize: 10, borderRadius: '4px',
-                  bgcolor: getProgressStyle(project.progress, theme.palette).bg,
-                  color: getProgressStyle(project.progress, theme.palette).color,
-                  '& .MuiChip-label': { px: '6px' },
-                }}
-              />
-            </Stack>
-
-            <Box>
-              <Typography variant="caption" sx={{ fontSize: 10, color: 'text.secondary', display: 'block', mb: 0.75 }}>Stage</Typography>
-              <Stack direction="row" alignItems="center" gap={0.5}>
-                {STAGE_STEPS.map((step, idx) => {
-                  const done = idx < stageIndex
-                  const active = idx === stageIndex
-                  return (
-                    <Stack key={step} direction="row" alignItems="center" gap={0.5} sx={{ flex: 1 }}>
-                      <Box
-                        sx={{
-                          width: 8, height: 8, borderRadius: '50%',
-                          bgcolor: done ? 'success.main' : active ? 'primary.main' : tokens.color.neutral[200],
-                          flexShrink: 0,
-                        }}
-                      />
-                      <Typography
-                        variant="caption"
-                        sx={{
-                          fontSize: 9, fontWeight: active ? 700 : 400,
-                          color: active ? 'primary.main' : done ? 'success.main' : 'text.disabled',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {step}
-                      </Typography>
-                      {idx < STAGE_STEPS.length - 1 && (
-                        <Box sx={{ flex: 1, height: 1, bgcolor: done ? 'success.main' : tokens.color.neutral[100] }} />
-                      )}
-                    </Stack>
-                  )
-                })}
-              </Stack>
-            </Box>
-
-            <Box>
-              <Stack direction="row" justifyContent="space-between" sx={{ mb: 0.5 }}>
-                <Typography variant="caption" sx={{ fontSize: 10, color: 'text.secondary' }}>Overall Completion</Typography>
-                <Typography variant="caption" sx={{ fontSize: 10, fontWeight: 700, color: 'primary.main' }}>{completion}%</Typography>
-              </Stack>
-              <LinearProgress variant="determinate" value={completion} sx={{ height: 5, borderRadius: 3 }} />
-            </Box>
-
-            <Stack direction="row" justifyContent="space-between" alignItems="center">
-              <Typography variant="caption" sx={{ fontSize: 10, color: 'text.secondary' }}>Created</Typography>
-              <Typography variant="caption" sx={{ fontSize: 11 }}>{formatDate(project.createdAt)}</Typography>
-            </Stack>
-          </Stack>
-        </Box>
-
-        <Box sx={OVERVIEW_CARD_SX}>
-          <Typography variant="overline" sx={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.6, color: 'text.secondary', display: 'block', mb: 1.5 }}>
-            Receivables Snapshot
-          </Typography>
-          <Stack gap={1}>
-            <Stack direction="row" justifyContent="space-between" alignItems="center">
-              <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary' }}>Total Receivable</Typography>
-              <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 700 }}>₹{formatCurrency(totalReceivable)}</Typography>
-            </Stack>
-            <Stack direction="row" justifyContent="space-between" alignItems="center">
-              <Stack direction="row" alignItems="center" gap={0.75}>
-                <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: 'success.main' }} />
-                <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary' }}>Collected</Typography>
-              </Stack>
-              <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600, color: 'success.main' }}>₹{formatCurrency(collected)}</Typography>
-            </Stack>
-            <Stack direction="row" justifyContent="space-between" alignItems="center">
-              <Stack direction="row" alignItems="center" gap={0.75}>
-                <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: 'warning.main' }} />
-                <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary' }}>Outstanding</Typography>
-              </Stack>
-              <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600, color: 'warning.main' }}>₹{formatCurrency(outstanding)}</Typography>
-            </Stack>
-
-            <Box>
-              <Stack direction="row" justifyContent="space-between" sx={{ mb: 0.5 }}>
-                <Typography variant="caption" sx={{ fontSize: 10, color: 'text.secondary' }}>Collection Progress</Typography>
-                <Typography variant="caption" sx={{ fontSize: 10, fontWeight: 700 }}>{collectionPct}%</Typography>
-              </Stack>
-              <LinearProgress
-                variant="determinate"
-                value={collectionPct}
-                sx={{ height: 5, borderRadius: 3, '& .MuiLinearProgress-bar': { bgcolor: '#0D9488' } }}
-              />
-            </Box>
-          </Stack>
-        </Box>
-
-        {TeamCard}
-
-      </Box>
-    </Box>
+          mb: 2,
+        },
+        '& > .MuiCard-root > :last-child': {
+          flex: 1,
+          display: 'flex',
+          flexDirection: 'column',
+        },
+      }}
+    >
+      <ProjectDetailsSections project={project} />
+      {TeamsRow}
+    </Stack>
   )
 }
 
@@ -662,6 +501,51 @@ function EditProjectDrawer({
             onChange={(v) =>
               set('headcount', v ? Number(v) : null)
             }
+            size="sm"
+          />
+        </FormField>
+        <FormField label="Workstation Size">
+          <Input
+            value={form.workstationSize ?? ''}
+            onChange={(v) => set('workstationSize', v || null)}
+            size="sm"
+          />
+        </FormField>
+        <FormField label="Meeting Room Count">
+          <Input
+            type="number"
+            value={form.meetingRoomCount?.toString() ?? ''}
+            onChange={(v) =>
+              set('meetingRoomCount', v ? Number(v) : null)
+            }
+            size="sm"
+          />
+        </FormField>
+        <FormField label="Server Room Details">
+          <Input
+            value={form.serverRoomDetails ?? ''}
+            onChange={(v) => set('serverRoomDetails', v || null)}
+            size="sm"
+          />
+        </FormField>
+        <FormField label="UPS Capacity">
+          <Input
+            value={form.upsCapacity ?? ''}
+            onChange={(v) => set('upsCapacity', v || null)}
+            size="sm"
+          />
+        </FormField>
+        <FormField label="Reception Details">
+          <Input
+            value={form.receptionDetails ?? ''}
+            onChange={(v) => set('receptionDetails', v || null)}
+            size="sm"
+          />
+        </FormField>
+        <FormField label="Pantry Details">
+          <Input
+            value={form.pantryDetails ?? ''}
+            onChange={(v) => set('pantryDetails', v || null)}
             size="sm"
           />
         </FormField>
@@ -817,11 +701,16 @@ export default function ProjectDetailPage() {
   useEffect(() => {
     if (!project) return
     const hash = location.hash.replace('#', '')
-    if (!hash || hash === 'transition') return
-    if (isTabAccessible(hash, project.status)) {
+    if (hash && hash !== 'transition' && isTabAccessible(hash, project.status)) {
       setActiveTab(hash)
+      return
     }
-  }, [location.hash, project?.status, project?.id])
+    const params = new URLSearchParams(location.search)
+    const tab = params.get('tab')
+    if (tab && isTabAccessible(tab, project.status)) {
+      setActiveTab(tab)
+    }
+  }, [location.hash, location.search, project?.status, project?.id])
 
   // Reset active tab when it becomes hidden or locked
   useEffect(() => {

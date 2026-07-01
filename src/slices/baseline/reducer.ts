@@ -13,9 +13,15 @@ import {
   fetchVendorPOs,
   createVendorPO,
   updateVendorPO,
+  deleteVendorPO,
 } from './thunk'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
+
+export interface ClientPORetention {
+  percentage: number
+  value: number
+}
 
 export interface ClientPOMilestone {
   id: string
@@ -24,6 +30,10 @@ export interface ClientPOMilestone {
   name: string
   percentage: number
   value: number
+  /** Distinguishes retention rows saved from retention cards. */
+  kind?: 'regular' | 'retention'
+  /** Optional retention slice linked to this milestone (legacy). */
+  retention?: ClientPORetention
 }
 
 export interface ClientPO {
@@ -33,6 +43,10 @@ export interface ClientPO {
   startDate: string
   endDate: string
   poValue: number
+  /** Contracted executed value (may differ from PO value). */
+  executedValue?: number | null
+  /** When true, executed value was updated once post-creation and the PO is locked. */
+  executedValueLocked?: boolean
   documentUrl: string | null
   /** Display name for documents section */
   fileName?: string
@@ -48,6 +62,7 @@ export interface VendorPOMilestone {
   value: number
   dueDate: string | null
   status: 'Paid' | 'Pending' | 'Overdue'
+  kind?: 'regular' | 'retention' | 'final'
 }
 
 export type VendorPOExecutionStatus = 'Draft' | 'Issued' | 'Accepted'
@@ -60,10 +75,16 @@ export interface VendorPO {
   poNumber: string
   poDate: string
   poValue: number
+  /** Latest agreed execution amount (may differ from contractual PO value). */
+  executedValue?: number | null
+  /** When true, executed value was updated once post-creation and the PO is locked. */
+  executedValueLocked?: boolean
   milestones: VendorPOMilestone[]
   paymentTerms?: string
   status: VendorPOExecutionStatus
   linkedBaselineServiceIds?: string[]
+  /** Vendor mapping row id from the pitch/baseline offer (Live Contract → Add PO). */
+  linkedVendorMappingId?: string
   documentUrl?: string | null
   fileName?: string | null
   insurance?: boolean
@@ -248,6 +269,19 @@ const baselineSlice = createSlice({
       .addCase(updateVendorPO.fulfilled, (state, action) => {
         const idx = state.vendorPOs.findIndex((p) => p.id === action.payload.id)
         if (idx !== -1) state.vendorPOs[idx] = action.payload
+      })
+
+      // deleteVendorPO
+      .addCase(deleteVendorPO.pending, (state) => {
+        state.saving = true
+      })
+      .addCase(deleteVendorPO.fulfilled, (state, action) => {
+        state.saving = false
+        state.vendorPOs = state.vendorPOs.filter((p) => p.id !== action.payload)
+      })
+      .addCase(deleteVendorPO.rejected, (state, action) => {
+        state.saving = false
+        state.error = action.payload as string
       })
   },
 })

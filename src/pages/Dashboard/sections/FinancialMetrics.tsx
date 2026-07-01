@@ -94,7 +94,7 @@ export function FinancialMetrics({
           filterOptions={filterOptions}
         >
           {hasTrend ? (
-            <ResponsiveContainer width="100%" height="100%" minHeight={chartHeight}>
+            <ResponsiveContainer width="100%" height="100%">
               <LineChart data={monthlySeries} margin={CHART_MARGIN_WITH_LEGEND}>
                 <CartesianGrid {...ct.gridProps} vertical={false} />
                 <XAxis dataKey="month" tick={ct.axisStyle} axisLine={false} tickLine={false} />
@@ -113,7 +113,7 @@ export function FinancialMetrics({
               </LineChart>
             </ResponsiveContainer>
           ) : (
-            <EmptyChartState title="No revenue in this period for chart filters" height={chartHeight} />
+            <EmptyChartState title="No revenue in this period for chart filters" />
           )}
         </ChartPanel>
 
@@ -136,13 +136,13 @@ export function FinancialMetrics({
           globalFilters={globalFilters}
           data={chartData}
         >
-          {({ scope: clientScope, chartHeight: h }) => {
+          {({ scope: clientScope }) => {
             const topClients = revenueByClient(clientScope.scopedInvoices, clientScope.filteredProjects)
             if (topClients.length === 0) {
-              return <EmptyChartState title="No client revenue for selected chart filters" height={h} />
+              return <EmptyChartState title="No client revenue for selected chart filters" />
             }
             return (
-              <ResponsiveContainer width="100%" height="100%" minHeight={h}>
+              <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={topClients} layout="vertical" margin={CHART_MARGIN_HORIZONTAL}>
                   <CartesianGrid {...ct.gridProps} horizontal={false} />
                   <XAxis type="number" tick={ct.axisStyle} tickFormatter={yAxisCurrencyTick} axisLine={false} tickLine={false} />

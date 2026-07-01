@@ -418,6 +418,9 @@ export let expenses: Expense[] = [
     description: 'Site management cost',
     amount: 90000,
     date: '2024-02-12',
+    splitMethod: 'proportional_po',
+    paidByVendorId: 'v-001',
+    paidByVendorName: 'BuildWell',
     vendorAllocations: [
       {
         vendorId: 'v-001',

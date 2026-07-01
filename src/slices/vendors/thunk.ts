@@ -1,6 +1,7 @@
 import { createAsyncThunk } from '@reduxjs/toolkit'
 import { vendorsApi } from '../../api/vendorsApi'
 import { normalizeListResponse } from '@/utils/normalizeListResponse'
+import type { Contact } from '../customers/reducer'
 import type { Vendor } from './reducer'
 
 interface FetchVendorsParams {
@@ -10,6 +11,7 @@ interface FetchVendorsParams {
   status?: string
   gstStatus?: string
   state?: string
+  profileStatus?: 'pending' | 'complete'
 }
 
 export const fetchVendors = createAsyncThunk(
@@ -85,4 +87,84 @@ export const deleteVendor = createAsyncThunk(
       return rejectWithValue(error.response?.data?.message ?? 'Failed to delete vendor')
     }
   }
+)
+
+export const createVendorContact = createAsyncThunk(
+  'vendors/createContact',
+  async (
+    {
+      vendorId,
+      data,
+    }: { vendorId: string; data: Omit<Contact, 'id'> },
+    { rejectWithValue },
+  ) => {
+    try {
+      const response = await vendorsApi.createContact(vendorId, data)
+      return {
+        vendorId,
+        contact: response.data as Contact,
+      }
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { message?: string } } }
+      return rejectWithValue(
+        error.response?.data?.message ?? 'Failed to create vendor contact',
+      )
+    }
+  },
+)
+
+export interface PendingVendorContactInput {
+  vendorId: string
+  vendorName: string
+  name: string
+  phone: string
+  email: string
+  designation: string
+}
+
+export const createPendingVendor = createAsyncThunk(
+  'vendors/createPending',
+  async (data: PendingVendorContactInput, { rejectWithValue }) => {
+    try {
+      const trimmedName = data.name.trim()
+      const companyName = data.vendorName.trim()
+      const payload: Omit<Vendor, 'id' | 'createdAt'> = {
+        name: companyName,
+        contactPerson: trimmedName,
+        designation: data.designation.trim() || null,
+        phone: data.phone.trim(),
+        email: data.email.trim(),
+        city: '',
+        state: '',
+        address: null,
+        gstStatus: 'Unregistered',
+        gstin: null,
+        pan: null,
+        tags: [],
+        notes: null,
+        status: 'Inactive',
+        rating: null,
+        activeProjects: 0,
+        totalPayables: 0,
+        profileStatus: 'pending',
+        contacts: [
+          {
+            id: `pending-${Date.now()}`,
+            name: trimmedName,
+            designation: data.designation.trim(),
+            phone: data.phone.trim(),
+            email: data.email.trim(),
+            isPrimary: true,
+          },
+        ],
+      }
+      const response = await vendorsApi.create(payload as unknown as Record<string, unknown>)
+      return response.data as Vendor
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { message?: string } } }
+      return rejectWithValue(
+        error.response?.data?.message ?? 'Failed to create pending vendor contact',
+      )
+    }
+  },
 )

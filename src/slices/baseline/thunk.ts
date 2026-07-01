@@ -146,6 +146,20 @@ export const updateVendorPO = createAsyncThunk<
   return res.json() as Promise<VendorPO>
 })
 
+// ─── Delete vendor PO ─────────────────────────────────────────────────────────
+
+export const deleteVendorPO = createAsyncThunk<
+  string,
+  { projectId: string; poId: string },
+  { rejectValue: string }
+>('baseline/deleteVendorPO', async ({ projectId, poId }, { rejectWithValue }) => {
+  const res = await fetch(`${BASE}/${projectId}/vendor-pos/${poId}`, {
+    method: 'DELETE',
+  })
+  if (!res.ok) return rejectWithValue('Failed to delete vendor PO')
+  return poId
+})
+
 // ─── Update baseline ──────────────────────────────────────────────────────────
 
 export const updateBaseline = createAsyncThunk<

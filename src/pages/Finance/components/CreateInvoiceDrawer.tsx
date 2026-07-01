@@ -21,6 +21,7 @@ import type { Invoice } from '@/slices/receivables/reducer'
 import type { Project } from '@/slices/projects/reducer'
 import type { ClientPO, Baseline } from '@/slices/baseline/reducer'
 import { InvoiceLineItems, type DraftLineItem, computeGst } from './InvoiceLineItems'
+import { computeLineItemTaxBreakdown } from '@/pages/Projects/tabs/live/clientInvoiceUtils'
 import { tokens } from '@/design-system/tokens'
 import { formatInr } from '@/utils/formatters'
 import {
@@ -67,14 +68,18 @@ function buildAutoDraftLines(
       if (!settingsSvc || rem <= 0) continue
       const sac = sacCodeForService(sacCodes, settingsSvc)
       const amt = rem
+      const taxed = computeLineItemTaxBreakdown(amt, 0, settingsSvc.gstRate)
       out.push({
         id: `tmp-ms-${m.milestoneId}`,
         serviceId: settingsSvc.id,
         serviceName: `${m.milestoneName} — ${m.baselineServiceName}`,
         sacCode: sac,
         amount: amt,
+        labourCessRate: 0,
+        labourCessAmount: taxed.labourCessAmount,
+        taxableAmount: taxed.taxableAmount,
         gstRate: settingsSvc.gstRate,
-        gstAmount: computeGst(amt, settingsSvc.gstRate),
+        gstAmount: taxed.gstAmount,
         milestoneId: m.milestoneId,
         baselineServiceId: m.baselineServiceId,
         lineSource: 'milestone',
@@ -90,14 +95,18 @@ function buildAutoDraftLines(
       if (!settingsSvc || rem <= 0) continue
       const sac = sacCodeForService(sacCodes, settingsSvc)
       const amt = rem
+      const taxed = computeLineItemTaxBreakdown(amt, 0, settingsSvc.gstRate)
       out.push({
         id: `tmp-sv-${s.baselineServiceId}`,
         serviceId: settingsSvc.id,
         serviceName: s.name,
         sacCode: sac,
         amount: amt,
+        labourCessRate: 0,
+        labourCessAmount: taxed.labourCessAmount,
+        taxableAmount: taxed.taxableAmount,
         gstRate: settingsSvc.gstRate,
-        gstAmount: computeGst(amt, settingsSvc.gstRate),
+        gstAmount: taxed.gstAmount,
         baselineServiceId: s.baselineServiceId,
         lineSource: 'service',
         maxAmount: rem,
@@ -108,19 +117,25 @@ function buildAutoDraftLines(
 }
 
 function invoiceLinesToDraft(items: Invoice['lineItems']): DraftLineItem[] {
-  return items.map((li) => ({
-    id: li.id,
-    serviceId: li.serviceId,
-    serviceName: li.serviceName,
-    sacCode: li.sacCode,
-    amount: li.amount,
-    gstRate: li.gstRate,
-    gstAmount: li.gstAmount,
-    milestoneId: li.milestoneId,
-    baselineServiceId: li.baselineServiceId,
-    lineSource: li.lineSource ?? (li.milestoneId ? 'milestone' : li.baselineServiceId ? 'service' : 'manual'),
-    maxAmount: undefined,
-  }))
+  return items.map((li) => {
+    const breakdown = computeLineItemTaxBreakdown(li.amount, li.labourCessRate ?? 0, li.gstRate)
+    return {
+      id: li.id,
+      serviceId: li.serviceId,
+      serviceName: li.serviceName,
+      sacCode: li.sacCode,
+      amount: li.amount,
+      labourCessRate: li.labourCessRate ?? 0,
+      labourCessAmount: li.labourCessAmount ?? breakdown.labourCessAmount,
+      taxableAmount: li.taxableAmount ?? breakdown.taxableAmount,
+      gstRate: li.gstRate,
+      gstAmount: li.gstAmount,
+      milestoneId: li.milestoneId,
+      baselineServiceId: li.baselineServiceId,
+      lineSource: li.lineSource ?? (li.milestoneId ? 'milestone' : li.baselineServiceId ? 'service' : 'manual'),
+      maxAmount: undefined,
+    }
+  })
 }
 
 export interface CreateInvoiceDrawerProps {

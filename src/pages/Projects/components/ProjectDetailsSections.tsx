@@ -12,7 +12,6 @@ import {
   METADATA_BODY_SX,
   formatBuildingFloor,
   formatExpectedDuration,
-  formatSqftRate,
   ProjectScopeTags,
 } from '../projectOverviewHelpers'
 
@@ -79,16 +78,6 @@ export function ProjectDetailsSections({ project }: ProjectDetailsSectionsProps)
                 {project.sector || '—'}
               </Typography>
             </LabelValue>
-            <LabelValue label="Build Value per sqft">
-              <Typography variant="body2" sx={METADATA_BODY_SX}>
-                {formatSqftRate(project.buildValuePerSqft)}
-              </Typography>
-            </LabelValue>
-            <LabelValue label="Design Fee per sqft">
-              <Typography variant="body2" sx={METADATA_BODY_SX}>
-                {formatSqftRate(project.designFeePerSqft)}
-              </Typography>
-            </LabelValue>
             <LabelValue label="Project Scope">
               <ProjectScopeTags scope={project.projectScope} />
             </LabelValue>
@@ -106,6 +95,36 @@ export function ProjectDetailsSections({ project }: ProjectDetailsSectionsProps)
             <LabelValue label="Headcount">
               <Typography variant="body2" sx={METADATA_BODY_SX}>
                 {project.headcount ?? '—'}
+              </Typography>
+            </LabelValue>
+            <LabelValue label="Workstation Size">
+              <Typography variant="body2" sx={METADATA_BODY_SX}>
+                {project.workstationSize || '—'}
+              </Typography>
+            </LabelValue>
+            <LabelValue label="Meeting Room Count">
+              <Typography variant="body2" sx={METADATA_BODY_SX}>
+                {project.meetingRoomCount ?? '—'}
+              </Typography>
+            </LabelValue>
+            <LabelValue label="Server Room Details">
+              <Typography variant="body2" sx={METADATA_BODY_SX}>
+                {project.serverRoomDetails || '—'}
+              </Typography>
+            </LabelValue>
+            <LabelValue label="UPS Capacity">
+              <Typography variant="body2" sx={METADATA_BODY_SX}>
+                {project.upsCapacity || '—'}
+              </Typography>
+            </LabelValue>
+            <LabelValue label="Reception Details">
+              <Typography variant="body2" sx={METADATA_BODY_SX}>
+                {project.receptionDetails || '—'}
+              </Typography>
+            </LabelValue>
+            <LabelValue label="Pantry Details">
+              <Typography variant="body2" sx={METADATA_BODY_SX}>
+                {project.pantryDetails || '—'}
               </Typography>
             </LabelValue>
             <LabelValue label="Expected Duration">

@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect, useMemo, type HTMLAttributes } from 'react'
+import { useState, useEffect, useMemo, type HTMLAttributes } from 'react'
 import {
   Box,
   Stack,
@@ -28,9 +28,7 @@ import {
   ArrowBack,
   ArrowForward,
   Check,
-  Upload,
   PersonOutline,
-  Download,
 } from '@mui/icons-material'
 import { useNavigate } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
@@ -39,10 +37,11 @@ import { fetchUsers } from '../../slices/users/thunk'
 import { fetchRoles } from '../../slices/roles/thunk'
 import { isProjectManagerRole } from './projectManagerRoles'
 import { ProjectTypesField } from './components/ProjectTypesField'
+import { ContactPersonAutocomplete } from './components/ContactPersonAutocomplete'
+import { CreateContactPersonModal } from './components/CreateContactPersonModal'
 import { createProject } from '../../slices/projects/thunk'
 import type { User } from '../../slices/users/reducer'
 import { useToast } from '@/design-system/components'
-import { FileUpload } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { toSlug, getInitials, getAvatarColor } from '../../utils/formatters'
 import { SECTOR_OPTIONS } from '../../constants/sectors'
@@ -51,16 +50,15 @@ import {
   PROJECT_SETUP_GRID_SX,
   CUSTOMER_STEP_GRID_SX,
   FORM_CONTROL_INPUT_SX,
-  READONLY_CALC_VALUE_SX,
-  calcTotalDesignFee,
-  calcTotalBuildValue,
-  formatProjectValueTotal,
   getContactsForCustomer,
   getDefaultContactIds,
   findContactsByIds,
   clientTeamFromContacts,
   buildProjectDocumentsFromForm,
+  buildProjectSetupPayload,
+  validateProjectSetupFields,
 } from './projectCreateHelpers'
+import { buildAssignedTeamPayload } from '@/utils/projectAssignedTeam'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -78,6 +76,12 @@ interface WizardFormData {
   buildValuePerSqft: string
   designFeePerSqft: string
   headcount: string
+  workstationSize: string
+  meetingRoomCount: string
+  serverRoomDetails: string
+  upsCapacity: string
+  receptionDetails: string
+  pantryDetails: string
   projectManagerId: string
   projectManagerName: string
   startDate: string
@@ -107,9 +111,11 @@ interface StepErrors {
   projectTypes?: string
   sector?: string
   projectManagerId?: string
+  headcount?: string
+  meetingRoomCount?: string
 }
 
-const STEPS = ['Customer', 'Requirements', 'Project Setup', 'Team', 'Project Documents']
+const STEPS = ['Customer', 'Project Setup', 'Team']
 
 const INITIAL_FORM: WizardFormData = {
   customerId: '',
@@ -125,6 +131,12 @@ const INITIAL_FORM: WizardFormData = {
   buildValuePerSqft: '',
   designFeePerSqft: '',
   headcount: '',
+  workstationSize: '',
+  meetingRoomCount: '',
+  serverRoomDetails: '',
+  upsCapacity: '',
+  receptionDetails: '',
+  pantryDetails: '',
   projectManagerId: '',
   projectManagerName: '',
   startDate: '',
@@ -168,6 +180,7 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
   const [errors, setErrors] = useState<StepErrors>({})
   const [confirmClose, setConfirmClose] = useState(false)
   const [showInlineCustomer, setShowInlineCustomer] = useState(false)
+  const [createContactOpen, setCreateContactOpen] = useState(false)
   const [savingCustomer, setSavingCustomer] = useState(false)
   const [newCustomerData, setNewCustomerData] = useState({
     name: '',
@@ -193,6 +206,7 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
       setFormData(INITIAL_FORM)
       setErrors({})
       setConfirmClose(false)
+      setCreateContactOpen(false)
     }
   }, [open])
 
@@ -210,14 +224,15 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
         newErrors.contactId = 'Please select at least one contact person'
       }
     }
-    if (step === 2) {
+    if (step === 1) {
       if (!formData.name.trim()) newErrors.name = 'Project name is required'
       if (formData.projectTypes.length === 0) {
         newErrors.projectTypes = 'Select at least one project type'
       }
       if (!formData.sector) newErrors.sector = 'Sector is required'
+      Object.assign(newErrors, validateProjectSetupFields(formData))
     }
-    if (step === 3 && !formData.projectManagerId) {
+    if (step === 2 && !formData.projectManagerId) {
       newErrors.projectManagerId = 'Project lead is required'
     }
     setErrors(newErrors)
@@ -255,10 +270,16 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
       carpetArea: formData.carpetArea ? Number(formData.carpetArea) : null,
       buildValuePerSqft: formData.buildValuePerSqft ? Number(formData.buildValuePerSqft) : null,
       designFeePerSqft: formData.designFeePerSqft ? Number(formData.designFeePerSqft) : null,
-      headcount: formData.headcount ? Number(formData.headcount) : null,
+      ...buildProjectSetupPayload(formData),
       clientTeam: clientTeamFromContacts(selectedContacts, formData.customerName),
       projectManagerId: formData.projectManagerId,
       projectManager: formData.projectManagerName,
+      assignedTeam: buildAssignedTeamPayload(
+        formData.projectManagerId,
+        formData.projectManagerName,
+        formData.teamMembers,
+        getRoleLabel,
+      ),
       startDate: formData.startDate || null,
       expectedEndDate: formData.expectedEndDate || null,
       status: 'Pitch' as const,
@@ -325,6 +346,14 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
     }
   }
 
+  function handleContactSaved(contact: Contact) {
+    setFormData((prev) => ({
+      ...prev,
+      contactIds: [...new Set([...prev.contactIds, contact.id])],
+    }))
+    if (errors.contactId) setErrors((er) => ({ ...er, contactId: undefined }))
+  }
+
   const selectedCustomer = customers.find((c) => c.id === formData.customerId) ?? null
   const customerContacts = useMemo(
     () => getContactsForCustomer(selectedCustomer),
@@ -343,19 +372,6 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
       (c) =>
         c.name.toLowerCase().includes(q) ||
         c.contactPerson.toLowerCase().includes(q),
-    )
-  }
-
-  function renderContactOption(props: HTMLAttributes<HTMLLIElement>, option: Contact) {
-    return (
-      <Box component="li" {...props} sx={{ py: '8px !important' }}>
-        <Typography sx={{ fontSize: 13, lineHeight: 1.35 }}>{option.name}</Typography>
-        {option.designation ? (
-          <Typography sx={{ fontSize: 11, color: 'text.secondary', lineHeight: 1.35 }}>
-            {option.designation}
-          </Typography>
-        ) : null}
-      </Box>
     )
   }
 
@@ -443,44 +459,20 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
             <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
               Contact Person <Box component="span" sx={{ color: 'error.main' }}>*</Box>
             </Typography>
-            <Autocomplete
-              multiple
-              fullWidth
-              size="small"
-              disabled={!selectedCustomer}
-              options={customerContacts}
-              getOptionLabel={(c) => c.name}
-              isOptionEqualToValue={(a, b) => a.id === b.id}
-              value={selectedContacts}
-              onChange={(_, val) => {
+            <ContactPersonAutocomplete
+              contacts={formData.customerId ? customerContacts : []}
+              value={formData.customerId ? selectedContacts : []}
+              error={errors.contactId}
+              placeholder={
+                formData.customerId ? 'Search contacts…' : 'Select a customer first…'
+              }
+              onChange={(val) => {
                 setFormData((prev) => ({ ...prev, contactIds: val.map((c) => c.id) }))
                 if (errors.contactId) setErrors((er) => ({ ...er, contactId: undefined }))
               }}
-              renderOption={renderContactOption}
-              limitTags={2}
-              renderTags={(value, getTagProps) =>
-                value.map((option, index) => (
-                  <MuiChip
-                    {...getTagProps({ index })}
-                    key={option.id}
-                    label={option.name}
-                    size="small"
-                    sx={{ height: 22, fontSize: 11 }}
-                  />
-                ))
+              onCreateClick={
+                formData.customerId ? () => setCreateContactOpen(true) : undefined
               }
-              renderInput={(params) => (
-                <TextField
-                  {...params}
-                  fullWidth
-                  placeholder={
-                    selectedCustomer ? 'Select contact persons…' : 'Select a customer first…'
-                  }
-                  error={Boolean(errors.contactId)}
-                  helperText={errors.contactId}
-                  sx={FORM_CONTROL_INPUT_SX}
-                />
-              )}
             />
           </Box>
         </Box>
@@ -613,74 +605,9 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
     )
   }
 
-  // ─── Step 2: Requirements ──────────────────────────────────────────────────
-
-  function renderStep2() {
-    return (
-      <Box>
-        <Typography variant="body2" fontWeight={600} sx={{ mb: 2, color: 'text.secondary', fontSize: 12 }}>
-          Project Requirements
-        </Typography>
-
-        <Box sx={{ mb: 3 }}>
-          <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
-            Upload Requirement Document
-          </Typography>
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1, fontSize: 11 }}>
-            PDF or Word document, max 10MB
-          </Typography>
-          <Stack direction="row" alignItems="center" gap={2}>
-            <MuiButton
-              variant="outlined"
-              component="label"
-              startIcon={<Upload />}
-              size="small"
-              sx={{ fontSize: 13 }}
-            >
-              Upload Document
-              <input
-                type="file"
-                accept=".pdf,.doc,.docx"
-                hidden
-                onChange={(e) => {
-                  const file = e.target.files?.[0] ?? null
-                  setFormData((prev) => ({ ...prev, requirementFile: file }))
-                }}
-              />
-            </MuiButton>
-            {formData.requirementFile && (
-              <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
-                {formData.requirementFile.name}
-              </Typography>
-            )}
-          </Stack>
-        </Box>
-
-        <Box>
-          <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
-            Requirement Notes
-          </Typography>
-          <TextField
-            multiline
-            rows={4}
-            fullWidth
-            size="small"
-            value={formData.requirementNotes}
-            onChange={(e) => setFormData((prev) => ({ ...prev, requirementNotes: e.target.value }))}
-            placeholder="Describe key requirements, site constraints, design preferences…"
-            sx={{ '& textarea': { fontSize: 13 } }}
-          />
-        </Box>
-      </Box>
-    )
-  }
-
   // ─── Step 3: Project Setup ─────────────────────────────────────────────────
 
   function renderStep3() {
-    const totalDesignFee = calcTotalDesignFee(formData.carpetArea, formData.designFeePerSqft)
-    const totalBuildValue = calcTotalBuildValue(formData.carpetArea, formData.buildValuePerSqft)
-
     return (
       <Box>
       <Box sx={PROJECT_SETUP_GRID_SX}>
@@ -787,11 +714,103 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
             value={formData.headcount}
             onChange={(e) => setFormData((prev) => ({ ...prev, headcount: e.target.value }))}
             placeholder="e.g. 120"
+            error={Boolean(errors.headcount)}
+            helperText={errors.headcount}
             sx={FORM_CONTROL_INPUT_SX}
           />
         </Box>
 
-        {/* Row 4: Expected Start Date | Expected End Date */}
+        {/* Row 4: Workstation Size | Meeting Room Count */}
+        <Box sx={{ minWidth: 0 }}>
+          <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
+            Workstation Size
+          </Typography>
+          <TextField
+            fullWidth
+            size="small"
+            value={formData.workstationSize}
+            onChange={(e) => setFormData((prev) => ({ ...prev, workstationSize: e.target.value }))}
+            placeholder="e.g. 1200 sq ft"
+            sx={FORM_CONTROL_INPUT_SX}
+          />
+        </Box>
+
+        <Box sx={{ minWidth: 0 }}>
+          <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
+            Meeting Room Count
+          </Typography>
+          <TextField
+            fullWidth
+            size="small"
+            type="number"
+            value={formData.meetingRoomCount}
+            onChange={(e) => setFormData((prev) => ({ ...prev, meetingRoomCount: e.target.value }))}
+            placeholder="e.g. 4"
+            error={Boolean(errors.meetingRoomCount)}
+            helperText={errors.meetingRoomCount}
+            sx={FORM_CONTROL_INPUT_SX}
+          />
+        </Box>
+
+        {/* Row 5: Server Room Details | UPS Capacity */}
+        <Box sx={{ minWidth: 0 }}>
+          <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
+            Server Room Details
+          </Typography>
+          <TextField
+            fullWidth
+            size="small"
+            value={formData.serverRoomDetails}
+            onChange={(e) => setFormData((prev) => ({ ...prev, serverRoomDetails: e.target.value }))}
+            placeholder="e.g. 200 sq ft, raised floor"
+            sx={FORM_CONTROL_INPUT_SX}
+          />
+        </Box>
+
+        <Box sx={{ minWidth: 0 }}>
+          <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
+            UPS Capacity
+          </Typography>
+          <TextField
+            fullWidth
+            size="small"
+            value={formData.upsCapacity}
+            onChange={(e) => setFormData((prev) => ({ ...prev, upsCapacity: e.target.value }))}
+            placeholder="e.g. 20 KVA"
+            sx={FORM_CONTROL_INPUT_SX}
+          />
+        </Box>
+
+        {/* Row 6: Reception Details | Pantry Details */}
+        <Box sx={{ minWidth: 0 }}>
+          <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
+            Reception Details
+          </Typography>
+          <TextField
+            fullWidth
+            size="small"
+            value={formData.receptionDetails}
+            onChange={(e) => setFormData((prev) => ({ ...prev, receptionDetails: e.target.value }))}
+            placeholder="e.g. Open reception with waiting lounge"
+            sx={FORM_CONTROL_INPUT_SX}
+          />
+        </Box>
+
+        <Box sx={{ minWidth: 0 }}>
+          <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
+            Pantry Details
+          </Typography>
+          <TextField
+            fullWidth
+            size="small"
+            value={formData.pantryDetails}
+            onChange={(e) => setFormData((prev) => ({ ...prev, pantryDetails: e.target.value }))}
+            placeholder="e.g. 2 pantries with wet and dry zones"
+            sx={FORM_CONTROL_INPUT_SX}
+          />
+        </Box>
+
+        {/* Row 7: Expected Start Date | Expected End Date */}
         <Box sx={{ minWidth: 0 }}>
           <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
             Expected Start Date
@@ -820,72 +839,6 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
             InputLabelProps={{ shrink: true }}
             sx={FORM_CONTROL_INPUT_SX}
           />
-        </Box>
-      </Box>
-
-      <Divider sx={{ my: 2 }} />
-
-      <Typography
-        variant="body2"
-        fontWeight={600}
-        sx={{ mb: 2, color: 'text.secondary', fontSize: 12 }}
-      >
-        Project Value Calculation
-      </Typography>
-
-      <Box sx={PROJECT_SETUP_GRID_SX}>
-        {/* Row 5: Design Fee per Sq Ft | Build Value per Sq Ft */}
-        <Box sx={{ minWidth: 0 }}>
-          <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
-            Design Fee per Sq Ft
-          </Typography>
-          <TextField
-            fullWidth
-            size="small"
-            type="number"
-            value={formData.designFeePerSqft}
-            onChange={(e) => setFormData((prev) => ({ ...prev, designFeePerSqft: e.target.value }))}
-            placeholder="e.g. 180"
-            sx={FORM_CONTROL_INPUT_SX}
-          />
-        </Box>
-
-        <Box sx={{ minWidth: 0 }}>
-          <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
-            Build Value per Sq Ft
-          </Typography>
-          <TextField
-            fullWidth
-            size="small"
-            type="number"
-            value={formData.buildValuePerSqft}
-            onChange={(e) => setFormData((prev) => ({ ...prev, buildValuePerSqft: e.target.value }))}
-            placeholder="e.g. 2500"
-            sx={FORM_CONTROL_INPUT_SX}
-          />
-        </Box>
-
-        {/* Row 6: calculated totals */}
-        <Box sx={{ minWidth: 0 }}>
-          <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
-            Total Design Fee
-          </Typography>
-          <Box sx={READONLY_CALC_VALUE_SX}>
-            <Typography sx={{ fontSize: 13, fontWeight: 600, color: 'text.primary' }}>
-              {formatProjectValueTotal(totalDesignFee)}
-            </Typography>
-          </Box>
-        </Box>
-
-        <Box sx={{ minWidth: 0 }}>
-          <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
-            Total Build Value
-          </Typography>
-          <Box sx={READONLY_CALC_VALUE_SX}>
-            <Typography sx={{ fontSize: 13, fontWeight: 600, color: 'text.primary' }}>
-              {formatProjectValueTotal(totalBuildValue)}
-            </Typography>
-          </Box>
         </Box>
       </Box>
       </Box>
@@ -1094,178 +1047,10 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
   function renderStepContent() {
     switch (activeStep) {
       case 0: return renderStep1()
-      case 1: return renderStep2()
-      case 2: return renderStep3()
-      case 3: return renderStep4()
-      case 4: return renderStep5()
+      case 1: return renderStep3()
+      case 2: return renderStep4()
       default: return null
     }
-  }
-
-  function renderStep5() {
-    function SingleUploadField({
-      label,
-      file,
-      onChange,
-    }: {
-      label: string
-      file: File | null
-      onChange: (next: File | null) => void
-    }) {
-      const inputRef = useRef<HTMLInputElement | null>(null)
-      const blobUrl = useMemo(() => (file ? URL.createObjectURL(file) : ''), [file])
-
-      return (
-        <Box>
-          <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 0.75 }}>
-            <Typography variant="caption" sx={{ fontWeight: 500, fontSize: 12 }}>
-              {label}
-            </Typography>
-            <MuiButton
-              variant="outlined"
-              component="label"
-              size="small"
-              startIcon={<Upload />}
-              sx={{ fontSize: 13 }}
-            >
-              Upload
-              <input
-                ref={inputRef}
-                type="file"
-                hidden
-                accept=".pdf,.doc,.docx,.xlsx,.jpg,.jpeg,.png,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,image/jpeg,image/png"
-                onChange={(e) => onChange(e.target.files?.[0] ?? null)}
-              />
-            </MuiButton>
-          </Stack>
-          <Stack alignItems="flex-start" gap={0.5}>
-            {file ? (
-              <Stack alignItems="flex-start" gap={0.5}>
-                <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
-                  {file.name}
-                </Typography>
-                <Stack direction="row" gap={1}>
-                  <MuiButton
-                    size="small"
-                    variant="text"
-                    sx={{ minWidth: 0, p: 0, fontSize: 11 }}
-                    onClick={() => window.open(blobUrl, '_blank', 'noopener,noreferrer')}
-                  >
-                    View
-                  </MuiButton>
-                  <MuiButton
-                    size="small"
-                    variant="text"
-                    sx={{ minWidth: 0, p: 0, fontSize: 11 }}
-                    startIcon={<Download sx={{ fontSize: 12 }} />}
-                    onClick={() => {
-                      const a = document.createElement('a')
-                      a.href = blobUrl
-                      a.download = file.name
-                      a.click()
-                    }}
-                  >
-                    Download
-                  </MuiButton>
-                  <MuiButton
-                    size="small"
-                    variant="text"
-                    sx={{ minWidth: 0, p: 0, fontSize: 11 }}
-                    onClick={() => inputRef.current?.click()}
-                  >
-                    Replace
-                  </MuiButton>
-                </Stack>
-              </Stack>
-            ) : null}
-          </Stack>
-        </Box>
-      )
-    }
-
-    return (
-      <Box>
-        <Typography variant="body2" fontWeight={600} sx={{ mb: 2, color: 'text.secondary', fontSize: 12 }}>
-          Project Documents
-        </Typography>
-        <Box display="grid" sx={{ gridTemplateColumns: '1fr 1fr', gap: 1.5 }}>
-          <SingleUploadField
-            label="Final Layout"
-            file={formData.finalLayoutFile}
-            onChange={(file) => setFormData((prev) => ({ ...prev, finalLayoutFile: file }))}
-          />
-          <SingleUploadField
-            label="Final RCP"
-            file={formData.finalRcpFile}
-            onChange={(file) => setFormData((prev) => ({ ...prev, finalRcpFile: file }))}
-          />
-          <Box>
-            <TextField
-              fullWidth
-              size="small"
-              value={formData.finalLayoutDescription}
-              onChange={(e) => setFormData((prev) => ({ ...prev, finalLayoutDescription: e.target.value }))}
-              placeholder="Add notes or paste URL"
-              sx={FORM_CONTROL_INPUT_SX}
-            />
-          </Box>
-          <Box>
-            <TextField
-              fullWidth
-              size="small"
-              value={formData.finalRcpDescription}
-              onChange={(e) => setFormData((prev) => ({ ...prev, finalRcpDescription: e.target.value }))}
-              placeholder="Add notes or paste URL"
-              sx={FORM_CONTROL_INPUT_SX}
-            />
-          </Box>
-          <SingleUploadField
-            label="Final Views"
-            file={formData.finalViewsFile}
-            onChange={(file) => setFormData((prev) => ({ ...prev, finalViewsFile: file }))}
-          />
-          <SingleUploadField
-            label="Final Photographs"
-            file={formData.finalPhotographsFile}
-            onChange={(file) => setFormData((prev) => ({ ...prev, finalPhotographsFile: file }))}
-          />
-          <Box>
-            <TextField
-              fullWidth
-              size="small"
-              value={formData.finalViewsDescription}
-              onChange={(e) => setFormData((prev) => ({ ...prev, finalViewsDescription: e.target.value }))}
-              placeholder="Add notes or paste URL"
-              sx={FORM_CONTROL_INPUT_SX}
-            />
-          </Box>
-          <Box>
-            <TextField
-              fullWidth
-              size="small"
-              value={formData.finalPhotographsDescription}
-              onChange={(e) => setFormData((prev) => ({ ...prev, finalPhotographsDescription: e.target.value }))}
-              placeholder="Add notes or paste URL"
-              sx={FORM_CONTROL_INPUT_SX}
-            />
-          </Box>
-          <Box sx={{ gridColumn: '1 / -1' }}>
-            <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
-              Final Handover Documents
-            </Typography>
-            <FileUpload
-              accept=".pdf,.doc,.docx,.xlsx,.jpg,.jpeg,.png,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,image/jpeg,image/png"
-              multiple
-              showAcceptText={false}
-              onUpload={(files) =>
-                setFormData((prev) => ({ ...prev, finalHandoverFiles: files }))
-              }
-              helperText="PDF, Word, Excel, JPG, PNG"
-            />
-          </Box>
-        </Box>
-      </Box>
-    )
   }
 
   const isLastStep = activeStep === STEPS.length - 1
@@ -1379,6 +1164,14 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
           </Stack>
         </DialogActions>
       </Dialog>
+
+      <CreateContactPersonModal
+        open={createContactOpen}
+        onClose={() => setCreateContactOpen(false)}
+        customerId={formData.customerId}
+        existingCustomerContacts={getContactsForCustomer(selectedCustomer)}
+        onSaved={handleContactSaved}
+      />
 
       {/* Confirm close dialog */}
       <Dialog open={confirmClose} onClose={() => setConfirmClose(false)} maxWidth="xs" fullWidth>

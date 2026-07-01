@@ -64,6 +64,12 @@ export interface Project {
   floor?: string
   carpetArea: number | null
   headcount: number | null
+  workstationSize?: string | null
+  meetingRoomCount?: number | null
+  serverRoomDetails?: string | null
+  upsCapacity?: string | null
+  receptionDetails?: string | null
+  pantryDetails?: string | null
   projectManager: string
   projectManagerId: string
   assignedTeam?: ProjectTeamMember[]

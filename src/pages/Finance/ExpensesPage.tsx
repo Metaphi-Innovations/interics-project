@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Stack,
+  Box,
   Table,
   TableBody,
   TableCell,
@@ -54,8 +55,22 @@ type VisibleCols = {
 }
 
 /** Mirrors VendorsPage TABLE_HEADER_CELL_SX / TABLE_CELL_SX. */
-const EXP_ACTION_WIDTH_PX = 56
+const EXP_ACTION_WIDTH_PX = 44
 const EXP_CELL_PAD_X = '14px'
+const LISTING_EDGE_PAD = EXP_CELL_PAD_X
+
+const CENTER_CELL_CONTENT_SX = {
+  display: 'flex',
+  justifyContent: 'center',
+  alignItems: 'center',
+  width: 1,
+} as const
+
+const STICKY_ACTION_SX = {
+  position: 'sticky' as const,
+  right: 0,
+  zIndex: 1,
+}
 
 const HEADER_SX = {
   fontSize: 11,
@@ -70,10 +85,17 @@ const HEADER_SX = {
 
 const HEADER_ACTION_SX = {
   ...HEADER_SX,
+  ...STICKY_ACTION_SX,
   width: EXP_ACTION_WIDTH_PX,
   minWidth: EXP_ACTION_WIDTH_PX,
   maxWidth: EXP_ACTION_WIDTH_PX,
   whiteSpace: 'nowrap' as const,
+  textAlign: 'center' as const,
+  verticalAlign: 'middle' as const,
+  pl: 0,
+  pr: LISTING_EDGE_PAD,
+  bgcolor: 'background.default',
+  zIndex: 2,
 }
 
 const CELL_SX = {
@@ -84,20 +106,30 @@ const CELL_SX = {
   boxSizing: 'border-box' as const,
 }
 
+const HEADER_STATUS_SX = {
+  ...HEADER_SX,
+  textAlign: 'center' as const,
+  verticalAlign: 'middle' as const,
+}
+
 const CELL_STATUS_SX = {
   ...CELL_SX,
   verticalAlign: 'middle' as const,
+  textAlign: 'center' as const,
 }
 
 const CELL_ACTION_SX = {
   py: '7px',
-  px: EXP_CELL_PAD_X,
+  pl: 0,
+  pr: LISTING_EDGE_PAD,
   width: EXP_ACTION_WIDTH_PX,
   minWidth: EXP_ACTION_WIDTH_PX,
   maxWidth: EXP_ACTION_WIDTH_PX,
   verticalAlign: 'middle' as const,
   textAlign: 'center' as const,
   boxSizing: 'border-box' as const,
+  bgcolor: 'background.paper',
+  ...STICKY_ACTION_SX,
 }
 
 const menuItemSx = { fontSize: 12, minHeight: 32, py: 0.5 }
@@ -463,7 +495,7 @@ export default function ExpensesPage() {
           setPage(0)
         }}
       >
-        <TableContainer sx={{ overflow: 'visible', width: '100%' }}>
+        <TableContainer sx={{ overflowX: 'auto', width: '100%' }}>
           <Table size="small" sx={{ tableLayout: 'fixed', width: '100%', minWidth: 0 }}>
             <colgroup>
               {visibleColumns.type && <col style={{ width: dataColWidth }} />}
@@ -485,8 +517,10 @@ export default function ExpensesPage() {
                 {visibleColumns.service && <TableCell sx={HEADER_SX}>Service</TableCell>}
                 {visibleColumns.amount && <TableCell sx={HEADER_SX}>Amount</TableCell>}
                 {visibleColumns.date && <TableCell sx={HEADER_SX}>Date</TableCell>}
-                {visibleColumns.status && <TableCell sx={HEADER_SX}>Status</TableCell>}
-                <TableCell sx={HEADER_ACTION_SX}>Action</TableCell>
+                {visibleColumns.status && <TableCell sx={HEADER_STATUS_SX}>Status</TableCell>}
+                <TableCell sx={HEADER_ACTION_SX}>
+                  <Box sx={CENTER_CELL_CONTENT_SX}>Action</Box>
+                </TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -532,6 +566,7 @@ export default function ExpensesPage() {
                       sx={{
                         '& td': { height: 44 },
                         '&:hover': { bgcolor: hoverBg },
+                        '&:hover td': { bgcolor: hoverBg },
                       }}
                     >
                       {visibleColumns.type && (
@@ -567,13 +602,17 @@ export default function ExpensesPage() {
                       )}
                       {visibleColumns.status && (
                         <TableCell sx={CELL_STATUS_SX}>
-                          <StatusBadge status={st.status} label={st.label} size="small" />
+                          <Box sx={CENTER_CELL_CONTENT_SX}>
+                            <StatusBadge status={st.status} label={st.label} size="small" />
+                          </Box>
                         </TableCell>
                       )}
-                      <TableCell sx={CELL_ACTION_SX}>
-                        <MuiIconButton size="small" aria-label="More" onClick={(e) => openMenu(e, exp)}>
-                          <MoreVertIcon sx={{ fontSize: 16 }} />
-                        </MuiIconButton>
+                      <TableCell sx={CELL_ACTION_SX} onClick={(e) => e.stopPropagation()}>
+                        <Box sx={CENTER_CELL_CONTENT_SX}>
+                          <MuiIconButton size="small" aria-label="More" onClick={(e) => openMenu(e, exp)} sx={{ p: 0.25 }}>
+                            <MoreVertIcon sx={{ fontSize: 14 }} />
+                          </MuiIconButton>
+                        </Box>
                       </TableCell>
                     </TableRow>
                   )

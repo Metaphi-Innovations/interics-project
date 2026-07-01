@@ -1,5 +1,6 @@
 import { createSlice } from '@reduxjs/toolkit'
 import type { PayloadAction } from '@reduxjs/toolkit'
+import type { CommonExpenseSplitMethod } from '@/slices/live/types'
 import {
   fetchVersions,
   fetchVersionById,
@@ -37,6 +38,13 @@ export interface VendorRetention {
   amount: number
 }
 
+/** Final milestone is stored separately from regular vendor milestones. */
+export interface VendorFinalMilestone {
+  name: string
+  percentage: number
+  amount: number
+}
+
 /** Vendor quotation document (PO Transition); stored per service–vendor mapping. */
 export interface VendorQuotation {
   fileName: string
@@ -49,10 +57,14 @@ export interface VendorMapping {
   vendorId: string
   vendorName: string
   value: number
+  /** Latest agreed execution amount (may differ from contractual offer / PO value). */
+  executedValue?: number | null
   percentage: number
   milestones: VendorMilestone[]
   /** Optional retention slice (single); not part of `milestones`. */
   retention?: VendorRetention
+  /** Optional final milestone (single); not part of `milestones`. */
+  finalMilestone?: VendorFinalMilestone
   isMeasurable: boolean
   quotation?: VendorQuotation
   gstRate?: number
@@ -84,6 +96,11 @@ export interface PlannedExpense {
   milestoneName?: string
   date?: string
   documentUrl?: string
+  /** How a common expense is split across build vendors. */
+  splitMethod?: CommonExpenseSplitMethod
+  /** Vendor who initially paid a common expense out of pocket. */
+  paidByVendorId?: string
+  paidByVendorName?: string
 }
 
 export interface PitchService {

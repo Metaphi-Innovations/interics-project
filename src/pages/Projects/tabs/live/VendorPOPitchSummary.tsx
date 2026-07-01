@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   Box,
   Table,
@@ -11,16 +11,12 @@ import {
 import { Button } from '@/design-system/components'
 import { WorkspaceSection } from '../../../../components/templates'
 import { tokens } from '@/design-system/tokens'
-import { useAppDispatch, useAppSelector } from '../../../../store/hooks'
-import { fetchVersions } from '../../../../slices/pitch/thunk'
+import { useAppSelector } from '../../../../store/hooks'
 import { formatCurrency } from '../../../../utils/formatters'
 import { AddVendorOfferDrawer } from './AddVendorOfferDrawer'
 import { AddVendorPODrawer } from './VendorPOBillingDrawers'
-import {
-  buildVendorOfferRows,
-  deriveVendorOptions,
-  resolvePitchVersionForProject,
-} from './vendorPOHelpers'
+import { buildVendorOfferRows, collectMatchingServiceIds, deriveVendorOptions } from './vendorPOHelpers'
+import { useLiveOfferVersion } from './useLiveOfferVersion'
 
 const TABLE_HEADER_SX = {
   fontSize: 10,
@@ -39,6 +35,18 @@ const TABLE_CELL_SX = {
   verticalAlign: 'middle' as const,
 }
 
+const ACTION_HEADER_SX = {
+  ...TABLE_HEADER_SX,
+  textAlign: 'center' as const,
+  verticalAlign: 'middle' as const,
+}
+
+const ACTION_CELL_SX = {
+  ...TABLE_CELL_SX,
+  textAlign: 'center' as const,
+  verticalAlign: 'middle' as const,
+}
+
 interface VendorPOPitchSummaryProps {
   projectId: string
 }
@@ -50,30 +58,33 @@ interface AddPOContext {
   serviceId: string
   serviceName: string
   offerAmount: number
+  vendorMappingId: string
+  linkedServiceIds: string[]
 }
 
 export function VendorPOPitchSummary({ projectId }: VendorPOPitchSummaryProps) {
-  const dispatch = useAppDispatch()
-  const { activeVersion, versions, loading: pitchLoading } = useAppSelector((s) => s.pitch)
+  const { baseline } = useAppSelector((s) => s.baseline)
+  const { offerVersion, loading } = useLiveOfferVersion(projectId)
 
   const [addOfferOpen, setAddOfferOpen] = useState(false)
   const [addPOOpen, setAddPOOpen] = useState(false)
   const [addPOContext, setAddPOContext] = useState<AddPOContext | null>(null)
 
-  useEffect(() => {
-    void dispatch(fetchVersions(projectId))
-  }, [dispatch, projectId])
-
-  const pitchVersion = useMemo(
-    () => resolvePitchVersionForProject(projectId, activeVersion, versions),
-    [activeVersion, versions, projectId],
+  const baselineForProject = useMemo(
+    () => (baseline?.projectId === projectId ? baseline : null),
+    [baseline, projectId],
   )
 
-  const vendorRows = useMemo(() => buildVendorOfferRows(pitchVersion), [pitchVersion])
-  const vendorOptions = useMemo(() => deriveVendorOptions(pitchVersion), [pitchVersion])
-  const loading = pitchLoading && !pitchVersion
+  const vendorRows = useMemo(() => buildVendorOfferRows(offerVersion), [offerVersion])
+  const vendorOptions = useMemo(() => deriveVendorOptions(offerVersion), [offerVersion])
 
   function handleAddPO(row: (typeof vendorRows)[number]) {
+    const linkedServiceIds = collectMatchingServiceIds(
+      row,
+      baselineForProject,
+      offerVersion,
+      projectId,
+    )
     setAddPOContext({
       vendorId: row.mapping.vendorId,
       vendorName: row.mapping.vendorName,
@@ -81,6 +92,8 @@ export function VendorPOPitchSummary({ projectId }: VendorPOPitchSummaryProps) {
       serviceId: row.serviceId,
       serviceName: row.serviceName,
       offerAmount: row.mapping.value,
+      vendorMappingId: row.mapping.id,
+      linkedServiceIds,
     })
     setAddPOOpen(true)
   }
@@ -116,13 +129,14 @@ export function VendorPOPitchSummary({ projectId }: VendorPOPitchSummaryProps) {
               sx={{
                 tableLayout: 'fixed',
                 width: '100%',
-                '& .MuiTableCell-root': { verticalAlign: 'top', wordBreak: 'break-word' },
+                '& .MuiTableCell-root': { wordBreak: 'break-word' },
+                '& .MuiTableCell-root:not(.vendor-offer-action-cell)': { verticalAlign: 'top' },
               }}
             >
               <TableHead>
                 <TableRow>
                   {['Vendor Name', 'Category', 'Service', 'Offer Amount', 'Notes / Tags', 'Action'].map((h) => (
-                    <TableCell key={h} sx={TABLE_HEADER_SX}>
+                    <TableCell key={h} sx={h === 'Action' ? ACTION_HEADER_SX : TABLE_HEADER_SX}>
                       {h}
                     </TableCell>
                   ))}
@@ -156,17 +170,26 @@ export function VendorPOPitchSummary({ projectId }: VendorPOPitchSummaryProps) {
                       <TableCell sx={{ ...TABLE_CELL_SX, color: 'text.secondary' }}>
                         {row.mapping.notes?.trim() || '—'}
                       </TableCell>
-                      <TableCell sx={TABLE_CELL_SX}>
-                        <Button
-                          size="sm"
-                          variant="outlined"
-                          color="primary"
-                          label="Add PO"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleAddPO(row)
+                      <TableCell className="vendor-offer-action-cell" sx={ACTION_CELL_SX}>
+                        <Box
+                          sx={{
+                            display: 'flex',
+                            justifyContent: 'center',
+                            alignItems: 'center',
+                            minHeight: 32,
                           }}
-                        />
+                        >
+                          <Button
+                            size="sm"
+                            variant="outlined"
+                            color="primary"
+                            label="Add PO"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleAddPO(row)
+                            }}
+                          />
+                        </Box>
                       </TableCell>
                     </TableRow>
                   ))
@@ -190,6 +213,8 @@ export function VendorPOPitchSummary({ projectId }: VendorPOPitchSummaryProps) {
         vendors={vendorOptions}
         initialVendorId={addPOContext?.vendorId}
         initialServiceId={addPOContext?.serviceId}
+        linkedServiceIds={addPOContext?.linkedServiceIds}
+        linkedVendorMappingId={addPOContext?.vendorMappingId}
         initialVendorName={addPOContext?.vendorName}
         initialCategoryName={addPOContext?.categoryName}
         initialServiceName={addPOContext?.serviceName}

@@ -1,9 +1,30 @@
 import type { Baseline, VendorPO, VendorPOMilestone } from '@/slices/baseline/reducer'
-import type { PitchService, PitchVersion, VendorMapping } from '@/slices/pitch/reducer'
+import type { PitchCategory, PitchService, PitchVersion, VendorMapping } from '@/slices/pitch/reducer'
+import { resolvePitchVersionForProject } from '@/store/selectors/pitchSelectors'
 import {
   normalizeVendorMapping,
   validateVendorMilestonePercents,
 } from '@/utils/vendorMilestones'
+
+export type VendorMilestoneKind = 'regular' | 'retention' | 'final'
+
+export function resolveVendorPOMilestoneKind(m: VendorPOMilestone): VendorMilestoneKind {
+  if (m.kind === 'retention') return 'retention'
+  if (m.kind === 'final') return 'final'
+  if (m.name.trim().toLowerCase() === 'retention') return 'retention'
+  return 'regular'
+}
+
+export function vendorMilestoneTypeLabel(type: VendorMilestoneKind): string {
+  switch (type) {
+    case 'retention':
+      return 'Retention'
+    case 'final':
+      return 'Final Milestone'
+    default:
+      return 'Regular'
+  }
+}
 
 export interface VendorOfferRow {
   categoryName: string
@@ -17,6 +38,11 @@ export interface VendorOption {
   vendorId: string
   vendorName: string
   allocatedValue: number
+}
+
+/** Contractual PO value vs latest execution amount — calculations use executed when set. */
+export function vendorPoEffectiveValue(po: Pick<VendorPO, 'poValue' | 'executedValue'>): number {
+  return po.executedValue ?? po.poValue
 }
 
 export type VendorMappingRowStatus =
@@ -35,17 +61,24 @@ export interface VendorMilestoneOverviewRow {
   amount: number
   retentionAmount: number
   allocationStatus: string
+  milestoneType: VendorMilestoneKind
 }
 
 export interface VendorPOMilestoneOverviewRow {
   key: string
   poId: string
   poNumber: string
+  vendorId: string
   vendor: string
+  serviceId: string
+  serviceName: string
   service: string
+  milestoneId: string
   name: string
   pct: number
   amount: number
+  milestoneType: VendorMilestoneKind
+  /** @deprecated use milestoneType === 'retention' */
   isRetention: boolean
   status: VendorPOMilestone['status']
 }
@@ -70,6 +103,19 @@ function linkedServiceLabels(po: VendorPO, baseline: Baseline | null): string {
     .join(', ')
 }
 
+export function vendorPOLinkedServiceLabel(po: VendorPO, baseline: Baseline | null): string {
+  return linkedServiceLabels(po, baseline)
+}
+
+export function vendorPOCategoryLabel(po: VendorPO, baseline: Baseline | null): string {
+  const serviceId = po.linkedBaselineServiceIds?.[0]
+  if (!serviceId || !baseline) return '—'
+  for (const cat of baseline.categories) {
+    if (cat.services.some((s) => s.id === serviceId)) return cat.categoryName
+  }
+  return '—'
+}
+
 export function buildVendorPOMilestoneOverviewRows(
   vendorPOs: VendorPO[],
   projectId: string,
@@ -78,18 +124,27 @@ export function buildVendorPOMilestoneOverviewRows(
   const rows: VendorPOMilestoneOverviewRow[] = []
   for (const po of vendorPOs.filter((p) => p.projectId === projectId)) {
     const serviceLabel = linkedServiceLabels(po, baseline)
+    const primaryServiceId = po.linkedBaselineServiceIds?.[0] ?? ''
+    const primarySvc = primaryServiceId ? findServiceInBaseline(baseline, primaryServiceId) : undefined
+    const primaryServiceName =
+      primarySvc?.subcategoryName ?? primarySvc?.name ?? primaryServiceId
     for (const m of po.milestones) {
-      const isRetention = m.name.trim().toLowerCase() === 'retention'
+      const milestoneType = resolveVendorPOMilestoneKind(m)
       rows.push({
         key: `${po.id}-${m.id}`,
         poId: po.id,
         poNumber: po.poNumber,
+        vendorId: po.vendorId,
         vendor: po.vendorName,
+        serviceId: primaryServiceId,
+        serviceName: primaryServiceName,
         service: serviceLabel,
+        milestoneId: m.id,
         name: m.name,
         pct: m.percentage,
         amount: m.value,
-        isRetention,
+        milestoneType,
+        isRetention: milestoneType === 'retention',
         status: m.status,
       })
     }
@@ -117,7 +172,125 @@ export function buildVendorOfferRows(version: PitchVersion | null): VendorOfferR
   return rows
 }
 
+function normalizeOfferLabel(value: string): string {
+  return value.trim().toLowerCase()
+}
+
+/** Stable key for a vendor-offer table row. */
+export function vendorOfferRowKey(row: VendorOfferRow): string {
+  return `${row.mapping.vendorId}:${row.serviceId}:${row.mapping.id}`
+}
+
+/** Service ids for the same category + service label across pitch and baseline snapshots. */
+export function collectMatchingServiceIds(
+  row: VendorOfferRow,
+  baseline: Baseline | null,
+  offerVersion: PitchVersion | null,
+  projectId: string,
+): string[] {
+  const ids = new Set<string>([row.serviceId])
+  const targetCategory = normalizeOfferLabel(row.categoryName)
+  const targetService = normalizeOfferLabel(row.serviceName)
+
+  const sources: PitchCategory[][] = []
+  if (baseline?.projectId === projectId) sources.push(baseline.categories)
+  if (offerVersion?.projectId === projectId) sources.push(offerVersion.categories)
+
+  for (const categories of sources) {
+    for (const cat of categories) {
+      if (normalizeOfferLabel(cat.categoryName) !== targetCategory) continue
+      for (const svc of cat.services) {
+        const label = normalizeOfferLabel(svc.subcategoryName ?? svc.name ?? svc.customName ?? '')
+        if (label === targetService) ids.add(svc.id)
+      }
+    }
+  }
+  return Array.from(ids)
+}
+
+export interface VendorOfferHasPoOptions {
+  alternateServiceIds?: string[]
+  confirmedRowKeys?: ReadonlySet<string>
+}
+
+/** True when a vendor PO was created from this offer row. */
+export function vendorOfferHasPo(
+  row: VendorOfferRow,
+  vendorPOs: VendorPO[],
+  projectId: string,
+  options?: VendorOfferHasPoOptions,
+): boolean {
+  return findVendorPOForOfferRow(row, vendorPOs, projectId, options) != null
+}
+
+/** Resolves the vendor PO linked to an offer row, if one exists. */
+export function findVendorPOForOfferRow(
+  row: VendorOfferRow,
+  vendorPOs: VendorPO[],
+  projectId: string,
+  options?: VendorOfferHasPoOptions,
+): VendorPO | undefined {
+  const rowKey = vendorOfferRowKey(row)
+  if (options?.confirmedRowKeys?.has(rowKey)) {
+    const byMapping = vendorPOs.find(
+      (po) =>
+        po.projectId === projectId &&
+        po.vendorId === row.mapping.vendorId &&
+        po.linkedVendorMappingId === row.mapping.id,
+    )
+    if (byMapping) return byMapping
+  }
+
+  const serviceIds = new Set([row.serviceId, ...(options?.alternateServiceIds ?? [])])
+
+  return vendorPOs.find((po) => {
+    if (po.projectId !== projectId) return false
+    if (po.vendorId !== row.mapping.vendorId) return false
+    if (po.linkedVendorMappingId && po.linkedVendorMappingId === row.mapping.id) return true
+    const linked = po.linkedBaselineServiceIds ?? []
+    return linked.some((id) => serviceIds.has(id))
+  })
+}
+
 export { resolvePitchVersionForProject } from '@/store/selectors/pitchSelectors'
+
+/** PitchVersion-shaped view of a locked baseline (Live offer summaries). */
+export function baselineToOfferVersion(baseline: Baseline): PitchVersion {
+  return {
+    id: baseline.versionId,
+    projectId: baseline.projectId,
+    versionNumber: baseline.pitchVersionNumber,
+    label: baseline.versionLabel,
+    isActive: true,
+    createdAt: baseline.lockedAt,
+    categories: baseline.categories,
+    plannedExpenses: baseline.plannedExpenses ?? [],
+    totalRevenue: baseline.totalRevenue,
+    totalCost: baseline.totalCost,
+    profitability: baseline.profitability,
+  }
+}
+
+/**
+ * Resolve client/vendor offer data for Live Contract & Receivable summaries.
+ * Prefers the pitch version when it has categories; otherwise uses the locked baseline
+ * created during Convert Live.
+ */
+export function resolveOfferVersionForProject(
+  projectId: string,
+  activeVersion: PitchVersion | null,
+  versions: PitchVersion[],
+  baseline: Baseline | null,
+): PitchVersion | null {
+  const pitch = resolvePitchVersionForProject(projectId, activeVersion, versions)
+  if (pitch && pitch.categories.length > 0) return pitch
+
+  if (baseline?.projectId === projectId) {
+    return baselineToOfferVersion(baseline)
+  }
+
+  return pitch
+}
 
 export function deriveVendorOptions(version: PitchVersion | null): VendorOption[] {
   const map = new Map<string, VendorOption>()
@@ -153,13 +326,19 @@ export function findPitchService(
 export function mappingAllocatedTotal(mapping: VendorMapping): number {
   const normalized = normalizeVendorMapping(mapping)
   const fromMilestones = (normalized.milestones ?? []).reduce((sum, m) => sum + m.value, 0)
-  return fromMilestones + (normalized.retention?.amount ?? 0)
+  return (
+    fromMilestones +
+    (normalized.retention?.amount ?? 0) +
+    (normalized.finalMilestone?.amount ?? 0)
+  )
 }
 
 export function deriveVendorMappingRowStatus(mapping: VendorMapping): VendorMappingRowStatus {
   const normalized = normalizeVendorMapping(mapping)
   const hasBreakdown =
-    (normalized.milestones?.length ?? 0) > 0 || Boolean(normalized.retention)
+    (normalized.milestones?.length ?? 0) > 0 ||
+    Boolean(normalized.retention) ||
+    Boolean(normalized.finalMilestone)
   if (!hasBreakdown) {
     return normalized.value > 0 ? 'Mapped' : 'Milestones Pending'
   }
@@ -181,7 +360,9 @@ export function buildVendorMilestoneOverviewRows(
         const normalized = normalizeVendorMapping(vm)
         const allocated = mappingAllocatedTotal(normalized)
         const allocationStatus =
-          normalized.milestones.length === 0 && !normalized.retention
+          normalized.milestones.length === 0 &&
+          !normalized.retention &&
+          !normalized.finalMilestone
             ? 'No breakdown'
             : Math.abs(allocated - normalized.value) <= 1
               ? 'Fully allocated'
@@ -198,6 +379,7 @@ export function buildVendorMilestoneOverviewRows(
             amount: m.value,
             retentionAmount: 0,
             allocationStatus,
+            milestoneType: 'regular',
           })
         }
         if (normalized.retention) {
@@ -211,6 +393,21 @@ export function buildVendorMilestoneOverviewRows(
             amount: normalized.retention.amount,
             retentionAmount: normalized.retention.amount,
             allocationStatus,
+            milestoneType: 'retention',
+          })
+        }
+        if (normalized.finalMilestone) {
+          rows.push({
+            key: `${svc.id}-${vm.id}-final`,
+            service: svc.name,
+            category: cat.categoryName,
+            vendor: vm.vendorName,
+            name: normalized.finalMilestone.name,
+            pct: normalized.finalMilestone.percentage,
+            amount: normalized.finalMilestone.amount,
+            retentionAmount: 0,
+            allocationStatus,
+            milestoneType: 'final',
           })
         }
       }

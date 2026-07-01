@@ -79,14 +79,14 @@ export function ProjectAnalytics({
           globalFilters={globalFilters}
           data={chartData}
         >
-          {({ scope, chartHeight: h }) => {
+          {({ scope }) => {
             const statusDonut = projectStatusDonut(scope.filteredProjects)
             const totalStatus = statusDonut.reduce((s, d) => s + d.value, 0)
             return (
               <DonutChartBlock
                 data={statusDonut}
                 theme={theme}
-                height={h}
+                height={chartHeight}
                 centerValue={String(totalStatus)}
                 centerLabel="Projects"
                 emptyMessage="No projects for chart filters"
@@ -103,13 +103,13 @@ export function ProjectAnalytics({
           globalFilters={globalFilters}
           data={chartData}
         >
-          {({ scope, chartHeight: h }) => {
+          {({ scope }) => {
             const typeBar = projectsByClientType(scope.filteredProjects)
             if (!typeBar.some((d) => d.value > 0)) {
-              return <EmptyChartState title="No projects by type for chart filters" height={h} />
+              return <EmptyChartState title="No projects by type for chart filters" />
             }
             return (
-              <ResponsiveContainer width="100%" height="100%" minHeight={h}>
+              <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={typeBar} margin={CHART_MARGIN}>
                   <CartesianGrid {...ct.gridProps} vertical={false} />
                   <XAxis
@@ -146,8 +146,8 @@ export function ProjectAnalytics({
         globalFilters={globalFilters}
         data={chartData}
       >
-        {({ scope, monthBuckets, chartHeight: h }) => (
-          <ResponsiveContainer width="100%" height="100%" minHeight={h}>
+        {({ scope, monthBuckets }) => (
+          <ResponsiveContainer width="100%" height="100%">
             <LineChart data={durationTrendMonthly(monthBuckets, scope.filteredProjects)} margin={CHART_MARGIN}>
               <CartesianGrid {...ct.gridProps} vertical={false} />
               <XAxis dataKey="month" tick={ct.axisStyle} axisLine={false} tickLine={false} />

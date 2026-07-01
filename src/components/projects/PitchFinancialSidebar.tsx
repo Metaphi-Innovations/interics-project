@@ -1,5 +1,4 @@
 import { Box, Stack, Typography, Divider, LinearProgress } from '@mui/material'
-import { useTheme } from '@mui/material/styles'
 import type { PitchVersion } from '@/slices/pitch/reducer'
 import type { PitchFinancialMetrics } from '@/store/selectors/pitchSelectors'
 import { tokens } from '@/design-system/tokens'
@@ -15,15 +14,7 @@ export interface PitchFinancialSidebarProps {
 }
 
 export function PitchFinancialSidebar({ version, metrics: fin }: PitchFinancialSidebarProps) {
-  const theme = useTheme()
   const marginPercent = fin.marginPercent
-
-  const health =
-    marginPercent > 50 ? { label: 'Excellent', color: theme.palette.success.main } :
-    marginPercent > 30 ? { label: 'Good', color: theme.palette.warning.main } :
-    marginPercent > 10 ? { label: 'At Risk', color: theme.palette.warning.dark } :
-    { label: 'Critical', color: theme.palette.error.main }
-
   const progressValue = Math.min(Math.max(marginPercent, 0), 100)
   const marginBarColor = marginPercent < 0 ? 'error' : 'success'
 
@@ -130,31 +121,6 @@ export function PitchFinancialSidebar({ version, metrics: fin }: PitchFinancialS
               sx={{ height: 5, borderRadius: 3 }}
             />
           </Box>
-        </Stack>
-      </Box>
-
-      <Box>
-        <Typography variant="overline" sx={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.6, color: 'text.secondary', display: 'block', mb: 0.75 }}>
-          Cash Flow Preview
-        </Typography>
-        <Stack direction="row" alignItems="center" gap={1}>
-          <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: 'success.main' }} />
-          <Typography variant="body2" sx={{ fontSize: 12, color: 'success.main', fontWeight: 600 }}>Positive</Typography>
-        </Stack>
-        <Typography variant="caption" sx={{ fontSize: 10, color: 'text.disabled' }}>
-          Based on milestone values
-        </Typography>
-      </Box>
-
-      <Box>
-        <Typography variant="overline" sx={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.6, color: 'text.secondary', display: 'block', mb: 0.75 }}>
-          Project Health
-        </Typography>
-        <Stack direction="row" alignItems="center" gap={1}>
-          <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: health.color }} />
-          <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600, color: health.color }}>
-            {health.label}
-          </Typography>
         </Stack>
       </Box>
     </Box>

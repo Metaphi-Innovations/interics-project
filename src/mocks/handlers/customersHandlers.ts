@@ -664,6 +664,17 @@ export const customersHandlers = [
       return HttpResponse.json({ message: 'Customer not found' }, { status: 404 })
     }
     const data = await request.json() as Omit<Contact, 'id'>
+    const normalizePhone = (phone: string) => phone.replace(/\D/g, '')
+    const nextPhone = normalizePhone(data.phone ?? '')
+    if (
+      nextPhone &&
+      contactsStore[id].some((c) => normalizePhone(c.phone) === nextPhone)
+    ) {
+      return HttpResponse.json(
+        { message: 'A contact with this mobile number already exists for this customer' },
+        { status: 409 },
+      )
+    }
     const newContact: Contact = {
       ...data,
       id: `cc-${String(contactIdCounter++).padStart(3, '0')}`,
@@ -672,6 +683,19 @@ export const customersHandlers = [
       contactsStore[id].forEach((c) => { c.isPrimary = false })
     }
     contactsStore[id].push(newContact)
+    const customerIdx = customers.findIndex((c) => c.id === id)
+    if (customerIdx !== -1) {
+      customers[customerIdx] = {
+        ...customers[customerIdx],
+        contacts: [...contactsStore[id]],
+      }
+      const primary = contactsStore[id].find((c) => c.isPrimary) ?? contactsStore[id][0]
+      if (primary) {
+        customers[customerIdx].contactPerson = primary.name
+        customers[customerIdx].phone = primary.phone
+        customers[customerIdx].email = primary.email
+      }
+    }
     return HttpResponse.json(newContact, { status: 201 })
   }),
 

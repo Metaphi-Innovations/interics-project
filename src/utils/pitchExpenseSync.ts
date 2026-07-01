@@ -59,6 +59,9 @@ export function plannedExpenseToLiveCreateBody(
             allocationAmount: s.amount,
           }))
         : undefined,
+    splitMethod: planned.splitMethod,
+    paidByVendorId: planned.paidByVendorId,
+    paidByVendorName: planned.paidByVendorName,
     status: 'pending',
   }
 }

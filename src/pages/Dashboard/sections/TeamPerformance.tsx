@@ -25,6 +25,7 @@ import type { ChartDataSource } from '../hooks/useChartFilterScope'
 import { DashboardSection } from '../components/DashboardSection'
 import { DashboardMiniCard } from '../components/DashboardMiniCard'
 import { ScopedChartPanel } from '../components/ScopedChartPanel'
+import { ChartPlotFrame } from '../components/ChartPlotFrame'
 import { EmptyChartState } from '../components/EmptyChartState'
 import { chartColors } from '../components/chartPrimitives'
 import { useDashboardChartTheme } from '../components/charts/useDashboardChartTheme'
@@ -38,8 +39,11 @@ import {
   CHART_CATEGORY_AXIS_WIDTH,
   CHART_MARGIN_HORIZONTAL,
   CHART_MARGIN_STACKED_HORIZONTAL,
-  CHART_MARGIN_TEAM_PROFIT,
   SECTION_CHART_ROW_SX,
+  computeHorizontalBarSize,
+  computeHorizontalChartContentHeight,
+  computeTeamProfitChartLayout,
+  computeVerticalGroupedBarSize,
 } from '../components/chartLayout'
 
 interface TeamPerformanceProps {
@@ -108,13 +112,21 @@ export function TeamPerformance({
               return (
                 <EmptyChartState
                   title="No team lead assignments for selected filters"
-                  height={h}
                 />
               )
             }
+            const innerHeight = computeHorizontalChartContentHeight(h, data.length, {
+              marginTop: CHART_MARGIN_HORIZONTAL.top,
+              marginBottom: CHART_MARGIN_HORIZONTAL.bottom,
+            })
+            const barSize = computeHorizontalBarSize(innerHeight, data.length, {
+              marginTop: CHART_MARGIN_HORIZONTAL.top,
+              marginBottom: CHART_MARGIN_HORIZONTAL.bottom,
+            })
             return (
-              <ResponsiveContainer width="100%" height="100%" minHeight={h}>
-                <BarChart data={data} layout="vertical" margin={CHART_MARGIN_HORIZONTAL}>
+              <ChartPlotFrame plotHeight={h} contentHeight={innerHeight}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={data} layout="vertical" margin={CHART_MARGIN_HORIZONTAL}>
                   <CartesianGrid {...ct.gridProps} horizontal={false} />
                   <XAxis type="number" allowDecimals={false} tick={ct.axisStyle} axisLine={false} tickLine={false} />
                   <YAxis
@@ -132,12 +144,14 @@ export function TeamPerformance({
                     name="Projects"
                     fill={theme.palette.primary.main}
                     radius={[0, 4, 4, 0]}
-                    barSize={16}
+                    barSize={barSize}
+                    maxBarSize={barSize + 4}
                   >
                     <LabelList dataKey="value" position="right" fontSize={10} />
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
+              </ChartPlotFrame>
             )
           }}
         </ScopedChartPanel>
@@ -162,7 +176,6 @@ export function TeamPerformance({
               return (
                 <EmptyChartState
                   title="No profitability by team lead for selected filters"
-                  height={h}
                 />
               )
             }
@@ -170,9 +183,15 @@ export function TeamPerformance({
               100,
               Math.max(25, Math.ceil(Math.max(...data.map((d) => d.marginPct), 0) / 5) * 5),
             )
+            const layout = computeTeamProfitChartLayout(data.length, h)
+            const profitBarSize = computeVerticalGroupedBarSize(layout.contentHeight, data.length, {
+              top: layout.margin.top,
+              bottom: layout.margin.bottom,
+            })
             return (
-              <ResponsiveContainer width="100%" height="100%" minHeight={h}>
-                <ComposedChart data={data} margin={CHART_MARGIN_TEAM_PROFIT}>
+              <ChartPlotFrame plotHeight={h} contentHeight={layout.contentHeight}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={data} margin={layout.margin}>
                   <CartesianGrid {...ct.gridProps} vertical={false} />
                   <XAxis
                     dataKey="lead"
@@ -182,7 +201,7 @@ export function TeamPerformance({
                     interval={0}
                     angle={-28}
                     textAnchor="end"
-                    height={52}
+                    height={layout.xAxisHeight}
                     tickFormatter={(v) => truncateCategoryTick(v, 10)}
                   />
                   <YAxis
@@ -212,15 +231,19 @@ export function TeamPerformance({
                       return [ru(Number(value ?? 0)), name]
                     }}
                   />
-                  <Legend {...legendBottom} iconSize={8} />
+                  <Legend
+                    {...legendBottom}
+                    iconSize={8}
+                    wrapperStyle={{ ...legendBottom.wrapperStyle, paddingTop: 4 }}
+                  />
                   <ReferenceLine yAxisId="profit" y={0} stroke={theme.palette.divider} />
                   <Bar
                     yAxisId="profit"
                     dataKey="profit"
                     name="Profit amount"
                     radius={[4, 4, 0, 0]}
-                    barSize={22}
-                    maxBarSize={28}
+                    barSize={profitBarSize}
+                    maxBarSize={profitBarSize + 6}
                   >
                     {data.map((entry, i) => (
                       <Cell
@@ -245,6 +268,7 @@ export function TeamPerformance({
                   />
                 </ComposedChart>
               </ResponsiveContainer>
+              </ChartPlotFrame>
             )
           }}
         </ScopedChartPanel>
@@ -265,12 +289,22 @@ export function TeamPerformance({
             return (
               <EmptyChartState
                 title="No team revenue contribution for selected filters"
-                height={h}
               />
             )
           }
+          const innerHeight = computeHorizontalChartContentHeight(h, data.length, {
+            legend: true,
+            marginTop: CHART_MARGIN_STACKED_HORIZONTAL.top,
+            marginBottom: CHART_MARGIN_STACKED_HORIZONTAL.bottom,
+          })
+          const stackedBarSize = computeHorizontalBarSize(innerHeight, data.length, {
+            legend: true,
+            marginTop: CHART_MARGIN_STACKED_HORIZONTAL.top,
+            marginBottom: CHART_MARGIN_STACKED_HORIZONTAL.bottom,
+          })
             return (
-              <ResponsiveContainer width="100%" height="100%" minHeight={h}>
+              <ChartPlotFrame plotHeight={h} contentHeight={innerHeight}>
+                <ResponsiveContainer width="100%" height="100%">
               <BarChart data={data} layout="vertical" margin={CHART_MARGIN_STACKED_HORIZONTAL}>
                 <CartesianGrid {...ct.gridProps} horizontal={false} />
                 <XAxis
@@ -302,11 +336,13 @@ export function TeamPerformance({
                     name={t}
                     stackId="team"
                     fill={colors[i % colors.length]}
-                    barSize={20}
+                    barSize={stackedBarSize}
+                    maxBarSize={stackedBarSize + 4}
                   />
                 ))}
               </BarChart>
             </ResponsiveContainer>
+              </ChartPlotFrame>
           )
         }}
       </ScopedChartPanel>

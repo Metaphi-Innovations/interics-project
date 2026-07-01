@@ -1,11 +1,10 @@
 import { useMemo, useState } from 'react'
 import { Navigate, useParams } from 'react-router-dom'
-import { Download } from 'lucide-react'
 import { ListingTemplate } from '@/components/templates'
 import { useToast } from '@/design-system/components'
 import { getReportBySlug } from './reportsConfig'
 import type { ReportListingRow } from './reportsConfig'
-import { ReportListingTable } from './components/ReportListingTable'
+import { ReportListingTable, downloadReportCsv } from './components/ReportListingTable'
 
 export default function ReportSubModulePage() {
   const { reportSlug } = useParams<{ reportSlug: string }>()
@@ -39,7 +38,8 @@ export default function ReportSubModulePage() {
   }
 
   function handleExport() {
-    showToast({ title: 'Export started (placeholder)', variant: 'success' })
+    downloadReportCsv(report.name, report.columns, filteredRows)
+    showToast({ title: 'Export started', variant: 'success' })
   }
 
   return (
@@ -52,14 +52,8 @@ export default function ReportSubModulePage() {
       onSearchChange={setSearch}
       showExport
       onExport={handleExport}
-      secondaryActions={[
-        {
-          label: 'Export',
-          onClick: handleExport,
-          startIcon: <Download size={16} strokeWidth={2} />,
-        },
-      ]}
       hideToolbar={false}
+      clipCardContent={false}
     >
       <ReportListingTable
         reportName={report.name}

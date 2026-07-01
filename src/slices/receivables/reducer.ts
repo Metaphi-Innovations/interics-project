@@ -27,6 +27,9 @@ export interface LineItem {
   serviceName: string
   sacCode: string
   amount: number
+  labourCessRate?: number
+  labourCessAmount?: number
+  taxableAmount?: number
   gstRate: number
   gstAmount: number
   milestoneId?: string
@@ -66,6 +69,8 @@ export interface Invoice {
   payments: Payment[]
   notes?: string
   clientPoId?: string
+  documentUrl?: string | null
+  fileName?: string | null
   createdAt: string
   updatedAt: string
 }

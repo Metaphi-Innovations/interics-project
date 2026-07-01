@@ -1,5 +1,6 @@
 import { http, HttpResponse } from 'msw'
 import { getClientPoValue } from '../data/clientPOValidation'
+import { computeLineItemTaxBreakdown } from '@/pages/Projects/tabs/live/clientInvoiceUtils'
 
 export type InvoiceStatus =
   | 'draft'
@@ -17,6 +18,9 @@ export interface LineItem {
   serviceName: string
   sacCode: string
   amount: number
+  labourCessRate?: number
+  labourCessAmount?: number
+  taxableAmount?: number
   gstRate: number
   gstAmount: number
   milestoneId?: string
@@ -46,6 +50,8 @@ export interface Invoice {
   dueDate: string
   lineItems: LineItem[]
   baseAmount: number
+  labourCessAmount?: number
+  taxableAmount?: number
   gstAmount: number
   totalAmount: number
   tdsDeducted: number
@@ -59,19 +65,45 @@ export interface Invoice {
   updatedAt: string
 }
 
-function lineGst(amount: number, gstRate: number): number {
-  return Math.round(amount * (gstRate / 100) * 100) / 100
+function applyLineTaxes(li: LineItem): void {
+  const breakdown = computeLineItemTaxBreakdown(li.amount, li.labourCessRate ?? 0, li.gstRate)
+  li.labourCessAmount = breakdown.labourCessAmount
+  li.taxableAmount = breakdown.taxableAmount
+  li.gstAmount = breakdown.gstAmount
 }
 
-function summarize(lines: LineItem[]): { base: number; gst: number; total: number } {
-  const base = lines.reduce((s, l) => s + l.amount, 0)
-  const gst = lines.reduce((s, l) => s + l.gstAmount, 0)
-  return { base, gst, total: base + gst }
+function summarize(lines: LineItem[]): {
+  base: number
+  labourCess: number
+  taxable: number
+  gst: number
+  total: number
+} {
+  let base = 0
+  let labourCess = 0
+  let taxable = 0
+  let gst = 0
+  for (const li of lines) {
+    applyLineTaxes(li)
+    base += li.amount
+    labourCess += li.labourCessAmount ?? 0
+    taxable += li.taxableAmount ?? li.amount
+    gst += li.gstAmount
+  }
+  return {
+    base,
+    labourCess: Math.round(labourCess * 100) / 100,
+    taxable: Math.round(taxable * 100) / 100,
+    gst: Math.round(gst * 100) / 100,
+    total: Math.round((taxable + gst) * 100) / 100,
+  }
 }
 
 function recalcFinancials(inv: Invoice): void {
-  const { base, gst, total } = summarize(inv.lineItems)
+  const { base, labourCess, taxable, gst, total } = summarize(inv.lineItems)
   inv.baseAmount = base
+  inv.labourCessAmount = labourCess
+  inv.taxableAmount = taxable
   inv.gstAmount = gst
   inv.totalAmount = total
   const received = inv.payments.reduce((s, p) => s + p.amountReceived, 0)
@@ -92,17 +124,19 @@ function makeLine(
   gstRate: number,
   extra?: Partial<Pick<LineItem, 'milestoneId' | 'baselineServiceId' | 'lineSource'>>,
 ): LineItem {
-  const gstAmount = lineGst(amount, gstRate)
-  return {
+  const line: LineItem = {
     id,
     serviceId,
     serviceName,
     sacCode: sac,
     amount,
+    labourCessRate: 0,
     gstRate,
-    gstAmount,
+    gstAmount: 0,
     ...extra,
   }
+  applyLineTaxes(line)
+  return line
 }
 
 function totalInvoicedOnPo(
@@ -467,7 +501,7 @@ let invoices: Invoice[] = [
 
 invoices.forEach((inv) => {
   inv.lineItems.forEach((li) => {
-    li.gstAmount = lineGst(li.amount, li.gstRate)
+    applyLineTaxes(li)
   })
   recalcFinancials(inv)
 })
@@ -553,7 +587,7 @@ export const receivablesHandlers = [
       }
     }
     lineItems.forEach((li) => {
-      li.gstAmount = lineGst(li.amount, li.gstRate)
+      applyLineTaxes(li)
     })
     const n = nextNum++
     const id = `inv-${String(n).padStart(3, '0')}`
@@ -610,7 +644,7 @@ export const receivablesHandlers = [
     const now = new Date().toISOString()
     const lineItems = body.lineItems ?? prev.lineItems
     lineItems.forEach((li) => {
-      li.gstAmount = lineGst(li.amount, li.gstRate)
+      applyLineTaxes(li)
     })
     const merged: Invoice = {
       ...prev,

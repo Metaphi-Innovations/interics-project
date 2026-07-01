@@ -26,7 +26,8 @@ import {
 } from '../chartFilterConfig'
 import type { ChartFilterOptions } from '../chartFilterConfig'
 import { ChartLoadingState } from './ChartLoadingState'
-import { PANEL_SX } from './chartLayout'
+import { ChartPlotContainer } from './ChartPlotContainer'
+import { CHART_HEADER_ROW_SX, PANEL_SX } from './chartLayout'
 
 interface ChartPanelProps {
   title: string
@@ -84,17 +85,17 @@ export function ChartPanel({
         alignItems="center"
         justifyContent="space-between"
         gap={1}
-        sx={{ mb: 1, flexShrink: 0 }}
+        sx={CHART_HEADER_ROW_SX}
       >
         <Box sx={{ minWidth: 0, flex: 1 }}>
-          <Typography variant="h6" fontWeight={600} sx={{ lineHeight: 1.3 }}>
+          <Typography variant="h6" fontWeight={600} sx={{ fontSize: 15, lineHeight: 1.3 }}>
             {title}
           </Typography>
-          {subtitle && (
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
+          {subtitle ? (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25, lineHeight: 1.35 }}>
               {subtitle}
             </Typography>
-          )}
+          ) : null}
         </Box>
         <Badge
           badgeContent={activeFilterCount > 0 ? activeFilterCount : undefined}
@@ -137,18 +138,9 @@ export function ChartPanel({
         onFilterReset={handleFilterReset}
       />
 
-      <Box
-        sx={{
-          flex: 1,
-          minHeight: chartHeight,
-          minWidth: 0,
-          overflow: 'hidden',
-          display: 'flex',
-          flexDirection: 'column',
-        }}
-      >
+      <ChartPlotContainer height={chartHeight}>
         {loading ? <ChartLoadingState height={chartHeight} /> : children}
-      </Box>
+      </ChartPlotContainer>
       {footer}
     </Paper>
   )

@@ -1,31 +1,41 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   Autocomplete,
   Box,
   Divider,
-  MenuItem,
-  Select as MuiSelect,
   Stack,
   TextField,
   Typography,
   Button as MuiButton,
 } from '@mui/material'
-import { Upload } from '@mui/icons-material'
+import { Add, Upload } from '@mui/icons-material'
+import { useTheme, alpha } from '@mui/material/styles'
 import { useToast } from '@/design-system/components'
 import { DrawerForm, FormField } from '../../../../components/templates'
 import { useAppDispatch, useAppSelector } from '../../../../store/hooks'
 import { fetchVendors } from '../../../../slices/vendors/thunk'
 import { fetchVersions, updateVendorMapping } from '../../../../slices/pitch/thunk'
+import { createVendorPO, fetchVendorPOs } from '../../../../slices/baseline/thunk'
 import type { PitchService, VendorMapping, VendorMilestone } from '../../../../slices/pitch/reducer'
-import type { VendorPOMilestone } from '../../../../slices/baseline/reducer'
-import { resolvePitchVersionForProject } from './vendorPOHelpers'
+import { resolveOfferVersionForProject } from './vendorPOHelpers'
 import {
-  VendorPOMilestoneEditor,
-  buildVendorPOMilestonePayload,
-  isVendorPOMilestoneBreakdownValid,
-  type VendorPOMilestoneRow,
-  type VendorPORetentionRow,
-} from './VendorPOMilestoneEditor'
+  VendorOfferMilestoneCardEditor,
+  VendorOfferFinalMilestoneCardEditor,
+  VendorOfferRetentionCardEditor,
+  createVendorOfferMilestoneCard,
+  createVendorOfferFinalMilestoneCard,
+  createVendorOfferRetentionCard,
+  groupAllCardsByService,
+  isGroupedServiceValid,
+  isMilestoneCardConfigured,
+  isFinalMilestoneCardConfigured,
+  isRetentionCardConfigured,
+  buildVendorPOMilestonePayloadFromGroup,
+  type VendorOfferMilestoneCard,
+  type VendorOfferFinalMilestoneCard,
+  type VendorOfferRetentionCard,
+  type GroupedServiceMilestones,
+} from './VendorOfferMilestoneCards'
 
 const PO_SECTION_TITLE_SX = {
   fontSize: '10px',
@@ -60,23 +70,109 @@ function pct(value: number, total: number): number {
   return Math.round((value / total) * 100)
 }
 
-function pitchMilestonesFromPayload(payload: VendorPOMilestone[]): {
+function pitchMappingFromGroup(group: GroupedServiceMilestones): {
   milestones: VendorMilestone[]
   retention?: VendorMapping['retention']
+  finalMilestone?: VendorMapping['finalMilestone']
 } {
-  const retentionRow = payload.find((m) => m.name === 'Retention')
-  const milestones = payload
-    .filter((m) => m.name !== 'Retention')
+  const milestones = group.milestones
+    .filter((m) => m.name.trim())
     .map((m) => ({
       id: m.id,
       name: m.name,
       percentage: m.percentage,
       value: m.value,
     }))
-  const retention = retentionRow
-    ? { percentage: retentionRow.percentage, amount: retentionRow.value }
-    : undefined
-  return { milestones, retention }
+
+  const firstFinal = group.finalMilestones.find((f) => f.name.trim())
+  const firstRetention = group.retentions.find((r) => r.name.trim())
+
+  return {
+    milestones,
+    retention: firstRetention
+      ? { percentage: firstRetention.percentage, amount: firstRetention.value }
+      : undefined,
+    finalMilestone: firstFinal
+      ? {
+          name: firstFinal.name,
+          percentage: firstFinal.percentage,
+          amount: firstFinal.value,
+        }
+      : undefined,
+  }
+}
+
+function serviceDisplayName(service: PitchService): string {
+  return service.subcategoryName ?? service.name ?? service.customName ?? '—'
+}
+
+function generatePoNumber(): string {
+  const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '')
+  return `PO-VND-${stamp}-${String(Date.now()).slice(-4)}`
+}
+
+function MilestoneSectionPanel({
+  title,
+  addLabel,
+  onAdd,
+  addDisabled,
+  isEmpty,
+  showAddButton = true,
+  children,
+}: {
+  title: string
+  addLabel: string
+  onAdd: () => void
+  addDisabled?: boolean
+  isEmpty: boolean
+  showAddButton?: boolean
+  children?: ReactNode
+}) {
+  const theme = useTheme()
+
+  const addButton = showAddButton ? (
+    <MuiButton
+      size="small"
+      variant="outlined"
+      startIcon={<Add sx={{ fontSize: 16 }} />}
+      onClick={onAdd}
+      disabled={addDisabled}
+      sx={{ fontSize: 12, alignSelf: 'flex-start' }}
+    >
+      {addLabel}
+    </MuiButton>
+  ) : null
+
+  return (
+    <Box sx={{ mt: 2 }}>
+      <Typography
+        component="span"
+        variant="overline"
+        sx={{ ...PO_SECTION_TITLE_SX, display: 'block', mb: 1 }}
+      >
+        {title}
+      </Typography>
+      {isEmpty ? (
+        addButton ? (
+          <Box
+            sx={{
+              borderRadius: 1,
+              p: 1.5,
+              bgcolor: alpha(theme.palette.text.primary, 0.04),
+              border: `1px solid ${alpha(theme.palette.divider, 0.8)}`,
+            }}
+          >
+            {addButton}
+          </Box>
+        ) : null
+      ) : (
+        <Stack gap={1.5}>
+          {children}
+          {addButton}
+        </Stack>
+      )}
+    </Box>
+  )
 }
 
 export interface AddVendorOfferDrawerProps {
@@ -89,28 +185,37 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
   const dispatch = useAppDispatch()
   const toast = useToast((s) => s.showToast)
   const { saving } = useAppSelector((s) => s.pitch)
+  const { saving: baselineSaving } = useAppSelector((s) => s.baseline)
   const vendorItems = useAppSelector((s) => s.vendors.items ?? [])
   const { activeVersion, versions } = useAppSelector((s) => s.pitch)
+  const { baseline } = useAppSelector((s) => s.baseline)
 
   const [form, setForm] = useState({
-    vendorId: '',
-    categoryId: '',
-    serviceId: '',
+    poNumber: '',
     poDate: '',
     poValue: '',
+    executedValue: '',
+    vendorId: '',
     file: null as File | null,
   })
-  const [milestones, setMilestones] = useState<VendorPOMilestoneRow[]>([])
-  const [retention, setRetention] = useState<VendorPORetentionRow | null>(null)
+  const [milestoneCards, setMilestoneCards] = useState<VendorOfferMilestoneCard[]>([])
+  const [finalMilestoneCards, setFinalMilestoneCards] = useState<VendorOfferFinalMilestoneCard[]>([])
+  const [retentionCards, setRetentionCards] = useState<VendorOfferRetentionCard[]>([])
+
+  const baselineForProject = baseline?.projectId === projectId ? baseline : null
 
   const pitchVersion = useMemo(
-    () => resolvePitchVersionForProject(projectId, activeVersion, versions),
-    [activeVersion, versions, projectId],
+    () =>
+      resolveOfferVersionForProject(
+        projectId,
+        activeVersion,
+        versions,
+        baselineForProject,
+      ),
+    [activeVersion, versions, projectId, baselineForProject],
   )
 
   const serviceTargets = useMemo(() => listServiceTargets(pitchVersion), [pitchVersion])
-  const singleTarget = serviceTargets.length === 1 ? serviceTargets[0] : null
-  const needsServicePicker = serviceTargets.length > 1
 
   const categoryOptions = useMemo(() => {
     const map = new Map<string, string>()
@@ -120,14 +225,14 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
     return Array.from(map.entries()).map(([id, label]) => ({ id, label }))
   }, [serviceTargets])
 
-  const selectedTarget = useMemo(() => {
-    if (singleTarget) return singleTarget
-    return serviceTargets.find((t) => t.service.id === form.serviceId) ?? null
-  }, [singleTarget, serviceTargets, form.serviceId])
-
-  const servicesForCategory = useMemo(
-    () => serviceTargets.filter((t) => t.categoryId === form.categoryId),
-    [serviceTargets, form.categoryId],
+  const serviceOptions = useMemo(
+    () =>
+      serviceTargets.map((t) => ({
+        id: t.service.id,
+        label: serviceDisplayName(t.service),
+        categoryId: t.categoryId,
+      })),
+    [serviceTargets],
   )
 
   const vendorOptions = useMemo(
@@ -137,10 +242,30 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
 
   const selectedVendor = vendorOptions.find((v) => v.id === form.vendorId) ?? null
   const poValueNumber = Number(form.poValue) || 0
+  const executedValueNumber = Number(form.executedValue) || poValueNumber
+  const milestoneBaseValue = executedValueNumber
 
-  const milestonesValid = useMemo(
-    () => isVendorPOMilestoneBreakdownValid(poValueNumber, milestones, retention),
-    [poValueNumber, milestones, retention],
+  const hasConfiguredEntries = useMemo(
+    () =>
+      milestoneCards.some(isMilestoneCardConfigured) ||
+      finalMilestoneCards.some(isFinalMilestoneCardConfigured) ||
+      retentionCards.some(isRetentionCardConfigured),
+    [milestoneCards, finalMilestoneCards, retentionCards],
+  )
+
+  const groupedForSave = useMemo(
+    () =>
+      groupAllCardsByService(
+        milestoneCards.filter(isMilestoneCardConfigured),
+        finalMilestoneCards.filter(isFinalMilestoneCardConfigured),
+        retentionCards.filter(isRetentionCardConfigured),
+      ),
+    [milestoneCards, finalMilestoneCards, retentionCards],
+  )
+
+  const groupedSaveValid = useMemo(
+    () => groupedForSave.every((group) => isGroupedServiceValid(milestoneBaseValue, group)),
+    [groupedForSave, milestoneBaseValue],
   )
 
   useEffect(() => {
@@ -152,54 +277,93 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
 
   useEffect(() => {
     if (!open) {
-      setForm({ vendorId: '', categoryId: '', serviceId: '', poDate: '', poValue: '', file: null })
-      setMilestones([])
-      setRetention(null)
+      setForm({
+        poNumber: '',
+        poDate: '',
+        poValue: '',
+        executedValue: '',
+        vendorId: '',
+        file: null,
+      })
+      setMilestoneCards([])
+      setFinalMilestoneCards([])
+      setRetentionCards([])
     }
   }, [open])
 
   useEffect(() => {
-    if (singleTarget && open) {
-      setForm((prev) => ({
-        ...prev,
-        categoryId: singleTarget.categoryId,
-        serviceId: singleTarget.service.id,
-      }))
-    }
-  }, [singleTarget, open])
+    if (!open || form.poNumber) return
+    setForm((prev) => ({ ...prev, poNumber: generatePoNumber() }))
+  }, [open, form.poNumber])
 
   useEffect(() => {
-    if (poValueNumber <= 0) return
-    setMilestones((prev) =>
-      prev.map((m) => ({
-        ...m,
-        value: Math.round((m.percentage / 100) * poValueNumber),
-      })),
-    )
-    setRetention((prev) =>
-      prev ? { ...prev, amount: Math.round((prev.percentage / 100) * poValueNumber) } : null,
-    )
-  }, [poValueNumber])
+    if (milestoneBaseValue <= 0) return
+
+    setFinalMilestoneCards((prev) => {
+      let changed = false
+      const next = prev.map((row) => {
+        const amount = Math.round((row.percentage / 100) * milestoneBaseValue)
+        if (row.value === amount) return row
+        changed = true
+        return { ...row, value: amount }
+      })
+      return changed ? next : prev
+    })
+    setRetentionCards((prev) => {
+      let changed = false
+      const next = prev.map((row) => {
+        const amount = Math.round((row.percentage / 100) * milestoneBaseValue)
+        if (row.value === amount) return row
+        changed = true
+        return { ...row, value: amount }
+      })
+      return changed ? next : prev
+    })
+  }, [milestoneBaseValue])
 
   function setField<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
     setForm((prev) => ({ ...prev, [key]: value }))
   }
 
+  function handlePoValueChange(value: string) {
+    setForm((prev) => {
+      const oldPo = Number(prev.poValue) || 0
+      const oldExec = prev.executedValue ? Number(prev.executedValue) : oldPo
+      const syncExec = !prev.executedValue || oldExec === oldPo
+      return {
+        ...prev,
+        poValue: value,
+        executedValue: syncExec ? value : prev.executedValue,
+      }
+    })
+  }
+
+  function findServiceTarget(serviceId: string): ServiceTarget | undefined {
+    return serviceTargets.find((t) => t.service.id === serviceId)
+  }
+
   async function handleSubmit() {
-    if (!form.vendorId || !form.poDate || !form.poValue) {
+    if (!form.poNumber.trim() || !form.poDate || !form.poValue) {
       toast({ title: 'Please fill in all required fields', variant: 'error' })
       return
     }
-    if (!milestonesValid) {
-      toast({ title: 'Milestone and retention percentages must equal 100%', variant: 'error' })
+    if (!form.vendorId) {
+      toast({ title: 'Please select a vendor', variant: 'error' })
       return
     }
-    if (!selectedTarget) {
-      toast({ title: 'Add a client offer service on the Pitch tab first', variant: 'error' })
+    if (!hasConfiguredEntries || groupedForSave.length === 0) {
+      toast({ title: 'Add at least one milestone, final milestone, or retention entry', variant: 'error' })
       return
     }
-    if (needsServicePicker && !form.serviceId) {
-      toast({ title: 'Select a service for this vendor offer', variant: 'error' })
+    if (!groupedSaveValid) {
+      toast({
+        title: 'Combined milestones per service must equal 100%',
+        variant: 'error',
+      })
+      return
+    }
+    if (!pitchVersion) {
+      toast({ title: 'No pitch version found for this project', variant: 'error' })
       return
     }
 
@@ -208,59 +372,92 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
       toast({ title: 'Enter a valid offer amount', variant: 'error' })
       return
     }
-    if (!pitchVersion) {
-      toast({ title: 'No pitch version found for this project', variant: 'error' })
-      return
-    }
-
-    const { service } = selectedTarget
+    const executedValue = Number(form.executedValue) || offerValue
     const vendor = vendorItems.find((v) => v.id === form.vendorId)
-    const existing = service.vendorMappings ?? []
-    if (existing.some((m) => m.vendorId === form.vendorId)) {
-      toast({ title: 'This vendor already has an offer on the selected service', variant: 'error' })
-      return
-    }
-
-    const milestonePayload = buildVendorPOMilestonePayload(milestones, retention)
-    const { milestones: pitchMilestones, retention: pitchRetention } =
-      pitchMilestonesFromPayload(milestonePayload)
-
+    const documentUrl = form.file ? URL.createObjectURL(form.file) : null
     const quotation = form.file
       ? {
           fileName: form.file.name,
-          fileUrl: URL.createObjectURL(form.file),
+          fileUrl: documentUrl!,
           uploadedAt: new Date().toISOString(),
         }
       : undefined
 
-    const newMapping: VendorMapping = {
-      id: `vm-${Date.now()}`,
-      vendorId: form.vendorId,
-      vendorName: vendor?.name ?? '',
-      value: offerValue,
-      percentage: pct(offerValue, service.value),
-      milestones: pitchMilestones,
-      retention: pitchRetention,
-      isMeasurable: false,
-      ...(quotation ? { quotation } : {}),
-    }
-
     try {
-      await dispatch(
-        updateVendorMapping({
-          projectId,
-          versionId: pitchVersion.id,
-          serviceId: service.id,
-          mappings: [...existing, newMapping],
-        }),
-      ).unwrap()
+      for (const [index, group] of groupedForSave.entries()) {
+        const target = findServiceTarget(group.serviceId)
+        if (!target) {
+          toast({ title: 'Selected service is no longer available', variant: 'error' })
+          return
+        }
+
+        const existing = target.service.vendorMappings ?? []
+
+        const milestonePayload = buildVendorPOMilestonePayloadFromGroup(group)
+        const { milestones: pitchMilestones, retention, finalMilestone } = pitchMappingFromGroup(group)
+        const mappingId = `vm-${Date.now()}-${index}-${group.serviceId}`
+
+        await dispatch(
+          updateVendorMapping({
+            projectId,
+            versionId: pitchVersion.id,
+            serviceId: target.service.id,
+            mappings: [
+              ...existing,
+              {
+                id: mappingId,
+                vendorId: form.vendorId,
+                vendorName: vendor?.name ?? '',
+                value: offerValue,
+                executedValue,
+                percentage: pct(offerValue, target.service.value),
+                milestones: pitchMilestones,
+                retention,
+                finalMilestone,
+                isMeasurable: false,
+                ...(quotation ? { quotation } : {}),
+              },
+            ],
+          }),
+        ).unwrap()
+
+        await dispatch(
+          createVendorPO({
+            projectId,
+            data: {
+              vendorId: form.vendorId,
+              vendorName: vendor?.name ?? '',
+              poNumber: groupedForSave.length > 1 ? `${form.poNumber}-${index + 1}` : form.poNumber,
+              poDate: form.poDate,
+              poValue: offerValue,
+              executedValue,
+              milestones: milestonePayload,
+              linkedBaselineServiceIds: [group.serviceId],
+              linkedVendorMappingId: mappingId,
+              status: 'Draft',
+              documentUrl,
+              fileName: form.file?.name ?? null,
+            },
+          }),
+        ).unwrap()
+      }
+
       void dispatch(fetchVersions(projectId))
-      toast({ title: 'Vendor offer saved successfully', variant: 'success' })
+      await dispatch(fetchVendorPOs(projectId)).unwrap()
+      toast({
+        title:
+          groupedForSave.length === 1
+            ? 'Vendor offer saved successfully'
+            : `Vendor offers saved for ${groupedForSave.length} services`,
+        variant: 'success',
+      })
       onClose()
     } catch {
       toast({ title: 'Failed to save vendor offer', variant: 'error' })
     }
   }
+
+  const cardsDisabled = categoryOptions.length === 0
 
   return (
     <DrawerForm
@@ -269,10 +466,10 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
       title="Add Vendor Offer"
       subtitle="Record vendor offer details"
       onSubmit={handleSubmit}
-      submitLoading={saving}
+      submitLoading={saving || baselineSaving}
       submitLabel="Save Offer"
     >
-      <Box sx={{ mb: 3 }}>
+      <Box>
         <Stack
           direction="row"
           alignItems="center"
@@ -314,6 +511,44 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
             gap: 1.5,
           }}
         >
+          <FormField label="PO Number" required>
+            <TextField
+              fullWidth
+              size="small"
+              value={form.poNumber}
+              onChange={(e) => setField('poNumber', e.target.value)}
+              placeholder="PO-VND-…"
+            />
+          </FormField>
+          <FormField label="PO Date" required>
+            <TextField
+              fullWidth
+              size="small"
+              type="date"
+              value={form.poDate}
+              onChange={(e) => setField('poDate', e.target.value)}
+            />
+          </FormField>
+          <FormField label="PO Value (₹)" required>
+            <TextField
+              fullWidth
+              size="small"
+              type="number"
+              value={form.poValue}
+              onChange={(e) => handlePoValueChange(e.target.value)}
+              placeholder="0"
+            />
+          </FormField>
+          <FormField label="Executed Value (₹)">
+            <TextField
+              fullWidth
+              size="small"
+              type="number"
+              value={form.executedValue}
+              onChange={(e) => setField('executedValue', e.target.value)}
+              placeholder="0"
+            />
+          </FormField>
           <Box sx={{ gridColumn: '1 / -1' }}>
             <FormField label="Vendor" required>
               <Autocomplete
@@ -330,90 +565,99 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
               />
             </FormField>
           </Box>
-
-          {needsServicePicker ? (
-            <>
-              <FormField label="Category" required>
-                <MuiSelect
-                  value={form.categoryId}
-                  onChange={(e) => {
-                    const catId = e.target.value
-                    const firstInCat = serviceTargets.find((t) => t.categoryId === catId)
-                    setForm((prev) => ({
-                      ...prev,
-                      categoryId: catId,
-                      serviceId: firstInCat?.service.id ?? '',
-                    }))
-                  }}
-                  size="small"
-                  fullWidth
-                  displayEmpty
-                  sx={{ fontSize: 12 }}
-                >
-                  <MenuItem value="" disabled sx={{ fontSize: 12 }}>
-                    Select category…
-                  </MenuItem>
-                  {categoryOptions.map((c) => (
-                    <MenuItem key={c.id} value={c.id} sx={{ fontSize: 12 }}>
-                      {c.label}
-                    </MenuItem>
-                  ))}
-                </MuiSelect>
-              </FormField>
-              <FormField label="Service" required>
-                <MuiSelect
-                  value={form.serviceId}
-                  onChange={(e) => setField('serviceId', e.target.value)}
-                  size="small"
-                  fullWidth
-                  displayEmpty
-                  disabled={!form.categoryId}
-                  sx={{ fontSize: 12 }}
-                >
-                  <MenuItem value="" disabled sx={{ fontSize: 12 }}>
-                    Select service…
-                  </MenuItem>
-                  {servicesForCategory.map((t) => (
-                    <MenuItem key={t.service.id} value={t.service.id} sx={{ fontSize: 12 }}>
-                      {t.service.subcategoryName ?? t.service.name ?? '—'}
-                    </MenuItem>
-                  ))}
-                </MuiSelect>
-              </FormField>
-            </>
-          ) : null}
-
-          <FormField label="PO Date" required>
-            <TextField
-              fullWidth
-              size="small"
-              type="date"
-              value={form.poDate}
-              onChange={(e) => setField('poDate', e.target.value)}
-            />
-          </FormField>
-          <FormField label="PO Value (₹)" required>
-            <TextField
-              fullWidth
-              size="small"
-              type="number"
-              value={form.poValue}
-              onChange={(e) => setField('poValue', e.target.value)}
-              placeholder=""
-            />
-          </FormField>
         </Box>
       </Box>
 
       <Divider sx={{ my: 2 }} />
 
-      <VendorPOMilestoneEditor
-        poValue={poValueNumber}
-        milestones={milestones}
-        retention={retention}
-        onMilestonesChange={setMilestones}
-        onRetentionChange={setRetention}
-      />
+      <MilestoneSectionPanel
+        title="Milestones"
+        addLabel="Add Milestone"
+        onAdd={() =>
+          setMilestoneCards((prev) => [
+            ...prev,
+            createVendorOfferMilestoneCard(categoryOptions, serviceOptions),
+          ])
+        }
+        addDisabled={cardsDisabled}
+        isEmpty={milestoneCards.length === 0}
+      >
+        {milestoneCards.map((card) => (
+          <VendorOfferMilestoneCardEditor
+            key={card.id}
+            card={card}
+            categoryOptions={categoryOptions}
+            serviceOptions={serviceOptions}
+            milestoneBaseValue={milestoneBaseValue}
+            onChange={(patch) =>
+              setMilestoneCards((prev) =>
+                prev.map((c) => (c.id === card.id ? { ...c, ...patch } : c)),
+              )
+            }
+            onRemove={() => setMilestoneCards((prev) => prev.filter((c) => c.id !== card.id))}
+          />
+        ))}
+      </MilestoneSectionPanel>
+
+      <MilestoneSectionPanel
+        title="Final Milestone"
+        addLabel="Add Final Milestone"
+        onAdd={() =>
+          setFinalMilestoneCards([
+            createVendorOfferFinalMilestoneCard(categoryOptions, serviceOptions),
+          ])
+        }
+        addDisabled={cardsDisabled}
+        isEmpty={finalMilestoneCards.length === 0}
+        showAddButton={finalMilestoneCards.length === 0}
+      >
+        {finalMilestoneCards.map((card) => (
+          <VendorOfferFinalMilestoneCardEditor
+            key={card.id}
+            card={card}
+            categoryOptions={categoryOptions}
+            serviceOptions={serviceOptions}
+            milestoneBaseValue={milestoneBaseValue}
+            onChange={(patch) =>
+              setFinalMilestoneCards((prev) =>
+                prev.map((c) => (c.id === card.id ? { ...c, ...patch } : c)),
+              )
+            }
+            onRemove={() =>
+              setFinalMilestoneCards((prev) => prev.filter((c) => c.id !== card.id))
+            }
+          />
+        ))}
+      </MilestoneSectionPanel>
+
+      <MilestoneSectionPanel
+        title="Retention"
+        addLabel="Add Retention"
+        onAdd={() =>
+          setRetentionCards([
+            createVendorOfferRetentionCard(categoryOptions, serviceOptions),
+          ])
+        }
+        addDisabled={cardsDisabled}
+        isEmpty={retentionCards.length === 0}
+        showAddButton={retentionCards.length === 0}
+      >
+        {retentionCards.map((card) => (
+          <VendorOfferRetentionCardEditor
+            key={card.id}
+            card={card}
+            categoryOptions={categoryOptions}
+            serviceOptions={serviceOptions}
+            milestoneBaseValue={milestoneBaseValue}
+            onChange={(patch) =>
+              setRetentionCards((prev) =>
+                prev.map((c) => (c.id === card.id ? { ...c, ...patch } : c)),
+              )
+            }
+            onRemove={() => setRetentionCards((prev) => prev.filter((c) => c.id !== card.id))}
+          />
+        ))}
+      </MilestoneSectionPanel>
     </DrawerForm>
   )
 }

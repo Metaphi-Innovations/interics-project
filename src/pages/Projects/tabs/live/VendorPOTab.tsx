@@ -15,7 +15,7 @@ import { useAppDispatch, useAppSelector } from '../../../../store/hooks'
 import { fetchBaseline, fetchVendorPOs } from '../../../../slices/baseline/thunk'
 import { formatCurrency } from '../../../../utils/formatters'
 import { VendorPOPitchSummary } from './VendorPOPitchSummary'
-import { buildVendorPOMilestoneOverviewRows } from './vendorPOHelpers'
+import { buildVendorPOMilestoneOverviewRows, vendorMilestoneTypeLabel } from './vendorPOHelpers'
 
 const TABLE_HEADER_SX = {
   fontSize: 10,
@@ -112,9 +112,11 @@ export default function VendorPOTab({ projectId }: VendorPOTabProps) {
                       <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 500 }}>
                         {row.name}
                       </Typography>
-                      {row.isRetention && (
-                        <Chip label="Retention" size="small" sx={{ mt: 0.5, fontSize: 10, height: 18 }} />
-                      )}
+                      <Chip
+                        label={vendorMilestoneTypeLabel(row.milestoneType)}
+                        size="small"
+                        sx={{ mt: 0.5, fontSize: 10, height: 18 }}
+                      />
                     </TableCell>
                     <TableCell sx={TABLE_CELL_SX}>{row.pct}%</TableCell>
                     <TableCell sx={{ ...TABLE_CELL_SX, fontWeight: 600 }}>

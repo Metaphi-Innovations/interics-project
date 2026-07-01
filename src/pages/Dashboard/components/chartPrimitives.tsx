@@ -39,7 +39,7 @@ export function DonutChartBlock({
   const ct = useChartTheme()
 
   if (filtered.length === 0) {
-    return <EmptyChartState title={emptyMessage} height={height} />
+    return <EmptyChartState title={emptyMessage} />
   }
 
   const chartData = filtered.map((d, i) => ({
@@ -55,10 +55,12 @@ export function DonutChartBlock({
         alignItems: 'center',
         justifyContent: 'center',
         gap: 2,
-        height,
+        height: '100%',
+        minHeight: height,
         minWidth: 0,
         width: '100%',
         overflow: 'hidden',
+        mx: 'auto',
       }}
     >
       <Box

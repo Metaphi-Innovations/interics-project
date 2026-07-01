@@ -7,6 +7,9 @@ export interface ClientInvoiceLineItem {
   serviceName: string
   sacCode: string
   amount: number
+  labourCessRate?: number
+  labourCessAmount?: number
+  taxableAmount?: number
   gstRate: number
   gstAmount: number
   milestoneId?: string
@@ -48,6 +51,8 @@ export interface ClientInvoice {
   serviceName: string
   lineItems: ClientInvoiceLineItem[]
   baseAmount: number
+  labourCessAmount?: number
+  taxableAmount?: number
   gstAmount: number
   grossAmount: number
   /** Cumulative TDS withheld (from payments) */
@@ -60,6 +65,8 @@ export interface ClientInvoice {
   status: ClientInvoiceStatus
   payments: ClientInvoicePayment[]
   notes?: string
+  documentUrl?: string
+  fileName?: string
 }
 
 /** Vendor invoices */
@@ -78,11 +85,23 @@ export interface VendorInvoice {
   /** Optional for list views that only expose invoice date */
   dueDate?: string
   baseAmount: number
+  gstRate?: number
+  gstAmount?: number
   tdsRate: number
   tdsAmount: number
+  /** Expense ids deducted when this invoice was uploaded. */
+  linkedExpenseIds?: string[]
+  expenseDeductions?: number
+  /** Expense ids added to the invoice amount when uploaded. */
+  linkedAdditionExpenseIds?: string[]
+  expenseAdditions?: number
+  /** Optional notes or invoice details entered at upload. */
+  description?: string
   netPayable: number
   status: 'pending' | 'approved' | 'paid'
   documentUrl?: string
+  /** Uploaded invoice PDF filename (not the invoice number). */
+  fileName?: string
 }
 
 /** Per vendor–service row on a project (Finance → Payments payable control). */
@@ -131,6 +150,8 @@ export type ExpenseType =
   | 'office_expenses'
   | 'reimbursable_expenses'
 
+export type CommonExpenseSplitMethod = 'proportional_po' | 'equal'
+
 export interface Expense {
   id: string
   projectId: string
@@ -148,14 +169,21 @@ export interface Expense {
   serviceName?: string
   milestoneId?: string
   milestoneName?: string
+  /** How a common expense is split across build vendors. */
+  splitMethod?: CommonExpenseSplitMethod
+  /** Vendor who initially paid a common expense out of pocket. */
+  paidByVendorId?: string
+  paidByVendorName?: string
   vendorAllocations?: {
     vendorId: string
     vendorName: string
     allocationPercent: number
     allocationAmount: number
   }[]
-  status: 'pending' | 'included_in_payment'
+  status: 'pending' | 'adjusted' | 'included_in_payment'
   linkedPaymentId?: string
+  /** Set when expense is deducted on a vendor invoice upload. */
+  linkedVendorInvoiceId?: string
   /** Set when a reimbursable expense auto-syncs to payables. */
   linkedReimbursementId?: string
 }

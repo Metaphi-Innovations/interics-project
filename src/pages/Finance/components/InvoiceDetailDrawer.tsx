@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import {
   Box,
+  Grid,
   Stack,
   Typography,
   Table,
@@ -9,7 +10,6 @@ import {
   TableHead,
   TableRow,
   TableContainer,
-  Button as MuiButton,
 } from '@mui/material'
 import dayjs from 'dayjs'
 import { Plus } from 'lucide-react'
@@ -77,13 +77,23 @@ export function InvoiceDetailDrawer({
   const canPay = inv && inv.status !== 'paid' && inv.status !== 'draft'
   const canSend = inv?.status === 'draft'
 
-  const footerBar = (
+  const footerBar = inv ? (
     <Stack direction="row" justifyContent="flex-end" gap={1} sx={{ px: '20px', py: '14px' }}>
-      <MuiButton variant="outlined" size="small" onClick={onClose} sx={{ height: 32 }}>
-        Close
-      </MuiButton>
+      {canEdit ? (
+        <Button variant="outlined" size="sm" onClick={() => onEdit(inv)}>
+          Edit
+        </Button>
+      ) : null}
+      {canSend ? (
+        <Button variant="soft" size="sm" color="primary" onClick={() => onSend(inv)}>
+          Send
+        </Button>
+      ) : null}
+      <Button variant="outlined" size="sm" onClick={() => onDownloadPdf(inv)}>
+        Download Invoice
+      </Button>
     </Stack>
-  )
+  ) : null
 
   return (
     <DrawerForm
@@ -93,84 +103,56 @@ export function InvoiceDetailDrawer({
       subtitle={inv?.clientName}
       width={560}
       hideFooter={!inv}
-      footer={inv ? footerBar : undefined}
+      footer={footerBar ?? undefined}
     >
       {detailLoading && !inv ? (
         <Typography variant="body2">Loading…</Typography>
       ) : inv ? (
         <Stack spacing={3}>
-          <Box>
-            <Typography variant="h5" fontWeight={700} sx={{ fontFamily: 'monospace' }}>
-              {inv.invoiceNo}
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              {inv.projectName}
-            </Typography>
-            <Stack direction="row" alignItems="center" gap={1} sx={{ mt: 1 }}>
+          <Stack direction="row" alignItems="center" justifyContent="space-between" gap={1.5}>
+            <Stack direction="row" alignItems="center" gap={1} flexWrap="wrap" sx={{ minWidth: 0 }}>
+              <Typography variant="h5" fontWeight={700} sx={{ fontFamily: 'monospace', fontSize: 18 }}>
+                {inv.invoiceNo}
+              </Typography>
               <StatusBadge status={invoiceStatusToBadgeType(inv.status)} />
             </Stack>
-            <Stack direction="row" flexWrap="wrap" gap={1} sx={{ mt: 2 }}>
-              {canEdit && (
-                <Button variant="outlined" size="sm" onClick={() => onEdit(inv)}>
-                  Edit
-                </Button>
-              )}
-              {canPay && (
-                <Button variant="contained" size="sm" onClick={() => onRecordPayment(inv)}>
-                  Record Payment
-                </Button>
-              )}
-              {canSend && (
-                <Button variant="soft" size="sm" color="primary" onClick={() => onSend(inv)}>
-                  Send
-                </Button>
-              )}
-              <Button variant="outlined" size="sm" onClick={() => onDownloadPdf(inv)}>
-                Download PDF
-              </Button>
-            </Stack>
-          </Box>
+          </Stack>
 
           <FormSection title="Invoice details">
-            <Stack
-              direction="row"
-              flexWrap="wrap"
-              spacing={2}
-              sx={{ columnGap: 3, rowGap: 2 }}
-            >
-              <Box sx={{ minWidth: 140 }}>
-                <Typography variant="caption" color="text.secondary">
+            <Grid container spacing={2}>
+              <Grid size={{ xs: 6 }}>
+                <Typography variant="caption" color="text.secondary" display="block">
                   Invoice date
                 </Typography>
                 <Typography variant="body2" fontWeight={500}>
                   {dayjs(inv.invoiceDate).format('DD MMM YYYY')}
                 </Typography>
-              </Box>
-              <Box sx={{ minWidth: 140 }}>
-                <Typography variant="caption" color="text.secondary">
+              </Grid>
+              <Grid size={{ xs: 6 }}>
+                <Typography variant="caption" color="text.secondary" display="block">
                   Due date
                 </Typography>
                 <Typography variant="body2" fontWeight={500}>
                   {dayjs(inv.dueDate).format('DD MMM YYYY')}
                 </Typography>
-              </Box>
-              <Box sx={{ minWidth: 140 }}>
-                <Typography variant="caption" color="text.secondary">
-                  Client
-                </Typography>
-                <Typography variant="body2" fontWeight={500}>
-                  {inv.clientName}
-                </Typography>
-              </Box>
-              <Box sx={{ minWidth: 140 }}>
-                <Typography variant="caption" color="text.secondary">
+              </Grid>
+              <Grid size={{ xs: 6 }}>
+                <Typography variant="caption" color="text.secondary" display="block">
                   Project
                 </Typography>
                 <Typography variant="body2" fontWeight={500}>
                   {inv.projectName}
                 </Typography>
-              </Box>
-            </Stack>
+              </Grid>
+              <Grid size={{ xs: 6 }}>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  Client
+                </Typography>
+                <Typography variant="body2" fontWeight={500}>
+                  {inv.clientName}
+                </Typography>
+              </Grid>
+            </Grid>
           </FormSection>
 
           <FormSection title="Line items">

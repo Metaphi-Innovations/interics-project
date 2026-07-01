@@ -25,6 +25,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
+import { alpha } from '@mui/material/styles'
 import { Add, Delete, Edit as EditIcon, ExpandMore, Upload } from '@mui/icons-material'
 import { useToast } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
@@ -36,6 +37,7 @@ import {
   type VendorOfferDraft,
   type VendorOfferServiceOption,
 } from '../components/VendorOfferDrawer'
+import { PitchQuotationsSection } from '../components/PitchQuotationsSection'
 import { useAppDispatch, useAppSelector } from '../../../store/hooks'
 import { fetchCategories, fetchServices } from '../../../slices/settings/thunk'
 import type { Service } from '../../../slices/settings/reducer'
@@ -69,6 +71,13 @@ const SECTION_NAMES = ['Design & Diligence', 'Build Services', 'Consultancy'] as
 const CLIENT_OFFER_DRAFT_SERVICE_ID = '__client-offer-draft-service__'
 const FINANCIAL_SIDEBAR_WIDTH = 280
 const TABLE_CELL_PAD = { py: 1, px: 1.5 } as const
+const CLIENT_OFFER_ACTIONS_COL_PX = 56
+const CLIENT_OFFER_ACTIONS_CELL_PAD = { py: 1, px: 0.75 } as const
+const CLIENT_OFFER_TABLE_SX = {
+  width: '100%',
+  tableLayout: 'fixed',
+  '& .MuiTableCell-root': { boxSizing: 'border-box' },
+} as const
 const VENDOR_COL_COUNT = 7
 const VENDOR_COL_WIDTH = `${100 / VENDOR_COL_COUNT}%`
 /** Equal inset from container edge on first and last columns */
@@ -175,8 +184,6 @@ export default function PitchTab({ project }: { project: Project }) {
   const vendorItems = useAppSelector((s) => s.vendors.items)
   const authUser = useAppSelector((s) => s.auth.user)
 
-  const [uploadQuotationOpen, setUploadQuotationOpen] = useState(false)
-  const [quotationFile, setQuotationFile] = useState<File | null>(null)
   const [vendorOfferDrawerOpen, setVendorOfferDrawerOpen] = useState(false)
   const [expenseDrawerOpen, setExpenseDrawerOpen] = useState(false)
   const [expenseEditing, setExpenseEditing] = useState<PlannedExpense | null>(null)
@@ -602,12 +609,6 @@ export default function PitchTab({ project }: { project: Project }) {
       return
     }
 
-    const totalAllocated = draft.rows.reduce((sum, row) => sum + (Number(row.amount) || 0), 0)
-    if (totalAllocated > serviceOpt.value) {
-      showToast({ title: 'Total vendor allocation cannot exceed service amount', variant: 'error' })
-      return
-    }
-
     let service =
       category.services.find((s) => s.id === serviceOpt.pitchServiceId) ??
       category.services.find((s) => s.subcategoryId === draft.serviceId)
@@ -711,18 +712,11 @@ export default function PitchTab({ project }: { project: Project }) {
         }}
       >
         <Box sx={{ minWidth: 0, width: '100%' }}>
+          <PitchQuotationsSection projectId={project.id} />
+
           <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, p: 2, bgcolor: 'background.paper', mb: 3 }}>
             <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
               <Typography variant="subtitle1" sx={{ fontSize: 15, fontWeight: 600 }}>Client Offer</Typography>
-              <MuiButton
-                size="small"
-                variant="outlined"
-                startIcon={<Upload fontSize="small" />}
-                sx={{ height: 32, fontSize: 12 }}
-                onClick={() => setUploadQuotationOpen(true)}
-              >
-                Upload Quotation
-              </MuiButton>
             </Stack>
 
             {clientOfferSections.length === 0 ? (
@@ -764,21 +758,37 @@ export default function PitchTab({ project }: { project: Project }) {
                       </Stack>
                     </Stack>
                   </AccordionSummary>
-                  <AccordionDetails sx={{ p: 0 }}>
+                  <AccordionDetails sx={{ p: 0, overflow: 'hidden' }}>
                     <>
-                        <Box>
-                          <Table size="small" sx={{ width: '100%', tableLayout: 'fixed' }}>
+                        <Box sx={{ width: '100%', overflow: 'hidden' }}>
+                          <Table size="small" sx={CLIENT_OFFER_TABLE_SX}>
+                            <colgroup>
+                              <col />
+                              <col style={{ width: '36%' }} />
+                              <col style={{ width: CLIENT_OFFER_ACTIONS_COL_PX }} />
+                            </colgroup>
                             <TableHead>
                               <TableRow sx={{ bgcolor: tokens.color.neutral[50] }}>
                                 {[
-                                  { h: 'Service Name / Scope', w: '50%' },
-                                  { h: 'Value', w: '44%' },
-                                  { h: 'Actions', w: '6%' },
-                                ].map(({ h, w }) => (
+                                  { h: 'Service Name / Scope', align: 'center' as const },
+                                  { h: 'Value', align: 'center' as const },
+                                  { h: 'Actions', align: 'center' as const },
+                                ].map(({ h, align }) => (
                                   <TableCell
                                     key={h}
-                                    align={h === 'Actions' ? 'right' : 'center'}
-                                    sx={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.5, color: tokens.color.neutral[500], width: w, ...TABLE_CELL_PAD }}
+                                    align={align}
+                                    sx={{
+                                      fontSize: 10,
+                                      fontWeight: 700,
+                                      letterSpacing: 0.5,
+                                      color: tokens.color.neutral[500],
+                                      ...(h === 'Actions' ? CLIENT_OFFER_ACTIONS_CELL_PAD : TABLE_CELL_PAD),
+                                      ...(h === 'Actions' && {
+                                        width: CLIENT_OFFER_ACTIONS_COL_PX,
+                                        maxWidth: CLIENT_OFFER_ACTIONS_COL_PX,
+                                        overflow: 'hidden',
+                                      }),
+                                    }}
                                   >
                                     {h}
                                   </TableCell>
@@ -791,7 +801,7 @@ export default function PitchTab({ project }: { project: Project }) {
                                 const serviceOptions = serviceMaster.filter((s) => s.categoryId === category.categoryId)
                                 return (
                                   <TableRow key={service.id}>
-                                    <TableCell sx={{ fontSize: 12, width: '50%', ...TABLE_CELL_PAD }}>
+                                    <TableCell sx={{ fontSize: 12, ...TABLE_CELL_PAD }}>
                                       <FormControl size="small" fullWidth>
                                         <MuiSelect
                                           value={service.subcategoryId ?? ''}
@@ -820,7 +830,7 @@ export default function PitchTab({ project }: { project: Project }) {
                                         </MuiSelect>
                                       </FormControl>
                                     </TableCell>
-                                    <TableCell sx={{ fontSize: 12, width: '44%', ...TABLE_CELL_PAD }}>
+                                    <TableCell sx={{ fontSize: 12, ...TABLE_CELL_PAD }}>
                                       <TextField
                                         size="small"
                                         type="number"
@@ -838,13 +848,23 @@ export default function PitchTab({ project }: { project: Project }) {
                                         sx={{ '& input': { fontSize: 12, textAlign: 'right' }, '& .MuiInputBase-root': { height: 32 } }}
                                       />
                                     </TableCell>
-                                    <TableCell align="right" sx={{ fontSize: 12, width: '6%', pl: 1, pr: 1.5, py: 1, verticalAlign: 'middle' }}>
+                                    <TableCell
+                                      align="center"
+                                      sx={{
+                                        fontSize: 12,
+                                        width: CLIENT_OFFER_ACTIONS_COL_PX,
+                                        maxWidth: CLIENT_OFFER_ACTIONS_COL_PX,
+                                        ...CLIENT_OFFER_ACTIONS_CELL_PAD,
+                                        verticalAlign: 'middle',
+                                      }}
+                                    >
                                       {isDraft ? null : (
                                         <MuiIconButton
                                           size="small"
                                           onClick={() =>
                                             void removeServiceRow(section.key, category, service.id)
                                           }
+                                          sx={{ color: (theme) => alpha(theme.palette.error.main, 0.54) }}
                                         >
                                           <Delete sx={{ fontSize: 16 }} />
                                         </MuiIconButton>
@@ -1046,7 +1066,7 @@ export default function PitchTab({ project }: { project: Project }) {
             <Box sx={{ mt: 3, p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 2, bgcolor: 'background.paper' }}>
               <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }} flexWrap="wrap" gap={1}>
                 <Typography variant="subtitle1" fontWeight={600} sx={{ fontSize: 15 }}>
-                  Expense Planning
+                  Expenses
                 </Typography>
                 <MuiButton
                   variant="contained"
@@ -1172,7 +1192,7 @@ export default function PitchTab({ project }: { project: Project }) {
                 displayEmpty
               >
                 <MenuItem value="" disabled sx={{ fontSize: 12 }}>
-                  Select category
+                  Select Category
                 </MenuItem>
                 {addablePitchCategories.map((cat) => (
                   <MenuItem key={cat.id} value={cat.id} sx={{ fontSize: 12 }}>
@@ -1201,35 +1221,6 @@ export default function PitchTab({ project }: { project: Project }) {
             onClick={() => void addCategoryFromMaster()}
           >
             Add
-          </MuiButton>
-        </DialogActions>
-      </Dialog>
-
-      <Dialog open={uploadQuotationOpen} onClose={() => setUploadQuotationOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle sx={{ fontSize: 15, fontWeight: 600 }}>Upload Quotation</DialogTitle>
-        <DialogContent>
-          <Stack gap={1.5} sx={{ mt: 1 }}>
-            <MuiButton size="small" variant="outlined" component="label" startIcon={<Upload fontSize="small" />} sx={{ fontSize: 12, alignSelf: 'flex-start' }}>
-              Upload Document
-              <input type="file" hidden accept=".pdf,.doc,.docx,.xlsx" onChange={(e) => setQuotationFile(e.target.files?.[0] ?? null)} />
-            </MuiButton>
-            {quotationFile ? <MuiChip label={quotationFile.name} size="small" sx={{ width: 'fit-content' }} /> : null}
-            <TextField size="small" multiline rows={2} label="Notes (optional)" sx={{ '& textarea': { fontSize: 12 } }} />
-          </Stack>
-        </DialogContent>
-        <DialogActions>
-          <MuiButton size="small" onClick={() => setUploadQuotationOpen(false)}>Cancel</MuiButton>
-          <MuiButton
-            size="small"
-            variant="contained"
-            disabled={!quotationFile}
-            onClick={() => {
-              showToast({ title: 'Quotation uploaded', variant: 'success' })
-              setUploadQuotationOpen(false)
-              setQuotationFile(null)
-            }}
-          >
-            Upload
           </MuiButton>
         </DialogActions>
       </Dialog>

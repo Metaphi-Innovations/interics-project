@@ -40,7 +40,11 @@ export const fetchProjectById = createAsyncThunk(
   async (id: string, { rejectWithValue }) => {
     try {
       const response = await projectsApi.getById(id)
-      return response.data as Project
+      const project = response.data as Project
+      return {
+        ...project,
+        assignedTeam: getProjectAssignedMembers(project),
+      }
     } catch (err: unknown) {
       const error = err as { response?: { data?: { message?: string } } }
       return rejectWithValue(error.response?.data?.message ?? 'Failed to fetch project')

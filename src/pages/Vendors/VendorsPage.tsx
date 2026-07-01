@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import {
   Box,
   Stack,
@@ -18,6 +18,7 @@ import {
   Tooltip,
   Divider,
   Link as MuiLink,
+  Rating,
 } from '@mui/material'
 import {
   VerifiedUser,
@@ -34,36 +35,39 @@ import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { fetchVendors, deleteVendor } from '../../slices/vendors/thunk'
 import { setFilters, resetFilters, setPage, setSortConfig } from '../../slices/vendors/reducer'
 import type { Vendor } from '../../slices/vendors/reducer'
-import { vendorsApi } from '../../api/vendorsApi'
 import { ListingTemplate } from '../../components/templates'
 import type { FilterField, ColumnItem } from '../../components/templates/ListingTemplate'
 import { VendorDrawer } from './VendorDrawer'
-import { StatusBadge, useToast, Modal, Button } from '@/design-system/components'
+import { PendingVendorContactsTable } from './PendingVendorContactsTable'
+import { PendingVendorViewDrawer } from './PendingVendorViewDrawer'
+import { useToast, Modal, Button } from '@/design-system/components'
+import { vendorsApi } from '@/api/vendorsApi'
+import { normalizeListResponse } from '@/utils/normalizeListResponse'
+import { isPendingVendor } from '@/utils/vendorProfileStatus'
 import { getInitials, getAvatarColor, toSlug } from '../../utils/formatters'
 import { getSpecializationTagSx } from '../../utils/specializationTagStyles'
 import { tokens } from '@/design-system/tokens'
-import { getPrimaryContact } from '../../utils/vendorContacts'
-import { getVendorListingCompliance } from '../../utils/vendorCompliance'
+import { formatVendorRating, normalizeVendorRating } from '../../utils/vendorRating'
 
-const VENDOR_ACTION_WIDTH_PX = 56
+const VENDOR_ACTION_WIDTH_PX = 60
 const VENDOR_CELL_PAD_X = '14px'
 
+type ContactsTab = 'active' | 'pending'
+
 type VendorTableVisibleColumns = {
-  primaryContact: boolean
   website: boolean
   location: boolean
   specialization: boolean
-  compliance: boolean
+  rating: boolean
 }
 
 function vendorDataColCount(visible: VendorTableVisibleColumns): number {
   return (
     1 +
-    (visible.primaryContact ? 1 : 0) +
     (visible.website ? 1 : 0) +
     (visible.location ? 1 : 0) +
     (visible.specialization ? 1 : 0) +
-    (visible.compliance ? 1 : 0)
+    (visible.rating ? 1 : 0)
   )
 }
 
@@ -97,11 +101,7 @@ const TABLE_CELL_SX = {
   boxSizing: 'border-box' as const,
 }
 
-const TABLE_CELL_COMPACT_SX = {
-  ...TABLE_CELL_SX,
-}
-
-const TABLE_CELL_COMPLIANCE_SX = {
+const TABLE_CELL_RATING_SX = {
   ...TABLE_CELL_SX,
   verticalAlign: 'middle' as const,
 }
@@ -141,9 +141,9 @@ function getTotalVendorProjectCount(vendor: Vendor): number {
   return vendor.activeProjects
 }
 
-function PrimaryVendorContactCell({ vendor }: { vendor: Vendor }) {
-  const primary = getPrimaryContact(vendor)
-  if (!primary) {
+function VendorRatingCell({ vendor }: { vendor: Vendor }) {
+  const rating = normalizeVendorRating(vendor.rating)
+  if (rating == null) {
     return (
       <Typography variant="body2" sx={{ fontSize: 12, color: 'text.disabled' }}>
         —
@@ -151,32 +151,23 @@ function PrimaryVendorContactCell({ vendor }: { vendor: Vendor }) {
     )
   }
   return (
-    <Box sx={{ minWidth: 0 }}>
-      <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 500, lineHeight: 1.35, wordBreak: 'break-word' }}>
-        {primary.name}
-        {primary.designation ? (
-          <Typography component="span" sx={{ fontSize: 12, fontWeight: 400, color: 'text.secondary' }}>
-            {' — '}{primary.designation}
-          </Typography>
-        ) : null}
+    <Stack direction="row" alignItems="center" gap={0.5} sx={{ minWidth: 0, maxWidth: '100%', overflow: 'hidden' }}>
+      <Rating
+        value={rating}
+        readOnly
+        size="small"
+        precision={0.1}
+        sx={{ fontSize: 14, color: tokens.color.warning[500], flexShrink: 0 }}
+      />
+      <Typography
+        variant="body2"
+        noWrap
+        sx={{ fontSize: 12, fontWeight: 500, color: 'text.secondary', minWidth: 0 }}
+      >
+        {formatVendorRating(rating)}
       </Typography>
-      {primary.phone ? (
-        <Typography variant="caption" sx={{ fontSize: 11, color: 'text.secondary', display: 'block', lineHeight: 1.35 }}>
-          {primary.phone}
-        </Typography>
-      ) : null}
-      {primary.email ? (
-        <Typography variant="caption" sx={{ fontSize: 11, color: 'text.secondary', display: 'block', lineHeight: 1.35, wordBreak: 'break-word' }}>
-          {primary.email}
-        </Typography>
-      ) : null}
-    </Box>
+    </Stack>
   )
-}
-
-function ComplianceStatusCell({ vendor }: { vendor: Vendor }) {
-  const { label, statusBadgeType } = getVendorListingCompliance(vendor)
-  return <StatusBadge status={statusBadgeType} label={label} />
 }
 
 function VendorAvatar({ name }: { name: string }) {
@@ -277,7 +268,7 @@ function SortHeader({ label, field, sortField, sortDirection, onSort, sx }: Sort
         fontWeight: isActive ? 700 : 600,
         color: isActive ? 'primary.main' : 'text.secondary',
         py: '8px',
-        px: '14px',
+        px: VENDOR_CELL_PAD_X,
         borderBottom: `2px solid ${tokens.color.neutral[100]}`,
         cursor: 'pointer',
         userSelect: 'none',
@@ -330,13 +321,21 @@ function VendorTable({
   const tagMode = theme.palette.mode === 'dark' ? 'dark' : 'light'
   const hoverBg = alpha(theme.palette.primary.main, 0.04)
   const colWidth = vendorColWidth(visibleColumns)
-  const headDataSx = { ...TABLE_HEADER_CELL_SX, width: colWidth }
-  const cellDataSx = { ...TABLE_CELL_SX, width: colWidth }
-  const cellCompactSx = { ...TABLE_CELL_COMPACT_SX, width: colWidth }
+  const headDataSx = { ...TABLE_HEADER_CELL_SX, width: colWidth, minWidth: 0 }
+  const cellDataSx = { ...TABLE_CELL_SX, width: colWidth, minWidth: 0, overflow: 'hidden' }
+  const colCount = vendorDataColCount(visibleColumns) + 1
 
   return (
-    <TableContainer sx={{ overflow: 'visible', width: '100%' }}>
+    <TableContainer sx={{ width: '100%', overflowX: 'auto' }}>
       <Table size="small" sx={{ tableLayout: 'fixed', width: '100%', minWidth: 0 }}>
+          <colgroup>
+            <col style={{ width: colWidth }} />
+            {visibleColumns.website && <col style={{ width: colWidth }} />}
+            {visibleColumns.location && <col style={{ width: colWidth }} />}
+            {visibleColumns.specialization && <col style={{ width: colWidth }} />}
+            {visibleColumns.rating && <col style={{ width: colWidth }} />}
+            <col style={{ width: `${VENDOR_ACTION_WIDTH_PX}px` }} />
+          </colgroup>
         <TableHead>
           <TableRow sx={{ bgcolor: alpha(theme.palette.text.primary, 0.02) }}>
             <SortHeader
@@ -347,9 +346,6 @@ function VendorTable({
               onSort={onSort}
               sx={{ ...headDataSx, verticalAlign: 'bottom' }}
             />
-            {visibleColumns.primaryContact && (
-              <TableCell sx={headDataSx}>Primary Contact</TableCell>
-            )}
             {visibleColumns.website && (
               <TableCell sx={{ ...headDataSx, display: { xs: 'none', sm: 'table-cell' } }}>
                 Website
@@ -370,10 +366,15 @@ function VendorTable({
                 Specialization
               </TableCell>
             )}
-            {visibleColumns.compliance && (
-              <TableCell sx={{ ...headDataSx, display: { xs: 'none', md: 'table-cell' } }}>
-                Compliance Status
-              </TableCell>
+            {visibleColumns.rating && (
+              <SortHeader
+                label="Rating"
+                field="rating"
+                sortField={sortField}
+                sortDirection={sortDirection}
+                onSort={onSort}
+                sx={{ ...headDataSx, display: { xs: 'none', md: 'table-cell' }, verticalAlign: 'bottom' }}
+              />
             )}
             <TableCell sx={TABLE_HEADER_ACTION_SX}>Action</TableCell>
           </TableRow>
@@ -382,7 +383,7 @@ function VendorTable({
           {loading &&
             [...Array(5)].map((_, i) => (
               <TableRow key={i}>
-                {[...Array(8)].map((__, j) => (
+                {[...Array(colCount)].map((__, j) => (
                   <TableCell key={j} sx={{ py: '10px', px: VENDOR_CELL_PAD_X }}>
                     <Skeleton variant="text" width="80%" height={20} />
                   </TableCell>
@@ -392,7 +393,7 @@ function VendorTable({
 
           {!loading && items.length === 0 && (
             <TableRow>
-              <TableCell colSpan={8} sx={{ border: 0 }}>
+              <TableCell colSpan={colCount} sx={{ border: 0 }}>
                 <Box sx={{ py: 6, textAlign: 'center' }}>
                   <Truck size={32} color={tokens.color.neutral[300]} />
                   <Typography variant="body2" sx={{ mt: 1.5, fontWeight: 500 }}>
@@ -428,12 +429,6 @@ function VendorTable({
                       </Typography>
                     </Stack>
                   </TableCell>
-
-                  {visibleColumns.primaryContact && (
-                    <TableCell sx={cellCompactSx}>
-                      <PrimaryVendorContactCell vendor={vendor} />
-                    </TableCell>
-                  )}
 
                   {visibleColumns.website && (
                     <TableCell
@@ -497,12 +492,17 @@ function VendorTable({
                     </TableCell>
                   )}
 
-                  {visibleColumns.compliance && (
+                  {visibleColumns.rating && (
                     <TableCell
-                      sx={{ ...TABLE_CELL_COMPLIANCE_SX, width: colWidth, display: { xs: 'none', md: 'table-cell' } }}
-                      onClick={(e) => e.stopPropagation()}
+                      sx={{
+                        ...TABLE_CELL_RATING_SX,
+                        width: colWidth,
+                        minWidth: 0,
+                        overflow: 'hidden',
+                        display: { xs: 'none', md: 'table-cell' },
+                      }}
                     >
-                      <ComplianceStatusCell vendor={vendor} />
+                      <VendorRatingCell vendor={vendor} />
                     </TableCell>
                   )}
 
@@ -518,7 +518,7 @@ function VendorTable({
               )
             })}
         </TableBody>
-      </Table>
+        </Table>
     </TableContainer>
   )
 }
@@ -598,10 +598,6 @@ function VendorGridCard({ vendor, onView, onProjects: _onProjects, onEdit, onDel
 
       <Divider sx={{ my: '10px' }} />
 
-      <Box sx={{ mb: 1.25 }}>
-        <PrimaryVendorContactCell vendor={vendor} />
-      </Box>
-
       {href && host ? (
         <MuiLink
           href={href}
@@ -638,7 +634,12 @@ function VendorGridCard({ vendor, onView, onProjects: _onProjects, onEdit, onDel
 
       <Divider sx={{ my: '10px' }} />
 
-      <ComplianceStatusCell vendor={vendor} />
+      <Box>
+        <Typography variant="overline" sx={{ fontSize: 10, color: 'text.secondary', display: 'block', mb: 0.5 }}>
+          Rating
+        </Typography>
+        <VendorRatingCell vendor={vendor} />
+      </Box>
     </MuiCard>
   )
 }
@@ -783,33 +784,58 @@ export default function VendorsPage() {
   const [drawerMode, setDrawerMode] = useState<'add' | 'edit'>('add')
   const [editingVendor, setEditingVendor] = useState<Vendor | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Vendor | null>(null)
-  const [counts, setCounts] = useState({ all: 0, active: 0, inactive: 0 })
   const [activeFilters, setActiveFilters] = useState<Record<string, unknown>>({})
   const [viewMode, setViewMode] = useState<'table' | 'grid'>('table')
-  const [visibleColumns, setVisibleColumns] = useState({
-    primaryContact: true,
+  const [visibleColumns, setVisibleColumns] = useState<VendorTableVisibleColumns>({
     website: true,
     location: true,
     specialization: true,
-    compliance: true,
+    rating: true,
   })
+  const [contactsTab, setContactsTab] = useState<ContactsTab>('active')
+  const [pendingViewVendor, setPendingViewVendor] = useState<Vendor | null>(null)
+  const [pendingViewOpen, setPendingViewOpen] = useState(false)
+  const [tabCounts, setTabCounts] = useState({ active: 0, pending: 0 })
 
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  const refreshTabCounts = useCallback(async () => {
+    try {
+      const [activeRes, pendingRes] = await Promise.all([
+        vendorsApi.getAll({ page: 1, pageSize: 1, profileStatus: 'complete' }),
+        vendorsApi.getAll({ page: 1, pageSize: 1, profileStatus: 'pending' }),
+      ])
+      setTabCounts({
+        active: normalizeListResponse<Vendor>(activeRes.data).total,
+        pending: normalizeListResponse<Vendor>(pendingRes.data).total,
+      })
+    } catch {
+      // Tab counts are non-blocking; listing fetch still drives the table.
+    }
+  }, [])
+
+  const profileStatusFilter = contactsTab === 'pending' ? 'pending' : 'complete'
+
+  function buildFetchParams(page = pagination.page) {
+    return {
+      page,
+      pageSize: pagination.pageSize,
+      search: filters.search || undefined,
+      profileStatus: profileStatusFilter as 'pending' | 'complete',
+      ...(contactsTab === 'active'
+        ? {
+            status: filters.status || undefined,
+            gstStatus: filters.gstStatus || undefined,
+            state: filters.state || undefined,
+          }
+        : {}),
+    }
+  }
+
   // ── Initial fetch ──────────────────────────────────────────────────
   useEffect(() => {
-    dispatch(fetchVendors({ page: 1, pageSize: pagination.pageSize }))
-    void Promise.all([
-      vendorsApi.getAll({ pageSize: 1 }),
-      vendorsApi.getAll({ pageSize: 1, status: 'Active' }),
-      vendorsApi.getAll({ pageSize: 1, status: 'Inactive' }),
-    ]).then(([all, active, inactive]) => {
-      setCounts({
-        all: (all.data as { total: number }).total,
-        active: (active.data as { total: number }).total,
-        inactive: (inactive.data as { total: number }).total,
-      })
-    }).catch(() => {})
+    dispatch(fetchVendors(buildFetchParams(1)))
+    void refreshTabCounts()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -820,20 +846,18 @@ export default function VendorsPage() {
   }, [])
 
   // ── Computed ──────────────────────────────────────────────────────
-  const activeTabKey = !filters.status ? 'all' : filters.status === 'Active' ? 'Active' : 'inactive'
-
-  const tabs = [
-    { label: 'All Vendors', value: 'all', count: counts.all },
-    { label: 'Active', value: 'Active', count: counts.active },
-    { label: 'Inactive', value: 'inactive', count: counts.inactive },
-  ]
 
   // Sort items client-side
-  const sortedItems = [...items].sort((a, b) => {
+  const sortedItems = useMemo(() => [...items].sort((a, b) => {
     if (!sortConfig.field) return 0
     if (sortConfig.field === 'projects') {
       const av = getTotalVendorProjectCount(a)
       const bv = getTotalVendorProjectCount(b)
+      return sortConfig.direction === 'asc' ? av - bv : bv - av
+    }
+    if (sortConfig.field === 'rating') {
+      const av = normalizeVendorRating(a.rating) ?? -1
+      const bv = normalizeVendorRating(b.rating) ?? -1
       return sortConfig.direction === 'asc' ? av - bv : bv - av
     }
     const field = sortConfig.field as keyof Vendor
@@ -847,14 +871,21 @@ export default function VendorsPage() {
     const bStr = String(bVal ?? '').toLowerCase()
     const cmp = aStr < bStr ? -1 : 1
     return sortConfig.direction === 'asc' ? cmp : -cmp
-  })
+  }), [items, sortConfig])
+
+  const contactsTabs = useMemo(
+    () => [
+      { label: 'Active Contacts', value: 'active', count: tabCounts.active },
+      { label: 'Pending Contacts', value: 'pending', count: tabCounts.pending },
+    ],
+    [tabCounts],
+  )
 
   const columnsConfig: ColumnItem[] = [
-    { field: 'primaryContact', label: 'Primary Contact', visible: visibleColumns.primaryContact },
     { field: 'website', label: 'Website', visible: visibleColumns.website },
     { field: 'location', label: 'Location', visible: visibleColumns.location },
     { field: 'specialization', label: 'Specialization', visible: visibleColumns.specialization },
-    { field: 'compliance', label: 'Compliance Status', visible: visibleColumns.compliance },
+    { field: 'rating', label: 'Rating', visible: visibleColumns.rating },
   ]
 
   // Filter config
@@ -897,32 +928,12 @@ export default function VendorsPage() {
   ]
 
   // ── Handlers ──────────────────────────────────────────────────────
-  function handleTabChange(value: string) {
-    const statusMap: Record<string, string> = { all: '', Active: 'Active', inactive: 'Inactive' }
-    const status = statusMap[value] ?? ''
-    setActiveFilters({})
-    dispatch(resetFilters())
-    dispatch(setFilters({ status }))
-    dispatch(setPage(1))
-    dispatch(fetchVendors({
-      page: 1,
-      pageSize: pagination.pageSize,
-      search: filters.search || undefined,
-      status: status || undefined,
-    }))
-  }
-
   function handleSearchChange(value: string) {
     dispatch(setFilters({ search: value }))
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
     searchTimeoutRef.current = setTimeout(() => {
       dispatch(setPage(1))
-      dispatch(fetchVendors({
-        page: 1,
-        pageSize: pagination.pageSize,
-        search: value || undefined,
-        status: filters.status || undefined,
-      }))
+      dispatch(fetchVendors(buildFetchParams(1)))
     }, 300)
   }
 
@@ -934,19 +945,14 @@ export default function VendorsPage() {
     }
     dispatch(setFilters(params as { search?: string; status?: string; gstStatus?: string; state?: string }))
     dispatch(setPage(1))
-    dispatch(fetchVendors({ page: 1, pageSize: pagination.pageSize, search: filters.search || undefined, ...params }))
+    dispatch(fetchVendors({ ...buildFetchParams(1), ...params }))
   }
 
   function handleFilterReset() {
     setActiveFilters({})
     dispatch(resetFilters())
     dispatch(setPage(1))
-    dispatch(fetchVendors({
-      page: 1,
-      pageSize: pagination.pageSize,
-      search: filters.search || undefined,
-      status: filters.status || undefined,
-    }))
+    dispatch(fetchVendors(buildFetchParams(1)))
   }
 
   function handleSortChange(field: string, direction: 'asc' | 'desc') {
@@ -955,16 +961,49 @@ export default function VendorsPage() {
 
   function handlePageChange(p: number) {
     dispatch(setPage(p))
-    dispatch(fetchVendors({
-      page: p,
-      pageSize: pagination.pageSize,
-      search: filters.search || undefined,
-      status: filters.status || undefined,
-    }))
+    dispatch(fetchVendors(buildFetchParams(p)))
+  }
+
+  function handleContactsTabChange(tab: string) {
+    const next = tab as ContactsTab
+    setContactsTab(next)
+    dispatch(setPage(1))
+    dispatch(
+      fetchVendors({
+        page: 1,
+        pageSize: pagination.pageSize,
+        search: filters.search || undefined,
+        profileStatus: next === 'pending' ? 'pending' : 'complete',
+        ...(next === 'active'
+          ? {
+              status: filters.status || undefined,
+              gstStatus: filters.gstStatus || undefined,
+              state: filters.state || undefined,
+            }
+          : {}),
+      }),
+    )
+  }
+
+  function handleVendorCompleted() {
+    setContactsTab('active')
+    dispatch(setPage(1))
+    void refreshTabCounts()
+    dispatch(
+      fetchVendors({
+        page: 1,
+        pageSize: pagination.pageSize,
+        search: filters.search || undefined,
+        profileStatus: 'complete',
+        status: filters.status || undefined,
+        gstStatus: filters.gstStatus || undefined,
+        state: filters.state || undefined,
+      }),
+    )
   }
 
   function handleColumnVisibilityChange(field: string, visible: boolean) {
-    setVisibleColumns((prev) => ({ ...prev, [field]: visible }))
+    setVisibleColumns((prev) => ({ ...prev, [field]: visible } as VendorTableVisibleColumns))
   }
 
   function openAddDrawer() {
@@ -982,6 +1021,7 @@ export default function VendorsPage() {
   function handleDrawerClose() {
     setDrawerOpen(false)
     setEditingVendor(null)
+    void refreshTabCounts()
   }
 
   function handleNavigateToVendor(id: string) {
@@ -1002,6 +1042,7 @@ export default function VendorsPage() {
     try {
       await dispatch(deleteVendor(deleteTarget.id)).unwrap()
       showToast({ title: 'Vendor deleted', variant: 'success' })
+      void refreshTabCounts()
     } catch (err) {
       showToast({ title: (err as string) || 'Failed to delete vendor', variant: 'error' })
     }
@@ -1015,27 +1056,48 @@ export default function VendorsPage() {
         icon={<Truck size={20} />}
         title="Vendors"
         subtitle="Vendor directory and procurement relationships"
-        primaryAction={{
-          label: 'Add Vendor',
-          onClick: openAddDrawer,
-          startIcon: <Plus size={16} strokeWidth={2} />,
-        }}
-        searchPlaceholder="Search by name, contact, or specialization..."
+        tabs={contactsTabs}
+        activeTab={contactsTab}
+        onTabChange={handleContactsTabChange}
+        primaryAction={
+          contactsTab === 'active'
+            ? {
+                label: 'Add Vendor',
+                onClick: openAddDrawer,
+                startIcon: <Plus size={16} strokeWidth={2} />,
+              }
+            : undefined
+        }
+        searchPlaceholder={
+          contactsTab === 'pending'
+            ? 'Search by name, mobile, or email…'
+            : 'Search by name, contact, or specialization...'
+        }
         searchValue={filters.search}
         onSearchChange={handleSearchChange}
-        tabs={tabs}
-        activeTab={activeTabKey}
-        onTabChange={handleTabChange}
-        filterConfig={filterConfig}
-        activeFilters={activeFilters}
-        onFilterChange={handleFilterChange}
-        onFilterReset={handleFilterReset}
-        columns={columnsConfig}
-        onColumnVisibilityChange={handleColumnVisibilityChange}
-        showViewToggle={true}
+        filterConfig={contactsTab === 'active' ? filterConfig : undefined}
+        activeFilters={contactsTab === 'active' ? activeFilters : undefined}
+        onFilterChange={contactsTab === 'active' ? handleFilterChange : undefined}
+        onFilterReset={contactsTab === 'active' ? handleFilterReset : undefined}
+        columns={contactsTab === 'active' ? columnsConfig : undefined}
+        onColumnVisibilityChange={
+          contactsTab === 'active' ? handleColumnVisibilityChange : undefined
+        }
+        showViewToggle={contactsTab === 'active'}
         onViewModeChange={(mode) => setViewMode(mode === 'grid' ? 'grid' : 'table')}
+        clipCardContent={false}
       >
-        {viewMode === 'grid' ? (
+        {contactsTab === 'pending' ? (
+          <PendingVendorContactsTable
+            items={sortedItems}
+            loading={loading}
+            onView={(vendor) => {
+              setPendingViewVendor(vendor)
+              setPendingViewOpen(true)
+            }}
+            onUpdate={openEditDrawer}
+          />
+        ) : viewMode === 'grid' ? (
           <VendorsGrid
             items={sortedItems}
             loading={loading}
@@ -1074,6 +1136,18 @@ export default function VendorsPage() {
         onClose={handleDrawerClose}
         mode={drawerMode}
         vendor={editingVendor}
+        onCompleted={
+          editingVendor && isPendingVendor(editingVendor) ? handleVendorCompleted : undefined
+        }
+      />
+
+      <PendingVendorViewDrawer
+        open={pendingViewOpen}
+        vendor={pendingViewVendor}
+        onClose={() => {
+          setPendingViewOpen(false)
+          setPendingViewVendor(null)
+        }}
       />
 
       <ConfirmDeleteDialog

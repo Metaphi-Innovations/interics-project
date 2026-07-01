@@ -19,6 +19,7 @@ import { useMemo } from 'react'
 import { DashboardSection } from '../components/DashboardSection'
 import { DashboardMiniCard } from '../components/DashboardMiniCard'
 import { ScopedChartPanel } from '../components/ScopedChartPanel'
+import { ChartPlotFrame } from '../components/ChartPlotFrame'
 import { DonutChartBlock } from '../components/chartPrimitives'
 import { EmptyChartState } from '../components/EmptyChartState'
 import { useDashboardChartTheme } from '../components/charts/useDashboardChartTheme'
@@ -26,6 +27,8 @@ import {
   CHART_CATEGORY_AXIS_WIDTH,
   CHART_MARGIN_HORIZONTAL,
   SECTION_CHART_ROW_SX,
+  computeHorizontalBarSize,
+  computeHorizontalChartContentHeight,
 } from '../components/chartLayout'
 import { labelListFormatter, truncateCategoryTick, yAxisCurrencyTick } from '../components/charts/chartFormatters'
 
@@ -106,11 +109,20 @@ export function ProfitabilityAnalytics({
               scope.filteredProjects,
             )
             if (topProjects.length === 0) {
-              return <EmptyChartState title="No project profitability for chart filters" height={h} />
+              return <EmptyChartState title="No project profitability for chart filters" />
             }
+            const innerHeight = computeHorizontalChartContentHeight(h, topProjects.length, {
+              marginTop: CHART_MARGIN_HORIZONTAL.top,
+              marginBottom: CHART_MARGIN_HORIZONTAL.bottom,
+            })
+            const barSize = computeHorizontalBarSize(innerHeight, topProjects.length, {
+              marginTop: CHART_MARGIN_HORIZONTAL.top,
+              marginBottom: CHART_MARGIN_HORIZONTAL.bottom,
+            })
             return (
-              <ResponsiveContainer width="100%" height="100%" minHeight={h}>
-                <BarChart data={topProjects} layout="vertical" margin={CHART_MARGIN_HORIZONTAL}>
+              <ChartPlotFrame plotHeight={h} contentHeight={innerHeight}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={topProjects} layout="vertical" margin={CHART_MARGIN_HORIZONTAL}>
                   <CartesianGrid {...ct.gridProps} horizontal={false} />
                   <XAxis
                     type="number"
@@ -129,7 +141,7 @@ export function ProfitabilityAnalytics({
                     tickLine={false}
                   />
                   <Tooltip contentStyle={ct.tooltipStyle} formatter={(v) => [ru(Number(v ?? 0)), 'Profit']} />
-                  <Bar dataKey="value" name="Profit" radius={[0, 4, 4, 0]} barSize={16}>
+                  <Bar dataKey="value" name="Profit" radius={[0, 4, 4, 0]} barSize={barSize} maxBarSize={barSize + 4}>
                     {topProjects.map((entry, i) => (
                       <Cell
                         key={i}
@@ -140,6 +152,7 @@ export function ProfitabilityAnalytics({
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
+              </ChartPlotFrame>
             )
           }}
         </ScopedChartPanel>
@@ -152,7 +165,7 @@ export function ProfitabilityAnalytics({
           globalFilters={globalFilters}
           data={chartData}
         >
-          {({ scope, chartHeight: h }) => {
+          {({ scope }) => {
             const profitByType = profitByClientProjectType(
               scope.scopedInvoices,
               scope.scopedVendorInvoices,
@@ -163,7 +176,7 @@ export function ProfitabilityAnalytics({
               <DonutChartBlock
                 data={profitByType}
                 theme={theme}
-                height={h}
+                height={chartHeight}
                 emptyMessage="No profit by project type for chart filters"
               />
             )

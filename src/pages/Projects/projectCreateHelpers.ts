@@ -8,6 +8,8 @@ import type {
 import { getCustomerContactsList } from '../../utils/customerContacts'
 import { normalizeContacts } from '../../utils/entityContacts'
 
+export type ProjectContactSource = 'customer' | 'vendor'
+
 export const PROJECT_SETUP_GRID_SX = {
   display: 'grid',
   gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' },
@@ -68,9 +70,78 @@ export function formatProjectValueTotal(value: number | null): string {
   return `₹${value.toLocaleString('en-IN')}`
 }
 
+export interface ProjectSetupWizardFields {
+  headcount: string
+  workstationSize: string
+  meetingRoomCount: string
+  serverRoomDetails: string
+  upsCapacity: string
+  receptionDetails: string
+  pantryDetails: string
+}
+
+export interface ProjectSetupFieldErrors {
+  headcount?: string
+  meetingRoomCount?: string
+}
+
+function parseOptionalWholeNumber(raw: string): number | null {
+  const trimmed = raw.trim()
+  if (!trimmed) return null
+  const n = Number(trimmed)
+  if (!Number.isFinite(n) || n < 0 || !Number.isInteger(n)) return null
+  return n
+}
+
+function isValidOptionalWholeNumber(raw: string): boolean {
+  if (!raw.trim()) return true
+  return parseOptionalWholeNumber(raw) !== null
+}
+
+function parseOptionalText(raw: string): string | null {
+  const trimmed = raw.trim()
+  return trimmed || null
+}
+
+export function validateProjectSetupFields(
+  fields: ProjectSetupWizardFields,
+): ProjectSetupFieldErrors {
+  const errors: ProjectSetupFieldErrors = {}
+  if (!isValidOptionalWholeNumber(fields.headcount)) {
+    errors.headcount = 'Enter a valid whole number'
+  }
+  if (!isValidOptionalWholeNumber(fields.meetingRoomCount)) {
+    errors.meetingRoomCount = 'Enter a valid whole number'
+  }
+  return errors
+}
+
+export function buildProjectSetupPayload(fields: ProjectSetupWizardFields) {
+  return {
+    headcount: parseOptionalWholeNumber(fields.headcount),
+    workstationSize: parseOptionalText(fields.workstationSize),
+    meetingRoomCount: parseOptionalWholeNumber(fields.meetingRoomCount),
+    serverRoomDetails: parseOptionalText(fields.serverRoomDetails),
+    upsCapacity: parseOptionalText(fields.upsCapacity),
+    receptionDetails: parseOptionalText(fields.receptionDetails),
+    pantryDetails: parseOptionalText(fields.pantryDetails),
+  }
+}
+
 export function getContactsForCustomer(customer: Customer | null | undefined): Contact[] {
   if (!customer) return []
   return normalizeContacts(getCustomerContactsList(customer))
+}
+
+/** Compare phone numbers ignoring spaces, dashes, and country-code formatting. */
+export function normalizePhoneNumber(phone: string): string {
+  return phone.replace(/\D/g, '')
+}
+
+export function contactPhoneExists(contacts: Contact[], phone: string): boolean {
+  const normalized = normalizePhoneNumber(phone)
+  if (!normalized) return false
+  return contacts.some((c) => normalizePhoneNumber(c.phone) === normalized)
 }
 
 export function getDefaultContactId(contacts: Contact[]): string {

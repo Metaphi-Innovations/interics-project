@@ -6,17 +6,67 @@ export function roundMoney(n: number): number {
   return Math.round(n * 100) / 100
 }
 
-export function rollupsFromLineItems(lineItems: ClientInvoiceLineItem[]): {
-  baseAmount: number
+export interface LineItemTaxBreakdown {
+  labourCessAmount: number
+  taxableAmount: number
   gstAmount: number
   grossAmount: number
-} {
-  const baseAmount = lineItems.reduce((s, li) => s + li.amount, 0)
-  const gstAmount = roundMoney(lineItems.reduce((s, li) => s + li.gstAmount, 0))
+}
+
+/** Base → labour cess → taxable → GST → gross (client invoice line). */
+export function computeLineItemTaxBreakdown(
+  baseAmount: number,
+  labourCessRate: number,
+  gstRate: number,
+): LineItemTaxBreakdown {
+  const labourCessAmount = roundMoney(baseAmount * (labourCessRate / 100))
+  const taxableAmount = roundMoney(baseAmount + labourCessAmount)
+  const gstAmount = roundMoney(taxableAmount * (gstRate / 100))
+  const grossAmount = roundMoney(taxableAmount + gstAmount)
+  return { labourCessAmount, taxableAmount, gstAmount, grossAmount }
+}
+
+export interface InvoiceLineRollups {
+  baseAmount: number
+  labourCessAmount: number
+  taxableAmount: number
+  gstAmount: number
+  grossAmount: number
+  /** Blended labour cess % across lines (null when base is zero). */
+  labourCessRatePercent: number | null
+}
+
+export function rollupsFromLineItems(lineItems: ClientInvoiceLineItem[]): InvoiceLineRollups {
+  let labourCessAmount = 0
+  let taxableAmount = 0
+  let gstAmount = 0
+
+  for (const li of lineItems) {
+    const breakdown = computeLineItemTaxBreakdown(
+      li.amount,
+      li.labourCessRate ?? 0,
+      li.gstRate,
+    )
+    labourCessAmount += breakdown.labourCessAmount
+    taxableAmount += breakdown.taxableAmount
+    gstAmount += breakdown.gstAmount
+  }
+
+  const baseAmount = roundMoney(lineItems.reduce((s, li) => s + li.amount, 0))
+  labourCessAmount = roundMoney(labourCessAmount)
+  taxableAmount = roundMoney(taxableAmount)
+  gstAmount = roundMoney(gstAmount)
+  const grossAmount = roundMoney(taxableAmount + gstAmount)
+  const labourCessRatePercent =
+    baseAmount > 0 ? roundMoney((labourCessAmount / baseAmount) * 100) : null
+
   return {
     baseAmount,
+    labourCessAmount,
+    taxableAmount,
     gstAmount,
-    grossAmount: roundMoney(baseAmount + gstAmount),
+    grossAmount,
+    labourCessRatePercent,
   }
 }
 
@@ -52,7 +102,20 @@ export function isDueDateOverdue(dueDate: string): boolean {
 
 /** Effective GST % for display when all lines share similar rate */
 export function effectiveGstPercent(inv: ClientInvoice): string {
-  if (inv.baseAmount <= 0) return '—'
-  const pct = (100 * inv.gstAmount) / inv.baseAmount
+  const roll = rollupsFromLineItems(inv.lineItems)
+  if (roll.taxableAmount <= 0) return '—'
+  const pct = (100 * roll.gstAmount) / roll.taxableAmount
   return `${Math.round(pct * 10) / 10}%`
+}
+
+/** Blended labour cess % across invoice lines (null when base is zero). */
+export function effectiveLabourCessPercent(inv: ClientInvoice): string {
+  const roll = rollupsFromLineItems(inv.lineItems)
+  if (roll.labourCessRatePercent == null) return '—'
+  return `${roll.labourCessRatePercent}%`
+}
+
+export function invoiceLabourCessAmount(inv: ClientInvoice): number {
+  if (inv.labourCessAmount != null) return inv.labourCessAmount
+  return rollupsFromLineItems(inv.lineItems).labourCessAmount
 }

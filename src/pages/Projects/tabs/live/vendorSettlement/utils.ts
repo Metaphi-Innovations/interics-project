@@ -19,6 +19,22 @@ export interface VendorServiceRow {
 
 export const DEFAULT_TDS_PERCENT = 10
 
+export const TDS_RATE_OPTIONS = [0, 1, 2, 5, 10, 20] as const
+
+export function calcVendorInvoiceTdsAmount(baseAmount: number, tdsRate: number): number {
+  return Math.round((baseAmount * tdsRate) / 100)
+}
+
+export function calcVendorInvoiceNetPayable(
+  baseAmount: number,
+  expenseDeductions: number,
+  tdsRate: number,
+  expenseAdditions = 0,
+): number {
+  const subtotal = baseAmount + expenseAdditions - expenseDeductions
+  return Math.max(0, subtotal - calcVendorInvoiceTdsAmount(baseAmount, tdsRate))
+}
+
 export const TABLE_HEADER_SX = {
   fontSize: 10,
   fontWeight: 700,
@@ -151,11 +167,90 @@ export function commonExpenseAmountForVendor(e: Expense, vendorId: string): numb
   return row?.allocationAmount ?? 0
 }
 
+export type CommonExpenseExpenseRole = 'payer_credit' | 'vendor_debit'
+
+export function commonExpensePayableAmount(
+  e: Expense,
+  vendorId: string,
+): { amount: number; role: CommonExpenseExpenseRole } | null {
+  if (e.type !== 'common' || e.status !== 'pending') return null
+  const share = commonExpenseAmountForVendor(e, vendorId)
+  if (e.paidByVendorId === vendorId) {
+    const credit = Math.max(0, e.amount - share)
+    if (credit <= 0) return null
+    return { amount: -credit, role: 'payer_credit' }
+  }
+  if (share > 0) return { amount: share, role: 'vendor_debit' }
+  return null
+}
+
+export interface VendorPayableBreakdown {
+  invoicePayable: number
+  reimbursementPending: number
+  debitedCommonExpenses: number
+  commonExpenseCredit: number
+  finalPayable: number
+}
+
+export function computeVendorPayableBreakdown(
+  baselineForProject: Baseline | null,
+  projectInvoices: VendorInvoice[],
+  projectExpenses: Expense[],
+  projectReimb: Reimbursement[],
+  row: VendorServiceRow,
+  vendorPOs: VendorPO[] = [],
+): VendorPayableBreakdown {
+  const scoped = projectInvoices.filter((inv) => invoiceMatchesRow(inv, row))
+  const invoicePayable = scoped
+    .filter((i) => i.status !== 'paid')
+    .reduce((s, i) => s + i.netPayable, 0)
+  const rmbs = projectReimb.filter((r) => reimbMatchesRow(r, row))
+  const reimbursementPending = rmbs
+    .filter((r) => r.status === 'pending')
+    .reduce((s, r) => s + r.amount, 0)
+
+  let debitedCommonExpenses = 0
+  let commonExpenseCredit = 0
+  for (const e of projectExpenses) {
+    const adj = commonExpensePayableAmount(e, row.vendorId)
+    if (!adj) continue
+    if (adj.role === 'payer_credit') commonExpenseCredit += Math.abs(adj.amount)
+    else debitedCommonExpenses += adj.amount
+  }
+
+  const counts = computeVendorCardCounts(
+    baselineForProject,
+    projectInvoices,
+    projectExpenses,
+    projectReimb,
+    row,
+    vendorPOs,
+  )
+
+  return {
+    invoicePayable,
+    reimbursementPending,
+    debitedCommonExpenses,
+    commonExpenseCredit,
+    finalPayable: counts.outstanding,
+  }
+}
+
 export function expenseRowsForVendor(
   expenses: Expense[],
   row: VendorServiceRow,
-): { expense: Expense; amount: number; kind: 'vendor_linked' | 'common' }[] {
-  const out: { expense: Expense; amount: number; kind: 'vendor_linked' | 'common' }[] = []
+): {
+  expense: Expense
+  amount: number
+  kind: 'vendor_linked' | 'common'
+  commonRole?: CommonExpenseExpenseRole
+}[] {
+  const out: {
+    expense: Expense
+    amount: number
+    kind: 'vendor_linked' | 'common'
+    commonRole?: CommonExpenseExpenseRole
+  }[] = []
   for (const e of expenses) {
     if (e.status !== 'pending') continue
     // Reimbursable expenses sync to Reimbursement and settle as payment additions, not deductions.
@@ -163,12 +258,32 @@ export function expenseRowsForVendor(
     if (e.type === 'vendor_linked' && vendorLinkedExpenseMatchesRow(e, row)) {
       out.push({ expense: e, amount: e.amount, kind: 'vendor_linked' })
     }
-    if (e.type === 'common' && e.vendorAllocations?.some((a) => a.vendorId === row.vendorId)) {
-      const amt = commonExpenseAmountForVendor(e, row.vendorId)
-      if (amt > 0) out.push({ expense: e, amount: amt, kind: 'common' })
+    if (e.type === 'common') {
+      const adj = commonExpensePayableAmount(e, row.vendorId)
+      if (adj) {
+        out.push({
+          expense: e,
+          amount: adj.amount,
+          kind: 'common',
+          commonRole: adj.role,
+        })
+      }
     }
   }
   return out
+}
+
+/** Pending project expenses available for vendor invoice deduction (Pitch + Live). */
+export function selectableProjectExpensesForInvoice(
+  expenses: Expense[],
+  projectId: string,
+): Expense[] {
+  return expenses.filter(
+    (e) =>
+      e.projectId === projectId &&
+      e.status === 'pending' &&
+      e.type !== 'reimbursable_expenses',
+  )
 }
 
 export function itemsSummary(p: VendorPayment): string {
@@ -275,7 +390,27 @@ export function payableStatusLabel(status: PayablePaymentStatus): string {
 }
 
 export function invoiceUploadedLabel(inv: VendorInvoice | undefined): 'Uploaded' | 'Pending' {
-  return inv ? 'Uploaded' : 'Pending'
+  return inv?.documentUrl ? 'Uploaded' : 'Pending'
+}
+
+export function vendorInvoiceDocumentFileName(inv: VendorInvoice): string | null {
+  if (inv.fileName?.trim()) return inv.fileName.trim()
+  if (!inv.documentUrl) return null
+  if (inv.documentUrl.startsWith('local://')) {
+    return inv.documentUrl.slice('local://'.length) || null
+  }
+  try {
+    const path = new URL(inv.documentUrl).pathname
+    const name = path.split('/').pop()
+    return name || inv.documentUrl
+  } catch {
+    return inv.documentUrl
+  }
+}
+
+export function vendorInvoiceDocumentOpenUrl(documentUrl: string): string | null {
+  if (documentUrl.startsWith('local://')) return null
+  return documentUrl
 }
 
 export function clientPaymentLabel(control: VendorPayableControl): 'Received' | 'Waiting' {

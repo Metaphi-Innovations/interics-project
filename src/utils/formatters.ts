@@ -60,6 +60,18 @@ export const formatDate = (date: string | null): string => {
   })
 }
 
+/** Inclusive calendar-day count from start through end (same day → 1). */
+export const getDaysBetweenDates = (
+  start: string | null,
+  end: string | null,
+): number | null => {
+  if (!start || !end) return null
+  const startMs = new Date(start).setHours(0, 0, 0, 0)
+  const endMs = new Date(end).setHours(0, 0, 0, 0)
+  if (Number.isNaN(startMs) || Number.isNaN(endMs) || endMs < startMs) return null
+  return Math.round((endMs - startMs) / 86_400_000) + 1
+}
+
 export const formatRelativeTime = (dateStr: string): string => {
   const diff = Date.now() - new Date(dateStr).getTime()
   const minutes = Math.floor(diff / 60000)

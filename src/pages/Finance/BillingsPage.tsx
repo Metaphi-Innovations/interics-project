@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, useRef } from 'react'
 import {
   Stack,
+  Box,
   Typography,
   Table,
   TableBody,
@@ -121,6 +122,16 @@ function SortHeader({
 }
 
 const menuItemSx = { fontSize: 12, minHeight: 32, py: 0.5 }
+const LISTING_EDGE_PAD = '14px'
+const ACTION_WIDTH_PX = 44
+
+const CENTER_CELL_CONTENT_SX = {
+  display: 'flex',
+  justifyContent: 'center',
+  alignItems: 'center',
+  width: 1,
+} as const
+
 const HEADER_CELL_SX = {
   fontSize: 11,
   fontWeight: 600,
@@ -130,6 +141,37 @@ const HEADER_CELL_SX = {
   borderBottom: `2px solid ${tokens.color.neutral[100]}`,
 }
 const BODY_CELL_SX = { fontSize: 12, py: 1, px: 1.75 }
+
+const HEADER_ACTION_SX = {
+  width: ACTION_WIDTH_PX,
+  minWidth: ACTION_WIDTH_PX,
+  maxWidth: ACTION_WIDTH_PX,
+  ...HEADER_CELL_SX,
+  whiteSpace: 'nowrap',
+  position: 'sticky',
+  right: 0,
+  bgcolor: 'background.default',
+  zIndex: 2,
+  textAlign: 'center',
+  verticalAlign: 'middle',
+  pl: 0,
+  pr: LISTING_EDGE_PAD,
+}
+
+const BODY_ACTION_SX = {
+  ...BODY_CELL_SX,
+  width: ACTION_WIDTH_PX,
+  minWidth: ACTION_WIDTH_PX,
+  maxWidth: ACTION_WIDTH_PX,
+  position: 'sticky',
+  right: 0,
+  bgcolor: 'background.paper',
+  zIndex: 1,
+  textAlign: 'center',
+  verticalAlign: 'middle',
+  pl: 0,
+  pr: LISTING_EDGE_PAD,
+}
 
 function RowActions({
   inv,
@@ -149,7 +191,7 @@ function RowActions({
   const canMarkSent = inv.status === 'draft'
 
   return (
-    <Stack direction="row" alignItems="center" justifyContent="flex-end">
+    <Box sx={CENTER_CELL_CONTENT_SX}>
       <MuiIconButton
         size="small"
         onClick={(e) => {
@@ -157,8 +199,9 @@ function RowActions({
           setAnchor(e.currentTarget)
         }}
         aria-label="More actions"
+        sx={{ p: 0.25 }}
       >
-        <MoreVertIcon sx={{ fontSize: 16 }} />
+        <MoreVertIcon sx={{ fontSize: 14 }} />
       </MuiIconButton>
       <Menu
         anchorEl={anchor}
@@ -211,7 +254,7 @@ function RowActions({
           </>
         )}
       </Menu>
-    </Stack>
+    </Box>
   )
 }
 
@@ -552,7 +595,7 @@ export default function BillingsPage() {
         columns={columnsConfig}
         onColumnVisibilityChange={handleColumnVisibilityChange}
       >
-          <TableContainer>
+          <TableContainer sx={{ overflowX: 'auto', width: '100%' }}>
             <Table size="small">
               <TableHead>
                 <TableRow sx={{ bgcolor: alpha(theme.palette.text.primary, 0.02) }}>
@@ -587,19 +630,8 @@ export default function BillingsPage() {
                   {visibleColumns.status && (
                     <TableCell sx={HEADER_CELL_SX}>Status</TableCell>
                   )}
-                  <TableCell
-                    align="right"
-                    sx={{
-                      width: 48,
-                      ...HEADER_CELL_SX,
-                      whiteSpace: 'nowrap',
-                      position: 'sticky',
-                      right: 0,
-                      bgcolor: 'background.paper',
-                      zIndex: 1,
-                    }}
-                  >
-                    Action
+                  <TableCell sx={HEADER_ACTION_SX}>
+                    <Box sx={CENTER_CELL_CONTENT_SX}>Action</Box>
                   </TableCell>
                 </TableRow>
               </TableHead>
@@ -624,6 +656,7 @@ export default function BillingsPage() {
                             cursor: 'pointer',
                             '& td': { height: 44 },
                             '&:hover': { bgcolor: hoverBg },
+                            '&:hover td': { bgcolor: hoverBg },
                           }}
                           onClick={() => setDetailId(inv.id)}
                         >
@@ -688,8 +721,7 @@ export default function BillingsPage() {
                             </TableCell>
                           )}
                           <TableCell
-                            align="right"
-                            sx={{ ...BODY_CELL_SX, position: 'sticky', right: 0, bgcolor: 'background.paper', zIndex: 1 }}
+                            sx={BODY_ACTION_SX}
                             onClick={(e) => e.stopPropagation()}
                           >
                             <RowActions

@@ -1,7 +1,7 @@
 import { createAsyncThunk } from '@reduxjs/toolkit'
 import { customersApi } from '../../api/customersApi'
 import { normalizeListResponse } from '@/utils/normalizeListResponse'
-import type { Customer } from './reducer'
+import type { Customer, Contact } from './reducer'
 
 interface FetchCustomersParams {
   page?: number
@@ -70,6 +70,30 @@ export const updateCustomer = createAsyncThunk(
       return rejectWithValue(error.response?.data?.message ?? 'Failed to update customer')
     }
   }
+)
+
+export const createCustomerContact = createAsyncThunk(
+  'customers/createContact',
+  async (
+    {
+      customerId,
+      data,
+    }: { customerId: string; data: Omit<Contact, 'id'> },
+    { rejectWithValue },
+  ) => {
+    try {
+      const response = await customersApi.createContact(customerId, data)
+      return {
+        customerId,
+        contact: response.data as Contact,
+      }
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { message?: string } } }
+      return rejectWithValue(
+        error.response?.data?.message ?? 'Failed to create contact person',
+      )
+    }
+  },
 )
 
 export const deleteCustomer = createAsyncThunk(

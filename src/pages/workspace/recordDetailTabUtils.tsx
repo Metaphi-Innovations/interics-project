@@ -14,6 +14,7 @@ import {
   Plus,
   RefreshCw,
   ShieldCheck,
+  Trash2,
   User,
 } from 'lucide-react'
 import dayjs from 'dayjs'
@@ -249,32 +250,120 @@ export function RecordDetailCopyIconButton({
   )
 }
 
+export interface RecordDetailTaxDocCardDocument {
+  name: string
+  url: string
+  description?: string | null
+  uploadedBy?: string | null
+  uploadedOn?: string | null
+  lastUpdatedOn?: string | null
+}
+
+function formatComplianceTimestamp(iso: string | null | undefined): string | null {
+  if (!iso) return null
+  try {
+    return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(iso))
+  } catch {
+    return iso
+  }
+}
+
+function TaxDocDescription({ description }: { description: string }) {
+  const theme = useTheme()
+  const [expanded, setExpanded] = useState(false)
+  const trimmed = description.trim()
+  if (!trimmed) return null
+  const likelyTruncated = trimmed.length > 140 || trimmed.split('\n').length > 3
+
+  return (
+    <Box sx={{ mt: theme.spacing(1.5) }}>
+      <Typography
+        variant="caption"
+        sx={{
+          color: 'text.secondary',
+          textTransform: 'uppercase',
+          letterSpacing: '0.5px',
+          display: 'block',
+          fontSize: theme.typography.caption.fontSize,
+        }}
+      >
+        Description
+      </Typography>
+      <Typography
+        variant="body2"
+        color="text.secondary"
+        sx={{
+          mt: theme.spacing(0.5),
+          fontSize: theme.typography.caption.fontSize,
+          lineHeight: 1.5,
+          whiteSpace: 'pre-wrap',
+          ...(!expanded && likelyTruncated
+            ? {
+                display: '-webkit-box',
+                WebkitLineClamp: 3,
+                WebkitBoxOrient: 'vertical',
+                overflow: 'hidden',
+              }
+            : {}),
+        }}
+      >
+        {trimmed}
+      </Typography>
+      {likelyTruncated ? (
+        <Typography
+          component="button"
+          type="button"
+          variant="caption"
+          onClick={() => setExpanded((v) => !v)}
+          sx={{
+            mt: theme.spacing(0.5),
+            p: 0,
+            border: 'none',
+            bgcolor: 'transparent',
+            color: 'primary.main',
+            fontWeight: 600,
+            cursor: 'pointer',
+            fontSize: theme.typography.caption.fontSize,
+            '&:hover': { textDecoration: 'underline' },
+          }}
+        >
+          {expanded ? 'Show Less' : 'Show More'}
+        </Typography>
+      ) : null}
+    </Box>
+  )
+}
+
 export interface RecordDetailTaxDocCardProps {
   variant: 'gst' | 'pan' | 'cheque' | 'insurance' | 'catalogue'
   title: string
   statusChip?: { label: string; isRegistered: boolean }
+  showHeaderIcon?: boolean
+  showUploadMeta?: boolean
   fieldLabel: string
   fieldValue: string | null
-  document: { name: string; url: string } | null
+  document: RecordDetailTaxDocCardDocument | null
   emptyDocMessage: string
-  uploadButtonLabel: string
   onView: (url: string) => void
   onDownload: (url: string) => void
   onCopySuccess: () => void
+  onDelete?: () => void
 }
 
 export function RecordDetailTaxDocCard({
   variant,
   title,
   statusChip,
+  showHeaderIcon = true,
+  showUploadMeta = true,
   fieldLabel,
   fieldValue,
   document,
   emptyDocMessage,
-  uploadButtonLabel,
   onView,
   onDownload,
   onCopySuccess,
+  onDelete,
 }: RecordDetailTaxDocCardProps) {
   const theme = useTheme()
   const cardSx = getRecordDetailTaxDocCardBoxSx(theme)
@@ -316,31 +405,33 @@ export function RecordDetailTaxDocCard({
         }}
       >
         <Stack direction="row" alignItems="center" gap={theme.spacing(1.5)}>
-          <Box
-            component="span"
-            aria-hidden
-            sx={{
-              width: theme.spacing(8),
-              height: theme.spacing(8),
-              borderRadius: tokens.borderRadius.lg,
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              flexShrink: 0,
-              bgcolor: headerIconBg,
-              color: headerIconColor,
-            }}
-          >
-            {variant === 'cheque' ? (
-              <IndianRupee size={18} strokeWidth={2} color={headerIconColor} />
-            ) : variant === 'catalogue' ? (
-              <BookOpen size={18} strokeWidth={2} color={headerIconColor} />
-            ) : variant === 'gst' || variant === 'insurance' ? (
-              <ShieldCheck size={18} strokeWidth={2} color={headerIconColor} />
-            ) : (
-              <FileText size={18} strokeWidth={2} color={headerIconColor} />
-            )}
-          </Box>
+          {showHeaderIcon ? (
+            <Box
+              component="span"
+              aria-hidden
+              sx={{
+                width: theme.spacing(8),
+                height: theme.spacing(8),
+                borderRadius: tokens.borderRadius.lg,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+                bgcolor: headerIconBg,
+                color: headerIconColor,
+              }}
+            >
+              {variant === 'cheque' ? (
+                <IndianRupee size={18} strokeWidth={2} color={headerIconColor} />
+              ) : variant === 'catalogue' ? (
+                <BookOpen size={18} strokeWidth={2} color={headerIconColor} />
+              ) : variant === 'gst' || variant === 'insurance' ? (
+                <ShieldCheck size={18} strokeWidth={2} color={headerIconColor} />
+              ) : (
+                <FileText size={18} strokeWidth={2} color={headerIconColor} />
+              )}
+            </Box>
+          ) : null}
           <Typography variant="body2" fontWeight={500}>
             {title}
           </Typography>
@@ -398,6 +489,10 @@ export function RecordDetailTaxDocCard({
         )}
       </Stack>
 
+      {document?.description?.trim() ? (
+        <TaxDocDescription description={document.description} />
+      ) : null}
+
       {document ? (
         <Box
           sx={{
@@ -446,6 +541,16 @@ export function RecordDetailTaxDocCard({
           <IconButton size="small" aria-label="Download" onClick={() => onDownload(document.url)}>
             <Download size={18} strokeWidth={1.75} />
           </IconButton>
+          {onDelete ? (
+            <IconButton
+              size="small"
+              aria-label="Delete"
+              onClick={onDelete}
+              sx={{ color: 'error.main' }}
+            >
+              <Trash2 size={18} strokeWidth={1.75} />
+            </IconButton>
+          ) : null}
         </Box>
       ) : (
         <Box
@@ -456,18 +561,26 @@ export function RecordDetailTaxDocCard({
             borderColor: 'divider',
           }}
         >
-          <Stack gap={theme.spacing(1.5)} alignItems="flex-start">
-            <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
-              {emptyDocMessage}
-            </Typography>
-            <Box component="span" sx={{ display: 'inline-block' }} title="Upload is not available in this view">
-              <Button variant="outlined" color="secondary" size="sm" disabled>
-                {uploadButtonLabel}
-              </Button>
-            </Box>
-          </Stack>
+          <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+            {emptyDocMessage}
+          </Typography>
         </Box>
       )}
+
+      {showUploadMeta && (document?.uploadedOn || document?.uploadedBy) ? (
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          sx={{ display: 'block', mt: theme.spacing(1), fontSize: theme.typography.caption.fontSize }}
+        >
+          {[
+            document.uploadedOn ? `Uploaded ${formatComplianceTimestamp(document.uploadedOn)}` : null,
+            document.uploadedBy ? document.uploadedBy : null,
+          ]
+            .filter(Boolean)
+            .join(' · ')}
+        </Typography>
+      ) : null}
     </Box>
   )
 }

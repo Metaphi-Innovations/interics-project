@@ -2,6 +2,11 @@ import { http, HttpResponse } from 'msw'
 import type { ClientPO, Baseline, VendorPO } from '../../slices/baseline/reducer'
 import type { PitchCategory, PlannedExpense } from '../../slices/pitch/reducer'
 import { recalcTransitionDraft } from '../../utils/transitionDraft'
+import {
+  mergeClientPOUpdate,
+  mergeVendorPOUpdate,
+} from '../../pages/Projects/tabs/live/poExecutedValueRules'
+import { invoices as clientInvoices } from '../liveFinanceMockState'
 
 // ─── Seed: pitch-shaped baseline for p-001 (matches pitch mock + quotations) ─
 
@@ -284,6 +289,7 @@ let clientPOs: ClientPO[] = [
     startDate: '2024-01-20',
     endDate: '2024-06-30',
     poValue: 2_000_000,
+    executedValue: 1_850_000,
     documentUrl: 'https://example.com/client-po/po-001.pdf',
     fileName: 'PO-CLI-2024-001.pdf',
     uploadedAt: '2024-01-20',
@@ -295,6 +301,7 @@ let clientPOs: ClientPO[] = [
         name: 'Mobilization',
         percentage: 15,
         value: 300_000,
+        retention: { percentage: 2, value: 40_000 },
       },
       {
         id: 'cm-002',
@@ -303,6 +310,7 @@ let clientPOs: ClientPO[] = [
         name: 'Design Draft',
         percentage: 30,
         value: 600_000,
+        retention: { percentage: 2, value: 40_000 },
       },
       {
         id: 'cm-004',
@@ -311,6 +319,7 @@ let clientPOs: ClientPO[] = [
         name: 'Mobilization',
         percentage: 25,
         value: 500_000,
+        retention: { percentage: 2, value: 40_000 },
       },
       {
         id: 'cm-005',
@@ -318,7 +327,8 @@ let clientPOs: ClientPO[] = [
         serviceName: 'Interior Design',
         name: 'Final Handover',
         percentage: 22,
-        value: 450_000,
+        value: 440_000,
+        retention: { percentage: 2, value: 40_000 },
       },
     ],
   },
@@ -383,6 +393,7 @@ let vendorPOs: VendorPO[] = [
     poNumber: 'PO-VEN-2024-001',
     poDate: '2024-01-25',
     poValue: 900_000,
+    executedValue: 900_000,
     status: 'Issued',
     paymentTerms: '30% advance, 70% on milestone certification',
     linkedBaselineServiceIds: ['ps-001'],
@@ -415,6 +426,7 @@ let vendorPOs: VendorPO[] = [
     poNumber: 'PO-VEN-2024-002',
     poDate: '2024-02-01',
     poValue: 2_000_000,
+    executedValue: 1_950_000,
     status: 'Accepted',
     paymentTerms: 'Net 45 from invoice',
     linkedBaselineServiceIds: ['ps-002'],
@@ -462,7 +474,12 @@ export const baselineHandlers = [
     const idx = clientPOs.findIndex((p) => p.id === poId)
     if (idx === -1) return HttpResponse.json({ message: 'PO not found' }, { status: 404 })
     const body = await request.json() as Partial<ClientPO>
-    clientPOs[idx] = { ...clientPOs[idx], ...body }
+    const existing = clientPOs[idx]
+    const result = mergeClientPOUpdate(existing, body, {
+      invoices: clientInvoices.filter((i) => i.projectId === existing.projectId),
+    })
+    if (!result.ok) return HttpResponse.json({ message: result.message }, { status: 400 })
+    clientPOs[idx] = result.po
     return HttpResponse.json(clientPOs[idx])
   }),
 
@@ -582,7 +599,17 @@ export const baselineHandlers = [
     const idx = vendorPOs.findIndex((p) => p.id === poId)
     if (idx === -1) return HttpResponse.json({ message: 'Vendor PO not found' }, { status: 404 })
     const body = await request.json() as Partial<VendorPO>
-    vendorPOs[idx] = { ...vendorPOs[idx], ...body }
+    const result = mergeVendorPOUpdate(vendorPOs[idx], body)
+    if (!result.ok) return HttpResponse.json({ message: result.message }, { status: 400 })
+    vendorPOs[idx] = result.po
     return HttpResponse.json(vendorPOs[idx])
+  }),
+
+  http.delete('/api/projects/:projectId/vendor-pos/:poId', ({ params }) => {
+    const poId = params.poId as string
+    const idx = vendorPOs.findIndex((p) => p.id === poId)
+    if (idx === -1) return HttpResponse.json({ message: 'Vendor PO not found' }, { status: 404 })
+    vendorPOs.splice(idx, 1)
+    return HttpResponse.json({ success: true })
   }),
 ]

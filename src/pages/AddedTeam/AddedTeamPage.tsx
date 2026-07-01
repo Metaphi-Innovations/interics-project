@@ -49,10 +49,10 @@ type TeamVisibleColumns = {
   projectLead: boolean
 }
 
-/** Horizontal inset for table inside listing card (matches listing pagination). */
-const TEAM_TABLE_INSET_X = 2
+/** Horizontal padding aligned with listing card toolbar (`p: 10px 14px`). */
+const LISTING_EDGE_PAD = '14px'
 
-const TEAM_CELL_PAD_X = '16px'
+const TEAM_CELL_PAD_X = LISTING_EDGE_PAD
 
 const TEAM_ACTION_WIDTH_PX = 56
 
@@ -71,6 +71,24 @@ const TABLE_BODY_PADDING = {
     paddingBottom: '7px',
     paddingLeft: TEAM_CELL_PAD_X,
     paddingRight: TEAM_CELL_PAD_X,
+  },
+}
+
+const TABLE_HEADER_ACTION_PADDING = {
+  '&.MuiTableCell-sizeSmall': {
+    paddingTop: '8px',
+    paddingBottom: '8px',
+    paddingLeft: 0,
+    paddingRight: LISTING_EDGE_PAD,
+  },
+}
+
+const TABLE_BODY_ACTION_PADDING = {
+  '&.MuiTableCell-sizeSmall': {
+    paddingTop: '7px',
+    paddingBottom: '7px',
+    paddingLeft: 0,
+    paddingRight: LISTING_EDGE_PAD,
   },
 }
 
@@ -98,6 +116,8 @@ const TABLE_HEADER_ACTION_SX = {
   minWidth: TEAM_ACTION_WIDTH_PX,
   maxWidth: TEAM_ACTION_WIDTH_PX,
   textAlign: 'center' as const,
+  verticalAlign: 'middle' as const,
+  ...TABLE_HEADER_ACTION_PADDING,
 }
 
 const TABLE_CELL_ACTION_SX = {
@@ -106,6 +126,8 @@ const TABLE_CELL_ACTION_SX = {
   minWidth: TEAM_ACTION_WIDTH_PX,
   maxWidth: TEAM_ACTION_WIDTH_PX,
   textAlign: 'center' as const,
+  verticalAlign: 'middle' as const,
+  ...TABLE_BODY_ACTION_PADDING,
 }
 
 const CENTER_CELL_CONTENT_SX = {
@@ -284,7 +306,7 @@ function AddedTeamTable({
 
   if (loading) {
     return (
-      <Box sx={{ px: TEAM_TABLE_INSET_X, py: 2 }}>
+      <Box sx={{ py: 2, px: LISTING_EDGE_PAD }}>
         {[...Array(5)].map((_, i) => (
           <Skeleton key={i} height={52} sx={{ mb: 1, borderRadius: 1 }} />
         ))}
@@ -299,7 +321,7 @@ function AddedTeamTable({
         ? 'No projects loaded. Check that the API is available and refresh the page.'
         : 'No team assignments found for the current filters.'
     return (
-      <Box sx={{ py: 8, textAlign: 'center', px: TEAM_TABLE_INSET_X }}>
+      <Box sx={{ py: 8, textAlign: 'center', px: LISTING_EDGE_PAD }}>
         <Box sx={{ color: tokens.color.neutral[300], mb: 1, display: 'flex', justifyContent: 'center' }}>
           <UserPlus size={40} strokeWidth={1.5} />
         </Box>
@@ -311,9 +333,8 @@ function AddedTeamTable({
   }
 
   return (
-    <Box sx={{ px: TEAM_TABLE_INSET_X }}>
-      <TableContainer sx={{ overflow: 'visible', width: '100%' }}>
-        <Table size="small" sx={{ tableLayout: 'fixed', width: '100%', minWidth: 0 }}>
+    <TableContainer sx={{ overflow: 'visible', width: '100%' }}>
+      <Table size="small" sx={{ tableLayout: 'fixed', width: '100%', minWidth: 0 }}>
           <colgroup>
             <col style={{ width: dataColWidth }} />
             <col style={{ width: dataColWidth }} />
@@ -345,7 +366,9 @@ function AddedTeamTable({
             {visibleColumns.site && <TableCell sx={headSx}>Site</TableCell>}
             {visibleColumns.projectLead && <TableCell sx={headSx}>Project Lead</TableCell>}
             <TableCell sx={headSx}>Status</TableCell>
-            <TableCell sx={actionHeadSx}>Action</TableCell>
+            <TableCell sx={actionHeadSx}>
+              <Box sx={CENTER_CELL_CONTENT_SX}>Action</Box>
+            </TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
@@ -410,8 +433,7 @@ function AddedTeamTable({
           ))}
         </TableBody>
         </Table>
-      </TableContainer>
-    </Box>
+    </TableContainer>
   )
 }
 

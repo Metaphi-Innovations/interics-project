@@ -46,8 +46,14 @@ export default function SettingsPage() {
     <Box
       sx={{
         display: 'flex',
-        height: 'calc(100vh - 64px)',
+        gap: 3,
+        height: {
+          xs: 'calc(100dvh - 52px - 32px)',
+          md: 'calc(100dvh - 52px - 48px)',
+          lg: 'calc(100dvh - 52px - 64px)',
+        },
         overflow: 'hidden',
+        boxSizing: 'border-box',
       }}
     >
       {/* Left nav panel */}
@@ -55,7 +61,11 @@ export default function SettingsPage() {
         sx={{
           width: 240,
           flexShrink: 0,
-          borderRight: '1px solid',
+          display: 'flex',
+          flexDirection: 'column',
+          alignSelf: 'stretch',
+          borderRadius: '12px',
+          border: '1px solid',
           borderColor: 'divider',
           bgcolor: 'background.paper',
           overflowY: 'auto',
@@ -136,22 +146,19 @@ export default function SettingsPage() {
       <Box
         sx={{
           flex: 1,
+          minWidth: 0,
+          alignSelf: 'stretch',
+          display: 'flex',
+          flexDirection: 'column',
+          borderRadius: '12px',
+          border: '1px solid',
+          borderColor: 'divider',
+          bgcolor: 'background.paper',
           overflowY: 'auto',
           p: 3,
-          bgcolor: 'background.default',
         }}
       >
-        <Box
-          sx={{
-            maxWidth: 860,
-            bgcolor: 'background.paper',
-            borderRadius: '12px',
-            border: '1px solid',
-            borderColor: 'divider',
-            p: 3,
-            minHeight: '100%',
-          }}
-        >
+        <Box sx={{ maxWidth: 860, width: '100%' }}>
           {activeSection === 'general' && <GeneralSettingsSection />}
           {activeSection === 'tax' && <TaxConfigSection />}
           {activeSection === 'sac' && <SACCodesSection />}

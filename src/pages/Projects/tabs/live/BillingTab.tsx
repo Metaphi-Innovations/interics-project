@@ -35,7 +35,6 @@ import { buildBillableFromClientPOs, type BillableMilestone } from './billableMi
 import { fetchClientPO } from '../../../../slices/baseline/thunk'
 import {
   InvoiceLineItems,
-  computeGst,
   type DraftLineItem,
 } from '@/pages/Finance/components/InvoiceLineItems'
 import { sacCodeForService } from '@/pages/Finance/utils/projectBillable'
@@ -44,11 +43,13 @@ import { RecordClientInvoicePaymentModal } from './RecordClientInvoicePaymentMod
 import { BillingPitchSummary } from './BillingPitchSummary'
 import {
   balancePending,
+  computeLineItemTaxBreakdown,
   isDueDateOverdue,
   MONEY_EPS,
   rollupsFromLineItems,
   totalReceivedBank,
   totalTdsFromPayments,
+  type InvoiceLineRollups,
 } from './clientInvoiceUtils'
 
 function milestoneRowKey(m: Pick<BillableMilestone, 'milestoneId' | 'serviceId'>): string {
@@ -126,43 +127,46 @@ const TABLE_CELL_SX = {
   px: 2,
 }
 
-/** Column widths for the receivables table (must sum to 100%). */
-const RECEIVABLES_COL_WIDTH = {
-  milestone: '15%',
-  invoiceDetails: '13%',
-  dueDate: '10%',
-  amountBreakdown: '18%',
-  paymentSummary: '16%',
-  status: '9%',
-  action: '19%',
+const RECEIVABLES_COLUMN_COUNT = 7
+const RECEIVABLES_COL_WIDTH = `${100 / RECEIVABLES_COLUMN_COUNT}%`
+
+const RECEIVABLES_TABLE_HEADER_SX = {
+  ...TABLE_HEADER_SX,
+  width: RECEIVABLES_COL_WIDTH,
+} as const
+
+const RECEIVABLES_TABLE_CELL_SX = {
+  ...TABLE_CELL_SX,
+  width: RECEIVABLES_COL_WIDTH,
 } as const
 
 const RECEIVABLES_STATUS_HEADER_SX = {
-  ...TABLE_HEADER_SX,
-  width: RECEIVABLES_COL_WIDTH.status,
+  ...RECEIVABLES_TABLE_HEADER_SX,
   textAlign: 'center',
 } as const
 
 const RECEIVABLES_STATUS_CELL_SX = {
-  ...TABLE_CELL_SX,
-  width: RECEIVABLES_COL_WIDTH.status,
+  ...RECEIVABLES_TABLE_CELL_SX,
   textAlign: 'center',
   verticalAlign: 'middle',
 } as const
 
 const RECEIVABLES_ACTION_HEADER_SX = {
-  ...TABLE_HEADER_SX,
-  width: RECEIVABLES_COL_WIDTH.action,
-  px: 2.5,
+  ...RECEIVABLES_TABLE_HEADER_SX,
   textAlign: 'center',
 } as const
 
 const RECEIVABLES_ACTION_CELL_SX = {
-  ...TABLE_CELL_SX,
-  width: RECEIVABLES_COL_WIDTH.action,
+  ...RECEIVABLES_TABLE_CELL_SX,
   textAlign: 'center',
   verticalAlign: 'middle',
-  px: 2.5,
+} as const
+
+const RECEIVABLES_ACTION_BUTTON_SX = {
+  minWidth: 132,
+  px: 1.5,
+  fontSize: 11,
+  whiteSpace: 'nowrap',
 } as const
 
 function SectionHeader({ children }: { children: string }) {
@@ -277,6 +281,33 @@ function ReadOnlySummaryRow({
   )
 }
 
+function formatLabourCessPercent(rate: number | null): string {
+  if (rate === null) return '—'
+  const rounded = Math.round(rate * 100) / 100
+  return `${Number.isInteger(rounded) ? rounded : rounded.toFixed(2)}%`
+}
+
+function ClientInvoiceTaxSummary({ roll }: { roll: InvoiceLineRollups }) {
+  return (
+    <>
+      <ReadOnlySummaryRow label="Base amount" value={`₹${formatInr(roll.baseAmount)}`} />
+      <ReadOnlySummaryRow
+        label="Labour cess (%)"
+        value={formatLabourCessPercent(roll.labourCessRatePercent)}
+      />
+      <ReadOnlySummaryRow label="Labour cess amount" value={`₹${formatInr(roll.labourCessAmount)}`} />
+      <ReadOnlySummaryRow label="Taxable amount" value={`₹${formatInr(roll.taxableAmount)}`} />
+      <ReadOnlySummaryRow label="GST amount" value={`₹${formatInr(roll.gstAmount)}`} />
+      <Divider sx={{ my: 1 }} />
+      <ReadOnlySummaryRow
+        label="Final invoice amount"
+        value={`₹${formatInr(roll.grossAmount)}`}
+        valueSx={{ fontWeight: 700, typography: 'body1' }}
+      />
+    </>
+  )
+}
+
 function lineItemsToPayload(lines: DraftLineItem[]): ClientInvoiceLineItem[] {
   return lines.map((li) => ({
     id: li.id,
@@ -284,6 +315,9 @@ function lineItemsToPayload(lines: DraftLineItem[]): ClientInvoiceLineItem[] {
     serviceName: li.serviceName,
     sacCode: li.sacCode || '—',
     amount: li.amount,
+    labourCessRate: li.labourCessRate,
+    labourCessAmount: li.labourCessAmount,
+    taxableAmount: li.taxableAmount,
     gstRate: li.gstRate,
     gstAmount: li.gstAmount,
     milestoneId: li.milestoneId,
@@ -333,7 +367,7 @@ function GenerateInvoiceDrawer({
     const sac = sacCodeForService(sacCodes, svc)
     const gstRate = svc?.gstRate ?? DEFAULT_GST_RATE
     const amount = preset.baseAmount
-    const gstAmount = computeGst(amount, gstRate)
+    const taxed = computeLineItemTaxBreakdown(amount, 0, gstRate)
     setLines([
       {
         id: `tmp-${preset.milestoneId}-${preset.serviceId}`,
@@ -341,28 +375,25 @@ function GenerateInvoiceDrawer({
         serviceName: preset.serviceName,
         sacCode: sac || '—',
         amount,
+        labourCessRate: 0,
+        labourCessAmount: taxed.labourCessAmount,
+        taxableAmount: taxed.taxableAmount,
         gstRate,
-        gstAmount,
+        gstAmount: taxed.gstAmount,
         milestoneId: preset.milestoneId,
         lineSource: 'milestone',
       },
     ])
   }, [open, preset, services, sacCodes])
 
-  const roll = useMemo(() => {
-    const items: ClientInvoiceLineItem[] = lines.map((li) => ({
-      id: li.id,
-      serviceId: li.serviceId,
-      serviceName: li.serviceName,
-      sacCode: li.sacCode || '—',
-      amount: li.amount,
-      gstRate: li.gstRate,
-      gstAmount: li.gstAmount,
-      milestoneId: li.milestoneId,
-      lineSource: li.lineSource === 'manual' ? 'manual' : 'milestone',
-    }))
-    return rollupsFromLineItems(items)
-  }, [lines])
+  const roll = useMemo(() => rollupsFromLineItems(lineItemsToPayload(lines)), [lines])
+
+  function handleDownloadDraft() {
+    showToast({
+      title: 'Draft invoice download (placeholder)',
+      variant: 'info',
+    })
+  }
 
   async function handleSubmit() {
     if (!preset) return
@@ -391,6 +422,8 @@ function GenerateInvoiceDrawer({
             serviceName: preset.serviceName,
             lineItems: lineItemsToPayload(lines),
             baseAmount: roll.baseAmount,
+            labourCessAmount: roll.labourCessAmount,
+            taxableAmount: roll.taxableAmount,
             gstAmount: roll.gstAmount,
             grossAmount: roll.grossAmount,
             tdsAmount: 0,
@@ -445,10 +478,17 @@ function GenerateInvoiceDrawer({
       onClose={onClose}
       title="Generate Invoice"
       subtitle={subtitle}
-      width={560}
+      width={680}
       footer={
         <Stack direction="row" justifyContent="flex-end" gap={1} sx={{ px: 2.5, py: 1.75 }}>
-          <Button variant="text" size="sm" label="Cancel" onClick={onClose} disabled={saving} />
+          <Button
+            size="sm"
+            variant="outlined"
+            color="primary"
+            label="Download Invoice"
+            onClick={handleDownloadDraft}
+            disabled={saving}
+          />
           <Button
             variant="contained"
             color="primary"
@@ -463,45 +503,6 @@ function GenerateInvoiceDrawer({
     >
       <Stack spacing={2}>
         <Box>
-          <SectionHeader>Milestone & amounts</SectionHeader>
-          <Box
-            sx={{
-              mt: 1,
-              p: 2,
-              borderRadius: 1,
-              bgcolor: (t) => alpha(t.palette.primary.main, 0.04),
-              border: '1px solid',
-              borderColor: 'divider',
-            }}
-          >
-            <Typography variant="body2">
-              <Box component="span" color="text.secondary">
-                Milestone:{' '}
-              </Box>
-              <Box component="span" fontWeight={600}>
-                {preset.milestoneName}
-              </Box>
-            </Typography>
-            <Typography variant="body2" sx={{ mt: 1 }}>
-              <Box component="span" color="text.secondary">
-                Service:{' '}
-              </Box>
-              <Box component="span" fontWeight={600}>
-                {preset.serviceName}
-              </Box>
-            </Typography>
-            <Typography variant="body2" sx={{ mt: 1 }}>
-              <Box component="span" color="text.secondary">
-                Base Value:{' '}
-              </Box>
-              <Box component="span" fontWeight={600}>
-                ₹{formatInr(preset.baseAmount)}
-              </Box>
-            </Typography>
-          </Box>
-        </Box>
-
-        <Box>
           <SectionHeader>Line items</SectionHeader>
           <Box sx={{ mt: 1 }}>
             <InvoiceLineItems
@@ -514,6 +515,7 @@ function GenerateInvoiceDrawer({
               allowEmpty={false}
               manualAddCollapsed
               hideSacColumn
+              showLabourCessColumn
             />
           </Box>
         </Box>
@@ -554,6 +556,45 @@ function GenerateInvoiceDrawer({
         </Box>
 
         <Box>
+          <SectionHeader>Milestone & amounts</SectionHeader>
+          <Box
+            sx={{
+              mt: 1,
+              p: 2,
+              borderRadius: 1,
+              bgcolor: (t) => alpha(t.palette.primary.main, 0.04),
+              border: '1px solid',
+              borderColor: 'divider',
+            }}
+          >
+            <Typography variant="body2">
+              <Box component="span" color="text.secondary">
+                Milestone:{' '}
+              </Box>
+              <Box component="span" fontWeight={600}>
+                {preset.milestoneName}
+              </Box>
+            </Typography>
+            <Typography variant="body2" sx={{ mt: 1 }}>
+              <Box component="span" color="text.secondary">
+                Service:{' '}
+              </Box>
+              <Box component="span" fontWeight={600}>
+                {preset.serviceName}
+              </Box>
+            </Typography>
+            <Typography variant="body2" sx={{ mt: 1 }}>
+              <Box component="span" color="text.secondary">
+                Base Value:{' '}
+              </Box>
+              <Box component="span" fontWeight={600}>
+                ₹{formatInr(preset.baseAmount)}
+              </Box>
+            </Typography>
+          </Box>
+        </Box>
+
+        <Box>
           <SectionHeader>Summary</SectionHeader>
           <Box
             sx={{
@@ -565,14 +606,7 @@ function GenerateInvoiceDrawer({
               borderColor: 'divider',
             }}
           >
-            <ReadOnlySummaryRow label="Base amount" value={`₹${formatInr(roll.baseAmount)}`} />
-            <ReadOnlySummaryRow label="+ GST" value={`₹${formatInr(roll.gstAmount)}`} />
-            <Divider sx={{ my: 1 }} />
-            <ReadOnlySummaryRow
-              label="Invoice Total"
-              value={`₹${formatInr(roll.grossAmount)}`}
-              valueSx={{ fontWeight: 700, typography: 'body1' }}
-            />
+            <ClientInvoiceTaxSummary roll={roll} />
             <Typography variant="caption" sx={{ display: 'block', mt: 1, color: 'text.secondary', fontStyle: 'italic' }}>
               TDS will be captured when payment is recorded
             </Typography>
@@ -629,20 +663,24 @@ function ViewInvoiceDrawer({
         </Stack>
       }
       width={560}
-      headerActions={
-        <Button size="sm" variant="outlined" color="primary" label="Download PDF" onClick={onDownloadPdf} />
-      }
       footer={
         <Stack direction="row" justifyContent="flex-end" gap={1} sx={{ px: 2.5, py: 1.75 }}>
+          {showPay ? (
+            <Button
+              size="sm"
+              variant="contained"
+              color="primary"
+              label="Record Invoice"
+              onClick={onRecordPayment}
+            />
+          ) : null}
           <Button
             size="sm"
-            variant="contained"
+            variant="text"
             color="primary"
-            label="Record Invoice"
-            onClick={onRecordPayment}
-            disabled={!showPay}
+            label="Download Invoice"
+            onClick={onDownloadPdf}
           />
-          <Button size="sm" variant="outlined" color="primary" label="Cancel" onClick={onClose} />
         </Stack>
       }
     >
@@ -694,7 +732,14 @@ function ViewInvoiceDrawer({
         <Box>
           <SectionHeader>Line items</SectionHeader>
           <Box sx={{ mt: 1 }}>
-            <InvoiceLineItems mode="read" lines={invoice.lineItems} services={services} sacCodes={sacCodes} />
+            <InvoiceLineItems
+              mode="read"
+              lines={invoice.lineItems}
+              services={services}
+              sacCodes={sacCodes}
+              hideSacColumn
+              showLabourCessColumn
+            />
           </Box>
         </Box>
 
@@ -710,14 +755,7 @@ function ViewInvoiceDrawer({
               borderColor: 'divider',
             }}
           >
-            <ReadOnlySummaryRow label="Base amount" value={`₹${formatInr(roll.baseAmount)}`} />
-            <ReadOnlySummaryRow label="+ GST" value={`₹${formatInr(roll.gstAmount)}`} />
-            <Divider sx={{ my: 1 }} />
-            <ReadOnlySummaryRow
-              label="Invoice Total"
-              value={`₹${formatInr(roll.grossAmount)}`}
-              valueSx={{ fontWeight: 700, typography: 'body1' }}
-            />
+            <ClientInvoiceTaxSummary roll={roll} />
             <Divider sx={{ my: 1 }} />
             <ReadOnlySummaryRow
               label="Total received"
@@ -818,23 +856,18 @@ export default function BillingTab({ projectId, projectName, clientId, clientNam
             '& .MuiTableCell-root': { verticalAlign: 'top', wordBreak: 'break-word' },
           }}
         >
+          <colgroup>
+            {Array.from({ length: RECEIVABLES_COLUMN_COUNT }, (_, index) => (
+              <col key={index} style={{ width: RECEIVABLES_COL_WIDTH }} />
+            ))}
+          </colgroup>
           <TableHead>
             <TableRow>
-              <TableCell sx={{ ...TABLE_HEADER_SX, width: RECEIVABLES_COL_WIDTH.milestone }}>
-                Milestone / Service
-              </TableCell>
-              <TableCell sx={{ ...TABLE_HEADER_SX, width: RECEIVABLES_COL_WIDTH.invoiceDetails }}>
-                Invoice Details
-              </TableCell>
-              <TableCell sx={{ ...TABLE_HEADER_SX, width: RECEIVABLES_COL_WIDTH.dueDate }}>
-                Due Date
-              </TableCell>
-              <TableCell sx={{ ...TABLE_HEADER_SX, width: RECEIVABLES_COL_WIDTH.amountBreakdown }}>
-                Amount Breakdown
-              </TableCell>
-              <TableCell sx={{ ...TABLE_HEADER_SX, width: RECEIVABLES_COL_WIDTH.paymentSummary }}>
-                Payment Summary
-              </TableCell>
+              <TableCell sx={RECEIVABLES_TABLE_HEADER_SX}>Milestone / Service</TableCell>
+              <TableCell sx={RECEIVABLES_TABLE_HEADER_SX}>Invoice Details</TableCell>
+              <TableCell sx={RECEIVABLES_TABLE_HEADER_SX}>Due Date</TableCell>
+              <TableCell sx={RECEIVABLES_TABLE_HEADER_SX}>Amount Breakdown</TableCell>
+              <TableCell sx={RECEIVABLES_TABLE_HEADER_SX}>Payment Summary</TableCell>
               <TableCell sx={RECEIVABLES_STATUS_HEADER_SX}>Status</TableCell>
               <TableCell sx={RECEIVABLES_ACTION_HEADER_SX} align="center">
                 Action
@@ -845,9 +878,9 @@ export default function BillingTab({ projectId, projectName, clientId, clientNam
             {billableTemplates.length === 0 && (
               <TableRow>
                 <TableCell
-                  colSpan={7}
+                  colSpan={RECEIVABLES_COLUMN_COUNT}
                   sx={{
-                    ...TABLE_CELL_SX,
+                    ...RECEIVABLES_TABLE_CELL_SX,
                     textAlign: 'center',
                     color: 'text.secondary',
                     fontSize: 13,
@@ -891,7 +924,7 @@ export default function BillingTab({ projectId, projectName, clientId, clientNam
 
               return (
                 <TableRow key={milestoneRowKey(m)} hover>
-                  <TableCell sx={TABLE_CELL_SX}>
+                  <TableCell sx={RECEIVABLES_TABLE_CELL_SX}>
                     <Typography variant="body2" sx={{ fontWeight: 600, lineHeight: 1.35 }}>
                       {m.milestoneName}
                     </Typography>
@@ -899,7 +932,7 @@ export default function BillingTab({ projectId, projectName, clientId, clientNam
                       {m.serviceName}
                     </Typography>
                   </TableCell>
-                  <TableCell sx={TABLE_CELL_SX}>
+                  <TableCell sx={RECEIVABLES_TABLE_CELL_SX}>
                     {inv ? (
                       <InvoiceDetailsColumn
                         invoiceNumber={inv.invoiceNumber}
@@ -912,7 +945,7 @@ export default function BillingTab({ projectId, projectName, clientId, clientNam
                       </Typography>
                     )}
                   </TableCell>
-                  <TableCell sx={TABLE_CELL_SX}>
+                  <TableCell sx={RECEIVABLES_TABLE_CELL_SX}>
                     <Typography
                       variant="body2"
                       color={inv ? (dueOverdue ? 'error.main' : 'text.primary') : 'text.disabled'}
@@ -920,7 +953,7 @@ export default function BillingTab({ projectId, projectName, clientId, clientNam
                       {inv ? formatDate(inv.dueDate) : '—'}
                     </Typography>
                   </TableCell>
-                  <TableCell sx={TABLE_CELL_SX}>
+                  <TableCell sx={RECEIVABLES_TABLE_CELL_SX}>
                     <AmountBreakdownColumn
                       base={base}
                       gstRate={gstRate}
@@ -928,7 +961,7 @@ export default function BillingTab({ projectId, projectName, clientId, clientNam
                       gross={gross}
                     />
                   </TableCell>
-                  <TableCell sx={TABLE_CELL_SX}>
+                  <TableCell sx={RECEIVABLES_TABLE_CELL_SX}>
                     {inv ? (
                       <PaymentSummaryColumn
                         tds={tds}
@@ -954,34 +987,27 @@ export default function BillingTab({ projectId, projectName, clientId, clientNam
                     </Box>
                   </TableCell>
                   <TableCell sx={RECEIVABLES_ACTION_CELL_SX} align="center">
-                    <Stack
-                      gap={0.5}
-                      alignItems="center"
-                      justifyContent="center"
-                      sx={{ width: '100%', px: 0.5, mx: 'auto' }}
-                    >
+                    <Box sx={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
                       {phase === 'not_invoiced' ? (
                         <Button
                           size="sm"
                           variant="contained"
                           color="primary"
-                          label="Draft Invoice"
+                          label="Draft invoice"
                           onClick={() => openGenerate(m)}
-                          sx={{ width: '100%', maxWidth: 168 }}
+                          sx={RECEIVABLES_ACTION_BUTTON_SX}
                         />
                       ) : (
-                        <>
-                          <Button
-                            size="sm"
-                            variant="outlined"
-                            color="primary"
-                            label="View Invoice"
-                            onClick={() => inv && setViewInvoice(inv)}
-                            sx={{ width: '100%', maxWidth: 168 }}
-                          />
-                        </>
+                        <Button
+                          size="sm"
+                          variant="outlined"
+                          color="primary"
+                          label="View invoice"
+                          onClick={() => inv && setViewInvoice(inv)}
+                          sx={RECEIVABLES_ACTION_BUTTON_SX}
+                        />
                       )}
-                    </Stack>
+                    </Box>
                   </TableCell>
                 </TableRow>
               )

@@ -181,7 +181,6 @@ export default function ExpensesTab({ projectId }: ExpensesTabProps) {
     { id: 'vendor_linked', label: 'Vendor Linked' },
     { id: 'common', label: 'Common' },
     { id: 'office_expenses', label: 'Office Expenses' },
-    { id: 'reimbursable_expenses', label: 'Reimbursable Expenses' },
   ]
 
   return (

@@ -84,8 +84,8 @@ export default function Modal({
             {
               width: isFullscreen ? '100vw' : dialogWidth,
               maxWidth: isFullscreen ? '100vw' : 'calc(100vw - 64px)',
-              height: isFullscreen ? '100vh' : 'min(100vh - 64px, 90vh)',
-              maxHeight: isFullscreen ? '100vh' : '90vh',
+              height: isFullscreen ? '100vh' : 'auto',
+              maxHeight: isFullscreen ? '100vh' : 'min(100vh - 64px, 90vh)',
               m: isFullscreen ? 0 : tokens.spacing[4],
               borderRadius: isFullscreen ? 0 : tokens.borderRadius.xl,
               display: 'flex',
@@ -111,8 +111,8 @@ export default function Modal({
             top: 0,
             zIndex: tokens.zIndex.raised,
             display: 'flex',
-            gap: tokens.spacing[3],
-            alignItems: 'flex-start',
+            gap: tokens.spacing[2],
+            alignItems: 'center',
             justifyContent: 'space-between',
             px: tokens.spacing[3],
             py: tokens.spacing[2],
@@ -120,17 +120,26 @@ export default function Modal({
             backgroundColor: 'background.paper',
           }}
         >
-          <Box sx={{ minWidth: 0, pr: tokens.spacing[2] }}>
-            {title ? <Typography variant="h6">{title}</Typography> : null}
+          <Box sx={{ minWidth: 0, flex: 1 }}>
+            {title ? (
+              <Typography variant="h6" sx={{ fontSize: 15, fontWeight: 600, lineHeight: 1.3 }}>
+                {title}
+              </Typography>
+            ) : null}
             {subtitle ? (
-              <Typography variant="body2" color="text.secondary" sx={{ mt: tokens.spacing[1] }}>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
                 {subtitle}
               </Typography>
             ) : null}
           </Box>
           {!hideCloseButton ? (
-            <IconButton aria-label="Close modal" onClick={onClose}>
-              <CloseIcon />
+            <IconButton
+              aria-label="Close modal"
+              onClick={onClose}
+              size="small"
+              sx={{ flexShrink: 0, ml: tokens.spacing[1] }}
+            >
+              <CloseIcon fontSize="small" />
             </IconButton>
           ) : null}
         </Box>
@@ -140,10 +149,10 @@ export default function Modal({
         <DialogContent
           sx={{
             position: 'relative',
-            flex: 1,
+            flex: isFullscreen ? 1 : '0 1 auto',
             overflowY: 'auto',
             px: tokens.spacing[3],
-            py: tokens.spacing[3],
+            py: tokens.spacing[2],
           }}
         >
           {children}

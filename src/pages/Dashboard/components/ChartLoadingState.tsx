@@ -6,7 +6,7 @@ export function ChartLoadingState({ height = 220 }: { height?: number }) {
       variant="rectangular"
       width="100%"
       height={height}
-      sx={{ borderRadius: 1, flex: 1 }}
+      sx={{ borderRadius: 1, flex: '1 1 auto', minHeight: height }}
     />
   )
 }
