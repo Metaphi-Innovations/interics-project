@@ -29,7 +29,7 @@ import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore'
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp'
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'
 import { useTheme, alpha } from '@mui/material/styles'
-import { Truck, Plus, MoreHorizontal, Eye, Pencil, Trash2, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Truck, Plus, MoreVertical, Eye, Pencil, Trash2, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { fetchVendors, deleteVendor } from '../../slices/vendors/thunk'
@@ -88,6 +88,8 @@ const TABLE_HEADER_CELL_SX = {
 
 const TABLE_HEADER_ACTION_SX = {
   ...TABLE_HEADER_CELL_SX,
+  pl: 1,
+  pr: VENDOR_CELL_PAD_X,
   width: VENDOR_ACTION_WIDTH_PX,
   minWidth: VENDOR_ACTION_WIDTH_PX,
   maxWidth: VENDOR_ACTION_WIDTH_PX,
@@ -108,7 +110,8 @@ const TABLE_CELL_RATING_SX = {
 
 const TABLE_CELL_ACTION_SX = {
   py: '7px',
-  px: VENDOR_CELL_PAD_X,
+  pl: 1,
+  pr: VENDOR_CELL_PAD_X,
   width: VENDOR_ACTION_WIDTH_PX,
   minWidth: VENDOR_ACTION_WIDTH_PX,
   maxWidth: VENDOR_ACTION_WIDTH_PX,
@@ -212,8 +215,8 @@ function RowActions({ vendor, onView, onEdit, onDelete }: RowActionsProps) {
 
   return (
     <>
-      <MuiIconButton size="small" onClick={open} sx={{ color: tokens.color.neutral[400] }}>
-        <MoreHorizontal size={16} />
+      <MuiIconButton size="small" onClick={open} sx={{ color: tokens.color.neutral[400], mx: 'auto' }}>
+        <MoreVertical size={16} />
       </MuiIconButton>
       <Menu anchorEl={anchor} open={Boolean(anchor)} onClose={close}>
         <MenuItem onClick={() => { onView(); close() }} sx={{ fontSize: 13, gap: 1 }}>
@@ -1059,15 +1062,11 @@ export default function VendorsPage() {
         tabs={contactsTabs}
         activeTab={contactsTab}
         onTabChange={handleContactsTabChange}
-        primaryAction={
-          contactsTab === 'active'
-            ? {
-                label: 'Add Vendor',
-                onClick: openAddDrawer,
-                startIcon: <Plus size={16} strokeWidth={2} />,
-              }
-            : undefined
-        }
+        primaryAction={{
+          label: 'Add Vendor',
+          onClick: openAddDrawer,
+          startIcon: <Plus size={16} strokeWidth={2} />,
+        }}
         searchPlaceholder={
           contactsTab === 'pending'
             ? 'Search by name, mobile, or email…'
@@ -1137,7 +1136,9 @@ export default function VendorsPage() {
         mode={drawerMode}
         vendor={editingVendor}
         onCompleted={
-          editingVendor && isPendingVendor(editingVendor) ? handleVendorCompleted : undefined
+          drawerMode === 'add' || (editingVendor && isPendingVendor(editingVendor))
+            ? handleVendorCompleted
+            : undefined
         }
       />
 
@@ -1147,6 +1148,11 @@ export default function VendorsPage() {
         onClose={() => {
           setPendingViewOpen(false)
           setPendingViewVendor(null)
+        }}
+        onUpdateInfo={(vendor) => {
+          setPendingViewOpen(false)
+          setPendingViewVendor(null)
+          openEditDrawer(vendor)
         }}
       />
 

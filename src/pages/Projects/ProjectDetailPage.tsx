@@ -24,9 +24,6 @@ import {
   History,
   Edit,
   Lock,
-  TrendingUp,
-  TrendingDown,
-  AttachMoney,
   Email,
   Phone,
   Star,
@@ -61,7 +58,6 @@ import { useTheme, alpha } from '@mui/material/styles'
 import {
   getInitials,
   getAvatarColor,
-  formatCurrency,
   fromSlug,
 } from '../../utils/formatters'
 
@@ -860,61 +856,6 @@ export default function ProjectDetailPage() {
           </Stack>
         }
         metaItems={[]}
-        heroExtra={
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            {[
-              {
-                label: 'Revenue',
-                value: formatCurrency(project.totalClientPOValue),
-                icon: <TrendingUp sx={{ fontSize: 12 }} />,
-                color: 'primary.main',
-              },
-              {
-                label: 'Cost',
-                value: formatCurrency(project.totalVendorPOValue),
-                icon: <TrendingDown sx={{ fontSize: 12 }} />,
-                color: '#EA580C',
-              },
-              {
-                label: 'Profit',
-                value: formatCurrency(
-                  project.totalClientPOValue - project.totalVendorPOValue,
-                ),
-                icon: <AttachMoney sx={{ fontSize: 12 }} />,
-                color: 'success.main',
-              },
-            ].map((metric) => (
-              <Box
-                key={metric.label}
-                sx={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'flex-start',
-                  padding: '6px 12px',
-                  border: '1px solid',
-                  borderColor: 'divider',
-                  borderRadius: '8px',
-                  minWidth: 90,
-                  bgcolor: 'background.paper',
-                }}
-              >
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                  <Box sx={{ color: metric.color, display: 'flex' }}>{metric.icon}</Box>
-                  <Typography variant="caption" sx={{ fontSize: 10, color: 'text.secondary' }}>
-                    {metric.label}
-                  </Typography>
-                </Box>
-                <Typography
-                  variant="body2"
-                  fontWeight={700}
-                  sx={{ color: metric.color, fontSize: 13 }}
-                >
-                  ₹{metric.value}
-                </Typography>
-              </Box>
-            ))}
-          </Box>
-        }
         primaryAction={{
           label: 'Edit Project',
           icon: <Edit sx={{ fontSize: 14 }} />,

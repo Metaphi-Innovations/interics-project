@@ -24,30 +24,23 @@ import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { fetchProjects } from '@/slices/projects/thunk'
 import type { Project } from '@/slices/projects/reducer'
 import { ListingTemplate } from '@/components/templates/ListingTemplate'
-import { StatusBadge } from '@/design-system/components'
-import type { StatusType } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
-import { formatProjectSite } from '@/utils/projectSite'
 import { getProjectAssignedMembers, projectHasAssignedMembers } from '@/utils/projectAssignedTeam'
-import { getInitials, getAvatarColor, toSlug } from '@/utils/formatters'
+import { getInitials, getAvatarColor } from '@/utils/formatters'
 
 export interface TeamAssignmentRow {
   id: string
   userId: string
   memberName: string
+  projectCount: number
   roleLabel: string
   projectId: string
   projectName: string
   projectCode: string
   projectStatus: Project['status']
-  projectLead: string
-  siteLine: string
 }
 
-type TeamVisibleColumns = {
-  site: boolean
-  projectLead: boolean
-}
+const TEAM_DATA_COLUMN_COUNT = 4
 
 /** Horizontal padding aligned with listing card toolbar (`p: 10px 14px`). */
 const LISTING_EDGE_PAD = '14px'
@@ -137,39 +130,40 @@ const CENTER_CELL_CONTENT_SX = {
   width: 1,
 } as const
 
-function teamColCount(visible: TeamVisibleColumns): number {
-  return 3 + (visible.site ? 1 : 0) + (visible.projectLead ? 1 : 0) + 2
-}
-
-function teamDataColCount(visible: TeamVisibleColumns): number {
-  return Math.max(teamColCount(visible) - 1, 1)
-}
-
-function teamDataColWidth(visible: TeamVisibleColumns): string {
-  return `calc((100% - ${TEAM_ACTION_WIDTH_PX}px) / ${teamDataColCount(visible)})`
+function teamDataColWidth(): string {
+  return `calc((100% - ${TEAM_ACTION_WIDTH_PX}px) / ${TEAM_DATA_COLUMN_COUNT})`
 }
 
 function flattenProjectTeam(projects: Project[]): TeamAssignmentRow[] {
   const rows: TeamAssignmentRow[] = []
   for (const project of projects) {
-    const siteLine = formatProjectSite(project)
     const members = getProjectAssignedMembers(project)
     for (const member of members) {
       rows.push({
         id: `${project.id}-${member.userId}`,
         userId: member.userId,
         memberName: member.name,
+        projectCount: 0,
         roleLabel: member.roleLabel ?? 'Team Member',
         projectId: project.id,
         projectName: project.name,
         projectCode: project.projectCode,
         projectStatus: project.status,
-        projectLead: project.projectManager,
-        siteLine,
       })
     }
   }
-  return rows
+
+  const projectsByMember = new Map<string, Set<string>>()
+  for (const row of rows) {
+    const projectIds = projectsByMember.get(row.userId) ?? new Set<string>()
+    projectIds.add(row.projectId)
+    projectsByMember.set(row.userId, projectIds)
+  }
+
+  return rows.map((row) => ({
+    ...row,
+    projectCount: projectsByMember.get(row.userId)?.size ?? 1,
+  }))
 }
 
 function MemberAvatar({ name }: { name: string }) {
@@ -236,9 +230,9 @@ function SortHeader({ field, label, sortField, sortDirection, onSort, sx }: Sort
 }
 
 function RowActions({
-  onViewProject,
+  onViewDetails,
 }: {
-  onViewProject: () => void
+  onViewDetails: () => void
 }) {
   const [anchor, setAnchor] = useState<null | HTMLElement>(null)
 
@@ -260,13 +254,13 @@ function RowActions({
         <MenuItem
           dense
           onClick={() => {
-            onViewProject()
+            onViewDetails()
             close()
           }}
           sx={{ fontSize: 12, gap: 1 }}
         >
           <Eye size={14} />
-          View Project
+          View details
         </MenuItem>
       </Menu>
     </>
@@ -280,9 +274,8 @@ interface AddedTeamTableProps {
   loadError: string | null
   sortField: string | null
   sortDirection: 'asc' | 'desc'
-  visibleColumns: TeamVisibleColumns
   onSort: (field: string) => void
-  onViewProject: (row: TeamAssignmentRow) => void
+  onViewDetails: (userId: string) => void
 }
 
 function AddedTeamTable({
@@ -292,12 +285,11 @@ function AddedTeamTable({
   loadError,
   sortField,
   sortDirection,
-  visibleColumns,
   onSort,
-  onViewProject,
+  onViewDetails,
 }: AddedTeamTableProps) {
   const theme = useTheme()
-  const dataColWidth = teamDataColWidth(visibleColumns)
+  const dataColWidth = teamDataColWidth()
   const hoverBg = alpha(theme.palette.primary.main, 0.04)
   const headSx = { ...TABLE_HEADER_CELL_SX, width: dataColWidth }
   const cellSx = { ...TABLE_CELL_SX, width: dataColWidth }
@@ -339,8 +331,6 @@ function AddedTeamTable({
             <col style={{ width: dataColWidth }} />
             <col style={{ width: dataColWidth }} />
             <col style={{ width: dataColWidth }} />
-            {visibleColumns.site && <col style={{ width: dataColWidth }} />}
-            {visibleColumns.projectLead && <col style={{ width: dataColWidth }} />}
             <col style={{ width: dataColWidth }} />
             <col style={{ width: `${TEAM_ACTION_WIDTH_PX}px` }} />
           </colgroup>
@@ -349,6 +339,14 @@ function AddedTeamTable({
             <SortHeader
               field="memberName"
               label="Team Member"
+              sortField={sortField}
+              sortDirection={sortDirection}
+              onSort={onSort}
+              sx={headSx}
+            />
+            <SortHeader
+              field="projectCount"
+              label="No. of Project"
               sortField={sortField}
               sortDirection={sortDirection}
               onSort={onSort}
@@ -363,9 +361,6 @@ function AddedTeamTable({
               onSort={onSort}
               sx={headSx}
             />
-            {visibleColumns.site && <TableCell sx={headSx}>Site</TableCell>}
-            {visibleColumns.projectLead && <TableCell sx={headSx}>Project Lead</TableCell>}
-            <TableCell sx={headSx}>Status</TableCell>
             <TableCell sx={actionHeadSx}>
               <Box sx={CENTER_CELL_CONTENT_SX}>Action</Box>
             </TableCell>
@@ -376,7 +371,7 @@ function AddedTeamTable({
             <TableRow
               key={row.id}
               hover
-              onClick={() => onViewProject(row)}
+              onClick={() => onViewDetails(row.userId)}
               sx={{ cursor: 'pointer', '&:hover': { bgcolor: hoverBg }, '&:last-child td': { border: 0 } }}
             >
               <TableCell sx={cellSx}>
@@ -386,6 +381,11 @@ function AddedTeamTable({
                     {row.memberName}
                   </Typography>
                 </Stack>
+              </TableCell>
+              <TableCell sx={cellSx}>
+                <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600 }}>
+                  {row.projectCount}
+                </Typography>
               </TableCell>
               <TableCell sx={cellSx}>
                 <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary', wordBreak: 'break-word' }}>
@@ -402,31 +402,9 @@ function AddedTeamTable({
                   </Typography>
                 </Box>
               </TableCell>
-              {visibleColumns.site && (
-                <TableCell sx={cellSx}>
-                  <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary', wordBreak: 'break-word' }}>
-                    {row.siteLine || '—'}
-                  </Typography>
-                </TableCell>
-              )}
-              {visibleColumns.projectLead && (
-                <TableCell sx={cellSx}>
-                  <Stack direction="row" alignItems="center" gap={0.5} sx={{ minWidth: 0 }}>
-                    <PersonOutline sx={{ fontSize: 13, color: 'text.secondary', flexShrink: 0 }} />
-                    <Typography variant="body2" sx={{ fontSize: 12, wordBreak: 'break-word' }}>
-                      {row.projectLead}
-                    </Typography>
-                  </Stack>
-                </TableCell>
-              )}
-              <TableCell sx={cellSx}>
-                <StatusBadge
-                  status={row.projectStatus.toLowerCase().replace(/\s+/g, '_') as StatusType}
-                />
-              </TableCell>
               <TableCell sx={cellActionSx} onClick={(e) => e.stopPropagation()}>
                 <Box sx={CENTER_CELL_CONTENT_SX}>
-                  <RowActions onViewProject={() => onViewProject(row)} />
+                  <RowActions onViewDetails={() => onViewDetails(row.userId)} />
                 </Box>
               </TableCell>
             </TableRow>
@@ -448,10 +426,6 @@ export default function AddedTeamPage() {
   const [projectFilter, setProjectFilter] = useState('')
   const [sortField, setSortField] = useState<string | null>('memberName')
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
-  const [visibleColumns, setVisibleColumns] = useState<TeamVisibleColumns>({
-    site: true,
-    projectLead: true,
-  })
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
@@ -492,6 +466,10 @@ export default function AddedTeamPage() {
   const sortedRows = useMemo(() => {
     if (!sortField) return filteredRows
     return [...filteredRows].sort((a, b) => {
+      if (sortField === 'projectCount') {
+        const cmp = a.projectCount - b.projectCount
+        return sortDirection === 'asc' ? cmp : -cmp
+      }
       const field = sortField as keyof TeamAssignmentRow
       const aStr = String(a[field] ?? '').toLowerCase()
       const bStr = String(b[field] ?? '').toLowerCase()
@@ -548,14 +526,6 @@ export default function AddedTeamPage() {
     },
   ]
 
-  const columnsConfig = useMemo(
-    () => [
-      { field: 'site', label: 'Site', visible: visibleColumns.site },
-      { field: 'projectLead', label: 'Project Lead', visible: visibleColumns.projectLead },
-    ],
-    [visibleColumns],
-  )
-
   const handleSearch = useCallback((value: string) => {
     if (searchTimer.current) clearTimeout(searchTimer.current)
     searchTimer.current = setTimeout(() => setSearch(value), 300)
@@ -579,15 +549,8 @@ export default function AddedTeamPage() {
     setSortDirection(newDirection)
   }
 
-  function handleColumnVisibilityChange(field: string, visible: boolean) {
-    const key = field as keyof TeamVisibleColumns
-    if (key in visibleColumns) {
-      setVisibleColumns((prev) => ({ ...prev, [key]: visible }))
-    }
-  }
-
-  function handleViewProject(row: TeamAssignmentRow) {
-    navigate(`/projects/${toSlug(row.projectName)}`)
+  function handleViewDetails(userId: string) {
+    navigate(`/added-team/${userId}`)
   }
 
   const activeFilterCount = [statusFilter, projectFilter].filter(Boolean).length
@@ -595,7 +558,7 @@ export default function AddedTeamPage() {
   return (
     <ListingTemplate
       icon={<UserPlus size={20} strokeWidth={1.75} />}
-      title="Added Team"
+      title="Team"
       subtitle="Team members assigned to projects"
       statCards={statCards}
       searchPlaceholder="Search team or project…"
@@ -605,8 +568,6 @@ export default function AddedTeamPage() {
       onFilterChange={handleFilterChange}
       onFilterReset={handleFilterReset}
       filterCount={activeFilterCount}
-      columns={columnsConfig}
-      onColumnVisibilityChange={handleColumnVisibilityChange}
       showViewToggle={false}
       clipCardContent={false}
     >
@@ -617,9 +578,8 @@ export default function AddedTeamPage() {
         loadError={error}
         sortField={sortField}
         sortDirection={sortDirection}
-        visibleColumns={visibleColumns}
         onSort={handleSort}
-        onViewProject={handleViewProject}
+        onViewDetails={handleViewDetails}
       />
     </ListingTemplate>
   )

@@ -58,17 +58,12 @@ export function ProjectDetailsSections({ project }: ProjectDetailsSectionsProps)
                 {formatBuildingFloor(project)}
               </Typography>
             </LabelValue>
-            <LabelValue label="Project Lead">
-              <Typography variant="body2" sx={METADATA_BODY_SX}>
-                {project.projectManager || '—'}
-              </Typography>
-            </LabelValue>
             <LabelValue label="Start Date">
               <Typography variant="body2" sx={METADATA_BODY_SX}>
                 {formatDate(project.startDate)}
               </Typography>
             </LabelValue>
-            <LabelValue label="End Date">
+            <LabelValue label="Expected End Date">
               <Typography variant="body2" sx={METADATA_BODY_SX}>
                 {formatDate(project.expectedEndDate)}
               </Typography>
