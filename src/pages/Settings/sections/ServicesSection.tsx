@@ -1,20 +1,29 @@
 import { useState, useEffect } from 'react'
 import {
   Box, Typography, Chip, TextField, MenuItem,
-  Table, TableHead, TableRow, TableCell, TableBody,
-  Drawer, IconButton, Divider,
+  Table, TableHead, TableRow, TableCell, TableBody, TableContainer,
+  IconButton, Divider,
 } from '@mui/material'
 import { Edit, ToggleOff, ToggleOn } from '@mui/icons-material'
 import { Plus } from 'lucide-react'
-import { Button } from '@/design-system/components'
-import { StatusBadge } from '@/design-system/components'
+import { Button, Modal, StatusBadge, useToast } from '@/design-system/components'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import {
   fetchServices, createService, updateService, toggleServiceStatus,
   fetchCategories, fetchSACCodes, fetchGSTRates,
 } from '@/slices/settings/thunk'
 import type { Service } from '@/slices/settings/reducer'
-import { useToast } from '@/design-system/components'
+import {
+  SETTINGS_TABLE_CELL_ACTION_SX,
+  SETTINGS_TABLE_CELL_SX,
+  SETTINGS_TABLE_HEADER_ACTION_SX,
+  SETTINGS_TABLE_HEADER_CELL_SX,
+  SETTINGS_TABLE_SX,
+  settingsDataColWidth,
+} from '../components/settingsTableStyles'
+
+const SERVICE_DATA_COL_COUNT = 5
+const serviceDataColWidth = settingsDataColWidth(SERVICE_DATA_COL_COUNT)
 
 type ServiceForm = Omit<Service, 'id'>
 
@@ -166,15 +175,24 @@ export default function ServicesSection() {
         </TextField>
       </Box>
 
-      <Table size="small">
+      <TableContainer sx={{ width: '100%' }}>
+      <Table size="small" sx={SETTINGS_TABLE_SX}>
+        <colgroup>
+          <col style={{ width: serviceDataColWidth }} />
+          <col style={{ width: serviceDataColWidth }} />
+          <col style={{ width: serviceDataColWidth }} />
+          <col style={{ width: serviceDataColWidth }} />
+          <col style={{ width: serviceDataColWidth }} />
+          <col style={{ width: SETTINGS_TABLE_CELL_ACTION_SX.width }} />
+        </colgroup>
         <TableHead>
           <TableRow sx={{ bgcolor: '#F8FAFB' }}>
-            <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary' }}>Service Name</TableCell>
-            <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', width: 160 }}>Category</TableCell>
-            <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', width: 120 }}>SAC Code</TableCell>
-            <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', width: 100 }}>GST Rate</TableCell>
-            <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', width: 100 }}>Status</TableCell>
-            <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', width: 80 }}>Actions</TableCell>
+            <TableCell sx={SETTINGS_TABLE_HEADER_CELL_SX}>Service Name</TableCell>
+            <TableCell sx={SETTINGS_TABLE_HEADER_CELL_SX}>Category</TableCell>
+            <TableCell sx={SETTINGS_TABLE_HEADER_CELL_SX}>SAC Code</TableCell>
+            <TableCell sx={SETTINGS_TABLE_HEADER_CELL_SX}>GST Rate</TableCell>
+            <TableCell sx={SETTINGS_TABLE_HEADER_CELL_SX}>Status</TableCell>
+            <TableCell sx={SETTINGS_TABLE_HEADER_ACTION_SX}>Actions</TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
@@ -183,18 +201,18 @@ export default function ServicesSection() {
             const sac = sacCodes.find(s => s.id === row.sacCodeId)
             return (
               <TableRow key={row.id} sx={{ height: 44 }}>
-                <TableCell sx={{ fontSize: 12, fontWeight: 500 }}>{row.name}</TableCell>
-                <TableCell>
+                <TableCell sx={{ ...SETTINGS_TABLE_CELL_SX, fontWeight: 500 }}>{row.name}</TableCell>
+                <TableCell sx={SETTINGS_TABLE_CELL_SX}>
                   <Chip size="small" label={cat?.name ?? '—'} sx={{ fontSize: 11, height: 20, bgcolor: '#F3F4F6', color: '#374151' }} />
                 </TableCell>
-                <TableCell sx={{ fontSize: 12, fontFamily: 'monospace' }}>{sac?.code ?? '—'}</TableCell>
-                <TableCell>
+                <TableCell sx={{ ...SETTINGS_TABLE_CELL_SX, fontFamily: 'monospace' }}>{sac?.code ?? '—'}</TableCell>
+                <TableCell sx={SETTINGS_TABLE_CELL_SX}>
                   <Chip size="small" label={`${row.gstRate}%`} sx={{ fontSize: 11, height: 20, bgcolor: '#E8F5F2', color: '#107E68' }} />
                 </TableCell>
-                <TableCell>
+                <TableCell sx={SETTINGS_TABLE_CELL_SX}>
                   <StatusBadge status={row.status} />
                 </TableCell>
-                <TableCell>
+                <TableCell sx={SETTINGS_TABLE_CELL_ACTION_SX}>
                   <IconButton size="small" onClick={() => openEdit(row)}>
                     <Edit sx={{ fontSize: 14 }} />
                   </IconButton>
@@ -209,80 +227,83 @@ export default function ServicesSection() {
           })}
         </TableBody>
       </Table>
+      </TableContainer>
 
-      {/* Drawer */}
-      <Drawer anchor="right" open={drawerOpen} onClose={() => setDrawerOpen(false)}>
-        <Box sx={{ width: 480, p: 3, overflowY: 'auto' }}>
-          <Typography variant="h6" fontWeight={600} mb={3}>
-            {editingRow ? 'Edit Service' : 'Add Service'}
-          </Typography>
-
-          <FormSection label="Service Details">
-            <TextField
-              size="small"
-              label="Service Name"
-              required
-              placeholder="e.g. Interior Design"
-              value={form.name}
-              onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-            />
-            <TextField
-              select
-              size="small"
-              label="Category"
-              required
-              value={form.categoryId}
-              onChange={e => setForm(f => ({ ...f, categoryId: e.target.value }))}
-            >
-              {activeCategories.map(c => (
-                <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>
-              ))}
-            </TextField>
-          </FormSection>
-
-          <FormSection label="Tax Configuration">
-            <TextField
-              select
-              size="small"
-              label="SAC Code"
-              required
-              value={form.sacCodeId ?? ''}
-              onChange={e => handleSACChange(e.target.value)}
-            >
-              {activeSACCodes.map(s => (
-                <MenuItem key={s.id} value={s.id}>{s.code} — {s.description}</MenuItem>
-              ))}
-            </TextField>
-
-            <Box sx={{ p: 1.5, bgcolor: '#F8FAFB', borderRadius: '8px', border: '1px solid #E8EEEC', display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Typography variant="caption" color="text.secondary">GST Rate (from SAC):</Typography>
-              <Chip size="small" label={`${resolvedGSTRate}%`} sx={{ bgcolor: '#E8F5F2', color: '#107E68', fontSize: 11, height: 20 }} />
-              <Typography variant="caption" color="text.disabled">Auto-applied</Typography>
-            </Box>
-          </FormSection>
-
-          <Box sx={{ mb: 2 }}>
-            <TextField
-              select
-              size="small"
-              label="Status"
-              value={form.status}
-              onChange={e => setForm(f => ({ ...f, status: e.target.value as Service['status'] }))}
-              fullWidth
-            >
-              <MenuItem value="active">Active</MenuItem>
-              <MenuItem value="inactive">Inactive</MenuItem>
-            </TextField>
-          </Box>
-
-          <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, mt: 2 }}>
-            <Button size="sm" variant="outlined" color="secondary" onClick={() => setDrawerOpen(false)}>Cancel</Button>
+      <Modal
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        title={editingRow ? 'Edit Service' : 'Add Service'}
+        size="sm"
+        footer={
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
+            <Button size="sm" variant="outlined" color="secondary" onClick={() => setDrawerOpen(false)}>
+              Cancel
+            </Button>
             <Button size="sm" variant="contained" color="primary" onClick={handleSave} disabled={saving}>
               {saving ? 'Saving...' : 'Save'}
             </Button>
           </Box>
-        </Box>
-      </Drawer>
+        }
+      >
+        <FormSection label="Service Details">
+          <TextField
+            size="small"
+            label="Service Name"
+            required
+            fullWidth
+            placeholder="e.g. Interior Design"
+            value={form.name}
+            onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+          />
+          <TextField
+            select
+            size="small"
+            label="Category"
+            required
+            fullWidth
+            value={form.categoryId}
+            onChange={e => setForm(f => ({ ...f, categoryId: e.target.value }))}
+          >
+            {activeCategories.map(c => (
+              <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>
+            ))}
+          </TextField>
+        </FormSection>
+
+        <FormSection label="Tax Configuration">
+          <TextField
+            select
+            size="small"
+            label="SAC Code"
+            required
+            fullWidth
+            value={form.sacCodeId ?? ''}
+            onChange={e => handleSACChange(e.target.value)}
+          >
+            {activeSACCodes.map(s => (
+              <MenuItem key={s.id} value={s.id}>{s.code} — {s.description}</MenuItem>
+            ))}
+          </TextField>
+
+          <Box sx={{ p: 1.5, bgcolor: '#F8FAFB', borderRadius: '8px', border: '1px solid #E8EEEC', display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Typography variant="caption" color="text.secondary">GST Rate (from SAC):</Typography>
+            <Chip size="small" label={`${resolvedGSTRate}%`} sx={{ bgcolor: '#E8F5F2', color: '#107E68', fontSize: 11, height: 20 }} />
+            <Typography variant="caption" color="text.disabled">Auto-applied</Typography>
+          </Box>
+        </FormSection>
+
+        <TextField
+          select
+          size="small"
+          label="Status"
+          value={form.status}
+          onChange={e => setForm(f => ({ ...f, status: e.target.value as Service['status'] }))}
+          fullWidth
+        >
+          <MenuItem value="active">Active</MenuItem>
+          <MenuItem value="inactive">Inactive</MenuItem>
+        </TextField>
+      </Modal>
     </Box>
   )
 }

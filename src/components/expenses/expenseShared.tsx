@@ -13,15 +13,17 @@ import { FileText } from 'lucide-react'
 import { Modal, StatusBadge } from '@/design-system/components'
 import type { StatusType } from '@/design-system/components'
 import { UploadedDocumentLink } from '@/components/documents/UploadedDocumentLink'
-import { tokens } from '@/design-system/tokens'
+import { tokens, TREND_COLORS } from '@/design-system/tokens'
 import type { CommonExpenseSplitMethod, Expense, ExpenseType } from '@/slices/live/types'
 import { formatCurrency, formatDate } from '@/utils/formatters'
+
+const FIELD_LABEL_COLOR = TREND_COLORS.neutral.color
 
 const SECTION_TITLE_SX = {
   fontSize: 10,
   fontWeight: 600,
   letterSpacing: '0.8px',
-  color: 'text.secondary',
+  color: FIELD_LABEL_COLOR,
   textTransform: 'uppercase' as const,
   display: 'block',
   mb: 1,
@@ -131,7 +133,7 @@ function DetailField({
 }) {
   return (
     <Box sx={{ minWidth: 0 }}>
-      <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11, display: 'block' }}>
+      <Typography variant="caption" sx={{ fontSize: 11, display: 'block', color: FIELD_LABEL_COLOR }}>
         {label}
       </Typography>
       <Typography
@@ -253,9 +255,6 @@ export function ViewExpenseModal({
             p: 1.5,
           }}
         >
-          <Box sx={{ mb: 1 }}>
-            <ExpenseTypeBadge type={expense.type} />
-          </Box>
           <Typography
             variant="body1"
             sx={{
@@ -271,13 +270,12 @@ export function ViewExpenseModal({
           <Box
             sx={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+              gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
               gap: 1.25,
-              mb: 1,
             }}
           >
             <Box>
-              <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11, display: 'block' }}>
+              <Typography variant="caption" sx={{ fontSize: 11, display: 'block', color: FIELD_LABEL_COLOR }}>
                 Amount
               </Typography>
               <Typography variant="body2" sx={{ fontSize: 14, fontWeight: 700, mt: 0.25 }}>
@@ -285,8 +283,15 @@ export function ViewExpenseModal({
               </Typography>
             </Box>
             <DetailField label="Date" value={formatDate(expense.date)} />
+            <Box>
+              <Typography variant="caption" sx={{ fontSize: 11, display: 'block', color: FIELD_LABEL_COLOR }}>
+                Status
+              </Typography>
+              <Box sx={{ mt: 0.25 }}>
+                <StatusBadge status={statusDisplay.status} label={statusDisplay.label} size="small" />
+              </Box>
+            </Box>
           </Box>
-          <StatusBadge status={statusDisplay.status} label={statusDisplay.label} size="small" />
         </Box>
 
         <ExpenseSection title="Expense Information">
@@ -301,6 +306,41 @@ export function ViewExpenseModal({
             {projectName != null && projectName !== '' ? (
               <DetailField label="Project" value={projectName} />
             ) : null}
+            <Box sx={{ minWidth: 0 }}>
+              <Typography variant="caption" sx={{ fontSize: 11, display: 'block', color: FIELD_LABEL_COLOR }}>
+                Document
+              </Typography>
+              {documentName && documentOpenUrl ? (
+                <Box sx={{ mt: 0.25 }}>
+                  <UploadedDocumentLink fileName={documentName} documentUrl={documentOpenUrl} />
+                </Box>
+              ) : documentName ? (
+                <Stack direction="row" alignItems="center" gap={1} sx={{ minWidth: 0, mt: 0.25 }}>
+                  <Box sx={{ color: tokens.color.primary[500], flexShrink: 0, display: 'flex' }}>
+                    <FileText size={16} strokeWidth={2} color={tokens.color.primary[500]} />
+                  </Box>
+                  <Typography
+                    variant="body2"
+                    title={documentName}
+                    sx={{
+                      fontSize: 12,
+                      fontWeight: 600,
+                      color: 'text.primary',
+                      minWidth: 0,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {documentName}
+                  </Typography>
+                </Stack>
+              ) : (
+                <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12, mt: 0.25 }}>
+                  No document uploaded.
+                </Typography>
+              )}
+            </Box>
             {showPaidByOrSplit ? (
               <DetailField label="Paid By" value={expense.paidByVendorName ?? '—'} />
             ) : null}
@@ -364,37 +404,6 @@ export function ViewExpenseModal({
             </Box>
           </ExpenseSection>
         ) : null}
-
-        <ExpenseSection title="Document">
-          {documentName && documentOpenUrl ? (
-            <UploadedDocumentLink fileName={documentName} documentUrl={documentOpenUrl} />
-          ) : documentName ? (
-            <Stack direction="row" alignItems="center" gap={1} sx={{ minWidth: 0 }}>
-              <Box sx={{ color: tokens.color.primary[500], flexShrink: 0, display: 'flex' }}>
-                <FileText size={16} strokeWidth={2} color={tokens.color.primary[500]} />
-              </Box>
-              <Typography
-                variant="body2"
-                title={documentName}
-                sx={{
-                  fontSize: 12,
-                  fontWeight: 600,
-                  color: 'text.primary',
-                  minWidth: 0,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {documentName}
-              </Typography>
-            </Stack>
-          ) : (
-            <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12 }}>
-              No document uploaded.
-            </Typography>
-          )}
-        </ExpenseSection>
       </Stack>
     </Modal>
   )

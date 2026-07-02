@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type MouseEvent } from 'react'
 import {
   Box,
   Stack,
@@ -11,7 +11,9 @@ import {
   TableContainer,
   Skeleton,
   IconButton as MuiIconButton,
-  Tooltip,
+  Menu,
+  MenuItem,
+  Divider,
   Chip as MuiChip,
   Dialog,
   DialogTitle,
@@ -20,8 +22,7 @@ import {
   Button as MuiButton,
 } from '@mui/material'
 import { useTheme, alpha } from '@mui/material/styles'
-import { Edit, Delete } from '@mui/icons-material'
-import { Plus, ShieldCheck } from 'lucide-react'
+import { Plus, ShieldCheck, MoreVertical } from 'lucide-react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { fetchRoles, deleteRole } from '@/slices/roles/thunk'
@@ -90,6 +91,100 @@ const STATIC_CELL_SX = {
   py: 1,
   px: 1.75,
   borderBottom: `2px solid ${tokens.color.neutral[100]}`,
+}
+
+const ROLE_ACTION_WIDTH_PX = 60
+
+const TABLE_HEADER_ACTION_SX = {
+  ...STATIC_CELL_SX,
+  width: ROLE_ACTION_WIDTH_PX,
+  minWidth: ROLE_ACTION_WIDTH_PX,
+  maxWidth: ROLE_ACTION_WIDTH_PX,
+  textAlign: 'center' as const,
+  verticalAlign: 'middle' as const,
+}
+
+const TABLE_CELL_ACTION_SX = {
+  py: 1,
+  px: 0,
+  pr: 1.75,
+  width: ROLE_ACTION_WIDTH_PX,
+  minWidth: ROLE_ACTION_WIDTH_PX,
+  maxWidth: ROLE_ACTION_WIDTH_PX,
+  textAlign: 'center' as const,
+  verticalAlign: 'middle' as const,
+}
+
+const CENTER_CELL_CONTENT_SX = {
+  display: 'flex',
+  justifyContent: 'center',
+  alignItems: 'center',
+  width: 1,
+} as const
+
+interface RoleRowActionsProps {
+  role: Role
+  canEdit: boolean
+  canDelete: boolean
+  onEdit: () => void
+  onDelete: () => void
+}
+
+function RoleRowActions({ role, canEdit, canDelete, onEdit, onDelete }: RoleRowActionsProps) {
+  const [anchor, setAnchor] = useState<null | HTMLElement>(null)
+
+  function open(e: MouseEvent<HTMLElement>) {
+    e.stopPropagation()
+    setAnchor(e.currentTarget)
+  }
+
+  function close() {
+    setAnchor(null)
+  }
+
+  if (!canEdit && !canDelete) return null
+
+  const editDisabled = role.isSystem || !canEdit
+  const deleteDisabled = role.isSystem || role.userCount > 0 || !canDelete
+
+  return (
+    <>
+      <MuiIconButton size="small" onClick={open} aria-label="Row actions" sx={{ color: tokens.color.neutral[400], p: 0.5, mx: 'auto' }}>
+        <MoreVertical size={16} />
+      </MuiIconButton>
+      <Menu anchorEl={anchor} open={Boolean(anchor)} onClose={close} onClick={(e) => e.stopPropagation()}>
+        {canEdit ? (
+          <MenuItem
+            dense
+            disabled={editDisabled}
+            onClick={() => {
+              if (!editDisabled) onEdit()
+              close()
+            }}
+            sx={{ fontSize: 13, gap: 1 }}
+          >
+            Edit
+          </MenuItem>
+        ) : null}
+        {canDelete ? (
+          <>
+            {canEdit ? <Divider /> : null}
+            <MenuItem
+              dense
+              disabled={deleteDisabled}
+              onClick={() => {
+                if (!deleteDisabled) onDelete()
+                close()
+              }}
+              sx={{ fontSize: 13, gap: 1, color: deleteDisabled ? undefined : 'error.main' }}
+            >
+              Delete
+            </MenuItem>
+          </>
+        ) : null}
+      </Menu>
+    </>
+  )
 }
 
 export default function RolesPage() {
@@ -198,9 +293,7 @@ export default function RolesPage() {
                   <TableCell sx={{ ...STATIC_CELL_SX, width: 140 }}>Level</TableCell>
                   <TableCell sx={{ ...STATIC_CELL_SX, width: 90 }}>Users</TableCell>
                   <TableCell sx={{ ...STATIC_CELL_SX, width: 100 }}>Type</TableCell>
-                  <TableCell sx={{ ...STATIC_CELL_SX, width: 80, position: 'sticky', right: 0, bgcolor: 'background.paper' }}>
-                    Actions
-                  </TableCell>
+                  <TableCell sx={TABLE_HEADER_ACTION_SX}>Action</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -299,52 +392,16 @@ export default function RolesPage() {
                         )}
                       </TableCell>
 
-                      <TableCell sx={{ py: 1, px: 1, position: 'sticky', right: 0, bgcolor: 'background.paper' }}>
-                        <Stack direction="row" alignItems="center" gap={0.25}>
-                          <Tooltip
-                            title={
-                              role.isSystem
-                                ? 'System roles cannot be edited'
-                                : canEdit
-                                  ? 'Edit role'
-                                  : 'No permission'
-                            }
-                          >
-                            <span>
-                              <MuiIconButton
-                                size="small"
-                                disabled={role.isSystem || !canEdit}
-                                onClick={() => handleEdit(role)}
-                                sx={{ color: 'text.secondary', '&.Mui-disabled': { color: 'action.disabled' } }}
-                              >
-                                <Edit sx={{ fontSize: 15 }} />
-                              </MuiIconButton>
-                            </span>
-                          </Tooltip>
-
-                          {canDelete && (
-                            <Tooltip
-                              title={
-                                role.isSystem
-                                  ? 'System roles cannot be deleted'
-                                  : role.userCount > 0
-                                    ? 'Reassign users before deleting'
-                                    : 'Delete role'
-                              }
-                            >
-                              <span>
-                                <MuiIconButton
-                                  size="small"
-                                  disabled={role.isSystem || role.userCount > 0}
-                                  onClick={() => handleDeleteClick(role)}
-                                  sx={{ color: 'error.main', '&.Mui-disabled': { color: 'action.disabled' } }}
-                                >
-                                  <Delete sx={{ fontSize: 15 }} />
-                                </MuiIconButton>
-                              </span>
-                            </Tooltip>
-                          )}
-                        </Stack>
+                      <TableCell sx={TABLE_CELL_ACTION_SX}>
+                        <Box sx={CENTER_CELL_CONTENT_SX}>
+                          <RoleRowActions
+                            role={role}
+                            canEdit={canEdit}
+                            canDelete={canDelete}
+                            onEdit={() => handleEdit(role)}
+                            onDelete={() => handleDeleteClick(role)}
+                          />
+                        </Box>
                       </TableCell>
                     </TableRow>
                   ))}

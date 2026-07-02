@@ -1,21 +1,30 @@
 import { useState, useEffect } from 'react'
 import {
   Box, Typography, Chip,
-  Table, TableHead, TableRow, TableCell, TableBody,
-  Drawer, TextField, MenuItem, IconButton, Tooltip,
+  Table, TableHead, TableRow, TableCell, TableBody, TableContainer,
+  TextField, MenuItem, IconButton, Tooltip,
   Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions,
 } from '@mui/material'
 import { Edit, ToggleOff, ToggleOn, DeleteOutline } from '@mui/icons-material'
 import { Plus } from 'lucide-react'
-import { Button } from '@/design-system/components'
-import { StatusBadge } from '@/design-system/components'
+import { Button, Modal, StatusBadge, useToast } from '@/design-system/components'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import {
   fetchCategories, createCategory, updateCategory, toggleCategoryStatus,
 } from '@/slices/settings/thunk'
 import { settingsApi } from '@/api/settingsApi'
 import type { Category } from '@/slices/settings/reducer'
-import { useToast } from '@/design-system/components'
+import {
+  SETTINGS_TABLE_CELL_ACTION_SX,
+  SETTINGS_TABLE_CELL_SX,
+  SETTINGS_TABLE_HEADER_ACTION_SX,
+  SETTINGS_TABLE_HEADER_CELL_SX,
+  SETTINGS_TABLE_SX,
+  settingsDataColWidth,
+} from '../components/settingsTableStyles'
+
+const CATEGORY_DATA_COL_COUNT = 4
+const categoryDataColWidth = settingsDataColWidth(CATEGORY_DATA_COL_COUNT)
 
 type CategoryForm = { name: string; description: string; status: 'active' | 'inactive' }
 const defaultForm: CategoryForm = { name: '', description: '', status: 'active' }
@@ -83,22 +92,30 @@ export default function CategoriesSection() {
         </Button>
       </Box>
 
-      <Table size="small">
+      <TableContainer sx={{ width: '100%' }}>
+      <Table size="small" sx={SETTINGS_TABLE_SX}>
+        <colgroup>
+          <col style={{ width: categoryDataColWidth }} />
+          <col style={{ width: categoryDataColWidth }} />
+          <col style={{ width: categoryDataColWidth }} />
+          <col style={{ width: categoryDataColWidth }} />
+          <col style={{ width: SETTINGS_TABLE_CELL_ACTION_SX.width }} />
+        </colgroup>
         <TableHead>
           <TableRow sx={{ bgcolor: '#F8FAFB' }}>
-            <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary' }}>Category Name</TableCell>
-            <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary' }}>Description</TableCell>
-            <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', width: 100 }}>Services</TableCell>
-            <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', width: 100 }}>Status</TableCell>
-            <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', width: 80 }}>Actions</TableCell>
+            <TableCell sx={SETTINGS_TABLE_HEADER_CELL_SX}>Category Name</TableCell>
+            <TableCell sx={SETTINGS_TABLE_HEADER_CELL_SX}>Description</TableCell>
+            <TableCell sx={SETTINGS_TABLE_HEADER_CELL_SX}>Services</TableCell>
+            <TableCell sx={SETTINGS_TABLE_HEADER_CELL_SX}>Status</TableCell>
+            <TableCell sx={SETTINGS_TABLE_HEADER_ACTION_SX}>Actions</TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
           {categories.map(row => (
             <TableRow key={row.id} sx={{ height: 44 }}>
-              <TableCell sx={{ fontSize: 12, fontWeight: 500 }}>{row.name}</TableCell>
-              <TableCell sx={{ fontSize: 12, color: 'text.secondary' }}>{row.description}</TableCell>
-              <TableCell>
+              <TableCell sx={{ ...SETTINGS_TABLE_CELL_SX, fontWeight: 500 }}>{row.name}</TableCell>
+              <TableCell sx={{ ...SETTINGS_TABLE_CELL_SX, color: 'text.secondary' }}>{row.description}</TableCell>
+              <TableCell sx={SETTINGS_TABLE_CELL_SX}>
                 <Chip
                   size="small"
                   label={`${row.servicesCount} services`}
@@ -110,10 +127,10 @@ export default function CategoriesSection() {
                   }}
                 />
               </TableCell>
-              <TableCell>
+              <TableCell sx={SETTINGS_TABLE_CELL_SX}>
                 <StatusBadge status={row.status} />
               </TableCell>
-              <TableCell>
+              <TableCell sx={SETTINGS_TABLE_CELL_ACTION_SX}>
                 <IconButton size="small" onClick={() => openEdit(row)}>
                   <Edit sx={{ fontSize: 14 }} />
                 </IconButton>
@@ -139,49 +156,56 @@ export default function CategoriesSection() {
           ))}
         </TableBody>
       </Table>
+      </TableContainer>
 
-      {/* Add/Edit Drawer */}
-      <Drawer anchor="right" open={drawerOpen} onClose={() => setDrawerOpen(false)}>
-        <Box sx={{ width: 400, p: 3 }}>
-          <Typography variant="h6" fontWeight={600} mb={3}>
-            {editingRow ? 'Edit Category' : 'Add Category'}
-          </Typography>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <TextField
-              size="small"
-              label="Category Name"
-              required
-              placeholder="e.g. Design & Diligence"
-              value={form.name}
-              onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-            />
-            <TextField
-              size="small"
-              label="Description"
-              multiline
-              rows={2}
-              value={form.description}
-              onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
-            />
-            <TextField
-              select
-              size="small"
-              label="Status"
-              value={form.status}
-              onChange={e => setForm(f => ({ ...f, status: e.target.value as Category['status'] }))}
-            >
-              <MenuItem value="active">Active</MenuItem>
-              <MenuItem value="inactive">Inactive</MenuItem>
-            </TextField>
-          </Box>
-          <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, mt: 4 }}>
-            <Button size="sm" variant="outlined" color="secondary" onClick={() => setDrawerOpen(false)}>Cancel</Button>
+      <Modal
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        title={editingRow ? 'Edit Category' : 'Add Category'}
+        size="xs"
+        footer={
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
+            <Button size="sm" variant="outlined" color="secondary" onClick={() => setDrawerOpen(false)}>
+              Cancel
+            </Button>
             <Button size="sm" variant="contained" color="primary" onClick={handleSave} disabled={saving}>
               {saving ? 'Saving...' : 'Save'}
             </Button>
           </Box>
+        }
+      >
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <TextField
+            size="small"
+            label="Category Name"
+            required
+            fullWidth
+            placeholder="e.g. Design & Diligence"
+            value={form.name}
+            onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+          />
+          <TextField
+            size="small"
+            label="Description"
+            multiline
+            rows={2}
+            fullWidth
+            value={form.description}
+            onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+          />
+          <TextField
+            select
+            size="small"
+            label="Status"
+            fullWidth
+            value={form.status}
+            onChange={e => setForm(f => ({ ...f, status: e.target.value as Category['status'] }))}
+          >
+            <MenuItem value="active">Active</MenuItem>
+            <MenuItem value="inactive">Inactive</MenuItem>
+          </TextField>
         </Box>
-      </Drawer>
+      </Modal>
 
       {/* Delete confirmation */}
       <Dialog open={!!deleteTarget} onClose={() => setDeleteTarget(null)} maxWidth="xs" fullWidth>

@@ -568,7 +568,7 @@ function VendorGridCard({ vendor, onView, onProjects: _onProjects, onEdit, onDel
           onClick={(e) => { e.stopPropagation(); setAnchor(e.currentTarget) }}
           sx={{ flexShrink: 0 }}
         >
-          <MoreHorizontal size={16} />
+          <MoreVertical size={16} />
         </MuiIconButton>
         <Menu
           anchorEl={anchor}

@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react'
-import { TextField, MenuItem, Typography } from '@mui/material'
+import { Box, TextField, MenuItem, Typography } from '@mui/material'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { createRole, updateRole } from '@/slices/roles/thunk'
 import type { Role } from '@/types/permissions'
-import { DrawerForm, FormSection, FormField } from '@/components/templates'
-import { useToast } from '@/design-system/components'
+import { FormSection, FormField } from '@/components/templates'
+import { Button, Modal, useToast } from '@/design-system/components'
 
 const LEVEL_OPTIONS: { value: 0 | 1 | 2 | 3; label: string }[] = [
   { value: 0, label: '0 — Admin' },
@@ -92,23 +92,31 @@ export function RoleDrawer({ open, mode, roleId, onClose }: RoleDrawerProps) {
   const readOnly = mode === 'edit' && existing?.isSystem
 
   return (
-    <DrawerForm
+    <Modal
       open={open}
       onClose={onClose}
       title={mode === 'create' ? 'Create Role' : existing?.name ?? 'Edit Role'}
       subtitle={mode === 'create' ? 'Add a custom role' : undefined}
-      onSubmit={readOnly ? undefined : handleSubmit}
-      submitLabel={mode === 'create' ? 'Create' : 'Save'}
-      submitLoading={saving}
-      submitDisabled={readOnly}
-      width={400}
-      hideFooter={readOnly}
+      size="xs"
+      loading={saving}
+      footer={
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
+          <Button size="sm" variant="outlined" color="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          {!readOnly ? (
+            <Button size="sm" variant="contained" color="primary" onClick={handleSubmit} disabled={saving}>
+              {saving ? 'Saving...' : mode === 'create' ? 'Create' : 'Save'}
+            </Button>
+          ) : null}
+        </Box>
+      }
     >
-      {readOnly && (
+      {readOnly ? (
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
           System roles cannot be edited.
         </Typography>
-      )}
+      ) : null}
 
       <FormSection title="Role" columns={1} divider={false}>
         <FormField label="Role Name" required error={nameError || undefined}>
@@ -154,6 +162,6 @@ export function RoleDrawer({ open, mode, roleId, onClose }: RoleDrawerProps) {
           />
         </FormField>
       </FormSection>
-    </DrawerForm>
+    </Modal>
   )
 }

@@ -1,27 +1,37 @@
 import { useState } from 'react'
 import {
   Box, Typography, Tabs, Tab,
-  Table, TableHead, TableRow, TableCell, TableBody,
-  Drawer, TextField, MenuItem, IconButton,
+  Table, TableHead, TableRow, TableCell, TableBody, TableContainer,
+  TextField, MenuItem, IconButton,
 } from '@mui/material'
 import { Edit, ToggleOff, ToggleOn } from '@mui/icons-material'
 import { Plus } from 'lucide-react'
-import { Button } from '@/design-system/components'
-import { StatusBadge } from '@/design-system/components'
+import { Button, Modal, StatusBadge, useToast } from '@/design-system/components'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import {
   fetchGSTRates, createGSTRate, updateGSTRate, toggleGSTRateStatus,
   fetchTDSSections, createTDSSection, updateTDSSection, toggleTDSSectionStatus,
 } from '@/slices/settings/thunk'
 import type { GSTRate, TDSSection } from '@/slices/settings/reducer'
-import { useToast } from '@/design-system/components'
 import { useEffect } from 'react'
+import {
+  SETTINGS_TABLE_CELL_ACTION_SX,
+  SETTINGS_TABLE_CELL_SX,
+  SETTINGS_TABLE_HEADER_ACTION_SX,
+  SETTINGS_TABLE_HEADER_CELL_SX,
+  SETTINGS_TABLE_SX,
+  settingsDataColWidth,
+} from '../components/settingsTableStyles'
 
 type GSTForm = Omit<GSTRate, 'id'>
 type TDSForm = Omit<TDSSection, 'id'>
 
 const defaultGSTForm: GSTForm = { slabName: '', rate: 0, description: '', status: 'active' }
 const defaultTDSForm: TDSForm = { section: '', description: '', defaultRate: 0, appliesTo: 'both', status: 'active' }
+const GST_DATA_COL_COUNT = 4
+const TDS_DATA_COL_COUNT = 5
+const gstDataColWidth = settingsDataColWidth(GST_DATA_COL_COUNT)
+const tdsDataColWidth = settingsDataColWidth(TDS_DATA_COL_COUNT)
 
 export default function TaxConfigSection() {
   const dispatch = useAppDispatch()
@@ -118,26 +128,34 @@ export default function TaxConfigSection() {
               Add Rate
             </Button>
           </Box>
-          <Table size="small">
+          <TableContainer sx={{ width: '100%' }}>
+          <Table size="small" sx={SETTINGS_TABLE_SX}>
+            <colgroup>
+              <col style={{ width: gstDataColWidth }} />
+              <col style={{ width: gstDataColWidth }} />
+              <col style={{ width: gstDataColWidth }} />
+              <col style={{ width: gstDataColWidth }} />
+              <col style={{ width: SETTINGS_TABLE_CELL_ACTION_SX.width }} />
+            </colgroup>
             <TableHead>
               <TableRow sx={{ bgcolor: '#F8FAFB' }}>
-                <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary' }}>Slab Name</TableCell>
-                <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', width: 120 }}>Rate %</TableCell>
-                <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary' }}>Description</TableCell>
-                <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', width: 100 }}>Status</TableCell>
-                <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', width: 80 }}>Actions</TableCell>
+                <TableCell sx={SETTINGS_TABLE_HEADER_CELL_SX}>Slab Name</TableCell>
+                <TableCell sx={SETTINGS_TABLE_HEADER_CELL_SX}>Rate %</TableCell>
+                <TableCell sx={SETTINGS_TABLE_HEADER_CELL_SX}>Description</TableCell>
+                <TableCell sx={SETTINGS_TABLE_HEADER_CELL_SX}>Status</TableCell>
+                <TableCell sx={SETTINGS_TABLE_HEADER_ACTION_SX}>Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {gstRates.map(row => (
                 <TableRow key={row.id} sx={{ height: 44 }}>
-                  <TableCell sx={{ fontSize: 12 }}>{row.slabName}</TableCell>
-                  <TableCell sx={{ fontSize: 12 }}>{row.rate}%</TableCell>
-                  <TableCell sx={{ fontSize: 12 }}>{row.description}</TableCell>
-                  <TableCell>
+                  <TableCell sx={SETTINGS_TABLE_CELL_SX}>{row.slabName}</TableCell>
+                  <TableCell sx={SETTINGS_TABLE_CELL_SX}>{row.rate}%</TableCell>
+                  <TableCell sx={SETTINGS_TABLE_CELL_SX}>{row.description}</TableCell>
+                  <TableCell sx={SETTINGS_TABLE_CELL_SX}>
                     <StatusBadge status={row.status} />
                   </TableCell>
-                  <TableCell>
+                  <TableCell sx={SETTINGS_TABLE_CELL_ACTION_SX}>
                     <IconButton size="small" onClick={() => openEditGST(row)}>
                       <Edit sx={{ fontSize: 14 }} />
                     </IconButton>
@@ -151,6 +169,7 @@ export default function TaxConfigSection() {
               ))}
             </TableBody>
           </Table>
+          </TableContainer>
         </Box>
       )}
 
@@ -163,28 +182,37 @@ export default function TaxConfigSection() {
               Add Section
             </Button>
           </Box>
-          <Table size="small">
+          <TableContainer sx={{ width: '100%' }}>
+          <Table size="small" sx={SETTINGS_TABLE_SX}>
+            <colgroup>
+              <col style={{ width: tdsDataColWidth }} />
+              <col style={{ width: tdsDataColWidth }} />
+              <col style={{ width: tdsDataColWidth }} />
+              <col style={{ width: tdsDataColWidth }} />
+              <col style={{ width: tdsDataColWidth }} />
+              <col style={{ width: SETTINGS_TABLE_CELL_ACTION_SX.width }} />
+            </colgroup>
             <TableHead>
               <TableRow sx={{ bgcolor: '#F8FAFB' }}>
-                <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', width: 120 }}>Section</TableCell>
-                <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary' }}>Description</TableCell>
-                <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', width: 130 }}>Default Rate %</TableCell>
-                <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', width: 120 }}>Applies To</TableCell>
-                <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', width: 100 }}>Status</TableCell>
-                <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', width: 80 }}>Actions</TableCell>
+                <TableCell sx={SETTINGS_TABLE_HEADER_CELL_SX}>Section</TableCell>
+                <TableCell sx={SETTINGS_TABLE_HEADER_CELL_SX}>Description</TableCell>
+                <TableCell sx={SETTINGS_TABLE_HEADER_CELL_SX}>Default Rate %</TableCell>
+                <TableCell sx={SETTINGS_TABLE_HEADER_CELL_SX}>Applies To</TableCell>
+                <TableCell sx={SETTINGS_TABLE_HEADER_CELL_SX}>Status</TableCell>
+                <TableCell sx={SETTINGS_TABLE_HEADER_ACTION_SX}>Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {tdsSections.map(row => (
                 <TableRow key={row.id} sx={{ height: 44 }}>
-                  <TableCell sx={{ fontSize: 12, fontWeight: 600 }}>{row.section}</TableCell>
-                  <TableCell sx={{ fontSize: 12 }}>{row.description}</TableCell>
-                  <TableCell sx={{ fontSize: 12 }}>{row.defaultRate}%</TableCell>
-                  <TableCell sx={{ fontSize: 12, textTransform: 'capitalize' }}>{row.appliesTo}</TableCell>
-                  <TableCell>
+                  <TableCell sx={{ ...SETTINGS_TABLE_CELL_SX, fontWeight: 600 }}>{row.section}</TableCell>
+                  <TableCell sx={SETTINGS_TABLE_CELL_SX}>{row.description}</TableCell>
+                  <TableCell sx={SETTINGS_TABLE_CELL_SX}>{row.defaultRate}%</TableCell>
+                  <TableCell sx={{ ...SETTINGS_TABLE_CELL_SX, textTransform: 'capitalize' }}>{row.appliesTo}</TableCell>
+                  <TableCell sx={SETTINGS_TABLE_CELL_SX}>
                     <StatusBadge status={row.status} />
                   </TableCell>
-                  <TableCell>
+                  <TableCell sx={SETTINGS_TABLE_CELL_ACTION_SX}>
                     <IconButton size="small" onClick={() => openEditTDS(row)}>
                       <Edit sx={{ fontSize: 14 }} />
                     </IconButton>
@@ -198,97 +226,119 @@ export default function TaxConfigSection() {
               ))}
             </TableBody>
           </Table>
+          </TableContainer>
         </Box>
       )}
 
-      {/* GST Drawer */}
-      <Drawer anchor="right" open={gstDrawerOpen} onClose={() => setGstDrawerOpen(false)}>
-        <Box sx={{ width: 400, p: 3 }}>
-          <Typography variant="h6" fontWeight={600} mb={3}>
-            {editingGST ? 'Edit GST Rate' : 'Add GST Rate'}
-          </Typography>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <TextField
-              size="small"
-              label="Slab Name"
-              required
-              placeholder="e.g. GST 18%"
-              value={gstForm.slabName}
-              onChange={e => setGstForm(f => ({ ...f, slabName: e.target.value }))}
-            />
+      {/* GST Modal */}
+      <Modal
+        open={gstDrawerOpen}
+        onClose={() => setGstDrawerOpen(false)}
+        title={editingGST ? 'Edit GST Rate' : 'Add GST Rate'}
+        size="xs"
+        footer={
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
+            <Button size="sm" variant="outlined" color="secondary" onClick={() => setGstDrawerOpen(false)}>
+              Cancel
+            </Button>
+            <Button size="sm" variant="contained" color="primary" onClick={handleSaveGST} disabled={saving}>
+              {saving ? 'Saving...' : 'Save'}
+            </Button>
+          </Box>
+        }
+      >
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <TextField
+            size="small"
+            label="Slab Name"
+            required
+            fullWidth
+            placeholder="e.g. GST 18%"
+            value={gstForm.slabName}
+            onChange={e => setGstForm(f => ({ ...f, slabName: e.target.value }))}
+          />
+          <Box sx={{ display: 'flex', gap: 2 }}>
             <TextField
               size="small"
               label="Rate (%)"
               type="number"
               required
+              fullWidth
               placeholder="18"
               value={gstForm.rate}
               onChange={e => setGstForm(f => ({ ...f, rate: Number(e.target.value) }))}
-            />
-            <TextField
-              size="small"
-              label="Description"
-              placeholder="e.g. Standard Services Rate"
-              value={gstForm.description}
-              onChange={e => setGstForm(f => ({ ...f, description: e.target.value }))}
+              sx={{ flex: 1, minWidth: 0 }}
             />
             <TextField
               select
               size="small"
               label="Status"
+              fullWidth
               value={gstForm.status}
               onChange={e => setGstForm(f => ({ ...f, status: e.target.value as GSTRate['status'] }))}
+              sx={{ flex: 1, minWidth: 0 }}
             >
               <MenuItem value="active">Active</MenuItem>
               <MenuItem value="inactive">Inactive</MenuItem>
             </TextField>
           </Box>
-          <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, mt: 4 }}>
-            <Button size="sm" variant="outlined" color="secondary" onClick={() => setGstDrawerOpen(false)}>Cancel</Button>
-            <Button size="sm" variant="contained" color="primary" onClick={handleSaveGST} disabled={saving}>
+          <TextField
+            size="small"
+            label="Description"
+            fullWidth
+            placeholder="e.g. Standard Services Rate"
+            value={gstForm.description}
+            onChange={e => setGstForm(f => ({ ...f, description: e.target.value }))}
+          />
+        </Box>
+      </Modal>
+
+      {/* TDS Modal */}
+      <Modal
+        open={tdsDrawerOpen}
+        onClose={() => setTdsDrawerOpen(false)}
+        title={editingTDS ? 'Edit TDS Section' : 'Add TDS Section'}
+        size="xs"
+        footer={
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
+            <Button size="sm" variant="outlined" color="secondary" onClick={() => setTdsDrawerOpen(false)}>
+              Cancel
+            </Button>
+            <Button size="sm" variant="contained" color="primary" onClick={handleSaveTDS} disabled={saving}>
               {saving ? 'Saving...' : 'Save'}
             </Button>
           </Box>
-        </Box>
-      </Drawer>
-
-      {/* TDS Drawer */}
-      <Drawer anchor="right" open={tdsDrawerOpen} onClose={() => setTdsDrawerOpen(false)}>
-        <Box sx={{ width: 400, p: 3 }}>
-          <Typography variant="h6" fontWeight={600} mb={3}>
-            {editingTDS ? 'Edit TDS Section' : 'Add TDS Section'}
-          </Typography>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <TextField
-              size="small"
-              label="Section"
-              required
-              placeholder="e.g. 194C"
-              value={tdsForm.section}
-              onChange={e => setTdsForm(f => ({ ...f, section: e.target.value }))}
-            />
-            <TextField
-              size="small"
-              label="Description"
-              required
-              value={tdsForm.description}
-              onChange={e => setTdsForm(f => ({ ...f, description: e.target.value }))}
-            />
-            <TextField
-              size="small"
-              label="Default Rate (%)"
-              type="number"
-              required
-              value={tdsForm.defaultRate}
-              onChange={e => setTdsForm(f => ({ ...f, defaultRate: Number(e.target.value) }))}
-            />
+        }
+      >
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <TextField
+            size="small"
+            label="Section"
+            required
+            fullWidth
+            placeholder="e.g. 194C"
+            value={tdsForm.section}
+            onChange={e => setTdsForm(f => ({ ...f, section: e.target.value }))}
+          />
+          <TextField
+            size="small"
+            label="Default Rate (%)"
+            type="number"
+            required
+            fullWidth
+            value={tdsForm.defaultRate}
+            onChange={e => setTdsForm(f => ({ ...f, defaultRate: Number(e.target.value) }))}
+          />
+          <Box sx={{ display: 'flex', gap: 2 }}>
             <TextField
               select
               size="small"
               label="Applies To"
               required
+              fullWidth
               value={tdsForm.appliesTo}
               onChange={e => setTdsForm(f => ({ ...f, appliesTo: e.target.value as TDSSection['appliesTo'] }))}
+              sx={{ flex: 1, minWidth: 0 }}
             >
               <MenuItem value="vendors">Vendors</MenuItem>
               <MenuItem value="clients">Clients</MenuItem>
@@ -298,21 +348,25 @@ export default function TaxConfigSection() {
               select
               size="small"
               label="Status"
+              fullWidth
               value={tdsForm.status}
               onChange={e => setTdsForm(f => ({ ...f, status: e.target.value as TDSSection['status'] }))}
+              sx={{ flex: 1, minWidth: 0 }}
             >
               <MenuItem value="active">Active</MenuItem>
               <MenuItem value="inactive">Inactive</MenuItem>
             </TextField>
           </Box>
-          <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, mt: 4 }}>
-            <Button size="sm" variant="outlined" color="secondary" onClick={() => setTdsDrawerOpen(false)}>Cancel</Button>
-            <Button size="sm" variant="contained" color="primary" onClick={handleSaveTDS} disabled={saving}>
-              {saving ? 'Saving...' : 'Save'}
-            </Button>
-          </Box>
+          <TextField
+            size="small"
+            label="Description"
+            required
+            fullWidth
+            value={tdsForm.description}
+            onChange={e => setTdsForm(f => ({ ...f, description: e.target.value }))}
+          />
         </Box>
-      </Drawer>
+      </Modal>
     </Box>
   )
 }

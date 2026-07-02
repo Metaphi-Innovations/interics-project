@@ -23,7 +23,6 @@ import { usersApi } from '@/api/usersApi'
 import type { UserPermissions } from '@/types/permissions'
 import { cloneUserPermissions, makeEmptyUserPermissions } from '@/types/permissions'
 import { MODULE_DEFS, RolePermissionsPanel } from './components/RolePermissionsPanel'
-import { UserManagementLayout } from './components/UserManagementLayout'
 
 interface FormState {
   name: string
@@ -207,27 +206,25 @@ export default function UserFormPage() {
 
   if (!isCreate && loadUserState === 'loading') {
     return (
-      <UserManagementLayout>
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
-          <CircularProgress size={32} />
-        </Box>
-      </UserManagementLayout>
+      <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
+        <CircularProgress size={32} />
+      </Box>
     )
   }
 
   if (!isCreate && loadUserState === 'error') {
     return (
-      <UserManagementLayout>
+      <Stack gap={2}>
         <Typography color="error">User not found.</Typography>
         <Button variant="outlined" color="secondary" size="sm" onClick={handleCancel} sx={{ mt: 2 }}>
           Back to Users
         </Button>
-      </UserManagementLayout>
+      </Stack>
     )
   }
 
   return (
-    <UserManagementLayout>
+    <>
       <PageHeader
         breadcrumb={[
           { label: 'User Management', href: '/user-management/users' },
@@ -379,6 +376,6 @@ export default function UserFormPage() {
           </Box>
         </Stack>
       </Box>
-    </UserManagementLayout>
+    </>
   )
 }

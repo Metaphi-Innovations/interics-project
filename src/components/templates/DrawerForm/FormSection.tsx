@@ -1,6 +1,9 @@
 import type { ReactNode } from 'react'
 import { Box, Divider } from '@mui/material'
 import { Typography } from '@mui/material'
+import { TREND_COLORS } from '@/design-system/tokens'
+
+const SECTION_TITLE_COLOR = TREND_COLORS.neutral.color
 
 interface FormSectionProps {
   title: string
@@ -29,7 +32,7 @@ export function FormSection({
             fontSize: '10px',
             fontWeight: 600,
             letterSpacing: '0.8px',
-            color: 'text.secondary',
+            color: SECTION_TITLE_COLOR,
             textTransform: 'uppercase',
             mb: '12px',
           }}

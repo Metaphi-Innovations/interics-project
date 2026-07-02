@@ -1,6 +1,7 @@
 import { Box, Grid, Stack, Typography } from '@mui/material'
 import { FormField } from '@/components/templates'
 import { Button, Modal } from '@/design-system/components'
+import { TREND_COLORS } from '@/design-system/tokens'
 import type { Vendor } from '@/slices/vendors/reducer'
 import { formatDate } from '@/utils/formatters'
 
@@ -15,7 +16,7 @@ const SECTION_TITLE_SX = {
   fontSize: 10,
   fontWeight: 600,
   letterSpacing: '0.8px',
-  color: 'text.secondary',
+  color: TREND_COLORS.neutral.color,
   textTransform: 'uppercase' as const,
   display: 'block',
   mb: 1.5,
