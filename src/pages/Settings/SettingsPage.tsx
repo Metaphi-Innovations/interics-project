@@ -158,7 +158,7 @@ export default function SettingsPage() {
           p: 3,
         }}
       >
-        <Box sx={{ maxWidth: 860, width: '100%' }}>
+        <Box sx={{ width: '100%' }}>
           {activeSection === 'general' && <GeneralSettingsSection />}
           {activeSection === 'tax' && <TaxConfigSection />}
           {activeSection === 'sac' && <SACCodesSection />}

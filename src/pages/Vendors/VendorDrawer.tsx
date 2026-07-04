@@ -250,6 +250,7 @@ export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: Vendo
       rating: vendor?.rating ?? null,
       activeProjects: vendor?.activeProjects ?? 0,
       totalPayables: vendor?.totalPayables ?? 0,
+      ...(mode === 'add' ? { profileStatus: 'complete' as const } : {}),
       ...(wasPending ? { profileStatus: 'complete' as const } : {}),
       ...(documents ? { documents } : {}),
     }
@@ -258,6 +259,7 @@ export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: Vendo
       if (mode === 'add') {
         await dispatch(createVendor(payload)).unwrap()
         showToast({ title: 'Vendor saved', variant: 'success' })
+        onCompleted?.()
       } else {
         await dispatch(updateVendor({ id: vendor!.id, data: payload })).unwrap()
         if (wasPending) {
@@ -281,12 +283,13 @@ export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: Vendo
       onClose={onClose}
       title={mode === 'add' ? 'Add Vendor' : completingPending ? 'Update Vendor' : 'Edit Vendor'}
       subtitle={
-        completingPending
+        mode === 'add' || completingPending
           ? 'Complete the remaining vendor details'
           : 'Fill in vendor details and tax information'
       }
       onSubmit={handleSubmit}
-      submitLabel={mode === 'add' ? 'Save Vendor' : 'Update Vendor'}
+      submitLabel={mode === 'add' ? 'Save' : 'Update Vendor'}
+      cancelLabel="Cancel"
       submitLoading={saving}
     >
       <FormSection title="Vendor Details" columns={2} divider={false}>

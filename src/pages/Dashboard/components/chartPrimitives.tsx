@@ -126,6 +126,7 @@ export function DonutChartBlock({
           p: 0,
           display: 'flex',
           flexDirection: 'column',
+          alignItems: 'flex-start',
           justifyContent: 'center',
           gap: 1,
           minWidth: 0,

@@ -39,6 +39,7 @@ import { CustomerDrawer } from './CustomerDrawer'
 import { ContactDrawer } from '../../components/ContactDrawer'
 import { StatusBadge, useToast, Button } from '@/design-system/components'
 import type { StatusType } from '@/design-system/components'
+import { PODocumentLinkField } from '@/components/documents/PODocumentLinkField'
 import {
   getInitials,
   getAvatarColor,
@@ -62,7 +63,6 @@ import {
   filterActivityLog,
   getActivityTimelineVisual,
   formatActivityTimestamp,
-  RecordDetailTaxDocCard,
 } from '../workspace/recordDetailTabUtils'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -210,10 +210,6 @@ export default function CustomerDetailPage() {
     }
   }
 
-  function openTaxDocument(url: string) {
-    window.open(url, '_blank', 'noopener,noreferrer')
-  }
-
   // ── Contact actions ─────────────────────────────────────────────────────────
 
   async function persistContacts(nextContacts: Contact[]) {
@@ -290,47 +286,6 @@ export default function CustomerDetailPage() {
     { label: 'Activity', value: 'activity' },
   ]
 
-  function renderDocumentsAndTax() {
-    const onCopy = () => showToast({ title: 'Copied to clipboard', variant: 'success' })
-    return (
-      <Box
-        sx={{
-          display: 'grid',
-          gap: theme.spacing(1.5),
-          gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
-          alignItems: 'start',
-        }}
-      >
-        <RecordDetailTaxDocCard
-          variant="gst"
-          title="GST Registration"
-          statusChip={{
-            label: customer!.gstStatus,
-            isRegistered: customer!.gstStatus === 'Registered',
-          }}
-          fieldLabel="GSTIN"
-          fieldValue={customer!.gstin}
-          document={customer!.gstDocument ?? null}
-          emptyDocMessage="No document uploaded"
-          onView={openTaxDocument}
-          onDownload={openTaxDocument}
-          onCopySuccess={onCopy}
-        />
-        <RecordDetailTaxDocCard
-          variant="pan"
-          title="PAN / Income Tax"
-          fieldLabel="PAN Number"
-          fieldValue={customer!.pan}
-          document={customer!.panDocument ?? null}
-          emptyDocMessage="No document uploaded"
-          onView={openTaxDocument}
-          onDownload={openTaxDocument}
-          onCopySuccess={onCopy}
-        />
-      </Box>
-    )
-  }
-
   // ── renderOverview ─────────────────────────────────────────────────────────
 
   function renderOverview() {
@@ -395,34 +350,6 @@ export default function CustomerDetailPage() {
                 {customer!.gstStatus}
               </Box>
             </LabelValue>
-            <LabelValue label="GSTIN">
-              <Typography
-                variant="body2"
-                sx={{
-                  fontFamily: mono,
-                  letterSpacing: '0.5px',
-                  color: 'text.primary',
-                  fontWeight: 500,
-                  fontSize: theme.typography.body2.fontSize,
-                }}
-              >
-                {customer!.gstin ?? '—'}
-              </Typography>
-            </LabelValue>
-            <LabelValue label="PAN">
-              <Typography
-                variant="body2"
-                sx={{
-                  fontFamily: mono,
-                  letterSpacing: '0.5px',
-                  color: 'text.primary',
-                  fontWeight: 500,
-                  fontSize: theme.typography.body2.fontSize,
-                }}
-              >
-                {customer!.pan ?? '—'}
-              </Typography>
-            </LabelValue>
             <LabelValue label="City">
               <Typography variant="body2" sx={{ color: 'text.primary', fontWeight: 500, fontSize: theme.typography.body2.fontSize }}>
                 {customer!.city || '—'}
@@ -441,10 +368,86 @@ export default function CustomerDetailPage() {
           </Box>
         </Box>
 
-        <Box sx={getRecordDetailFlatSectionSx(theme, { isLast: false })}>
-          <RecordDetailSectionTitle>Documents & Tax</RecordDetailSectionTitle>
-          {renderDocumentsAndTax()}
-        </Box>
+        {customer!.gstDocument ||
+        customer!.panDocument ||
+        customer!.gstin ||
+        customer!.pan ? (
+          <Box sx={getRecordDetailFlatSectionSx(theme, { isLast: false })}>
+            <RecordDetailSectionTitle>Documents</RecordDetailSectionTitle>
+            <Box
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
+                gap: theme.spacing(2),
+              }}
+            >
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: theme.spacing(1.5) }}>
+                {customer!.gstDocument ? (
+                  <PODocumentLinkField
+                    label="GST document"
+                    fileName={customer!.gstDocument.name}
+                    documentUrl={customer!.gstDocument.url}
+                    onOpenFailed={() =>
+                      showToast({ title: 'Unable to open document', variant: 'error' })
+                    }
+                  />
+                ) : null}
+                <Typography
+                  variant="body2"
+                  sx={{
+                    letterSpacing: '0.5px',
+                    color: 'text.primary',
+                    fontWeight: 500,
+                    fontSize: theme.typography.body2.fontSize,
+                  }}
+                >
+                  {customer!.gstin ? (
+                    <>
+                      GSTIN -{' '}
+                      <Box component="span" sx={{ fontFamily: mono }}>
+                        {customer!.gstin}
+                      </Box>
+                    </>
+                  ) : (
+                    '—'
+                  )}
+                </Typography>
+              </Box>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: theme.spacing(1.5) }}>
+                {customer!.panDocument ? (
+                  <PODocumentLinkField
+                    label="PAN document"
+                    fileName={customer!.panDocument.name}
+                    documentUrl={customer!.panDocument.url}
+                    onOpenFailed={() =>
+                      showToast({ title: 'Unable to open document', variant: 'error' })
+                    }
+                  />
+                ) : null}
+                <Typography
+                  variant="body2"
+                  sx={{
+                    letterSpacing: '0.5px',
+                    color: 'text.primary',
+                    fontWeight: 500,
+                    fontSize: theme.typography.body2.fontSize,
+                  }}
+                >
+                  {customer!.pan ? (
+                    <>
+                      PAN -{' '}
+                      <Box component="span" sx={{ fontFamily: mono }}>
+                        {customer!.pan}
+                      </Box>
+                    </>
+                  ) : (
+                    '—'
+                  )}
+                </Typography>
+              </Box>
+            </Box>
+          </Box>
+        ) : null}
 
         <Box sx={getRecordDetailFlatSectionSx(theme, { isLast: false })}>
           <RecordDetailSectionTitle>Address & location</RecordDetailSectionTitle>

@@ -1,11 +1,11 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Box, Typography, TextField, MenuItem, Divider } from '@mui/material'
 import { Edit, Upload } from '@mui/icons-material'
-import { Button } from '@/design-system/components'
+import { Button, useToast } from '@/design-system/components'
+import { tokens } from '@/design-system/tokens'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { updateCompanyProfile } from '@/slices/settings/thunk'
 import type { CompanyProfile } from '@/slices/settings/reducer'
-import { useToast } from '@/design-system/components'
 
 interface FieldErrors {
   gstin?: string
@@ -31,7 +31,6 @@ function LabelValue({ label, value }: { label: string; value: string }) {
       sx={{
         py: 1.5,
         px: 2,
-        borderBottom: '1px solid #F0F0F0',
         display: 'flex',
         flexDirection: 'column',
         gap: 0.25,
@@ -60,7 +59,38 @@ function GroupTitle({ label }: { label: string }) {
       >
         {label}
       </Typography>
-      <Divider sx={{ mt: 0.5 }} />
+    </Box>
+  )
+}
+
+function SectionDivider() {
+  return <Divider sx={{ gridColumn: '1 / -1', my: 1 }} />
+}
+
+function CompanyDetailsContainer({ children }: { children: ReactNode }) {
+  return (
+    <Box
+      sx={{
+        border: '1px solid',
+        borderColor: 'divider',
+        borderRadius: 2,
+        overflow: 'hidden',
+      }}
+    >
+      <Box
+        sx={{
+          px: 2,
+          py: 1.5,
+          borderBottom: '1px solid',
+          borderColor: 'divider',
+          bgcolor: tokens.color.neutral[50],
+        }}
+      >
+        <Typography variant="subtitle2" sx={{ fontSize: 13, fontWeight: 600 }}>
+          Company details
+        </Typography>
+      </Box>
+      {children}
     </Box>
   )
 }
@@ -160,7 +190,7 @@ export default function GeneralSettingsSection() {
       {!isEditing && (
         <Box>
           {/* Logo */}
-          <Box sx={{ px: 2, pb: 2, borderBottom: '1px solid #F0F0F0' }}>
+          <Box sx={{ px: 2, pb: 2 }}>
             <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', fontSize: 10, fontWeight: 600, letterSpacing: '0.5px', display: 'block', mb: 1 }}>
               COMPANY LOGO
             </Typography>
@@ -173,25 +203,31 @@ export default function GeneralSettingsSection() {
             )}
           </Box>
 
-          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0 }}>
-            <GroupTitle label="Company Identity" />
-            <LabelValue label="Company Name" value={companyProfile.companyName} />
-            <LabelValue label="GSTIN" value={companyProfile.gstin} />
-            <LabelValue label="PAN" value={companyProfile.pan} />
-            <LabelValue label="Company Type" value={companyTypeLabel} />
+          <CompanyDetailsContainer>
+            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0 }}>
+              <GroupTitle label="Company Identity" />
+              <LabelValue label="Company Name" value={companyProfile.companyName} />
+              <LabelValue label="GSTIN" value={companyProfile.gstin} />
+              <LabelValue label="PAN" value={companyProfile.pan} />
+              <LabelValue label="Company Type" value={companyTypeLabel} />
 
-            <GroupTitle label="Contact" />
-            <LabelValue label="Email" value={companyProfile.email} />
-            <LabelValue label="Phone" value={companyProfile.phone} />
-            <LabelValue label="Website" value={companyProfile.website} />
+              <SectionDivider />
 
-            <GroupTitle label="Address" />
-            <LabelValue label="Address Line 1" value={companyProfile.addressLine1} />
-            <LabelValue label="Address Line 2" value={companyProfile.addressLine2} />
-            <LabelValue label="City" value={companyProfile.city} />
-            <LabelValue label="State" value={companyProfile.state} />
-            <LabelValue label="Pincode" value={companyProfile.pincode} />
-          </Box>
+              <GroupTitle label="Contact" />
+              <LabelValue label="Email" value={companyProfile.email} />
+              <LabelValue label="Phone" value={companyProfile.phone} />
+              <LabelValue label="Website" value={companyProfile.website} />
+
+              <SectionDivider />
+
+              <GroupTitle label="Address" />
+              <LabelValue label="Address Line 1" value={companyProfile.addressLine1} />
+              <LabelValue label="Address Line 2" value={companyProfile.addressLine2} />
+              <LabelValue label="City" value={companyProfile.city} />
+              <LabelValue label="State" value={companyProfile.state} />
+              <LabelValue label="Pincode" value={companyProfile.pincode} />
+            </Box>
+          </CompanyDetailsContainer>
         </Box>
       )}
 
@@ -199,7 +235,7 @@ export default function GeneralSettingsSection() {
       {isEditing && (
         <Box>
           {/* Logo upload */}
-          <Box sx={{ px: 2, pb: 2, borderBottom: '1px solid #F0F0F0', mb: 1 }}>
+          <Box sx={{ px: 2, pb: 2, mb: 1 }}>
             <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', fontSize: 10, fontWeight: 600, letterSpacing: '0.5px', display: 'block', mb: 1 }}>
               COMPANY LOGO
             </Typography>
@@ -229,90 +265,96 @@ export default function GeneralSettingsSection() {
             )}
           </Box>
 
-          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, p: 2 }}>
-            <GroupTitle label="Company Identity" />
-            <TextField size="small" label="Company Name" {...field('companyName')} />
-            <TextField
-              size="small"
-              label="GSTIN"
-              {...field('gstin')}
-              error={!!errors.gstin}
-              helperText={errors.gstin}
-              onBlur={() => {
-                if (editForm.gstin && !GSTIN_REGEX.test(editForm.gstin)) {
-                  setErrors(e => ({ ...e, gstin: 'Invalid GSTIN format' }))
-                } else {
-                  setErrors(e => ({ ...e, gstin: undefined }))
-                }
-              }}
-            />
-            <TextField
-              size="small"
-              label="PAN"
-              {...field('pan')}
-              error={!!errors.pan}
-              helperText={errors.pan}
-              onBlur={() => {
-                if (editForm.pan && !PAN_REGEX.test(editForm.pan)) {
-                  setErrors(e => ({ ...e, pan: 'Invalid PAN (e.g. ABCDE1234F)' }))
-                } else {
-                  setErrors(e => ({ ...e, pan: undefined }))
-                }
-              }}
-            />
-            <TextField
-              select
-              size="small"
-              label="Company Type"
-              value={editForm.companyType}
-              onChange={e => setEditForm(prev => ({ ...prev, companyType: e.target.value as CompanyProfile['companyType'] }))}
-            >
-              {COMPANY_TYPE_OPTIONS.map(o => (
-                <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>
-              ))}
-            </TextField>
+          <CompanyDetailsContainer>
+            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, p: 2 }}>
+              <GroupTitle label="Company Identity" />
+              <TextField size="small" label="Company Name" {...field('companyName')} />
+              <TextField
+                size="small"
+                label="GSTIN"
+                {...field('gstin')}
+                error={!!errors.gstin}
+                helperText={errors.gstin}
+                onBlur={() => {
+                  if (editForm.gstin && !GSTIN_REGEX.test(editForm.gstin)) {
+                    setErrors(e => ({ ...e, gstin: 'Invalid GSTIN format' }))
+                  } else {
+                    setErrors(e => ({ ...e, gstin: undefined }))
+                  }
+                }}
+              />
+              <TextField
+                size="small"
+                label="PAN"
+                {...field('pan')}
+                error={!!errors.pan}
+                helperText={errors.pan}
+                onBlur={() => {
+                  if (editForm.pan && !PAN_REGEX.test(editForm.pan)) {
+                    setErrors(e => ({ ...e, pan: 'Invalid PAN (e.g. ABCDE1234F)' }))
+                  } else {
+                    setErrors(e => ({ ...e, pan: undefined }))
+                  }
+                }}
+              />
+              <TextField
+                select
+                size="small"
+                label="Company Type"
+                value={editForm.companyType}
+                onChange={e => setEditForm(prev => ({ ...prev, companyType: e.target.value as CompanyProfile['companyType'] }))}
+              >
+                {COMPANY_TYPE_OPTIONS.map(o => (
+                  <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>
+                ))}
+              </TextField>
 
-            <GroupTitle label="Contact" />
-            <TextField
-              size="small"
-              label="Email"
-              {...field('email')}
-              error={!!errors.email}
-              helperText={errors.email}
-              onBlur={() => {
-                if (editForm.email && !EMAIL_REGEX.test(editForm.email)) {
-                  setErrors(e => ({ ...e, email: 'Invalid email address' }))
-                } else {
-                  setErrors(e => ({ ...e, email: undefined }))
-                }
-              }}
-            />
-            <TextField size="small" label="Phone" {...field('phone')} />
-            <TextField size="small" label="Website" {...field('website')} sx={{ gridColumn: '1 / -1' }} />
+              <SectionDivider />
 
-            <GroupTitle label="Address" />
-            <TextField size="small" label="Address Line 1" {...field('addressLine1')} sx={{ gridColumn: '1 / -1' }} />
-            <TextField size="small" label="Address Line 2" {...field('addressLine2')} sx={{ gridColumn: '1 / -1' }} />
-            <TextField size="small" label="City" {...field('city')} />
-            <TextField size="small" label="State" {...field('state')} />
-            <TextField
-              size="small"
-              label="Pincode"
-              {...field('pincode')}
-              error={!!errors.pincode}
-              helperText={errors.pincode}
-              onBlur={() => {
-                if (editForm.pincode && !/^\d{6}$/.test(editForm.pincode)) {
-                  setErrors(e => ({ ...e, pincode: 'Pincode must be 6 digits' }))
-                } else {
-                  setErrors(e => ({ ...e, pincode: undefined }))
-                }
-              }}
-            />
-          </Box>
+              <GroupTitle label="Contact" />
+              <TextField
+                size="small"
+                label="Email"
+                {...field('email')}
+                error={!!errors.email}
+                helperText={errors.email}
+                onBlur={() => {
+                  if (editForm.email && !EMAIL_REGEX.test(editForm.email)) {
+                    setErrors(e => ({ ...e, email: 'Invalid email address' }))
+                  } else {
+                    setErrors(e => ({ ...e, email: undefined }))
+                  }
+                }}
+              />
+              <TextField size="small" label="Phone" {...field('phone')} />
+              <TextField size="small" label="Website" {...field('website')} sx={{ gridColumn: '1 / -1' }} />
+
+              <SectionDivider />
+
+              <GroupTitle label="Address" />
+              <TextField size="small" label="Address Line 1" {...field('addressLine1')} sx={{ gridColumn: '1 / -1' }} />
+              <TextField size="small" label="Address Line 2" {...field('addressLine2')} sx={{ gridColumn: '1 / -1' }} />
+              <TextField size="small" label="City" {...field('city')} />
+              <TextField size="small" label="State" {...field('state')} />
+              <TextField
+                size="small"
+                label="Pincode"
+                {...field('pincode')}
+                error={!!errors.pincode}
+                helperText={errors.pincode}
+                onBlur={() => {
+                  if (editForm.pincode && !/^\d{6}$/.test(editForm.pincode)) {
+                    setErrors(e => ({ ...e, pincode: 'Pincode must be 6 digits' }))
+                  } else {
+                    setErrors(e => ({ ...e, pincode: undefined }))
+                  }
+                }}
+              />
+            </Box>
+          </CompanyDetailsContainer>
 
           {/* Footer */}
-          <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, pt: 2, mt: 2, borderTop: '1px solid #F0F0F0' }}>
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, pt: 2, mt: 2 }}>
             <Button size="sm" variant="outlined" color="secondary" onClick={handleCancel}>Cancel</Button>
             <Button size="sm" variant="contained" color="primary" onClick={handleSave} disabled={saving}>
               {saving ? 'Saving...' : 'Save Changes'}

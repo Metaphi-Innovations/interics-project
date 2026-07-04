@@ -69,7 +69,7 @@ export default function Modal({
       fullScreen={isFullscreen}
       disableEscapeKeyDown={disableEscapeKey}
       maxWidth={false}
-      fullWidth={!isFullscreen}
+      fullWidth={isFullscreen}
       slots={isXs ? { transition: Slide } : undefined}
       slotProps={{
         ...(isXs
@@ -101,6 +101,7 @@ export default function Modal({
       sx={{
         '& .MuiDialog-container': {
           alignItems: isXs ? 'flex-end' : 'center',
+          justifyContent: 'center',
         },
       }}
     >

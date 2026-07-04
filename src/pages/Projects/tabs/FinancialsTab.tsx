@@ -398,27 +398,27 @@ export default function FinancialsTab({ project }: FinancialsTabProps) {
 
   const summaryMetrics: Array<{
     label: string
-    highlight: boolean
+    valueColor: string
     renderValue: () => ReactNode
   }> = [
     {
       label: 'REVENUE',
-      highlight: false,
+      valueColor: 'primary.main',
       renderValue: () => formatCurrency(revenue),
     },
     {
       label: 'COST',
-      highlight: false,
+      valueColor: 'warning.main',
       renderValue: () => formatCurrency(cost),
     },
     {
       label: 'GROSS PROFIT',
-      highlight: grossProfit < 0,
+      valueColor: grossProfit < 0 ? 'error.main' : 'success.main',
       renderValue: () => formatCurrency(grossProfit),
     },
     {
       label: 'MARGIN %',
-      highlight: false,
+      valueColor: marginPct < 0 ? 'error.main' : 'success.main',
       renderValue: () => `${marginPct.toFixed(1)}%`,
     },
   ]
@@ -556,14 +556,14 @@ export default function FinancialsTab({ project }: FinancialsTabProps) {
                 fontWeight: 700,
                 fontSize: 15,
                 mt: '1px',
-                color: metric.highlight ? 'error.main' : 'text.primary',
+                color: metric.valueColor,
               }}
             >
               {metric.label === 'MARGIN %' ? (
                 metric.renderValue()
               ) : (
                 <>
-                  <Box component="span" sx={{ fontSize: 12, fontWeight: 400, color: 'text.secondary' }}>
+                  <Box component="span" sx={{ fontSize: 12, fontWeight: 400, opacity: 0.85 }}>
                     ₹
                   </Box>
                   {metric.renderValue()}

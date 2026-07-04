@@ -1,4 +1,5 @@
 import { Box, Card, Typography } from '@mui/material'
+import type { SxProps, Theme } from '@mui/material/styles'
 import type { ReactNode } from 'react'
 import { tokens } from '@/design-system/tokens'
 
@@ -8,6 +9,7 @@ interface WorkspaceSectionProps {
   action?: ReactNode
   children: ReactNode
   noPadding?: boolean
+  sx?: SxProps<Theme>
 }
 
 export function WorkspaceSection({
@@ -16,6 +18,7 @@ export function WorkspaceSection({
   action,
   children,
   noPadding = false,
+  sx,
 }: WorkspaceSectionProps) {
   return (
     <Card
@@ -25,6 +28,7 @@ export function WorkspaceSection({
         border: '1px solid #E8EEEC',
         boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
         borderRadius: '10px',
+        ...sx,
       }}
     >
       {title && (

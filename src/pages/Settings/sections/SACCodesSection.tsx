@@ -1,20 +1,29 @@
 import { useState, useEffect } from 'react'
 import {
   Box, Typography, TextField, Chip,
-  Table, TableHead, TableRow, TableCell, TableBody,
-  Drawer, MenuItem, IconButton,
+  Table, TableHead, TableRow, TableCell, TableBody, TableContainer,
+  MenuItem, IconButton,
 } from '@mui/material'
 import { Edit, ToggleOff, ToggleOn } from '@mui/icons-material'
 import { Plus } from 'lucide-react'
-import { Button } from '@/design-system/components'
-import { StatusBadge } from '@/design-system/components'
+import { Button, Modal, StatusBadge, useToast } from '@/design-system/components'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import {
   fetchSACCodes, createSACCode, updateSACCode, toggleSACCodeStatus,
   fetchGSTRates,
 } from '@/slices/settings/thunk'
 import type { SACCode } from '@/slices/settings/reducer'
-import { useToast } from '@/design-system/components'
+import {
+  SETTINGS_TABLE_CELL_ACTION_SX,
+  SETTINGS_TABLE_CELL_SX,
+  SETTINGS_TABLE_HEADER_ACTION_SX,
+  SETTINGS_TABLE_HEADER_CELL_SX,
+  SETTINGS_TABLE_SX,
+  settingsDataColWidth,
+} from '../components/settingsTableStyles'
+
+const SAC_DATA_COL_COUNT = 4
+const sacDataColWidth = settingsDataColWidth(SAC_DATA_COL_COUNT)
 
 type SACForm = Omit<SACCode, 'id' | 'gstRate'>
 
@@ -98,14 +107,22 @@ export default function SACCodesSection() {
         sx={{ width: 280, mb: 2 }}
       />
 
-      <Table size="small">
+      <TableContainer sx={{ width: '100%' }}>
+      <Table size="small" sx={SETTINGS_TABLE_SX}>
+        <colgroup>
+          <col style={{ width: sacDataColWidth }} />
+          <col style={{ width: sacDataColWidth }} />
+          <col style={{ width: sacDataColWidth }} />
+          <col style={{ width: sacDataColWidth }} />
+          <col style={{ width: SETTINGS_TABLE_CELL_ACTION_SX.width }} />
+        </colgroup>
         <TableHead>
           <TableRow sx={{ bgcolor: '#F8FAFB' }}>
-            <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', width: 120 }}>SAC Code</TableCell>
-            <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary' }}>Description</TableCell>
-            <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', width: 160 }}>GST Rate (linked)</TableCell>
-            <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', width: 100 }}>Status</TableCell>
-            <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', width: 80 }}>Actions</TableCell>
+            <TableCell sx={SETTINGS_TABLE_HEADER_CELL_SX}>SAC Code</TableCell>
+            <TableCell sx={SETTINGS_TABLE_HEADER_CELL_SX}>Description</TableCell>
+            <TableCell sx={SETTINGS_TABLE_HEADER_CELL_SX}>GST Rate (linked)</TableCell>
+            <TableCell sx={SETTINGS_TABLE_HEADER_CELL_SX}>Status</TableCell>
+            <TableCell sx={SETTINGS_TABLE_HEADER_ACTION_SX}>Actions</TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
@@ -113,9 +130,9 @@ export default function SACCodesSection() {
             const linkedGST = gstRates.find(g => g.id === row.gstRateId)
             return (
               <TableRow key={row.id} sx={{ height: 44 }}>
-                <TableCell sx={{ fontSize: 12, fontWeight: 600, fontFamily: 'monospace' }}>{row.code}</TableCell>
-                <TableCell sx={{ fontSize: 12 }}>{row.description}</TableCell>
-                <TableCell>
+                <TableCell sx={{ ...SETTINGS_TABLE_CELL_SX, fontWeight: 600, fontFamily: 'monospace' }}>{row.code}</TableCell>
+                <TableCell sx={SETTINGS_TABLE_CELL_SX}>{row.description}</TableCell>
+                <TableCell sx={SETTINGS_TABLE_CELL_SX}>
                   <Box display="flex" alignItems="center" gap={0.5}>
                     <Chip
                       label={`${row.gstRate ?? linkedGST?.rate ?? 0}%`}
@@ -127,10 +144,10 @@ export default function SACCodesSection() {
                     </Typography>
                   </Box>
                 </TableCell>
-                <TableCell>
+                <TableCell sx={SETTINGS_TABLE_CELL_SX}>
                   <StatusBadge status={row.status} />
                 </TableCell>
-                <TableCell>
+                <TableCell sx={SETTINGS_TABLE_CELL_ACTION_SX}>
                   <IconButton size="small" onClick={() => openEdit(row)}>
                     <Edit sx={{ fontSize: 14 }} />
                   </IconButton>
@@ -145,40 +162,47 @@ export default function SACCodesSection() {
           })}
         </TableBody>
       </Table>
+      </TableContainer>
 
-      {/* Drawer */}
-      <Drawer anchor="right" open={drawerOpen} onClose={() => setDrawerOpen(false)}>
-        <Box sx={{ width: 440, p: 3 }}>
-          <Typography variant="h6" fontWeight={600} mb={3}>
-            {editingRow ? 'Edit SAC Code' : 'Add SAC Code'}
-          </Typography>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <TextField
-              size="small"
-              label="SAC Code"
-              required
-              placeholder="e.g. 998391"
-              inputProps={{ maxLength: 6 }}
-              value={form.code}
-              onChange={e => { setForm(f => ({ ...f, code: e.target.value })); setCodeError('') }}
-              error={!!codeError}
-              helperText={codeError}
-            />
-            <TextField
-              size="small"
-              label="Description"
-              required
-              placeholder="e.g. Interior Design Services"
-              value={form.description}
-              onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
-            />
+      <Modal
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        title={editingRow ? 'Edit SAC Code' : 'Add SAC Code'}
+        size="sm"
+        footer={
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
+            <Button size="sm" variant="outlined" color="secondary" onClick={() => setDrawerOpen(false)}>
+              Cancel
+            </Button>
+            <Button size="sm" variant="contained" color="primary" onClick={handleSave} disabled={saving}>
+              {saving ? 'Saving...' : 'Save'}
+            </Button>
+          </Box>
+        }
+      >
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <TextField
+            size="small"
+            label="SAC Code"
+            required
+            fullWidth
+            placeholder="e.g. 998391"
+            inputProps={{ maxLength: 6 }}
+            value={form.code}
+            onChange={e => { setForm(f => ({ ...f, code: e.target.value })); setCodeError('') }}
+            error={!!codeError}
+            helperText={codeError}
+          />
+          <Box sx={{ display: 'flex', gap: 2 }}>
             <TextField
               select
               size="small"
               label="GST Rate"
               required
+              fullWidth
               value={form.gstRateId}
               onChange={e => setForm(f => ({ ...f, gstRateId: e.target.value }))}
+              sx={{ flex: 1, minWidth: 0 }}
             >
               {activeGST.map(g => (
                 <MenuItem key={g.id} value={g.id}>{g.slabName} ({g.rate}%)</MenuItem>
@@ -188,21 +212,26 @@ export default function SACCodesSection() {
               select
               size="small"
               label="Status"
+              fullWidth
               value={form.status}
               onChange={e => setForm(f => ({ ...f, status: e.target.value as SACCode['status'] }))}
+              sx={{ flex: 1, minWidth: 0 }}
             >
               <MenuItem value="active">Active</MenuItem>
               <MenuItem value="inactive">Inactive</MenuItem>
             </TextField>
           </Box>
-          <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, mt: 4 }}>
-            <Button size="sm" variant="outlined" color="secondary" onClick={() => setDrawerOpen(false)}>Cancel</Button>
-            <Button size="sm" variant="contained" color="primary" onClick={handleSave} disabled={saving}>
-              {saving ? 'Saving...' : 'Save'}
-            </Button>
-          </Box>
+          <TextField
+            size="small"
+            label="Description"
+            required
+            fullWidth
+            placeholder="e.g. Interior Design Services"
+            value={form.description}
+            onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+          />
         </Box>
-      </Drawer>
+      </Modal>
     </Box>
   )
 }

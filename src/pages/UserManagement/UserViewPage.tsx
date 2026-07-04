@@ -9,11 +9,11 @@ import {
   TableBody,
   TableRow,
   TableCell,
+  TableContainer,
   Chip as MuiChip,
   CircularProgress,
-  IconButton as MuiIconButton,
 } from '@mui/material'
-import { ArrowLeft } from 'lucide-react'
+import { useTheme, alpha } from '@mui/material/styles'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { fetchUsers } from '@/slices/users/thunk'
 import { fetchRoles } from '@/slices/roles/thunk'
@@ -23,12 +23,11 @@ import { MODULE_CRUD_ACTIONS } from '@/types/permissions'
 import { FormSection, FormField } from '@/components/templates'
 import PageHeader from '@/components/layout/PageHeader'
 import { Button, StatusBadge } from '@/design-system/components'
-import { tokens } from '@/design-system/tokens'
+import { tokens, TREND_COLORS } from '@/design-system/tokens'
 import { usersApi } from '@/api/usersApi'
 import client from '@/api/client'
 import type { ProjectOption } from './projectOption'
 import { MODULE_DEFS } from './components/RolePermissionsPanel'
-import { UserManagementLayout } from './components/UserManagementLayout'
 import { getRoleChip } from './userRoleChips'
 import { usePermission } from '@/hooks/usePermission'
 
@@ -39,7 +38,40 @@ const ACTION_LABELS: Record<ModuleCrudAction, string> = {
   delete: 'Delete',
 }
 
-const FULL_ACCESS_COLOR = '#0D9488'
+const FULL_ACCESS_COLOR = tokens.color.success[700]
+const FIELD_LABEL_COLOR = TREND_COLORS.neutral.color
+
+const TABLE_HEADER_SX = {
+  fontSize: 11,
+  fontWeight: 600,
+  color: FIELD_LABEL_COLOR,
+  py: 1,
+  px: 1.75,
+  borderBottom: `2px solid ${tokens.color.neutral[100]}`,
+  bgcolor: tokens.color.neutral[50],
+}
+
+const TABLE_CELL_SX = {
+  fontSize: 13,
+  py: 1.25,
+  px: 1.75,
+  verticalAlign: 'middle' as const,
+}
+
+function ReadOnlyValue({ value }: { value: string }) {
+  return (
+    <Typography
+      variant="body2"
+      sx={{
+        fontSize: 13,
+        fontWeight: 500,
+        color: value === '—' ? 'text.secondary' : 'text.primary',
+      }}
+    >
+      {value}
+    </Typography>
+  )
+}
 
 function PermissionActionsCell({ perms, modId }: { perms: UserPermissions; modId: UserPermissionModuleKey }) {
   const b = perms[modId]
@@ -71,6 +103,7 @@ export default function UserViewPage() {
   const navigate = useNavigate()
   const { id: userId } = useParams<{ id: string }>()
   const dispatch = useAppDispatch()
+  const theme = useTheme()
   const roles = useAppSelector((s) => s.roles.items ?? [])
   const canEdit = usePermission('userManagement', 'edit')
 
@@ -138,39 +171,27 @@ export default function UserViewPage() {
 
   if (loadState === 'loading') {
     return (
-      <UserManagementLayout>
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
-          <CircularProgress size={32} />
-        </Box>
-      </UserManagementLayout>
+      <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
+        <CircularProgress size={32} />
+      </Box>
     )
   }
 
   if (loadState === 'error' || !user) {
     return (
-      <UserManagementLayout>
+      <Stack gap={2}>
         <Typography color="error">User not found.</Typography>
-        <Button variant="outlined" color="secondary" size="sm" onClick={() => navigate('/user-management/users')} sx={{ mt: 2 }}>
+        <Button variant="outlined" color="secondary" size="sm" onClick={() => navigate('/user-management/users')}>
           Back to Users
         </Button>
-      </UserManagementLayout>
+      </Stack>
     )
   }
 
   return (
-    <UserManagementLayout>
-      <Stack direction="row" alignItems="center" sx={{ mb: 1 }}>
-        <MuiIconButton
-          aria-label="Back to users"
-          onClick={() => navigate('/user-management/users')}
-          size="small"
-          sx={{ color: 'text.secondary', mr: 0.5 }}
-        >
-          <ArrowLeft size={20} strokeWidth={1.75} />
-        </MuiIconButton>
-      </Stack>
-
+    <>
       <PageHeader
+        backHref="/user-management/users"
         breadcrumb={[
           { label: 'User Management', href: '/user-management/users' },
           { label: 'Users', href: '/user-management/users' },
@@ -201,81 +222,88 @@ export default function UserViewPage() {
           p: { xs: 2, md: 3 },
         }}
       >
-        <Stack direction={{ xs: 'column', md: 'row' }} gap={3} alignItems="flex-start">
-          <Box sx={{ width: { xs: 1, md: 400 }, flexShrink: 0 }}>
-            <FormSection title="Basic Info" columns={1} divider={false}>
+        <Stack direction={{ xs: 'column', lg: 'row' }} gap={3} alignItems="flex-start">
+          <Box sx={{ width: { xs: 1, lg: 420 }, flexShrink: 0 }}>
+            <FormSection title="Basic Info" columns={2} divider={false}>
               <FormField label="Full Name">
-                <Typography variant="body2" sx={{ fontSize: 13 }}>
-                  {user.name}
-                </Typography>
+                <ReadOnlyValue value={user.name} />
               </FormField>
               <FormField label="Email">
-                <Typography variant="body2" sx={{ fontSize: 13 }}>
-                  {user.email}
-                </Typography>
+                <ReadOnlyValue value={user.email} />
               </FormField>
               <FormField label="Phone">
-                <Typography variant="body2" sx={{ fontSize: 13, fontFamily: 'monospace' }}>
-                  {user.phone?.trim() ? user.phone : '—'}
-                </Typography>
+                <ReadOnlyValue value={user.phone?.trim() ? user.phone : '—'} />
               </FormField>
               <FormField label="Employee ID">
-                <Typography variant="body2" sx={{ fontSize: 13 }}>
-                  {user.employeeId?.trim() ? user.employeeId.trim() : '—'}
-                </Typography>
+                <ReadOnlyValue value={user.employeeId?.trim() ? user.employeeId.trim() : '—'} />
+              </FormField>
+              <FormField label="Role">
+                <MuiChip
+                  label={roleName}
+                  size="small"
+                  sx={{
+                    bgcolor: roleChip.bg,
+                    color: roleChip.color,
+                    fontSize: 11,
+                    height: 22,
+                    fontWeight: 600,
+                    '& .MuiChip-label': { px: 1 },
+                  }}
+                />
+              </FormField>
+              <FormField label="Status">
+                <StatusBadge status={user.status} />
               </FormField>
             </FormSection>
 
-            <FormSection title="Role" columns={1}>
-              <MuiChip
-                label={roleName}
-                size="small"
-                sx={{
-                  bgcolor: roleChip.bg,
-                  color: roleChip.color,
-                  fontSize: 11,
-                  height: 22,
-                  fontWeight: 600,
-                  '& .MuiChip-label': { px: 1 },
-                }}
-              />
-            </FormSection>
-
-            <FormSection title="Status" columns={1}>
-              <StatusBadge status={user.status} />
+            <FormSection title="Project Access" columns={1}>
+              <ReadOnlyValue value={projectAccessText} />
             </FormSection>
           </Box>
 
           <Box sx={{ flex: 1, minWidth: 0, width: '100%' }}>
             <FormSection title="Permissions" columns={1} divider={false}>
-              <Table size="small">
-                <TableHead>
-                  <TableRow>
-                    <TableCell sx={{ fontWeight: 700, fontSize: 11 }}>Module</TableCell>
-                    <TableCell sx={{ fontWeight: 700, fontSize: 11 }}>Actions granted</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {MODULE_DEFS.map((mod) => (
-                    <TableRow key={mod.id}>
-                      <TableCell sx={{ fontSize: 13, fontWeight: 600 }}>{mod.label}</TableCell>
-                      <TableCell>
-                        <PermissionActionsCell perms={user.permissions} modId={mod.id} />
-                      </TableCell>
+              <TableContainer
+                sx={{
+                  border: `1px solid ${tokens.color.neutral[100]}`,
+                  borderRadius: 2,
+                  overflow: 'hidden',
+                }}
+              >
+                <Table size="small" sx={{ tableLayout: 'fixed', width: '100%' }}>
+                  <colgroup>
+                    <col style={{ width: '40%' }} />
+                    <col style={{ width: '60%' }} />
+                  </colgroup>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell sx={TABLE_HEADER_SX}>Module</TableCell>
+                      <TableCell sx={TABLE_HEADER_SX}>Actions Granted</TableCell>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </FormSection>
-
-            <FormSection title="Project Access" columns={1}>
-              <Typography variant="body2" sx={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>
-                {projectAccessText}
-              </Typography>
+                  </TableHead>
+                  <TableBody>
+                    {MODULE_DEFS.map((mod, index) => (
+                      <TableRow
+                        key={mod.id}
+                        sx={{
+                          '&:hover': { bgcolor: alpha(theme.palette.primary.main, 0.03) },
+                          '&:last-child td': { border: 0 },
+                          bgcolor: index % 2 === 0 ? 'background.paper' : tokens.color.neutral[50],
+                        }}
+                      >
+                        <TableCell sx={{ ...TABLE_CELL_SX, fontWeight: 600 }}>{mod.label}</TableCell>
+                        <TableCell sx={TABLE_CELL_SX}>
+                          <PermissionActionsCell perms={user.permissions} modId={mod.id} />
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
             </FormSection>
           </Box>
         </Stack>
       </Box>
-    </UserManagementLayout>
+    </>
   )
 }

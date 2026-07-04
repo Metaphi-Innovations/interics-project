@@ -1,11 +1,11 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, type ReactNode } from 'react'
 import { Box, Typography, TextField, MenuItem, Divider } from '@mui/material'
 import { Edit } from '@mui/icons-material'
-import { Button } from '@/design-system/components'
+import { Button, useToast } from '@/design-system/components'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { fetchSystemDefaults, updateSystemDefaults } from '@/slices/settings/thunk'
 import type { SystemDefaults } from '@/slices/settings/reducer'
-import { useToast } from '@/design-system/components'
+import { tokens, TREND_COLORS } from '@/design-system/tokens'
 
 interface SelectField {
   key: keyof SystemDefaults
@@ -91,8 +91,46 @@ const FIELDS: { group: string; fields: SelectField[] }[] = [
   },
 ]
 
+const FIELD_LABEL_COLOR = TREND_COLORS.neutral.color
+
+const FIELD_GRID_SX = {
+  display: 'grid',
+  gridTemplateColumns: {
+    xs: '1fr',
+    sm: 'repeat(2, minmax(0, 1fr))',
+    lg: 'repeat(3, minmax(0, 1fr))',
+  },
+  gap: 2,
+  alignItems: 'start',
+} as const
+
+function DefaultsFormField({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: '4px', width: '100%' }}>
+      <Typography
+        component="span"
+        variant="caption"
+        sx={{ fontWeight: 500, color: FIELD_LABEL_COLOR, fontSize: '11px' }}
+      >
+        {label}
+      </Typography>
+      {children}
+    </Box>
+  )
+}
+
 function getLabelForValue(field: SelectField, value: string | number): string {
   return field.options.find(o => o.value === value)?.label ?? String(value)
+}
+
+function updateFormValue(
+  key: keyof SystemDefaults,
+  rawValue: string,
+): string | number {
+  if (key === 'defaultPaginationSize' || key === 'autoArchiveDays') {
+    return Number(rawValue)
+  }
+  return rawValue
 }
 
 export default function SystemDefaultsSection() {
@@ -143,51 +181,59 @@ export default function SystemDefaultsSection() {
       <Box>
         {FIELDS.map(({ group, fields }) => (
           <Box key={group} sx={{ mb: 3 }}>
-            <Typography variant="caption" sx={{ fontSize: 10, fontWeight: 700, letterSpacing: '1px', color: '#107E68', textTransform: 'uppercase', display: 'block', mb: 0.5 }}>
+            <Typography
+              variant="caption"
+              sx={{
+                fontSize: 10,
+                fontWeight: 700,
+                letterSpacing: '1px',
+                color: FIELD_LABEL_COLOR,
+                textTransform: 'uppercase',
+                display: 'block',
+                mb: 0.5,
+              }}
+            >
               {group}
             </Typography>
-            <Divider sx={{ mb: 1.5 }} />
-            {isEditing ? (
-              <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
-                {fields.map(f => (
-                  <TextField
-                    key={f.key}
-                    select
-                    size="small"
-                    label={f.label}
-                    disabled={f.readOnly}
-                    value={form[f.key]}
-                    onChange={e => setForm(prev => ({ ...prev, [f.key]: e.target.value }))}
-                  >
-                    {f.options.map(o => (
-                      <MenuItem key={String(o.value)} value={o.value}>{o.label}</MenuItem>
-                    ))}
-                  </TextField>
-                ))}
-              </Box>
-            ) : (
-              <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0 }}>
-                {fields.map(f => (
-                  <Box
-                    key={f.key}
-                    sx={{ py: 1.5, px: 2, borderBottom: '1px solid #F0F0F0', display: 'flex', flexDirection: 'column', gap: 0.25 }}
-                  >
-                    <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', fontSize: 10, fontWeight: 600, letterSpacing: '0.5px' }}>
-                      {f.label}
+            <Divider sx={{ mb: 2 }} />
+
+            <Box sx={FIELD_GRID_SX}>
+              {fields.map((field) => (
+                <DefaultsFormField key={field.key} label={field.label}>
+                  {isEditing ? (
+                    <TextField
+                      select
+                      size="small"
+                      fullWidth
+                      disabled={field.readOnly}
+                      value={form[field.key]}
+                      onChange={(e) => {
+                        setForm((prev) => ({
+                          ...prev,
+                          [field.key]: updateFormValue(field.key, e.target.value),
+                        }))
+                      }}
+                    >
+                      {field.options.map((option) => (
+                        <MenuItem key={String(option.value)} value={option.value}>
+                          {option.label}
+                        </MenuItem>
+                      ))}
+                    </TextField>
+                  ) : (
+                    <Typography variant="body2" fontWeight={500} sx={{ minHeight: 34, display: 'flex', alignItems: 'center' }}>
+                      {getLabelForValue(field, form[field.key] as string | number)}
                     </Typography>
-                    <Typography variant="body2" fontWeight={500}>
-                      {getLabelForValue(f, form[f.key] as string | number)}
-                    </Typography>
-                  </Box>
-                ))}
-              </Box>
-            )}
+                  )}
+                </DefaultsFormField>
+              ))}
+            </Box>
           </Box>
         ))}
       </Box>
 
       {isEditing && (
-        <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, pt: 2, mt: 2, borderTop: '1px solid #F0F0F0' }}>
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, pt: 2, mt: 2, borderTop: `1px solid ${tokens.color.neutral[100]}` }}>
           <Button size="sm" variant="outlined" color="secondary" onClick={handleCancel}>Cancel</Button>
           <Button size="sm" variant="contained" color="primary" onClick={handleSave} disabled={saving}>
             {saving ? 'Saving...' : 'Save Changes'}

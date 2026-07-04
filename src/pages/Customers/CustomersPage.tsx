@@ -27,7 +27,7 @@ import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore'
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp'
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'
 import { useTheme, alpha } from '@mui/material/styles'
-import { Building2, Plus, MoreHorizontal, Eye, Pencil, FolderPlus, Receipt, Archive, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Building2, Plus, MoreVertical, Eye, Pencil, FolderPlus, Receipt, Archive, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { fetchCustomers, updateCustomer } from '../../slices/customers/thunk'
@@ -128,8 +128,8 @@ function RowActions({ customer, onView, onEdit, onAddProject, onBillingSummary, 
 
   return (
     <>
-      <MuiIconButton size="small" onClick={open} sx={{ color: tokens.color.neutral[400] }}>
-        <MoreHorizontal size={16} />
+      <MuiIconButton size="small" onClick={open} sx={{ color: tokens.color.neutral[400], mx: 'auto' }}>
+        <MoreVertical size={16} />
       </MuiIconButton>
       <Menu anchorEl={anchor} open={Boolean(anchor)} onClose={close}>
         <MenuItem onClick={() => { onView(); close() }} sx={{ fontSize: 13, gap: 1 }}>
@@ -463,7 +463,10 @@ function CustomerTable({
                 </TableCell>
               )}
 
-              <TableCell sx={{ py: '6px', px: '8px', verticalAlign: 'top' }} onClick={(e) => e.stopPropagation()}>
+              <TableCell
+                sx={{ py: '6px', px: '8px', verticalAlign: 'middle', textAlign: 'center' }}
+                onClick={(e) => e.stopPropagation()}
+              >
                 <RowActions
                   customer={customer}
                   onView={() => onView(customer.id)}

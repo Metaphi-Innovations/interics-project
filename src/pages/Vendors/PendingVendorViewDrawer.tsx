@@ -1,5 +1,7 @@
-import { Box, Stack, Typography } from '@mui/material'
-import { DrawerForm, FormField } from '@/components/templates'
+import { Box, Grid, Stack, Typography } from '@mui/material'
+import { FormField } from '@/components/templates'
+import { Button, Modal } from '@/design-system/components'
+import { TREND_COLORS } from '@/design-system/tokens'
 import type { Vendor } from '@/slices/vendors/reducer'
 import { formatDate } from '@/utils/formatters'
 
@@ -7,7 +9,18 @@ export interface PendingVendorViewDrawerProps {
   open: boolean
   vendor: Vendor | null
   onClose: () => void
+  onUpdateInfo: (vendor: Vendor) => void
 }
+
+const SECTION_TITLE_SX = {
+  fontSize: 10,
+  fontWeight: 600,
+  letterSpacing: '0.8px',
+  color: TREND_COLORS.neutral.color,
+  textTransform: 'uppercase' as const,
+  display: 'block',
+  mb: 1.5,
+} as const
 
 function ReadOnlyValue({ value }: { value: string }) {
   return (
@@ -17,40 +30,65 @@ function ReadOnlyValue({ value }: { value: string }) {
   )
 }
 
-export function PendingVendorViewDrawer({ open, vendor, onClose }: PendingVendorViewDrawerProps) {
+export function PendingVendorViewDrawer({
+  open,
+  vendor,
+  onClose,
+  onUpdateInfo,
+}: PendingVendorViewDrawerProps) {
+  if (!vendor) return null
+
   return (
-    <DrawerForm
+    <Modal
       open={open}
       onClose={onClose}
-      title="Contact details"
-      subtitle="Read-only view of pending vendor contact information"
-      hideFooter
-      width={480}
-    >
-      {vendor ? (
-        <Stack spacing={2}>
-          <FormField label="Contact Person Name">
-            <ReadOnlyValue value={vendor.contactPerson} />
-          </FormField>
-          <FormField label="Mobile Number">
-            <ReadOnlyValue value={vendor.phone} />
-          </FormField>
-          <FormField label="Email Address">
-            <ReadOnlyValue value={vendor.email} />
-          </FormField>
-          <FormField label="Designation">
-            <ReadOnlyValue value={vendor.designation ?? ''} />
-          </FormField>
-          <Box>
-            <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11, display: 'block', mb: 0.5 }}>
-              Created On
-            </Typography>
-            <Typography variant="body2" sx={{ fontSize: 13 }}>
-              {vendor.createdAt ? formatDate(vendor.createdAt) : '—'}
-            </Typography>
-          </Box>
+      title={vendor.name}
+      size="sm"
+      footer={
+        <Stack direction="row" justifyContent="flex-end" gap={1}>
+          <Button variant="text" size="sm" label="Cancel" onClick={onClose} />
+          <Button
+            variant="contained"
+            color="primary"
+            size="sm"
+            label="Update Info"
+            onClick={() => onUpdateInfo(vendor)}
+          />
         </Stack>
-      ) : null}
-    </DrawerForm>
+      }
+    >
+      <Box>
+        <Typography component="span" variant="overline" sx={SECTION_TITLE_SX}>
+          Contact details
+        </Typography>
+        <Grid container spacing={2}>
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <FormField label="Contact Person Name">
+              <ReadOnlyValue value={vendor.contactPerson} />
+            </FormField>
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <FormField label="Mobile Number">
+              <ReadOnlyValue value={vendor.phone} />
+            </FormField>
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <FormField label="Email Address">
+              <ReadOnlyValue value={vendor.email} />
+            </FormField>
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <FormField label="Designation">
+              <ReadOnlyValue value={vendor.designation ?? ''} />
+            </FormField>
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <FormField label="Created On">
+              <ReadOnlyValue value={vendor.createdAt ? formatDate(vendor.createdAt) : ''} />
+            </FormField>
+          </Grid>
+        </Grid>
+      </Box>
+    </Modal>
   )
 }

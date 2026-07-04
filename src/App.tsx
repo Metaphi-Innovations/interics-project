@@ -49,6 +49,7 @@ import CustomerDetailPage from '@/pages/Customers/CustomerDetailPage'
 import VendorsPage from '@/pages/Vendors/VendorsPage'
 import VendorDetailPage from '@/pages/Vendors/VendorDetailPage'
 import AddedTeamPage from '@/pages/AddedTeam/AddedTeamPage'
+import TeamMemberDetailPage from '@/pages/AddedTeam/TeamMemberDetailPage'
 import BillingsPage from '@/pages/Finance/BillingsPage'
 import PaymentsPage from '@/pages/Finance/PaymentsPage'
 import ExpensesPage from '@/pages/Finance/ExpensesPage'
@@ -105,7 +106,7 @@ const navConfig: NavConfig[] = [
       },
       {
         type: 'item',
-        label: 'Added Team',
+        label: 'Team',
         icon: <UserPlus size={16} strokeWidth={1.75} />,
         href: '/added-team',
       },
@@ -318,6 +319,7 @@ function AppInner() {
           <Route path="vendors" element={<VendorsPage />} />
           <Route path="vendors/:id" element={<VendorDetailPage />} />
           <Route path="added-team" element={<AddedTeamPage />} />
+          <Route path="added-team/:memberId" element={<TeamMemberDetailPage />} />
           <Route path="finance/receivables" element={<BillingsPage />} />
           <Route path="finance/payables" element={<PaymentsPage />} />
           <Route path="finance/expenses" element={<ExpensesPage />} />

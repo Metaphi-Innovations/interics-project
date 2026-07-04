@@ -247,14 +247,10 @@ export default function DashboardPage() {
         <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center' }}>
           <Button
             variant="outlined"
+            color="secondary"
             size="sm"
             startIcon={<Download size={14} />}
-            sx={{
-              borderColor: 'divider',
-              color: 'text.secondary',
-              fontWeight: 500,
-              height: 34,
-            }}
+            sx={{ height: 34 }}
           >
             Download Report
           </Button>

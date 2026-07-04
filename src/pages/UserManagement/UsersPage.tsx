@@ -1,5 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
-import type { MouseEvent } from 'react'
+import { useState, useEffect, useMemo, type MouseEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Box,
@@ -14,7 +13,9 @@ import {
   TableRow,
   Skeleton,
   IconButton as MuiIconButton,
-  Tooltip,
+  Menu,
+  MenuItem,
+  Divider,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -24,8 +25,6 @@ import {
 import {
   CheckCircle,
   Block,
-  Edit,
-  Delete,
   Add,
   Group,
 } from '@mui/icons-material'
@@ -33,7 +32,7 @@ import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore'
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp'
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'
 import { useTheme, alpha } from '@mui/material/styles'
-import { Users, Eye } from 'lucide-react'
+import { Users, MoreVertical } from 'lucide-react'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { fetchUsers, toggleUserStatus, deleteUser } from '@/slices/users/thunk'
 import { fetchRoles } from '@/slices/roles/thunk'
@@ -45,8 +44,99 @@ import { StatusBadge, useToast } from '@/design-system/components'
 import { getInitials, getAvatarColor, formatDate } from '@/utils/formatters'
 import { tokens } from '@/design-system/tokens'
 import { usePermission } from '@/hooks/usePermission'
-import { UserManagementLayout } from './components/UserManagementLayout'
 import { getRoleChip } from './userRoleChips'
+
+const LISTING_EDGE_PAD = '14px'
+const USER_CELL_PAD_X = LISTING_EDGE_PAD
+const USER_ACTION_WIDTH_PX = 60
+const USER_MIDDLE_EQUAL_COUNT = 5
+const USER_FIXED_RIGHT_PX = USER_ACTION_WIDTH_PX
+
+function userNameColWidth(): string {
+  return `calc((100% - ${USER_FIXED_RIGHT_PX}px) * 0.28)`
+}
+
+function userMiddleColWidth(): string {
+  return `calc((100% - ${USER_FIXED_RIGHT_PX}px) * 0.72 / ${USER_MIDDLE_EQUAL_COUNT})`
+}
+
+const TABLE_HEADER_PADDING = {
+  '&.MuiTableCell-sizeSmall': {
+    paddingTop: '8px',
+    paddingBottom: '8px',
+    paddingLeft: USER_CELL_PAD_X,
+    paddingRight: USER_CELL_PAD_X,
+  },
+}
+
+const TABLE_BODY_PADDING = {
+  '&.MuiTableCell-sizeSmall': {
+    paddingTop: '7px',
+    paddingBottom: '7px',
+    paddingLeft: USER_CELL_PAD_X,
+    paddingRight: USER_CELL_PAD_X,
+  },
+}
+
+const TABLE_HEADER_ACTION_PADDING = {
+  '&.MuiTableCell-sizeSmall': {
+    paddingTop: '8px',
+    paddingBottom: '8px',
+    paddingLeft: 0,
+    paddingRight: LISTING_EDGE_PAD,
+  },
+}
+
+const TABLE_BODY_ACTION_PADDING = {
+  '&.MuiTableCell-sizeSmall': {
+    paddingTop: '7px',
+    paddingBottom: '7px',
+    paddingLeft: 0,
+    paddingRight: LISTING_EDGE_PAD,
+  },
+}
+
+const TABLE_HEADER_CELL_SX = {
+  fontSize: 11,
+  fontWeight: 600,
+  color: 'text.secondary',
+  borderBottom: `2px solid ${tokens.color.neutral[100]}`,
+  verticalAlign: 'middle' as const,
+  boxSizing: 'border-box' as const,
+  ...TABLE_HEADER_PADDING,
+}
+
+const TABLE_HEADER_ACTION_SX = {
+  ...TABLE_HEADER_CELL_SX,
+  width: USER_ACTION_WIDTH_PX,
+  minWidth: USER_ACTION_WIDTH_PX,
+  maxWidth: USER_ACTION_WIDTH_PX,
+  textAlign: 'center' as const,
+  whiteSpace: 'nowrap' as const,
+  ...TABLE_HEADER_ACTION_PADDING,
+}
+
+const TABLE_CELL_SX = {
+  verticalAlign: 'middle' as const,
+  boxSizing: 'border-box' as const,
+  ...TABLE_BODY_PADDING,
+}
+
+const TABLE_CELL_ACTION_SX = {
+  ...TABLE_CELL_SX,
+  width: USER_ACTION_WIDTH_PX,
+  minWidth: USER_ACTION_WIDTH_PX,
+  maxWidth: USER_ACTION_WIDTH_PX,
+  textAlign: 'center' as const,
+  ...TABLE_BODY_ACTION_PADDING,
+}
+
+const CENTER_CELL_CONTENT_SX = {
+  display: 'flex',
+  justifyContent: 'center',
+  alignItems: 'center',
+  width: 1,
+} as const
 
 function UserAvatar({ name }: { name: string }) {
   const { bg, text } = getAvatarColor(name)
@@ -86,12 +176,9 @@ function SortHeader({ label, field, sortField, sortDirection, onSort, sx }: Sort
     <TableCell
       onClick={() => onSort(field, isActive && sortDirection === 'asc' ? 'desc' : 'asc')}
       sx={{
-        fontSize: 11,
+        ...TABLE_HEADER_CELL_SX,
         fontWeight: isActive ? 700 : 600,
         color: isActive ? 'primary.main' : 'text.secondary',
-        py: 1,
-        px: 1.75,
-        borderBottom: `2px solid ${tokens.color.neutral[100]}`,
         cursor: 'pointer',
         userSelect: 'none',
         '&:hover': { color: 'primary.main' },
@@ -114,13 +201,102 @@ function SortHeader({ label, field, sortField, sortDirection, onSort, sx }: Sort
   )
 }
 
-const STATIC_CELL_SX = {
-  fontSize: 11,
-  fontWeight: 600,
-  color: 'text.secondary',
-  py: 1,
-  px: 1.75,
-  borderBottom: `2px solid ${tokens.color.neutral[100]}`,
+interface UserRowActionsProps {
+  user: User
+  canView: boolean
+  canEdit: boolean
+  canDelete: boolean
+  onView: () => void
+  onEdit: () => void
+  onToggleStatus: () => void
+  onDelete: () => void
+}
+
+function UserRowActions({
+  user,
+  canView,
+  canEdit,
+  canDelete,
+  onView,
+  onEdit,
+  onToggleStatus,
+  onDelete,
+}: UserRowActionsProps) {
+  const [anchor, setAnchor] = useState<null | HTMLElement>(null)
+
+  function open(e: MouseEvent<HTMLElement>) {
+    e.stopPropagation()
+    setAnchor(e.currentTarget)
+  }
+
+  function close() {
+    setAnchor(null)
+  }
+
+  const hasMenuItems = canView || canEdit || canDelete
+  if (!hasMenuItems) return null
+
+  return (
+    <>
+      <MuiIconButton size="small" onClick={open} aria-label="Row actions" sx={{ color: tokens.color.neutral[400], p: 0.5, mx: 'auto' }}>
+        <MoreVertical size={16} />
+      </MuiIconButton>
+      <Menu anchorEl={anchor} open={Boolean(anchor)} onClose={close} onClick={(e) => e.stopPropagation()}>
+        {canView ? (
+          <MenuItem
+            dense
+            onClick={() => {
+              onView()
+              close()
+            }}
+            sx={{ fontSize: 13, gap: 1 }}
+          >
+            View
+          </MenuItem>
+        ) : null}
+        {canEdit ? (
+          <MenuItem
+            dense
+            onClick={() => {
+              onEdit()
+              close()
+            }}
+            sx={{ fontSize: 13, gap: 1 }}
+          >
+            Edit
+          </MenuItem>
+        ) : null}
+        {canEdit ? (
+          <MenuItem
+            dense
+            onClick={() => {
+              onToggleStatus()
+              close()
+            }}
+            sx={{ fontSize: 13, gap: 1 }}
+          >
+            {user.status === 'active' ? 'Deactivate' : 'Activate'}
+          </MenuItem>
+        ) : null}
+        {canDelete ? (
+          <>
+            <Divider />
+            <MenuItem
+              dense
+              disabled={user.assignedProjects.length > 0}
+              onClick={() => {
+                onDelete()
+                close()
+              }}
+              sx={{ fontSize: 13, gap: 1, color: 'error.main' }}
+            >
+              Delete
+            </MenuItem>
+          </>
+        ) : null}
+      </Menu>
+    </>
+  )
 }
 
 interface UsersTableProps {
@@ -130,8 +306,8 @@ interface UsersTableProps {
   sortDirection: 'asc' | 'desc'
   onSort: (field: string, direction: 'asc' | 'desc') => void
   onRowClick: (user: User) => void
-  onViewClick: (e: MouseEvent<HTMLButtonElement>, user: User) => void
-  onEditClick: (e: MouseEvent<HTMLButtonElement>, user: User) => void
+  onViewClick: (user: User) => void
+  onEditClick: (user: User) => void
   onToggleStatus: (user: User) => void
   onDelete: (user: User) => void
   canView: boolean
@@ -156,19 +332,36 @@ function UsersTable({
 }: UsersTableProps) {
   const theme = useTheme()
   const hoverBg = alpha(theme.palette.primary.main, 0.04)
+  const nameColWidth = userNameColWidth()
+  const middleColWidth = userMiddleColWidth()
+  const headNameSx = { ...TABLE_HEADER_CELL_SX, width: nameColWidth, minWidth: 0 }
+  const headMiddleSx = { ...TABLE_HEADER_CELL_SX, width: middleColWidth, minWidth: 0 }
+  const headStatusSx = { ...headMiddleSx, textAlign: 'center' as const }
+  const cellNameSx = { ...TABLE_CELL_SX, width: nameColWidth, minWidth: 0, overflow: 'hidden' }
+  const cellMiddleSx = { ...TABLE_CELL_SX, width: middleColWidth, minWidth: 0, overflow: 'hidden' }
+  const cellStatusSx = { ...cellMiddleSx, textAlign: 'center' as const }
 
   return (
-    <TableContainer>
-      <Table size="small">
+    <TableContainer sx={{ width: '100%', overflowX: 'auto' }}>
+      <Table size="small" sx={{ tableLayout: 'fixed', width: '100%', minWidth: 0 }}>
+        <colgroup>
+          <col style={{ width: nameColWidth }} />
+          <col style={{ width: middleColWidth }} />
+          <col style={{ width: middleColWidth }} />
+          <col style={{ width: middleColWidth }} />
+          <col style={{ width: middleColWidth }} />
+          <col style={{ width: middleColWidth }} />
+          <col style={{ width: `${USER_ACTION_WIDTH_PX}px` }} />
+        </colgroup>
         <TableHead>
           <TableRow sx={{ bgcolor: alpha(theme.palette.text.primary, 0.02) }}>
-            <SortHeader label="Name" field="name" sortField={sortField} sortDirection={sortDirection} onSort={onSort} sx={{ minWidth: 200 }} />
-            <SortHeader label="Role" field="role" sortField={sortField} sortDirection={sortDirection} onSort={onSort} sx={{ width: 140 }} />
-            <TableCell sx={{ ...STATIC_CELL_SX, width: 130 }}>Phone</TableCell>
-            <TableCell sx={{ ...STATIC_CELL_SX, width: 120 }}>Project Access</TableCell>
-            <SortHeader label="Last Login" field="lastLogin" sortField={sortField} sortDirection={sortDirection} onSort={onSort} sx={{ width: 150 }} />
-            <TableCell sx={{ ...STATIC_CELL_SX, width: 100 }}>Status</TableCell>
-            <TableCell sx={{ ...STATIC_CELL_SX, width: 112, position: 'sticky', right: 0, bgcolor: 'background.paper' }}>Actions</TableCell>
+            <SortHeader label="Name" field="name" sortField={sortField} sortDirection={sortDirection} onSort={onSort} sx={headNameSx} />
+            <SortHeader label="Role" field="role" sortField={sortField} sortDirection={sortDirection} onSort={onSort} sx={headMiddleSx} />
+            <TableCell sx={headMiddleSx}>Phone</TableCell>
+            <TableCell sx={headMiddleSx}>Project Access</TableCell>
+            <SortHeader label="Last Login" field="lastLogin" sortField={sortField} sortDirection={sortDirection} onSort={onSort} sx={headMiddleSx} />
+            <TableCell sx={headStatusSx}>Status</TableCell>
+            <TableCell sx={TABLE_HEADER_ACTION_SX}>Action</TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
@@ -176,7 +369,7 @@ function UsersTable({
             [...Array(5)].map((_, i) => (
               <TableRow key={i}>
                 {[...Array(7)].map((__, j) => (
-                  <TableCell key={j} sx={{ py: 1.25, px: 1.75 }}>
+                  <TableCell key={j} sx={{ py: '10px', px: USER_CELL_PAD_X }}>
                     <Skeleton variant="text" width="80%" height={20} />
                   </TableCell>
                 ))}
@@ -213,21 +406,21 @@ function UsersTable({
                     cursor: canView ? 'pointer' : 'default',
                   }}
                 >
-                  <TableCell sx={{ py: 1.25, px: 1.75 }}>
-                    <Stack direction="row" alignItems="center" gap={1.5}>
+                  <TableCell sx={cellNameSx}>
+                    <Stack direction="row" alignItems="center" gap={1.5} sx={{ minWidth: 0 }}>
                       <UserAvatar name={user.name} />
-                      <Box>
-                        <Typography variant="body2" fontWeight={600} sx={{ fontSize: 13, lineHeight: 1.3 }}>
+                      <Box sx={{ minWidth: 0 }}>
+                        <Typography variant="body2" fontWeight={600} sx={{ fontSize: 13, lineHeight: 1.3, wordBreak: 'break-word' }}>
                           {user.name}
                         </Typography>
-                        <Typography variant="caption" color="text.secondary">
+                        <Typography variant="caption" color="text.secondary" sx={{ wordBreak: 'break-word' }}>
                           {user.email}
                         </Typography>
                       </Box>
                     </Stack>
                   </TableCell>
 
-                  <TableCell sx={{ py: 1.25, px: 1.75 }}>
+                  <TableCell sx={cellMiddleSx}>
                     <MuiChip
                       label={chip.label}
                       size="small"
@@ -242,13 +435,13 @@ function UsersTable({
                     />
                   </TableCell>
 
-                  <TableCell sx={{ py: 1.25, px: 1.75 }}>
+                  <TableCell sx={cellMiddleSx}>
                     <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: 12 }}>
                       {user.phone ?? '—'}
                     </Typography>
                   </TableCell>
 
-                  <TableCell sx={{ py: 1.25, px: 1.75 }}>
+                  <TableCell sx={cellMiddleSx}>
                     {user.projectAccess === 'all' ? (
                       <Typography variant="body2" sx={{ fontSize: 12, color: tokens.color.neutral[500] }}>
                         All Projects
@@ -269,7 +462,7 @@ function UsersTable({
                     )}
                   </TableCell>
 
-                  <TableCell sx={{ py: 1.25, px: 1.75 }}>
+                  <TableCell sx={cellMiddleSx}>
                     {user.lastLogin ? (
                       <Typography variant="body2" sx={{ fontSize: 12 }}>
                         {formatDate(user.lastLogin)}
@@ -281,59 +474,25 @@ function UsersTable({
                     )}
                   </TableCell>
 
-                  <TableCell sx={{ py: 1.25, px: 1.75 }}>
-                    <StatusBadge status={user.status} />
+                  <TableCell sx={cellStatusSx}>
+                    <Box sx={CENTER_CELL_CONTENT_SX}>
+                      <StatusBadge status={user.status} />
+                    </Box>
                   </TableCell>
 
-                  <TableCell sx={{ py: 1, px: 1, position: 'sticky', right: 0, bgcolor: 'background.paper' }}>
-                    <Stack direction="row" alignItems="center" gap={0.25}>
-                      {canView && (
-                        <Tooltip title="View user">
-                          <MuiIconButton size="small" onClick={(e) => onViewClick(e, user)} sx={{ color: 'text.secondary' }}>
-                            <Eye size={15} strokeWidth={1.75} />
-                          </MuiIconButton>
-                        </Tooltip>
-                      )}
-                      {canEdit && (
-                        <Tooltip title="Edit user">
-                          <MuiIconButton size="small" onClick={(e) => onEditClick(e, user)} sx={{ color: 'text.secondary' }}>
-                            <Edit sx={{ fontSize: 15 }} />
-                          </MuiIconButton>
-                        </Tooltip>
-                      )}
-                      <Tooltip title={user.status === 'active' ? 'Deactivate user' : 'Activate user'}>
-                        <span>
-                          <MuiIconButton
-                            size="small"
-                            disabled={!canEdit}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              onToggleStatus(user)
-                            }}
-                            sx={{ color: user.status === 'active' ? 'warning.main' : 'success.main' }}
-                          >
-                            {user.status === 'active' ? <Block sx={{ fontSize: 15 }} /> : <CheckCircle sx={{ fontSize: 15 }} />}
-                          </MuiIconButton>
-                        </span>
-                      </Tooltip>
-                      {canDelete && (
-                        <Tooltip title={user.assignedProjects.length > 0 ? 'Reassign projects first' : 'Delete user'}>
-                          <span>
-                            <MuiIconButton
-                              size="small"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                onDelete(user)
-                              }}
-                              disabled={user.assignedProjects.length > 0}
-                              sx={{ color: 'error.main', '&.Mui-disabled': { color: 'action.disabled' } }}
-                            >
-                              <Delete sx={{ fontSize: 15 }} />
-                            </MuiIconButton>
-                          </span>
-                        </Tooltip>
-                      )}
-                    </Stack>
+                  <TableCell sx={TABLE_CELL_ACTION_SX} onClick={(e) => e.stopPropagation()}>
+                    <Box sx={CENTER_CELL_CONTENT_SX}>
+                      <UserRowActions
+                        user={user}
+                        canView={canView}
+                        canEdit={canEdit}
+                        canDelete={canDelete}
+                        onView={() => onViewClick(user)}
+                        onEdit={() => onEditClick(user)}
+                        onToggleStatus={() => onToggleStatus(user)}
+                        onDelete={() => onDelete(user)}
+                      />
+                    </Box>
                   </TableCell>
                 </TableRow>
               )
@@ -593,13 +752,11 @@ export default function UsersPage() {
     navigate(`/user-management/users/${user.id}`)
   }
 
-  function handleViewClick(e: MouseEvent<HTMLButtonElement>, user: User) {
-    e.stopPropagation()
+  function handleViewClick(user: User) {
     navigate(`/user-management/users/${user.id}`)
   }
 
-  function handleEditClick(e: MouseEvent<HTMLButtonElement>, user: User) {
-    e.stopPropagation()
+  function handleEditClick(user: User) {
     navigate(`/user-management/users/${user.id}/edit`)
   }
 
@@ -645,61 +802,58 @@ export default function UsersPage() {
 
   return (
     <>
-      <UserManagementLayout>
-        <ListingTemplate
-          icon={<Users size={22} strokeWidth={1.75} />}
-          title="Users"
-          subtitle="Search, filter, and manage accounts"
-          statCards={statCards}
-          tabs={listTabs}
-          activeTab={activeListTab}
-          onTabChange={(v) => dispatch(setFilters({ status: v === 'all' ? '' : v }))}
-          searchPlaceholder="Search by name or email..."
-          searchValue={filters.search}
-          onSearchChange={(v) => dispatch(setFilters({ search: v }))}
-          filterConfig={filterConfig}
-          activeFilters={activeFilters}
-          onFilterChange={(next) => dispatch(setFilters({ role: (next.role as string) ?? '' }))}
-          onFilterReset={() => dispatch(resetFilters())}
-          showExport
-          onExport={handleExport}
-          primaryAction={
-            canCreate
-              ? {
-                  label: 'Add User',
-                  onClick: () => navigate('/user-management/users/create'),
-                  startIcon: <Add sx={{ fontSize: 16 }} />,
-                }
-              : undefined
-          }
-          pageSize={listPageSize}
-          onPageSizeChange={(size) => {
-            setListPageSize(size)
-            setListPage(0)
-          }}
-          page={listPage}
-          totalCount={filteredItems.length}
-          onPageChange={setListPage}
-        >
-          <Box sx={{ p: 0 }}>
-            <UsersTable
-              items={pagedItems}
-              loading={loading}
-              sortField={sortConfig.field}
-              sortDirection={sortConfig.direction}
-              onSort={handleSort}
-              onRowClick={handleRowClick}
-              onViewClick={handleViewClick}
-              onEditClick={handleEditClick}
-              onToggleStatus={(u) => setToggleTarget(u)}
-              onDelete={handleDeleteClick}
-              canView={canView}
-              canEdit={canEdit}
-              canDelete={canDelete}
-            />
-          </Box>
-        </ListingTemplate>
-      </UserManagementLayout>
+      <ListingTemplate
+        icon={<Users size={22} strokeWidth={1.75} />}
+        title="Users"
+        subtitle="Search, filter, and manage accounts"
+        statCards={statCards}
+        tabs={listTabs}
+        activeTab={activeListTab}
+        onTabChange={(v) => dispatch(setFilters({ status: v === 'all' ? '' : v }))}
+        searchPlaceholder="Search by name or email..."
+        searchValue={filters.search}
+        onSearchChange={(v) => dispatch(setFilters({ search: v }))}
+        filterConfig={filterConfig}
+        activeFilters={activeFilters}
+        onFilterChange={(next) => dispatch(setFilters({ role: (next.role as string) ?? '' }))}
+        onFilterReset={() => dispatch(resetFilters())}
+        showExport
+        onExport={handleExport}
+        clipCardContent={false}
+        primaryAction={
+          canCreate
+            ? {
+                label: 'Add User',
+                onClick: () => navigate('/user-management/users/create'),
+                startIcon: <Add sx={{ fontSize: 16 }} />,
+              }
+            : undefined
+        }
+        pageSize={listPageSize}
+        onPageSizeChange={(size) => {
+          setListPageSize(size)
+          setListPage(0)
+        }}
+        page={listPage}
+        totalCount={filteredItems.length}
+        onPageChange={setListPage}
+      >
+        <UsersTable
+          items={pagedItems}
+          loading={loading}
+          sortField={sortConfig.field}
+          sortDirection={sortConfig.direction}
+          onSort={handleSort}
+          onRowClick={handleRowClick}
+          onViewClick={handleViewClick}
+          onEditClick={handleEditClick}
+          onToggleStatus={(u) => setToggleTarget(u)}
+          onDelete={handleDeleteClick}
+          canView={canView}
+          canEdit={canEdit}
+          canDelete={canDelete}
+        />
+      </ListingTemplate>
 
       {toggleTarget?.status === 'active' ? (
         <DeactivateDialog

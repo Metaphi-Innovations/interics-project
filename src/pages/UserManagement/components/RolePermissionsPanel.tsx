@@ -186,67 +186,58 @@ function ModulePanel({
       <AccordionDetails sx={{ px: 2, pb: 2 }}>
         <Divider sx={{ mb: 2 }} />
 
-        <FormControlLabel
-          sx={{ mb: 1 }}
-          control={
-            <Checkbox
-              size="small"
-              checked={allChecked}
-              indeterminate={fullAccessIndeterminate}
-              disabled={readOnly}
-              onChange={(e) => onFullAccessChange(mod.id, e.target.checked)}
-            />
-          }
-          label={
-            <Typography variant="body2" fontWeight={600} sx={{ fontSize: 13 }}>
-              Full Access
-            </Typography>
-          }
-        />
+        <Box
+          sx={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+            columnGap: 1,
+            rowGap: 0.5,
+          }}
+        >
+          <FormControlLabel
+            sx={{ m: 0, minWidth: 0 }}
+            control={
+              <Checkbox
+                size="small"
+                checked={allChecked}
+                indeterminate={fullAccessIndeterminate}
+                disabled={readOnly}
+                onChange={(e) => onFullAccessChange(mod.id, e.target.checked)}
+              />
+            }
+            label={
+              <Typography variant="body2" fontWeight={600} sx={{ fontSize: 13 }}>
+                Full Access
+              </Typography>
+            }
+          />
 
-        <Box sx={{ mb: 0 }}>
-          <Typography
-            variant="caption"
-            sx={{
-              color: tokens.color.neutral[500],
-              fontWeight: 700,
-              textTransform: 'uppercase',
-              letterSpacing: '0.5px',
-              fontSize: 10,
-              display: 'block',
-              mb: 0.5,
-            }}
-          >
-            Actions
-          </Typography>
-          <Stack direction="row" flexWrap="wrap" gap={0}>
-            {MODULE_CRUD_ACTIONS.map((action) => {
-              const isView = action === 'view'
-              const disabled = readOnly || (!isView && !viewGateOn)
-              return (
-                <FormControlLabel
-                  key={action}
-                  sx={{ width: '50%', m: 0 }}
-                  control={
-                    <Checkbox
-                      size="small"
-                      checked={b[action]}
-                      disabled={disabled}
-                      onChange={(e) => onCrudChange(mod.id, action, e.target.checked)}
-                    />
-                  }
-                  label={
-                    <Typography
-                      variant="body2"
-                      sx={{ fontSize: 13, color: disabled && !readOnly ? 'text.disabled' : undefined }}
-                    >
-                      {ACTION_LABELS[action]}
-                    </Typography>
-                  }
-                />
-              )
-            })}
-          </Stack>
+          {MODULE_CRUD_ACTIONS.map((action) => {
+            const isView = action === 'view'
+            const disabled = readOnly || (!isView && !viewGateOn)
+            return (
+              <FormControlLabel
+                key={action}
+                sx={{ m: 0, minWidth: 0 }}
+                control={
+                  <Checkbox
+                    size="small"
+                    checked={b[action]}
+                    disabled={disabled}
+                    onChange={(e) => onCrudChange(mod.id, action, e.target.checked)}
+                  />
+                }
+                label={
+                  <Typography
+                    variant="body2"
+                    sx={{ fontSize: 13, color: disabled && !readOnly ? 'text.disabled' : undefined }}
+                  >
+                    {ACTION_LABELS[action]}
+                  </Typography>
+                }
+              />
+            )
+          })}
         </Box>
       </AccordionDetails>
     </Accordion>
