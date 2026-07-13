@@ -27,7 +27,7 @@ import type { Contact, Customer } from '../../slices/customers/reducer'
 import type { User } from '../../slices/users/reducer'
 import { FullPageForm, FullPageFormSection } from '../../components/templates/FullPageForm'
 import { FormField } from '../../components/templates/DrawerForm'
-import { Input, useToast } from '@/design-system/components'
+import { Input, useToast, DatePicker, dateFromIso, isoFromDate } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { toSlug, getInitials, getAvatarColor } from '../../utils/formatters'
 import { alpha } from '@mui/material/styles'
@@ -406,20 +406,21 @@ function Step3ProjectSetup({
       </FormField>
 
       <FormField label="Expected Start Date">
-        <Input
-          type="date"
-          value={formData.startDate}
-          onChange={(v) => set('startDate', v)}
+        <DatePicker
+          value={dateFromIso(formData.startDate)}
+          onChange={(d) => set('startDate', isoFromDate(d))}
+          fullWidth
           size="sm"
         />
       </FormField>
 
       <FormField label="Expected End Date">
-        <Input
-          type="date"
-          value={formData.expectedEndDate}
-          onChange={(v) => set('expectedEndDate', v)}
+        <DatePicker
+          value={dateFromIso(formData.expectedEndDate)}
+          onChange={(d) => set('expectedEndDate', isoFromDate(d))}
+          fullWidth
           size="sm"
+          minDate={dateFromIso(formData.startDate) ?? undefined}
         />
       </FormField>
     </FullPageFormSection>
@@ -536,7 +537,7 @@ function Step4Team({
                 <Typography sx={{ fontSize: 13 }}>{option.name}</Typography>
               </Box>
               <MuiChip
-                label={option.role}
+                label={getRoleLabel(option.role)}
                 size="small"
                 sx={{ height: 16, fontSize: 10, ml: 'auto', '& .MuiChip-label': { px: '6px' } }}
               />
@@ -587,8 +588,8 @@ function Step4Team({
         <Box
           sx={{
             display: 'grid',
-            gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)' },
-            gap: '8px',
+            gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(4, 1fr)' },
+            gap: 2,
           }}
         >
           {formData.teamMembers.map((member) => (
@@ -625,9 +626,6 @@ function Step4Team({
                   sx={{ fontSize: 13, fontWeight: 500, lineHeight: 1.3 }}
                 >
                   {member.name}
-                </Typography>
-                <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>
-                  {member.role}
                 </Typography>
               </Box>
               <MuiButton

@@ -1,6 +1,6 @@
-import { useState, type ReactNode } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import { Box, Typography, TextField, MenuItem, Divider } from '@mui/material'
-import { Edit, Upload } from '@mui/icons-material'
+import { Edit, Upload, DeleteOutline } from '@mui/icons-material'
 import { Button, useToast } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
@@ -103,6 +103,7 @@ export default function GeneralSettingsSection() {
   const [isEditing, setIsEditing] = useState(false)
   const [editForm, setEditForm] = useState<CompanyProfile>(companyProfile)
   const [errors, setErrors] = useState<FieldErrors>({})
+  const logoInputRef = useRef<HTMLInputElement>(null)
 
   const handleEdit = () => {
     setEditForm(companyProfile)
@@ -114,6 +115,7 @@ export default function GeneralSettingsSection() {
     setIsEditing(false)
     setEditForm(companyProfile)
     setErrors({})
+    if (logoInputRef.current) logoInputRef.current.value = ''
   }
 
   const validate = (): boolean => {
@@ -155,6 +157,11 @@ export default function GeneralSettingsSection() {
       setEditForm(prev => ({ ...prev, logoUrl: ev.target?.result as string }))
     }
     reader.readAsDataURL(file)
+  }
+
+  const handleLogoRemove = () => {
+    setEditForm(prev => ({ ...prev, logoUrl: null }))
+    if (logoInputRef.current) logoInputRef.current.value = ''
   }
 
   const field = (key: keyof CompanyProfile) => ({
@@ -239,30 +246,55 @@ export default function GeneralSettingsSection() {
             <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', fontSize: 10, fontWeight: 600, letterSpacing: '0.5px', display: 'block', mb: 1 }}>
               COMPANY LOGO
             </Typography>
-            <Box
-              component="label"
-              sx={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 1.5,
-                p: 1.5,
-                border: '1px dashed #D0D0D0',
-                borderRadius: '8px',
-                cursor: 'pointer',
-                bgcolor: '#F8FAFB',
-                '&:hover': { borderColor: '#107E68' },
-              }}
-            >
-              <Upload sx={{ fontSize: 20, color: 'text.disabled' }} />
-              <Box>
-                <Typography variant="body2">Upload Logo</Typography>
-                <Typography variant="caption" color="text.secondary">PNG or JPG, max 2MB</Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
+              <Box
+                component="label"
+                sx={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 1.5,
+                  p: 1.5,
+                  border: '1px dashed #D0D0D0',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  bgcolor: '#F8FAFB',
+                  '&:hover': { borderColor: '#107E68' },
+                }}
+              >
+                <Upload sx={{ fontSize: 20, color: 'text.disabled' }} />
+                <Box>
+                  <Typography variant="body2">{editForm.logoUrl ? 'Replace Logo' : 'Upload Logo'}</Typography>
+                  <Typography variant="caption" color="text.secondary">PNG or JPG, max 2MB</Typography>
+                </Box>
+                <input
+                  ref={logoInputRef}
+                  type="file"
+                  hidden
+                  accept=".png,.jpg,.jpeg"
+                  onChange={handleLogoUpload}
+                />
               </Box>
-              <input type="file" hidden accept=".png,.jpg,.jpeg" onChange={handleLogoUpload} />
+              {editForm.logoUrl ? (
+                <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 1 }}>
+                  <Box
+                    component="img"
+                    src={editForm.logoUrl}
+                    alt="preview"
+                    sx={{ height: 40, borderRadius: '6px', border: '1px solid #E0E0E0' }}
+                  />
+                  <Button
+                    size="sm"
+                    variant="outlined"
+                    color="secondary"
+                    onClick={handleLogoRemove}
+                    aria-label="Remove logo"
+                  >
+                    <DeleteOutline sx={{ fontSize: 16, mr: 0.5 }} />
+                    Remove
+                  </Button>
+                </Box>
+              ) : null}
             </Box>
-            {editForm.logoUrl && (
-              <Box component="img" src={editForm.logoUrl} alt="preview" sx={{ ml: 2, height: 40, borderRadius: '6px', border: '1px solid #E0E0E0', verticalAlign: 'middle' }} />
-            )}
           </Box>
 
           <CompanyDetailsContainer>

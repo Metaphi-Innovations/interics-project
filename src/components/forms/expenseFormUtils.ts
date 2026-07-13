@@ -10,6 +10,7 @@ export interface CommonExpenseAllocation {
   vendorName: string
   allocationPercent: number
   allocationAmount: number
+  includedInRecovery?: boolean
 }
 
 export function findServiceInBaseline(baseline: Baseline | null, serviceId: string): PitchService | undefined {

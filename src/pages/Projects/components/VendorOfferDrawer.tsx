@@ -17,7 +17,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { Add, Delete, Upload } from '@mui/icons-material'
+import { Add, Close, Delete, Description, Upload } from '@mui/icons-material'
 import { DrawerForm, FormField } from '@/components/templates'
 import { tokens } from '@/design-system/tokens'
 import { formatCurrency, formatInr } from '@/utils/formatters'
@@ -485,16 +485,77 @@ export function VendorOfferDrawer({
                         </Stack>
                       </TableCell>
                       <TableCell align="center" sx={UPLOAD_CELL_SX}>
-                        <Box
-                          sx={{
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            gap: 0.25,
-                            minHeight: 32,
-                          }}
-                        >
+                        {fileLabel ? (
+                          <Box
+                            sx={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 0.5,
+                              width: '100%',
+                              minWidth: 0,
+                              maxWidth: '100%',
+                              px: 1,
+                              py: 0.5,
+                              borderRadius: 1,
+                              border: '1px solid',
+                              borderColor: 'divider',
+                              bgcolor: tokens.color.neutral[50],
+                            }}
+                          >
+                            <Description
+                              sx={{ fontSize: 14, color: 'primary.main', flexShrink: 0 }}
+                            />
+                            <Typography
+                              variant="caption"
+                              title={fileLabel}
+                              sx={{
+                                fontSize: 11,
+                                color: 'text.primary',
+                                minWidth: 0,
+                                flex: 1,
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                                textAlign: 'left',
+                              }}
+                            >
+                              {fileLabel}
+                            </Typography>
+                            <MuiIconButton
+                              size="small"
+                              component="label"
+                              aria-label="Replace quotation"
+                              title="Replace"
+                              sx={{ p: 0.25, flexShrink: 0, color: 'text.secondary' }}
+                            >
+                              <Upload sx={{ fontSize: 14 }} />
+                              <input
+                                type="file"
+                                hidden
+                                accept=".pdf,.doc,.docx,.xlsx"
+                                onChange={(e) => {
+                                  const f = e.target.files?.[0] ?? null
+                                  updateRow(row.id, {
+                                    file: f,
+                                    existingFileName: f ? undefined : row.existingFileName,
+                                  })
+                                  e.target.value = ''
+                                }}
+                              />
+                            </MuiIconButton>
+                            <MuiIconButton
+                              size="small"
+                              aria-label="Remove quotation"
+                              title="Remove"
+                              onClick={() =>
+                                updateRow(row.id, { file: null, existingFileName: undefined })
+                              }
+                              sx={{ p: 0.25, flexShrink: 0, color: 'text.secondary' }}
+                            >
+                              <Close sx={{ fontSize: 14 }} />
+                            </MuiIconButton>
+                          </Box>
+                        ) : (
                           <MuiButton
                             size="small"
                             variant="outlined"
@@ -514,12 +575,7 @@ export function VendorOfferDrawer({
                               }}
                             />
                           </MuiButton>
-                          {fileLabel ? (
-                            <Typography variant="caption" color="text.secondary" sx={{ fontSize: 10 }} noWrap>
-                              {fileLabel}
-                            </Typography>
-                          ) : null}
-                        </Box>
+                        )}
                       </TableCell>
                       <TableCell align="center" sx={DELETE_CELL_SX}>
                         <MuiIconButton

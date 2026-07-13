@@ -17,6 +17,7 @@ import {
   vendorInvoices,
   vendorPayableControls,
 } from '@/mocks/liveFinanceMockState'
+import { nextExpenseStatusAfterInvoiceLink } from '@/utils/commonExpensePayables'
 
 function findPayableControl(
   projectId: string,
@@ -50,6 +51,7 @@ export const liveHandlers = [
       id: nextVendorInvoiceId(),
       projectId: id,
       ...body,
+      uploadedAt: body.uploadedAt ?? new Date().toISOString(),
     }
     vendorInvoices.push(newVI)
     for (const expId of [
@@ -57,10 +59,11 @@ export const liveHandlers = [
       ...(newVI.linkedAdditionExpenseIds ?? []),
     ]) {
       const ex = expenses.find((e) => e.id === expId)
-      if (ex && ex.status === 'pending') {
-        ex.status = 'adjusted'
-        ex.linkedVendorInvoiceId = newVI.id
-      }
+      if (!ex) continue
+      if (ex.status !== 'pending' && !(ex.type === 'common' && ex.status === 'adjusted')) continue
+      const next = nextExpenseStatusAfterInvoiceLink(ex, vendorInvoices, newVI.id)
+      ex.status = next.status
+      ex.linkedVendorInvoiceId = next.linkedVendorInvoiceId
     }
     return HttpResponse.json(newVI, { status: 201 })
   }),
@@ -74,26 +77,39 @@ export const liveHandlers = [
       return HttpResponse.json({ message: 'Invoice not found' }, { status: 404 })
     }
     const prev = vendorInvoices[idx]
-    for (const expId of [
-      ...(prev.linkedExpenseIds ?? []),
-      ...(prev.linkedAdditionExpenseIds ?? []),
-    ]) {
-      const ex = expenses.find((e) => e.id === expId)
-      if (ex && ex.linkedVendorInvoiceId === prev.id) {
-        ex.status = 'pending'
-        ex.linkedVendorInvoiceId = undefined
-      }
-    }
     const updated: VendorInvoice = { ...prev, ...body, id: prev.id, projectId }
     vendorInvoices[idx] = updated
-    for (const expId of [
+
+    const touchedExpenseIds = new Set<string>([
+      ...(prev.linkedExpenseIds ?? []),
+      ...(prev.linkedAdditionExpenseIds ?? []),
       ...(updated.linkedExpenseIds ?? []),
       ...(updated.linkedAdditionExpenseIds ?? []),
-    ]) {
+    ])
+
+    for (const expId of touchedExpenseIds) {
       const ex = expenses.find((e) => e.id === expId)
-      if (ex && ex.status === 'pending') {
+      if (!ex || ex.status === 'included_in_payment') continue
+
+      if (ex.type === 'common') {
+        const next = nextExpenseStatusAfterInvoiceLink(ex, vendorInvoices, updated.id)
+        ex.status = next.status
+        ex.linkedVendorInvoiceId =
+          next.status === 'adjusted' ? next.linkedVendorInvoiceId : undefined
+        continue
+      }
+
+      const stillLinked = vendorInvoices.some(
+        (inv) =>
+          (inv.linkedExpenseIds ?? []).includes(expId) ||
+          (inv.linkedAdditionExpenseIds ?? []).includes(expId),
+      )
+      if (stillLinked) {
         ex.status = 'adjusted'
         ex.linkedVendorInvoiceId = updated.id
+      } else {
+        ex.status = 'pending'
+        ex.linkedVendorInvoiceId = undefined
       }
     }
     return HttpResponse.json(updated)

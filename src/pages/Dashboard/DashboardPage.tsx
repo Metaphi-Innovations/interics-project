@@ -211,16 +211,7 @@ export default function DashboardPage() {
   const ru = useCallback((n: number) => `₹${formatCurrency(n)}`, [])
 
   return (
-    <Box
-      sx={{
-        bgcolor: 'background.default',
-        minHeight: '100%',
-        maxWidth: 1400,
-        mx: 'auto',
-        px: 3,
-        py: 3,
-      }}
-    >
+    <Box>
       <CreateProjectModal
         open={createProjectOpen}
         onClose={() => setCreateProjectOpen(false)}

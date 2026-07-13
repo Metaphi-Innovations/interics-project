@@ -52,7 +52,7 @@ import type { Project } from '../../slices/projects/reducer'
 import { ListingTemplate } from '../../components/templates/ListingTemplate'
 import CreateProjectModal from './CreateProjectModal'
 import { DrawerForm, FormField, FormSection } from '../../components/templates/DrawerForm'
-import { useToast, Input } from '@/design-system/components'
+import { useToast, Input, DatePicker, dateFromIso, isoFromDate } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { useTheme, alpha } from '@mui/material/styles'
 import {
@@ -993,20 +993,21 @@ function EditProjectDrawer({
         </FormField>
 
         <FormField label="Start Date">
-          <Input
-            type="date"
-            value={form.startDate ?? ''}
-            onChange={(v) => set('startDate', v || null)}
+          <DatePicker
+            value={dateFromIso(form.startDate)}
+            onChange={(d) => set('startDate', isoFromDate(d) || null)}
+            fullWidth
             size="sm"
           />
         </FormField>
 
         <FormField label="Expected End Date">
-          <Input
-            type="date"
-            value={form.expectedEndDate ?? ''}
-            onChange={(v) => set('expectedEndDate', v || null)}
+          <DatePicker
+            value={dateFromIso(form.expectedEndDate)}
+            onChange={(d) => set('expectedEndDate', isoFromDate(d) || null)}
+            fullWidth
             size="sm"
+            minDate={dateFromIso(form.startDate) ?? undefined}
           />
         </FormField>
       </FormSection>

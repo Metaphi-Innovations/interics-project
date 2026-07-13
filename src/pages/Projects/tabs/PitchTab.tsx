@@ -38,6 +38,7 @@ import {
   type VendorOfferServiceOption,
 } from '../components/VendorOfferDrawer'
 import { PitchQuotationsSection } from '../components/PitchQuotationsSection'
+import { UploadedDocumentLink } from '@/components/documents/UploadedDocumentLink'
 import { useAppDispatch, useAppSelector } from '../../../store/hooks'
 import { fetchCategories, fetchServices } from '../../../slices/settings/thunk'
 import type { Service } from '../../../slices/settings/reducer'
@@ -79,30 +80,29 @@ const CLIENT_OFFER_TABLE_SX = {
   '& .MuiTableCell-root': { boxSizing: 'border-box' },
 } as const
 const VENDOR_COL_COUNT = 7
-const VENDOR_COL_WIDTH = `${100 / VENDOR_COL_COUNT}%`
-/** Equal inset from container edge on first and last columns */
-const VENDOR_TABLE_EDGE_PX = 2
+const VENDOR_ACTIONS_COL_PX = 56
+const VENDOR_COL_WIDTHS = ['16%', '14%', '16%', '12%', '18%', '16%', `${VENDOR_ACTIONS_COL_PX}px`] as const
 const VENDOR_TABLE_SX = {
   width: '100%',
   tableLayout: 'fixed',
   '& .MuiTableCell-root': {
+    boxSizing: 'border-box',
     py: 1.25,
     px: 1.5,
     fontSize: 12,
-    width: VENDOR_COL_WIDTH,
     verticalAlign: 'middle',
-  },
-  '& .MuiTableCell-root:first-of-type': {
-    pl: VENDOR_TABLE_EDGE_PX,
-  },
-  '& .MuiTableCell-root:last-of-type': {
-    pr: VENDOR_TABLE_EDGE_PX,
   },
   '& .MuiTableHead-root .MuiTableCell-root': {
     fontSize: 10,
     fontWeight: 700,
     color: tokens.color.neutral[500],
     bgcolor: tokens.color.neutral[50],
+  },
+  '& .vendor-offer-actions-cell': {
+    width: VENDOR_ACTIONS_COL_PX,
+    maxWidth: VENDOR_ACTIONS_COL_PX,
+    px: 0.75,
+    textAlign: 'center',
   },
 } as const
 
@@ -920,6 +920,11 @@ export default function PitchTab({ project }: { project: Project }) {
             </Stack>
             <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, overflow: 'hidden' }}>
               <Table size="small" sx={VENDOR_TABLE_SX}>
+                <colgroup>
+                  {VENDOR_COL_WIDTHS.map((width, index) => (
+                    <col key={index} style={{ width }} />
+                  ))}
+                </colgroup>
                 <TableHead>
                   <TableRow>
                     {[
@@ -931,7 +936,11 @@ export default function PitchTab({ project }: { project: Project }) {
                       'Upload',
                       'Actions',
                     ].map((h) => (
-                      <TableCell key={h} align="left">
+                      <TableCell
+                        key={h}
+                        align={h === 'Actions' ? 'center' : 'left'}
+                        className={h === 'Actions' ? 'vendor-offer-actions-cell' : undefined}
+                      >
                         {h}
                       </TableCell>
                     ))}
@@ -954,6 +963,7 @@ export default function PitchTab({ project }: { project: Project }) {
                       (s) => s.id === row.serviceId,
                     )
                     const mappings = service?.vendorMappings ?? []
+                    const quotation = row.mapping.quotation
                     return (
                       <TableRow key={k}>
                         <TableCell align="left">
@@ -981,15 +991,21 @@ export default function PitchTab({ project }: { project: Project }) {
                             {row.mapping.notes?.trim() || '—'}
                           </Typography>
                         </TableCell>
-                        <TableCell align="center">
-                          <Box
-                            sx={{
-                              display: 'flex',
-                              flexDirection: 'column',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                            }}
-                          >
+                        <TableCell align="left">
+                          {quotation?.fileName ? (
+                            <UploadedDocumentLink
+                              fileName={quotation.fileName}
+                              documentUrl={quotation.fileUrl}
+                              onOpenFailed={() =>
+                                showToast({
+                                  title: 'Unable to open document',
+                                  description:
+                                    'The file is no longer available in this session. Upload it again.',
+                                  variant: 'error',
+                                })
+                              }
+                            />
+                          ) : (
                             <MuiButton
                               size="small"
                               variant="outlined"
@@ -1029,30 +1045,28 @@ export default function PitchTab({ project }: { project: Project }) {
                                 }}
                               />
                             </MuiButton>
-                            {row.mapping.quotation?.fileName ? (
-                              <Typography
-                                variant="caption"
-                                color="text.secondary"
-                                sx={{ display: 'block', mt: 0.25, fontSize: 10, textAlign: 'center', maxWidth: '100%' }}
-                                noWrap
-                              >
-                                {row.mapping.quotation.fileName}
-                              </Typography>
-                            ) : null}
-                          </Box>
+                          )}
                         </TableCell>
-                        <TableCell align="left">
-                          <MuiIconButton
-                            size="small"
-                            aria-label="Delete vendor offer"
-                            onClick={() => {
-                              const next = mappings.filter((m) => m.id !== row.mapping.id)
-                              saveMappingsForService(row.serviceId, next)
+                        <TableCell align="center" className="vendor-offer-actions-cell">
+                          <Box
+                            sx={{
+                              display: 'flex',
+                              justifyContent: 'center',
+                              alignItems: 'center',
+                              minHeight: 32,
                             }}
-                            sx={{ ml: -0.5 }}
                           >
-                            <Delete sx={{ fontSize: 16 }} />
-                          </MuiIconButton>
+                            <MuiIconButton
+                              size="small"
+                              aria-label="Delete vendor offer"
+                              onClick={() => {
+                                const next = mappings.filter((m) => m.id !== row.mapping.id)
+                                saveMappingsForService(row.serviceId, next)
+                              }}
+                            >
+                              <Delete sx={{ fontSize: 16 }} />
+                            </MuiIconButton>
+                          </Box>
                         </TableCell>
                       </TableRow>
                     )

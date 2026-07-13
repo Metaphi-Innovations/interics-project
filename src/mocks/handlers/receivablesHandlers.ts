@@ -61,6 +61,8 @@ export interface Invoice {
   payments: Payment[]
   notes?: string
   clientPoId?: string
+  documentUrl?: string | null
+  fileName?: string | null
   createdAt: string
   updatedAt: string
 }
@@ -211,6 +213,8 @@ let invoices: Invoice[] = [
     ],
     createdAt: '2025-11-12T09:00:00Z',
     updatedAt: '2025-11-28T10:00:00Z',
+    documentUrl: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
+    fileName: 'INV-2026-001.pdf',
   },
   {
     id: 'inv-002',
@@ -242,6 +246,8 @@ let invoices: Invoice[] = [
     ],
     createdAt: '2025-12-08T11:00:00Z',
     updatedAt: '2025-12-20T14:00:00Z',
+    documentUrl: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
+    fileName: 'INV-2026-002.pdf',
   },
   {
     id: 'inv-003',

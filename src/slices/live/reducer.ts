@@ -26,6 +26,7 @@ import type {
   VendorPayableControl,
   VendorPayment,
 } from './types'
+import { nextExpenseStatusAfterInvoiceLink } from '@/utils/commonExpensePayables'
 
 export type {
   ClientInvoice,
@@ -136,13 +137,13 @@ const liveSlice = createSlice({
           ...(inv.linkedAdditionExpenseIds ?? []),
         ]) {
           const idx = state.expenses.findIndex((e) => e.id === expId)
-          if (idx !== -1 && state.expenses[idx].status === 'pending') {
-            state.expenses[idx] = {
-              ...state.expenses[idx],
-              status: 'adjusted',
-              linkedVendorInvoiceId: inv.id,
-            }
+          if (idx === -1) continue
+          const exp = state.expenses[idx]
+          if (exp.status !== 'pending' && !(exp.type === 'common' && exp.status === 'adjusted')) {
+            continue
           }
+          const next = nextExpenseStatusAfterInvoiceLink(exp, state.vendorInvoices, inv.id)
+          state.expenses[idx] = { ...exp, ...next }
         }
       })
       .addCase(uploadVendorInvoice.rejected, (state) => {
@@ -155,35 +156,50 @@ const liveSlice = createSlice({
       .addCase(updateVendorInvoice.fulfilled, (state, action) => {
         state.saving = false
         const idx = state.vendorInvoices.findIndex((v) => v.id === action.payload.id)
-        if (idx !== -1) {
-          const prev = state.vendorInvoices[idx]
-          for (const expId of [
-            ...(prev.linkedExpenseIds ?? []),
-            ...(prev.linkedAdditionExpenseIds ?? []),
-          ]) {
-            const expIdx = state.expenses.findIndex((e) => e.id === expId)
-            if (expIdx !== -1 && state.expenses[expIdx].linkedVendorInvoiceId === prev.id) {
-              state.expenses[expIdx] = {
-                ...state.expenses[expIdx],
-                status: 'pending',
-                linkedVendorInvoiceId: undefined,
-              }
+        if (idx === -1) return
+        const prev = state.vendorInvoices[idx]
+        state.vendorInvoices[idx] = action.payload
+
+        const touchedExpenseIds = new Set<string>([
+          ...(prev.linkedExpenseIds ?? []),
+          ...(prev.linkedAdditionExpenseIds ?? []),
+          ...(action.payload.linkedExpenseIds ?? []),
+          ...(action.payload.linkedAdditionExpenseIds ?? []),
+        ])
+
+        for (const expId of touchedExpenseIds) {
+          const expIdx = state.expenses.findIndex((e) => e.id === expId)
+          if (expIdx === -1) continue
+          const exp = state.expenses[expIdx]
+          if (exp.status === 'included_in_payment') continue
+
+          if (exp.type === 'common') {
+            const next = nextExpenseStatusAfterInvoiceLink(exp, state.vendorInvoices, action.payload.id)
+            state.expenses[expIdx] = {
+              ...exp,
+              status: next.status,
+              linkedVendorInvoiceId:
+                next.status === 'adjusted' ? next.linkedVendorInvoiceId : undefined,
             }
+            continue
           }
-          state.vendorInvoices[idx] = action.payload
-          for (const expId of [
-            ...(action.payload.linkedExpenseIds ?? []),
-            ...(action.payload.linkedAdditionExpenseIds ?? []),
-          ]) {
-            const expIdx = state.expenses.findIndex((e) => e.id === expId)
-            if (expIdx !== -1 && state.expenses[expIdx].status === 'pending') {
-              state.expenses[expIdx] = {
-                ...state.expenses[expIdx],
+
+          const stillLinked = state.vendorInvoices.some(
+            (inv) =>
+              (inv.linkedExpenseIds ?? []).includes(expId) ||
+              (inv.linkedAdditionExpenseIds ?? []).includes(expId),
+          )
+          state.expenses[expIdx] = stillLinked
+            ? {
+                ...exp,
                 status: 'adjusted',
                 linkedVendorInvoiceId: action.payload.id,
               }
-            }
-          }
+            : {
+                ...exp,
+                status: 'pending',
+                linkedVendorInvoiceId: undefined,
+              }
         }
       })
       .addCase(updateVendorInvoice.rejected, (state) => {

@@ -92,6 +92,9 @@ export function invoiceToClientInvoice(inv: Invoice): ClientInvoice {
     status: mapInvoiceStatusToClient(inv.status),
     payments: inv.payments.map(paymentToClient),
     notes: inv.notes,
+    documentUrl: inv.documentUrl ?? undefined,
+    fileName: inv.fileName ?? undefined,
+    uploadedAt: inv.createdAt,
   }
 }
 

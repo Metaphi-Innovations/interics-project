@@ -67,6 +67,8 @@ export interface ClientInvoice {
   notes?: string
   documentUrl?: string
   fileName?: string
+  /** When the invoice document was uploaded into the system. */
+  uploadedAt?: string
 }
 
 /** Vendor invoices */
@@ -102,6 +104,8 @@ export interface VendorInvoice {
   documentUrl?: string
   /** Uploaded invoice PDF filename (not the invoice number). */
   fileName?: string
+  /** When the invoice document was uploaded into the system. */
+  uploadedAt?: string
 }
 
 /** Per vendor–service row on a project (Finance → Payments payable control). */
@@ -179,6 +183,11 @@ export interface Expense {
     vendorName: string
     allocationPercent: number
     allocationAmount: number
+    /**
+     * When false, this vendor's share is not recovered via payable deduction
+     * and remains a project/common expense. Defaults to true when omitted.
+     */
+    includedInRecovery?: boolean
   }[]
   status: 'pending' | 'adjusted' | 'included_in_payment'
   linkedPaymentId?: string

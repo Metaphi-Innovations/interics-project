@@ -28,7 +28,7 @@ export type { RadioGroupProps } from './RadioGroup'
 export { default as Toggle } from './Toggle'
 export type { ToggleProps } from './Toggle'
 
-export { default as DatePicker } from './DatePicker'
+export { default as DatePicker, dateFromIso, isoFromDate } from './DatePicker'
 export type { DatePickerProps } from './DatePicker'
 
 export { default as DateRangePicker } from './DateRangePicker'

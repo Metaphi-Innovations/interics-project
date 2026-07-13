@@ -9,6 +9,14 @@ import type {
 import type { Baseline, VendorPO } from '@/slices/baseline/reducer'
 import type { PitchService, VendorMilestone } from '@/slices/pitch/reducer'
 import { mappingMilestonesWithRetention } from '@/utils/vendorMilestones'
+import { vendorHasLinkedExpenseOnInvoice } from '@/utils/commonExpensePayables'
+
+export {
+  commonExpenseVendorsNeedingInvoiceLink,
+  invoiceLinksExpense,
+  isCommonExpenseFullyLinkedOnInvoices,
+  vendorHasLinkedExpenseOnInvoice,
+} from '@/utils/commonExpensePayables'
 
 export interface VendorServiceRow {
   vendorId: string
@@ -167,20 +175,65 @@ export function commonExpenseAmountForVendor(e: Expense, vendorId: string): numb
   return row?.allocationAmount ?? 0
 }
 
+/** Whether this vendor participates in recovering their PO-ratio share. */
+export function isVendorIncludedInCommonRecovery(e: Expense, vendorId: string): boolean {
+  const row = e.vendorAllocations?.find((a) => a.vendorId === vendorId)
+  if (!row) return false
+  return row.includedInRecovery !== false
+}
+
+/** Full common-expense amount reimbursed to the Paid By vendor on their invoice. */
+export function commonExpenseInvoiceAddition(e: Expense, vendorId: string): number {
+  if (e.type !== 'common') return 0
+  if (e.paidByVendorId !== vendorId) return 0
+  return Math.max(0, e.amount)
+}
+
+/**
+ * PO-ratio share deducted from a vendor invoice when they are selected in Allocated To.
+ * Uses the original stored ratio — never redistributes unselected vendors' shares.
+ */
+export function commonExpenseInvoiceDeduction(e: Expense, vendorId: string): number {
+  if (e.type !== 'common') return 0
+  if (!isVendorIncludedInCommonRecovery(e, vendorId)) return 0
+  return Math.max(0, commonExpenseAmountForVendor(e, vendorId))
+}
+
 export type CommonExpenseExpenseRole = 'payer_credit' | 'vendor_debit'
 
+export function commonExpenseAdjustmentsForVendor(
+  e: Expense,
+  vendorId: string,
+  projectInvoices: VendorInvoice[] = [],
+): { amount: number; role: CommonExpenseExpenseRole }[] {
+  if (e.type !== 'common' || e.status === 'included_in_payment') return []
+  // Still show while pending, or while partially linked across vendors (status may stay pending).
+  if (e.status !== 'pending' && e.status !== 'adjusted') return []
+  if (vendorHasLinkedExpenseOnInvoice(projectInvoices, vendorId, e.id)) return []
+  const out: { amount: number; role: CommonExpenseExpenseRole }[] = []
+  const addition = commonExpenseInvoiceAddition(e, vendorId)
+  if (addition > 0) {
+    out.push({ amount: -addition, role: 'payer_credit' })
+  }
+  const deduction = commonExpenseInvoiceDeduction(e, vendorId)
+  if (deduction > 0) {
+    out.push({ amount: deduction, role: 'vendor_debit' })
+  }
+  return out
+}
+
+/** @deprecated Prefer commonExpenseAdjustmentsForVendor — a vendor may be both payer and allocated. */
 export function commonExpensePayableAmount(
   e: Expense,
   vendorId: string,
+  projectInvoices: VendorInvoice[] = [],
 ): { amount: number; role: CommonExpenseExpenseRole } | null {
-  if (e.type !== 'common' || e.status !== 'pending') return null
-  const share = commonExpenseAmountForVendor(e, vendorId)
-  if (e.paidByVendorId === vendorId) {
-    const credit = Math.max(0, e.amount - share)
-    if (credit <= 0) return null
-    return { amount: -credit, role: 'payer_credit' }
-  }
-  if (share > 0) return { amount: share, role: 'vendor_debit' }
+  const adj = commonExpenseAdjustmentsForVendor(e, vendorId, projectInvoices)
+  if (adj.length === 0) return null
+  if (adj.length === 1) return adj[0]!
+  const net = adj.reduce((s, a) => s + a.amount, 0)
+  if (net < 0) return { amount: net, role: 'payer_credit' }
+  if (net > 0) return { amount: net, role: 'vendor_debit' }
   return null
 }
 
@@ -212,10 +265,10 @@ export function computeVendorPayableBreakdown(
   let debitedCommonExpenses = 0
   let commonExpenseCredit = 0
   for (const e of projectExpenses) {
-    const adj = commonExpensePayableAmount(e, row.vendorId)
-    if (!adj) continue
-    if (adj.role === 'payer_credit') commonExpenseCredit += Math.abs(adj.amount)
-    else debitedCommonExpenses += adj.amount
+    for (const adj of commonExpenseAdjustmentsForVendor(e, row.vendorId, projectInvoices)) {
+      if (adj.role === 'payer_credit') commonExpenseCredit += Math.abs(adj.amount)
+      else debitedCommonExpenses += adj.amount
+    }
   }
 
   const counts = computeVendorCardCounts(
@@ -239,6 +292,7 @@ export function computeVendorPayableBreakdown(
 export function expenseRowsForVendor(
   expenses: Expense[],
   row: VendorServiceRow,
+  projectInvoices: VendorInvoice[] = [],
 ): {
   expense: Expense
   amount: number
@@ -252,15 +306,18 @@ export function expenseRowsForVendor(
     commonRole?: CommonExpenseExpenseRole
   }[] = []
   for (const e of expenses) {
-    if (e.status !== 'pending') continue
+    if (e.status === 'included_in_payment') continue
     // Reimbursable expenses sync to Reimbursement and settle as payment additions, not deductions.
     if (e.type === 'reimbursable_expenses') continue
-    if (e.type === 'vendor_linked' && vendorLinkedExpenseMatchesRow(e, row)) {
-      out.push({ expense: e, amount: e.amount, kind: 'vendor_linked' })
+    if (e.type === 'vendor_linked') {
+      if (e.status !== 'pending') continue
+      if (vendorLinkedExpenseMatchesRow(e, row)) {
+        out.push({ expense: e, amount: e.amount, kind: 'vendor_linked' })
+      }
+      continue
     }
     if (e.type === 'common') {
-      const adj = commonExpensePayableAmount(e, row.vendorId)
-      if (adj) {
+      for (const adj of commonExpenseAdjustmentsForVendor(e, row.vendorId, projectInvoices)) {
         out.push({
           expense: e,
           amount: adj.amount,
@@ -281,8 +338,8 @@ export function selectableProjectExpensesForInvoice(
   return expenses.filter(
     (e) =>
       e.projectId === projectId &&
-      e.status === 'pending' &&
-      e.type !== 'reimbursable_expenses',
+      e.type !== 'reimbursable_expenses' &&
+      (e.status === 'pending' || (e.type === 'common' && e.status === 'adjusted')),
   )
 }
 
@@ -582,7 +639,7 @@ export function paymentTouchesRow(
   for (const id of payment.linkedExpenseIds) {
     const e = expenses.find((x) => x.id === id)
     if (!e || e.projectId !== projectId) continue
-    if (expenseRowsForVendor([e], row).length > 0) return true
+    if (expenseRowsForVendor([e], row, vendorInvoices).length > 0) return true
   }
 
   for (const id of payment.linkedReimbursementIds) {
@@ -627,7 +684,7 @@ export function computeVendorCardCounts(
     if (!inv) uninvoicedM += 1
     else if (inv.status !== 'paid') pendingInv += 1
   }
-  const exRows = expenseRowsForVendor(projectExpenses, row)
+  const exRows = expenseRowsForVendor(projectExpenses, row, projectInvoices)
   const pendingExp = exRows.length
   const rmbs = projectReimb.filter((r) => reimbMatchesRow(r, row))
   const pendingRmb = rmbs.filter((r) => r.status === 'pending').length

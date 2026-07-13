@@ -12,6 +12,7 @@ import {
   Typography,
   MenuItem,
   Select,
+  Checkbox,
   Table,
   TableBody,
   TableCell,
@@ -23,7 +24,7 @@ import type { PitchVersion, PlannedExpense, PitchService, VendorMapping } from '
 import type { Baseline, VendorPO } from '@/slices/baseline/reducer'
 import type { ExpenseType } from '@/slices/live/types'
 import type { CreateExpenseBody } from '@/api/liveApi'
-import { Input, FileUpload } from '@/design-system/components'
+import { Input, FileUpload, DatePicker, dateFromIso, isoFromDate } from '@/design-system/components'
 import { FormField, FormSection } from '@/components/templates/DrawerForm'
 import { tokens } from '@/design-system/tokens'
 import { formatCurrency } from '@/utils/formatters'
@@ -104,6 +105,8 @@ const EXPENSE_TYPE_OPTIONS = {
 
 const COMMON_EXPENSE_SPLIT_METHOD = 'proportional_po' as const
 
+type BuildVendorOption = { vendorId: string; vendorName: string; poSum: number }
+
 export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(function ExpenseForm(
   {
     context,
@@ -141,6 +144,7 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
   const [milestoneId, setMilestoneId] = useState('')
 
   const [paidByVendorId, setPaidByVendorId] = useState('')
+  const [allocatedVendorIds, setAllocatedVendorIds] = useState<string[]>([])
 
   const liveTypeOptions: { value: ExpenseType; label: string }[] = [
     { value: 'additional', label: EXPENSE_TYPE_OPTIONS.additional },
@@ -213,7 +217,7 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
     if (projectVendorPOs.length > 0) {
       return getBuildVendorsFromPOs(projectVendorPOs)
     }
-    if (!pitchVersion) return [] as { vendorId: string; vendorName: string; poSum: number }[]
+    if (!pitchVersion) return [] as BuildVendorOption[]
     return [...vendorValueTotalsByVendorId(pitchVersion).entries()]
       .filter(([, v]) => v.value > 0)
       .map(([vendorId, v]) => ({
@@ -228,25 +232,46 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
   const commonVendors = isPitch ? pitchBuildVendors : buildVendors
 
   const commonPreview = useMemo(() => {
+    const weighted = (isPitch ? pitchBuildVendors : buildVendors).map((v) => ({
+      vendorId: v.vendorId,
+      vendorName: v.vendorName,
+      weight: v.poSum,
+    }))
+    if (weighted.length === 0) return []
+
     const n = Number(amount)
-    if (!Number.isFinite(n) || n <= 0) return []
-    if (!isPitch) {
-      return computeCommonExpenseAllocations(n, projectVendorPOs, COMMON_EXPENSE_SPLIT_METHOD)
+    const calcAmount = Number.isFinite(n) && n > 0 ? n : 0
+
+    // Always derive fixed PO ratios from full vendor set (never filter by selection).
+    // When amount is empty, still show ratios with ₹0 shares so selection can happen first.
+    if (!isPitch && projectVendorPOs.length > 0) {
+      const rows = computeCommonExpenseAllocations(
+        calcAmount > 0 ? calcAmount : 1,
+        projectVendorPOs,
+        COMMON_EXPENSE_SPLIT_METHOD,
+      )
+      return calcAmount > 0 ? rows : rows.map((r) => ({ ...r, allocationAmount: 0 }))
     }
-    return computeAllocationsForVendors(
-      n,
-      pitchBuildVendors.map((v) => ({
-        vendorId: v.vendorId,
-        vendorName: v.vendorName,
-        weight: v.poSum,
-      })),
+
+    const rows = computeAllocationsForVendors(
+      calcAmount > 0 ? calcAmount : 1,
+      weighted,
       COMMON_EXPENSE_SPLIT_METHOD,
     )
-  }, [amount, isPitch, projectVendorPOs, pitchBuildVendors])
+    return calcAmount > 0 ? rows : rows.map((r) => ({ ...r, allocationAmount: 0 }))
+  }, [amount, isPitch, projectVendorPOs, pitchBuildVendors, buildVendors])
 
   const totalCommonWeight = useMemo(
     () => commonVendors.reduce((s, v) => s + v.poSum, 0),
     [commonVendors],
+  )
+
+  const recoveredPreviewTotal = useMemo(
+    () =>
+      commonPreview
+        .filter((row) => allocatedVendorIds.includes(row.vendorId))
+        .reduce((s, r) => s + r.allocationAmount, 0),
+    [commonPreview, allocatedVendorIds],
   )
 
   const amountNum = typeof amount === 'number' ? amount : Number(amount) || 0
@@ -256,6 +281,7 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
     setMappingId('')
     setMilestoneId('')
     setPaidByVendorId('')
+    setAllocatedVendorIds([])
     void next
   }, [])
 
@@ -264,8 +290,23 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
     setMappingId('')
     setMilestoneId('')
     setPaidByVendorId('')
+    setAllocatedVendorIds([])
     void next
   }, [])
+
+  function toggleAllocatedVendor(vendorId: string) {
+    setAllocatedVendorIds((prev) =>
+      prev.includes(vendorId) ? prev.filter((id) => id !== vendorId) : [...prev, vendorId],
+    )
+  }
+
+  function handlePaidByChange(vendorId: string) {
+    setPaidByVendorId(vendorId)
+    // Paid By is never auto-selected for recovery — Interics chooses reimbursing vendors explicitly.
+    if (vendorId) {
+      setAllocatedVendorIds((prev) => prev.filter((id) => id !== vendorId))
+    }
+  }
 
   useEffect(() => {
     if (!open || !isPitch) return
@@ -291,8 +332,19 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
       }
       if (ed.type === 'common') {
         setPaidByVendorId(ed.paidByVendorId ?? '')
+        if (ed.vendorSplits?.length) {
+          setAllocatedVendorIds(
+            ed.vendorSplits
+              .filter((s) => s.includedInRecovery !== false)
+              .map((s) => s.vendorId),
+          )
+        } else {
+          // Explicit selection required — do not pre-check Paid By or other vendors.
+          setAllocatedVendorIds([])
+        }
       } else {
         setPaidByVendorId('')
+        setAllocatedVendorIds([])
       }
     } else {
       setPitchType('common')
@@ -304,8 +356,9 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
       setMappingId('')
       setMilestoneId('')
       setPaidByVendorId('')
+      setAllocatedVendorIds([])
     }
-  }, [open, isPitch, pitchVersion, editingPlannedExpense])
+  }, [open, isPitch, pitchVersion, editingPlannedExpense, pitchBuildVendors])
 
   useEffect(() => {
     if (!open || isPitch) return
@@ -318,7 +371,8 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
     setMappingId('')
     setMilestoneId('')
     setPaidByVendorId('')
-  }, [open, isPitch, effectiveProjectId])
+    setAllocatedVendorIds([])
+  }, [open, isPitch, effectiveProjectId, buildVendors])
 
   useEffect(() => {
     if (isPitch) {
@@ -354,7 +408,7 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
       if (pitchType === 'vendor') return Boolean(serviceId && selectedMappingPitch)
       if (pitchType === 'reimbursable_expenses') return Boolean(serviceId && selectedMappingPitch)
       if (pitchType === 'common') {
-        return pitchBuildVendors.length > 0 && totalCommonWeight > 0 && Boolean(paidByVendorId)
+        return pitchBuildVendors.length > 0 && totalCommonWeight > 0
       }
       return false
     }
@@ -364,7 +418,7 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
       return Boolean(serviceId && selectedMappingLive)
     }
     if (liveType === 'common') {
-      return buildVendors.length > 0 && totalCommonWeight > 0 && Boolean(paidByVendorId)
+      return buildVendors.length > 0 && totalCommonWeight > 0
     }
     return true
   }, [
@@ -385,7 +439,6 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
     totalCommonWeight,
     pitchBuildVendors.length,
     buildVendors.length,
-    paidByVendorId,
   ])
 
   useEffect(() => {
@@ -436,12 +489,14 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
           COMMON_EXPENSE_SPLIT_METHOD,
         )
         if (allocations.length === 0) return
-        const payer = pitchBuildVendors.find((v) => v.vendorId === paidByVendorId)
-        if (!payer) return
+        const payer = paidByVendorId
+          ? pitchBuildVendors.find((v) => v.vendorId === paidByVendorId)
+          : undefined
         const vendorSplits = allocations.map((a) => ({
           vendorId: a.vendorId,
           percentage: a.allocationPercent,
           amount: a.allocationAmount,
+          includedInRecovery: allocatedVendorIds.includes(a.vendorId),
         }))
         expense = {
           id: baseId,
@@ -450,8 +505,8 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
           amount: amountNum,
           vendorSplits,
           splitMethod: COMMON_EXPENSE_SPLIT_METHOD,
-          paidByVendorId: payer.vendorId,
-          paidByVendorName: payer.vendorName,
+          paidByVendorId: payer?.vendorId,
+          paidByVendorName: payer?.vendorName,
         }
       }
       onSubmit({ mode: 'planned_expense', expense })
@@ -490,8 +545,9 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
         COMMON_EXPENSE_SPLIT_METHOD,
       )
       if (allocations.length === 0) return
-      const payer = buildVendors.find((v) => v.vendorId === paidByVendorId)
-      if (!payer) return
+      const payer = paidByVendorId
+        ? buildVendors.find((v) => v.vendorId === paidByVendorId)
+        : undefined
       const data: CreateExpenseBody = {
         type: 'common',
         description: description.trim(),
@@ -499,9 +555,12 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
         date: date || '',
         documentUrl,
         splitMethod: COMMON_EXPENSE_SPLIT_METHOD,
-        paidByVendorId: payer.vendorId,
-        paidByVendorName: payer.vendorName,
-        vendorAllocations: allocations,
+        paidByVendorId: payer?.vendorId,
+        paidByVendorName: payer?.vendorName,
+        vendorAllocations: allocations.map((a) => ({
+          ...a,
+          includedInRecovery: allocatedVendorIds.includes(a.vendorId),
+        })),
         status: 'pending',
       }
       onSubmit({ mode: 'live_expense', projectId: pid, data })
@@ -538,6 +597,7 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
     milestonesForService,
     projectVendorPOs,
     paidByVendorId,
+    allocatedVendorIds,
     buildVendors,
     onSubmit,
   ])
@@ -587,8 +647,8 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
         </FormField>
         {isCommonExpense && (
           <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11, display: 'block', mt: -0.5 }}>
-            Split across mapped build vendors. Other vendors&apos; shares are recovered through payable
-            adjustments.
+            Split across mapped build vendors using the original PO ratio. Unselected vendors&apos;
+            shares remain a project expense.
           </Typography>
         )}
         {(isPitch ? pitchType === 'vendor' : liveType === 'vendor_linked') && (
@@ -646,7 +706,12 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
           <FormField
             label={isReimbursable || isPitchReimbursable ? 'Date vendor made the payment' : 'Date'}
           >
-            <Input type="date" value={date} onChange={setDate} size="sm" />
+            <DatePicker
+              value={dateFromIso(date)}
+              onChange={(d) => setDate(isoFromDate(d))}
+              fullWidth
+              size="sm"
+            />
           </FormField>
         )}
       </FormSection>
@@ -802,7 +867,7 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
       )}
 
       {isCommonExpense && (isPitch ? pitchVersion : true) && (
-        <FormSection title="Allocation" columns={1}>
+        <FormSection title="Allocation Preview" columns={1}>
           <Box
             sx={{
               border: `1px solid ${tokens.color.neutral[100]}`,
@@ -813,15 +878,15 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
           >
             <Stack direction="row" justifyContent="space-between" sx={{ mb: 1.5 }}>
               <Typography variant="overline" sx={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.6 }}>
-                Allocation Preview
+                Build Vendors
               </Typography>
               <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 700 }}>
                 ₹{formatCurrency(amountNum > 0 ? amountNum : 0)}
               </Typography>
             </Stack>
 
-            <Typography variant="caption" sx={{ fontWeight: 600, fontSize: 11, display: 'block', mb: 1 }}>
-              Affected Build Vendors
+            <Typography variant="caption" sx={{ fontSize: 11, display: 'block', mb: 1, color: 'text.secondary' }}>
+              Check vendors to recover from. PO shares stay fixed; Paid By is not auto-selected.
             </Typography>
 
             {commonVendors.length === 0 ? (
@@ -836,39 +901,105 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
               </Typography>
             ) : commonPreview.length === 0 ? (
               <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary' }}>
-                Enter an amount to preview allocation.
+                No build vendors available for allocation.
               </Typography>
             ) : (
               <TableContainer>
                 <Table size="small">
                   <TableHead>
                     <TableRow>
+                      <TableCell padding="checkbox" sx={{ py: 1 }} />
                       <TableCell sx={{ fontSize: 11, fontWeight: 600, py: 1 }}>Vendor Name</TableCell>
                       <TableCell align="right" sx={{ fontSize: 11, fontWeight: 600, py: 1 }}>
-                        Allocated Amount
+                        PO Ratio (%)
+                      </TableCell>
+                      <TableCell align="right" sx={{ fontSize: 11, fontWeight: 600, py: 1 }}>
+                        Expense Share
                       </TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {commonPreview.map((row) => (
-                      <TableRow key={row.vendorId}>
-                        <TableCell sx={{ fontSize: 12, py: 1 }}>{row.vendorName}</TableCell>
-                        <TableCell align="right" sx={{ fontSize: 12, fontWeight: 600, py: 1 }}>
-                          ₹{formatCurrency(row.allocationAmount)}
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    {commonPreview.map((row) => {
+                      const selected = allocatedVendorIds.includes(row.vendorId)
+                      const isPayer = row.vendorId === paidByVendorId
+                      return (
+                        <TableRow
+                          key={row.vendorId}
+                          hover
+                          sx={{ opacity: selected ? 1 : 0.65 }}
+                        >
+                          <TableCell padding="checkbox" sx={{ py: 0.5 }}>
+                            <Checkbox
+                              size="small"
+                              checked={selected}
+                              onChange={() => toggleAllocatedVendor(row.vendorId)}
+                            />
+                          </TableCell>
+                          <TableCell sx={{ fontSize: 12, py: 1 }}>
+                            {row.vendorName}
+                            {isPayer ? (
+                              <Typography
+                                component="span"
+                                sx={{ fontSize: 10, color: 'text.secondary', ml: 1 }}
+                              >
+                                (Paid By)
+                              </Typography>
+                            ) : null}
+                          </TableCell>
+                          <TableCell align="right" sx={{ fontSize: 12, py: 1 }}>
+                            {row.allocationPercent}%
+                          </TableCell>
+                          <TableCell align="right" sx={{ fontSize: 12, fontWeight: 600, py: 1 }}>
+                            ₹{formatCurrency(row.allocationAmount)}
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
                     <TableRow>
-                      <TableCell sx={{ fontSize: 12, fontWeight: 700, borderTop: `2px solid ${tokens.color.neutral[200]}` }}>
-                        Total Allocated
+                      <TableCell
+                        colSpan={2}
+                        sx={{
+                          fontSize: 12,
+                          fontWeight: 700,
+                          borderTop: `2px solid ${tokens.color.neutral[200]}`,
+                        }}
+                      >
+                        Recovered from selected
                       </TableCell>
                       <TableCell
                         align="right"
-                        sx={{ fontSize: 12, fontWeight: 700, borderTop: `2px solid ${tokens.color.neutral[200]}` }}
+                        sx={{
+                          fontSize: 12,
+                          fontWeight: 700,
+                          borderTop: `2px solid ${tokens.color.neutral[200]}`,
+                        }}
                       >
-                        ₹{formatCurrency(commonPreview.reduce((s, r) => s + r.allocationAmount, 0))}
+                        {commonPreview
+                          .filter((r) => allocatedVendorIds.includes(r.vendorId))
+                          .reduce((s, r) => s + r.allocationPercent, 0)}
+                        %
+                      </TableCell>
+                      <TableCell
+                        align="right"
+                        sx={{
+                          fontSize: 12,
+                          fontWeight: 700,
+                          borderTop: `2px solid ${tokens.color.neutral[200]}`,
+                        }}
+                      >
+                        ₹{formatCurrency(recoveredPreviewTotal)}
                       </TableCell>
                     </TableRow>
+                    {amountNum > recoveredPreviewTotal ? (
+                      <TableRow>
+                        <TableCell colSpan={3} sx={{ fontSize: 11, color: 'text.secondary', py: 1 }}>
+                          Unrecovered (project / common expense)
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontSize: 11, color: 'text.secondary', py: 1 }}>
+                          ₹{formatCurrency(amountNum - recoveredPreviewTotal)}
+                        </TableCell>
+                      </TableRow>
+                    ) : null}
                   </TableBody>
                 </Table>
               </TableContainer>
@@ -879,12 +1010,12 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
 
       {isCommonExpense && (isPitch ? pitchVersion : true) && (
         <FormSection title="Paid By" columns={1}>
-          <FormField label="Paid By" required>
+          <FormField label="Paid By">
             <Select
               size="small"
               displayEmpty
               value={paidByVendorId}
-              onChange={(e) => setPaidByVendorId(e.target.value)}
+              onChange={(e) => handlePaidByChange(e.target.value)}
               fullWidth
               disabled={commonVendors.length === 0}
               sx={{ fontSize: 12 }}
@@ -900,8 +1031,8 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
             </Select>
           </FormField>
           <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
-            Vendor who initially paid this common expense. Other vendors&apos; shares are recovered
-            through payable adjustments.
+            Optional. If set, this vendor gets the full amount as an Expense Addition on their
+            invoice.
           </Typography>
         </FormSection>
       )}

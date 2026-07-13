@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
+  Badge,
   Box,
   Card,
   CircularProgress,
   IconButton,
+  InputBase,
   Menu,
   MenuItem,
   Stack,
@@ -16,16 +18,19 @@ import {
   TableRow,
   TextField,
   Typography,
+  Button as MuiButton,
 } from '@mui/material'
-import { alpha } from '@mui/material/styles'
+import { alpha, useTheme } from '@mui/material/styles'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
+import FilterListIcon from '@mui/icons-material/FilterList'
+import SearchIcon from '@mui/icons-material/Search'
 import { BadgeOutlined, ChevronRight, Email, MoreVert, Phone, WorkOutline } from '@mui/icons-material'
 import { Eye } from 'lucide-react'
-import { Button, Modal, StatusBadge, useToast } from '@/design-system/components'
+import { Button, DatePicker, Modal, StatusBadge, useToast } from '@/design-system/components'
 import type { StatusType } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
-import { FormField } from '@/components/templates'
-import { WorkspaceSection } from '@/components/templates'
+import { FiltersPopover, FormField, WorkspaceSection } from '@/components/templates'
+import type { FilterField } from '@/components/templates'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { fetchProjects } from '@/slices/projects/thunk'
 import { fetchRoles } from '@/slices/roles/thunk'
@@ -35,7 +40,22 @@ import type { Project } from '@/slices/projects/reducer'
 import type { Contact as CustomerContact } from '@/slices/customers/reducer'
 import { formatBuildingFloor, formatExpectedDuration } from '@/pages/Projects/projectOverviewHelpers'
 import { getProjectAssignedMembers } from '@/utils/projectAssignedTeam'
-import { formatDate, getAvatarColor, getInitials } from '@/utils/formatters'
+import { formatCurrency, formatDate, getAvatarColor, getInitials } from '@/utils/formatters'
+
+type AssignedPeriod =
+  | 'Last 1 Year'
+  | 'Last 2 Years'
+  | 'Last 5 Years'
+  | 'All Time'
+  | 'Custom Date Range'
+
+const PERIOD_OPTIONS: AssignedPeriod[] = [
+  'Last 1 Year',
+  'Last 2 Years',
+  'Last 5 Years',
+  'All Time',
+  'Custom Date Range',
+]
 
 const ASSIGNED_PROJECT_COLUMNS: Array<{ key: SortField; label: string }> = [
   { key: 'projectName', label: 'Project Name' },
@@ -44,6 +64,9 @@ const ASSIGNED_PROJECT_COLUMNS: Array<{ key: SortField; label: string }> = [
   { key: 'status', label: 'Status' },
   { key: 'startDate', label: 'Start Date' },
   { key: 'expectedEndDate', label: 'Expected End Date' },
+  { key: 'revenue', label: 'Revenue' },
+  { key: 'profit', label: 'Profit' },
+  { key: 'profitPct', label: 'Profit %' },
 ]
 
 function MemberAvatar({ name }: { name: string }) {
@@ -73,7 +96,16 @@ const PAGE_SIZE = 5
 const ACTION_WIDTH_PX = 56
 const CELL_PAD_X = '14px'
 
-type SortField = 'projectName' | 'projectLead' | 'status' | 'startDate' | 'expectedEndDate' | 'sites'
+type SortField =
+  | 'projectName'
+  | 'projectLead'
+  | 'status'
+  | 'startDate'
+  | 'expectedEndDate'
+  | 'sites'
+  | 'revenue'
+  | 'profit'
+  | 'profitPct'
 
 interface AssignedProjectRow {
   id: string
@@ -83,7 +115,84 @@ interface AssignedProjectRow {
   startDate: string | null
   expectedEndDate: string | null
   sites: string
+  revenue: number
+  profit: number
+  profitPct: number | null
   project: Project
+}
+
+function startOfDay(d: Date): Date {
+  const next = new Date(d)
+  next.setHours(0, 0, 0, 0)
+  return next
+}
+
+function endOfDay(d: Date): Date {
+  const next = new Date(d)
+  next.setHours(23, 59, 59, 999)
+  return next
+}
+
+function getPeriodBounds(
+  period: AssignedPeriod,
+  customFrom: Date | null,
+  customTo: Date | null,
+): { start: Date | null; end: Date | null } {
+  if (period === 'All Time') return { start: null, end: null }
+  if (period === 'Custom Date Range') {
+    return {
+      start: customFrom ? startOfDay(customFrom) : null,
+      end: customTo ? endOfDay(customTo) : null,
+    }
+  }
+  const end = endOfDay(new Date())
+  const start = startOfDay(new Date())
+  const years = period === 'Last 1 Year' ? 1 : period === 'Last 2 Years' ? 2 : 5
+  start.setFullYear(start.getFullYear() - years)
+  return { start, end }
+}
+
+function parseProjectDate(value: string | null | undefined): Date | null {
+  if (!value) return null
+  const d = new Date(value)
+  return Number.isNaN(d.getTime()) ? null : d
+}
+
+function projectInPeriod(
+  project: Project,
+  start: Date | null,
+  end: Date | null,
+): boolean {
+  if (!start && !end) return true
+  const projectStart = parseProjectDate(project.startDate) ?? parseProjectDate(project.createdAt)
+  if (!projectStart) return false
+  const projectEnd = parseProjectDate(project.expectedEndDate)
+  if (end && projectStart > end) return false
+  if (start && projectEnd && projectEnd < start) return false
+  return true
+}
+
+function projectRevenue(project: Project): number {
+  return project.totalClientPOValue || project.projectValue || 0
+}
+
+function projectProfit(project: Project): number {
+  return projectRevenue(project) - (project.totalVendorPOValue || 0)
+}
+
+function projectProfitPct(project: Project): number | null {
+  const revenue = projectRevenue(project)
+  if (revenue <= 0) return null
+  return (100 * projectProfit(project)) / revenue
+}
+
+function fmtInr(amount: number): string {
+  return `₹${formatCurrency(amount)}`
+}
+
+function fmtPct(value: number | null): string {
+  if (value == null || Number.isNaN(value)) return '—'
+  return `${value.toFixed(1)}%`
 }
 
 function compareText(a: string, b: string): number {
@@ -94,6 +203,12 @@ function compareDate(a: string | null, b: string | null): number {
   const aTs = a ? new Date(a).getTime() : 0
   const bTs = b ? new Date(b).getTime() : 0
   return aTs - bTs
+}
+
+function compareNumber(a: number | null, b: number | null): number {
+  const left = a ?? Number.NEGATIVE_INFINITY
+  const right = b ?? Number.NEGATIVE_INFINITY
+  return left - right
 }
 
 function ProjectRowActions({ onView }: { onView: () => void }) {
@@ -413,22 +528,66 @@ export default function TeamMemberDetailPage() {
         startDate: project.startDate,
         expectedEndDate: project.expectedEndDate,
         sites: formatBuildingFloor(project),
+        revenue: projectRevenue(project),
+        profit: projectProfit(project),
+        profitPct: projectProfitPct(project),
         project,
       }))
   }, [projects, selectedUser])
 
+  const [period, setPeriod] = useState<AssignedPeriod>('Last 1 Year')
+  const [customFrom, setCustomFrom] = useState<Date | null>(null)
+  const [customTo, setCustomTo] = useState<Date | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchFocused, setSearchFocused] = useState(false)
+  const [filterAnchor, setFilterAnchor] = useState<HTMLElement | null>(null)
   const [sortField, setSortField] = useState<SortField>('projectName')
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
   const [page, setPage] = useState(1)
   const [activeProject, setActiveProject] = useState<Project | null>(null)
+  const theme = useTheme()
   const activeProjectCustomerContacts = useMemo(() => {
     if (!activeProject) return []
     const customer = customers.find((item) => item.id === activeProject.customerId)
     return customer?.contacts ?? []
   }, [activeProject, customers])
 
+  const periodBounds = useMemo(
+    () => getPeriodBounds(period, customFrom, customTo),
+    [period, customFrom, customTo],
+  )
+
+  const filterConfig: FilterField[] = useMemo(
+    () => [
+      {
+        field: 'period',
+        label: 'Period',
+        type: 'select',
+        options: PERIOD_OPTIONS.map((option) => ({ label: option, value: option })),
+      },
+    ],
+    [],
+  )
+
+  const activeFilters = useMemo(() => ({ period }), [period])
+
+  const activeFilterCount = period !== 'Last 1 Year' ? 1 : 0
+
+  const filteredProjects = useMemo(() => {
+    if (period === 'Custom Date Range' && (!customFrom || !customTo)) return []
+    const q = searchQuery.trim().toLowerCase()
+    return assignedProjects.filter((row) => {
+      if (!projectInPeriod(row.project, periodBounds.start, periodBounds.end)) return false
+      if (q) {
+        const haystack = [row.projectName, row.projectLead, row.sites].join(' ').toLowerCase()
+        if (!haystack.includes(q)) return false
+      }
+      return true
+    })
+  }, [assignedProjects, period, customFrom, customTo, periodBounds, searchQuery])
+
   const sortedProjects = useMemo(() => {
-    const rows = [...assignedProjects]
+    const rows = [...filteredProjects]
     rows.sort((a, b) => {
       let cmp = 0
       switch (sortField) {
@@ -450,18 +609,27 @@ export default function TeamMemberDetailPage() {
         case 'sites':
           cmp = compareText(a.sites, b.sites)
           break
+        case 'revenue':
+          cmp = compareNumber(a.revenue, b.revenue)
+          break
+        case 'profit':
+          cmp = compareNumber(a.profit, b.profit)
+          break
+        case 'profitPct':
+          cmp = compareNumber(a.profitPct, b.profitPct)
+          break
       }
       return sortDirection === 'asc' ? cmp : -cmp
     })
     return rows
-  }, [assignedProjects, sortDirection, sortField])
+  }, [filteredProjects, sortDirection, sortField])
 
   const totalPages = Math.max(1, Math.ceil(sortedProjects.length / PAGE_SIZE))
   const pageRows = sortedProjects.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
   useEffect(() => {
     setPage(1)
-  }, [sortDirection, sortField, assignedProjects.length])
+  }, [sortDirection, sortField, filteredProjects.length, period, customFrom, customTo, searchQuery])
 
   function handleSort(field: SortField) {
     if (sortField === field) {
@@ -470,6 +638,21 @@ export default function TeamMemberDetailPage() {
     }
     setSortField(field)
     setSortDirection('asc')
+  }
+
+  function handleFilterChange(vals: Record<string, unknown>) {
+    const next = (vals.period as AssignedPeriod) || 'Last 1 Year'
+    setPeriod(next)
+    if (next !== 'Custom Date Range') {
+      setCustomFrom(null)
+      setCustomTo(null)
+    }
+  }
+
+  function handleFilterReset() {
+    setPeriod('Last 1 Year')
+    setCustomFrom(null)
+    setCustomTo(null)
   }
 
   async function handleSave() {
@@ -685,19 +868,81 @@ export default function TeamMemberDetailPage() {
           overflow: 'hidden',
         }}
       >
-        <Box sx={{ px: 2, py: 1.5, borderBottom: '1px solid', borderColor: 'divider' }}>
+        <Box
+          sx={{
+            px: 2,
+            py: 1.5,
+            borderBottom: '1px solid',
+            borderColor: 'divider',
+          }}
+        >
           <Typography variant="h6" sx={{ fontSize: 16, fontWeight: 600 }}>
             Projects Assigned
           </Typography>
         </Box>
+
+        <Stack
+          direction={{ xs: 'column', sm: 'row' }}
+          alignItems={{ xs: 'stretch', sm: 'center' }}
+          justifyContent="space-between"
+          gap={1.5}
+          sx={{ px: 2, py: 1.5, borderBottom: '1px solid', borderColor: 'divider' }}
+        >
+          <Stack
+            direction="row"
+            alignItems="center"
+            gap={1}
+            sx={{
+              width: { xs: '100%', sm: 260 },
+              minWidth: { sm: 200 },
+              height: 32,
+              bgcolor: searchFocused ? 'action.selected' : 'action.hover',
+              border: `1px solid ${searchFocused ? theme.palette.primary.main : 'transparent'}`,
+              borderRadius: '6px',
+              px: '10px',
+              transition: 'background-color 0.15s, border-color 0.15s',
+            }}
+          >
+            <SearchIcon sx={{ fontSize: 14, color: tokens.color.neutral[400] }} />
+            <InputBase
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search projects..."
+              onFocus={() => setSearchFocused(true)}
+              onBlur={() => setSearchFocused(false)}
+              sx={{ fontSize: 12, flex: 1, '& input': { p: 0 } }}
+            />
+          </Stack>
+
+          <Stack direction="row" alignItems="center" gap={1} flexWrap="wrap" justifyContent="flex-end">
+            <Badge badgeContent={activeFilterCount > 0 ? activeFilterCount : undefined} color="primary">
+              <MuiButton
+                variant="outlined"
+                size="small"
+                startIcon={<FilterListIcon fontSize="small" />}
+                onClick={(e) => setFilterAnchor(e.currentTarget)}
+                sx={{ height: 32, fontSize: 12 }}
+              >
+                Filters
+              </MuiButton>
+            </Badge>
+            {period === 'Custom Date Range' ? (
+              <>
+                <DatePicker label="From" value={customFrom} onChange={setCustomFrom} size="sm" />
+                <DatePicker label="To" value={customTo} onChange={setCustomTo} size="sm" />
+              </>
+            ) : null}
+          </Stack>
+        </Stack>
+
         <TableContainer sx={{ width: '100%', overflowX: 'auto' }}>
-          <Table size="small" sx={{ tableLayout: 'fixed', width: '100%', minWidth: 980 }}>
+          <Table size="small" sx={{ tableLayout: 'fixed', width: '100%', minWidth: 1180 }}>
             <TableHead>
               <TableRow sx={{ bgcolor: 'action.hover' }}>
                 {ASSIGNED_PROJECT_COLUMNS.map((column) => (
                   <TableCell
                     key={column.key}
-                    onClick={() => handleSort(column.key as SortField)}
+                    onClick={() => handleSort(column.key)}
                     sx={{
                       fontSize: 11,
                       fontWeight: 600,
@@ -705,6 +950,7 @@ export default function TeamMemberDetailPage() {
                       px: CELL_PAD_X,
                       cursor: 'pointer',
                       userSelect: 'none',
+                      whiteSpace: 'nowrap',
                     }}
                   >
                     {column.label}
@@ -730,9 +976,11 @@ export default function TeamMemberDetailPage() {
             <TableBody>
               {pageRows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} sx={{ py: 5 }}>
+                  <TableCell colSpan={10} sx={{ py: 5 }}>
                     <Typography variant="body2" color="text.secondary" align="center">
-                      No assigned projects found.
+                      {period === 'Custom Date Range' && (!customFrom || !customTo)
+                        ? 'Select a custom start and end date to view assigned projects.'
+                        : 'No projects found for the selected search, filters, or period.'}
                     </Typography>
                   </TableCell>
                 </TableRow>
@@ -751,6 +999,9 @@ export default function TeamMemberDetailPage() {
                     </TableCell>
                     <TableCell sx={{ py: '7px', px: CELL_PAD_X }}>{formatDate(row.startDate)}</TableCell>
                     <TableCell sx={{ py: '7px', px: CELL_PAD_X }}>{formatDate(row.expectedEndDate)}</TableCell>
+                    <TableCell sx={{ py: '7px', px: CELL_PAD_X }}>{fmtInr(row.revenue)}</TableCell>
+                    <TableCell sx={{ py: '7px', px: CELL_PAD_X }}>{fmtInr(row.profit)}</TableCell>
+                    <TableCell sx={{ py: '7px', px: CELL_PAD_X }}>{fmtPct(row.profitPct)}</TableCell>
                     <TableCell sx={{ py: '7px', pl: 0, pr: CELL_PAD_X, textAlign: 'center' }}>
                       <ProjectRowActions onView={() => setActiveProject(row.project)} />
                     </TableCell>
@@ -778,6 +1029,15 @@ export default function TeamMemberDetailPage() {
           </Stack>
         ) : null}
       </Box>
+
+      <FiltersPopover
+        anchor={filterAnchor}
+        onClose={() => setFilterAnchor(null)}
+        filterConfig={filterConfig}
+        activeFilters={activeFilters}
+        onFilterChange={handleFilterChange}
+        onFilterReset={handleFilterReset}
+      />
 
       <ProjectOverviewQuickModal
         open={Boolean(activeProject)}

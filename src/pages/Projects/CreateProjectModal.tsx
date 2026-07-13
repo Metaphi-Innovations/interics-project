@@ -41,7 +41,7 @@ import { ContactPersonAutocomplete } from './components/ContactPersonAutocomplet
 import { CreateContactPersonModal } from './components/CreateContactPersonModal'
 import { createProject } from '../../slices/projects/thunk'
 import type { User } from '../../slices/users/reducer'
-import { useToast } from '@/design-system/components'
+import { useToast, DatePicker, dateFromIso, isoFromDate } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { toSlug, getInitials, getAvatarColor } from '../../utils/formatters'
 import { SECTOR_OPTIONS } from '../../constants/sectors'
@@ -815,13 +815,11 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
           <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
             Expected Start Date
           </Typography>
-          <TextField
+          <DatePicker
+            value={dateFromIso(formData.startDate)}
+            onChange={(d) => setFormData((prev) => ({ ...prev, startDate: isoFromDate(d) }))}
             fullWidth
-            size="small"
-            type="date"
-            value={formData.startDate}
-            onChange={(e) => setFormData((prev) => ({ ...prev, startDate: e.target.value }))}
-            InputLabelProps={{ shrink: true }}
+            size="sm"
             sx={FORM_CONTROL_INPUT_SX}
           />
         </Box>
@@ -830,13 +828,12 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
           <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
             Expected End Date
           </Typography>
-          <TextField
+          <DatePicker
+            value={dateFromIso(formData.expectedEndDate)}
+            onChange={(d) => setFormData((prev) => ({ ...prev, expectedEndDate: isoFromDate(d) }))}
             fullWidth
-            size="small"
-            type="date"
-            value={formData.expectedEndDate}
-            onChange={(e) => setFormData((prev) => ({ ...prev, expectedEndDate: e.target.value }))}
-            InputLabelProps={{ shrink: true }}
+            size="sm"
+            minDate={dateFromIso(formData.startDate) ?? undefined}
             sx={FORM_CONTROL_INPUT_SX}
           />
         </Box>
@@ -949,7 +946,7 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
               </Box>
               <Typography sx={{ fontSize: 13 }}>{option.name}</Typography>
               <MuiChip
-                label={option.role}
+                label={getRoleLabel(option.role)}
                 size="small"
                 sx={{ height: 16, fontSize: 10, ml: 'auto', '& .MuiChip-label': { px: '6px' } }}
               />
@@ -982,8 +979,8 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
           <Box
             sx={{
               display: 'grid',
-              gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)' },
-              gap: '8px',
+              gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(4, 1fr)' },
+              gap: 2,
               mt: 2,
             }}
           >
@@ -1020,7 +1017,6 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
                 </Box>
                 <Box sx={{ flex: 1, minWidth: 0 }}>
                   <Typography sx={{ fontSize: 13, fontWeight: 500, lineHeight: 1.3 }}>{member.name}</Typography>
-                  <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>{member.role}</Typography>
                 </Box>
                 <MuiButton
                   size="small"

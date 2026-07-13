@@ -48,61 +48,61 @@ export interface ActivityEntry {
 
 export type ActivityTypeFilter = 'all' | 'status' | 'financial' | 'document' | 'team'
 
-/** Mock activity for demo project p-001 (newest first in array). */
+/** Mock activity for demo project p-001 — actors and finance refs match canonical demo entities. */
 export const MOCK_ACTIVITY_P001: ActivityEntry[] = [
   {
     id: 'a-12',
     at: '2026-04-20T15:45:00.000Z',
-    actorName: 'Neha Kapoor',
+    actorName: 'Meera Iyer',
     category: 'financial',
     verb: 'Invoice generated',
-    description: ' — INV-2026-014 — ₹3.5L',
+    description: ' — INV-001 — ₹3.0L',
     detail: {
       kind: 'invoice',
-      invoiceNumber: 'INV-2026-014',
-      amountDisplay: '₹3.5L',
-      milestone: 'Milestone 2 — Design sign-off',
+      invoiceNumber: 'INV-001',
+      amountDisplay: '₹3.0L',
+      milestone: 'Mobilization — Interior Design',
     },
   },
   {
     id: 'a-11',
     at: '2026-04-19T09:20:00.000Z',
-    actorName: 'Arjun Mehta',
+    actorName: 'Arjun Nair',
     category: 'financial',
     verb: 'Payment recorded',
-    description: ' — ₹1.8L to BuildWell Interiors',
+    description: ' — ₹1.8L to BuildWell Constructions',
     detail: {
       kind: 'payment',
-      vendor: 'BuildWell Interiors',
+      vendor: 'BuildWell Constructions',
       amountDisplay: '₹1.8L',
-      reference: 'NEFT TXN8821044',
+      reference: 'NEFT-20240218-001',
     },
   },
   {
     id: 'a-10',
     at: '2026-04-18T11:00:00.000Z',
-    actorName: 'Neha Kapoor',
+    actorName: 'Meera Iyer',
     category: 'financial',
     verb: 'Expense added',
-    description: ' — ₹15K (Vendor Linked)',
+    description: ' — ₹8K (Vendor Linked)',
     detail: {
       kind: 'expense',
-      expenseType: 'Site logistics',
-      amountDisplay: '₹15K',
-      vendor: 'Acme Supplies',
+      expenseType: 'Material transport',
+      amountDisplay: '₹8K',
+      vendor: 'BuildWell Constructions',
     },
   },
   {
     id: 'a-9',
     at: '2026-04-17T08:15:00.000Z',
-    actorName: 'Arjun Mehta',
+    actorName: 'Arjun Nair',
     category: 'financial',
     verb: 'Reimbursement added',
-    description: ' — ₹25K (BuildWell)',
+    description: ' — ₹25K (BuildWell Constructions)',
     detail: {
       kind: 'reimbursement',
       amountDisplay: '₹25K',
-      payee: 'BuildWell',
+      payee: 'BuildWell Constructions',
     },
   },
   {
@@ -116,7 +116,7 @@ export const MOCK_ACTIVITY_P001: ActivityEntry[] = [
   {
     id: 'a-7',
     at: '2026-04-14T13:30:00.000Z',
-    actorName: 'Divya Nair',
+    actorName: 'Sarah Kapoor',
     category: 'document',
     verb: 'Vendor quotation',
     description: ' added',
@@ -124,15 +124,15 @@ export const MOCK_ACTIVITY_P001: ActivityEntry[] = [
   {
     id: 'a-6',
     at: '2026-04-12T10:00:00.000Z',
-    actorName: 'Divya Nair',
+    actorName: 'Sarah Kapoor',
     category: 'team',
     verb: 'Team member',
-    description: ' Priya S. added',
+    description: ' Vikram Shah added',
   },
   {
     id: 'a-5',
     at: '2026-04-11T16:45:00.000Z',
-    actorName: 'Neha Kapoor',
+    actorName: 'Meera Iyer',
     category: 'document',
     verb: 'Client PO',
     description: ' uploaded',
@@ -140,7 +140,7 @@ export const MOCK_ACTIVITY_P001: ActivityEntry[] = [
   {
     id: 'a-4',
     at: '2026-04-09T14:00:00.000Z',
-    actorName: 'Arjun Mehta',
+    actorName: 'Arjun Nair',
     category: 'financial',
     verb: 'Baseline created and locked',
     description: '',
@@ -159,7 +159,7 @@ export const MOCK_ACTIVITY_P001: ActivityEntry[] = [
     at: '2026-04-06T09:00:00.000Z',
     actorName: 'System',
     category: 'team',
-    verb: 'Rahul Sharma assigned as',
+    verb: 'Arjun Nair assigned as',
     description: ' Project Manager',
   },
   {

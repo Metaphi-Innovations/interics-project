@@ -170,8 +170,8 @@ function buildP002BaselineCategories(): PitchCategory[] {
           vendorMappings: [
             {
               id: 'vm-p2-fm',
-              vendorId: 'v-002',
-              vendorName: 'FloorMaster',
+              vendorId: 'v-004',
+              vendorName: 'FloorMaster Pvt Ltd',
               value: 500_000,
               percentage: 100,
               milestones: [
@@ -206,7 +206,7 @@ function buildP002BaselineCategories(): PitchCategory[] {
             {
               id: 'vm-p2-bw',
               vendorId: 'v-001',
-              vendorName: 'BuildWell',
+              vendorName: 'BuildWell Constructions',
               value: 800_000,
               percentage: 100,
               milestones: [

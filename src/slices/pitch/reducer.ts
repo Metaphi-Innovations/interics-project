@@ -80,6 +80,11 @@ export interface PlannedExpenseSplit {
   vendorId: string
   percentage: number
   amount: number
+  /**
+   * When false, this vendor's share is not recovered via payable deduction.
+   * Defaults to true when omitted.
+   */
+  includedInRecovery?: boolean
 }
 
 export interface PlannedExpense {
