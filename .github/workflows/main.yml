@@ -1,0 +1,75 @@
+name: Deploy Frontend
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Create temp workspace
+        run: |
+          rm -rf /var/www/.interics-work
+          mkdir -p /var/www/.interics-work
+
+      - name: Copy dev site code
+        run: |
+          mkdir -p /var/www/.interics-work/interics.dev.metaphi.in
+          cp -r . /var/www/.interics-work/interics.dev.metaphi.in/
+
+      - name: Copy prod site code
+        run: |
+          mkdir -p /var/www/.interics-work/interics.metaphi.in
+          cp -r . /var/www/.interics-work/interics.metaphi.in/
+
+      - name: Build dev site
+        working-directory: /var/www/.interics-work/interics.dev.metaphi.in
+        run: |
+          npm ci
+          npm run build
+          cat > dist/.htaccess <<'EOF'
+          RewriteEngine On
+          RewriteBase /
+          RewriteRule ^index\.html$ - [L]
+          RewriteCond %{REQUEST_FILENAME} !-f
+          RewriteCond %{REQUEST_FILENAME} !-d
+          RewriteRule . /index.html [L]
+          EOF
+
+      - name: Build prod site
+        working-directory: /var/www/.interics-work/interics.metaphi.in
+        run: |
+          npm ci
+          npm run build
+          cat > dist/.htaccess <<'EOF'
+          RewriteEngine On
+          RewriteBase /
+          RewriteRule ^index\.html$ - [L]
+          RewriteCond %{REQUEST_FILENAME} !-f
+          RewriteCond %{REQUEST_FILENAME} !-d
+          RewriteRule . /index.html [L]
+          EOF
+
+      - name: Deploy dev site
+        run: |
+          rsync -av --delete /var/www/.interics-work/interics.dev.metaphi.in/dist/ /var/www/interics.dev.metaphi.in/
+
+      - name: Deploy prod site
+        run: |
+          rsync -av --delete /var/www/.interics-work/interics.metaphi.in/dist/ /var/www/interics.metaphi.in/
+
+      - name: Cleanup temp workspace
+        if: always()
+        run: rm -rf /var/www/.interics-work
