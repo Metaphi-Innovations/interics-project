@@ -23,6 +23,19 @@ export interface DatePickerProps {
   sx?: SxProps<Theme>
 }
 
+/** Parse `YYYY-MM-DD` (or other dayjs-parsable) strings into a local Date for DatePicker. */
+export function dateFromIso(iso: string | null | undefined): Date | null {
+  if (!iso?.trim()) return null
+  const d = dayjs(iso.trim())
+  return d.isValid() ? d.toDate() : null
+}
+
+/** Format a DatePicker value as `YYYY-MM-DD` for APIs / form string state. */
+export function isoFromDate(date: Date | null | undefined): string {
+  if (!date) return ''
+  return dayjs(date).format('YYYY-MM-DD')
+}
+
 export default function DatePicker({
   label,
   value,

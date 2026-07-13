@@ -1,28 +1,37 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Box, Divider, MenuItem, Select, Stack, Typography } from '@mui/material'
 import { DrawerForm, FormField, FormSection } from '@/components/templates/DrawerForm'
-import { Checkbox, FileUpload, Input, Textarea, useToast } from '@/design-system/components'
+import { Checkbox, DatePicker, dateFromIso, FileUpload, Input, isoFromDate, Textarea, useToast } from '@/design-system/components'
 import { DEFAULT_GST_RATE } from '@/config/billingRates'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { fetchExpenses, fetchVendorInvoices, updateVendorInvoice, uploadVendorInvoice } from '@/slices/live/thunk'
 import type { Baseline, VendorPO } from '@/slices/baseline/reducer'
-import type { Expense } from '@/slices/live/types'
+import type { Expense, VendorInvoice } from '@/slices/live/types'
 import type { VendorMilestone } from '@/slices/pitch/reducer'
 import { formatCurrency } from '@/utils/formatters'
 import {
   DEFAULT_TDS_PERCENT,
   calcVendorInvoiceNetPayable,
   calcVendorInvoiceTdsAmount,
+  commonExpenseInvoiceAddition,
+  commonExpenseInvoiceDeduction,
   findInvoiceForMilestone,
   invoiceMatchesRow,
   resolveVendorMilestonesForRow,
   selectableProjectExpensesForInvoice,
   TDS_RATE_OPTIONS,
+  vendorLinkedExpenseMatchesRow,
   type VendorServiceRow,
 } from './utils'
 
 function gstOnBase(base: number, rate: number): number {
   return Math.round((base * rate) / 100)
+}
+
+interface InvoiceExpenseOption {
+  expense: Expense
+  amount: number
+  label: string
 }
 
 function mergeExpenseOptions(
@@ -41,18 +50,87 @@ function mergeExpenseOptions(
   })
 }
 
+/** Common expenses paid by this vendor → full amount addition for reimbursement. */
+function buildAdditionOptions(
+  expenses: Expense[],
+  vendorId: string,
+  projectInvoices: VendorInvoice[],
+  editInvoiceId?: string,
+): InvoiceExpenseOption[] {
+  const out: InvoiceExpenseOption[] = []
+  for (const e of expenses) {
+    if (e.type !== 'common') continue
+    const amount = commonExpenseInvoiceAddition(e, vendorId)
+    if (amount <= 0) continue
+    const alreadyLinked = projectInvoices.some(
+      (inv) =>
+        inv.vendorId === vendorId &&
+        inv.id !== editInvoiceId &&
+        ((inv.linkedExpenseIds ?? []).includes(e.id) ||
+          (inv.linkedAdditionExpenseIds ?? []).includes(e.id)),
+    )
+    if (alreadyLinked) continue
+    out.push({
+      expense: e,
+      amount,
+      label: `Common Expense Paid · ${e.description}`,
+    })
+  }
+  return out
+}
+
+/**
+ * Deductions: allocated common-expense PO shares + vendor-linked / other project expenses.
+ * Unselected common vendors are omitted (their share stays a project expense).
+ */
+function buildDeductionOptions(
+  expenses: Expense[],
+  row: VendorServiceRow,
+  projectInvoices: VendorInvoice[],
+  editInvoiceId?: string,
+): InvoiceExpenseOption[] {
+  const out: InvoiceExpenseOption[] = []
+  for (const e of expenses) {
+    if (e.type === 'common') {
+      const amount = commonExpenseInvoiceDeduction(e, row.vendorId)
+      if (amount <= 0) continue
+      const alreadyLinked = projectInvoices.some(
+        (inv) =>
+          inv.vendorId === row.vendorId &&
+          inv.id !== editInvoiceId &&
+          ((inv.linkedExpenseIds ?? []).includes(e.id) ||
+            (inv.linkedAdditionExpenseIds ?? []).includes(e.id)),
+      )
+      if (alreadyLinked) continue
+      out.push({
+        expense: e,
+        amount,
+        label: e.description,
+      })
+      continue
+    }
+    if (e.type === 'vendor_linked') {
+      if (!vendorLinkedExpenseMatchesRow(e, row)) continue
+      out.push({ expense: e, amount: e.amount, label: e.description })
+      continue
+    }
+    out.push({ expense: e, amount: e.amount, label: e.description })
+  }
+  return out
+}
+
 function ExpenseCheckboxCards({
-  expenses,
+  options,
   selectedIds,
   onToggle,
   emptyMessage,
 }: {
-  expenses: Expense[]
+  options: InvoiceExpenseOption[]
   selectedIds: Set<string>
   onToggle: (expenseId: string, checked: boolean) => void
   emptyMessage: string
 }) {
-  if (expenses.length === 0) {
+  if (options.length === 0) {
     return (
       <Box sx={{ gridColumn: '1 / -1' }}>
         <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12, py: 1 }}>
@@ -62,30 +140,40 @@ function ExpenseCheckboxCards({
     )
   }
 
+  const singleOption = options.length === 1
+
   return (
     <>
-      {expenses.map((exp) => (
+      {options.map(({ expense: exp, amount, label }) => (
         <Stack
           key={exp.id}
           direction="row"
           alignItems="center"
           justifyContent="space-between"
+          gap={1.5}
           sx={{
-            p: 1,
+            p: 1.25,
             border: '1px solid',
             borderColor: 'divider',
             borderRadius: 1,
             minWidth: 0,
+            width: '100%',
+            ...(singleOption ? { gridColumn: '1 / -1' } : null),
           }}
         >
-          <Checkbox
-            size="sm"
-            label={exp.description}
-            checked={selectedIds.has(exp.id)}
-            onChange={(checked) => onToggle(exp.id, checked)}
-          />
-          <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600, flexShrink: 0, ml: 1 }}>
-            ₹{formatCurrency(exp.amount)}
+          <Box sx={{ minWidth: 0, flex: 1 }}>
+            <Checkbox
+              size="sm"
+              label={label}
+              checked={selectedIds.has(exp.id)}
+              onChange={(checked) => onToggle(exp.id, checked)}
+            />
+          </Box>
+          <Typography
+            variant="body2"
+            sx={{ fontSize: 12, fontWeight: 600, flexShrink: 0, whiteSpace: 'nowrap' }}
+          >
+            ₹{formatCurrency(amount)}
           </Typography>
         </Stack>
       ))}
@@ -160,7 +248,7 @@ export function AddVendorInvoiceDrawer({
     [expenses, projectId],
   )
 
-  const expenseOptions = useMemo(() => {
+  const expensePool = useMemo(() => {
     if (!existingInvoice) return pendingExpenses
     const linkedIds = [
       ...(existingInvoice.linkedExpenseIds ?? []),
@@ -168,6 +256,38 @@ export function AddVendorInvoiceDrawer({
     ]
     return mergeExpenseOptions(pendingExpenses, linkedIds, expenses)
   }, [existingInvoice, expenses, pendingExpenses])
+
+  const additionOptions = useMemo(() => {
+    if (!context) return [] as InvoiceExpenseOption[]
+    return buildAdditionOptions(
+      expensePool,
+      context.vendorId,
+      projectScopedInvoices,
+      existingInvoice?.id,
+    )
+  }, [expensePool, context, projectScopedInvoices, existingInvoice?.id])
+
+  const deductionOptions = useMemo(() => {
+    if (!context) return [] as InvoiceExpenseOption[]
+    return buildDeductionOptions(
+      expensePool,
+      context,
+      projectScopedInvoices,
+      existingInvoice?.id,
+    )
+  }, [expensePool, context, projectScopedInvoices, existingInvoice?.id])
+
+  const additionAmountById = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const opt of additionOptions) map.set(opt.expense.id, opt.amount)
+    return map
+  }, [additionOptions])
+
+  const deductionAmountById = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const opt of deductionOptions) map.set(opt.expense.id, opt.amount)
+    return map
+  }, [deductionOptions])
 
   const baseNumber = Number(baseAmount) || 0
   const gstRateNumber = DEFAULT_GST_RATE
@@ -177,20 +297,18 @@ export function AddVendorInvoiceDrawer({
   const expenseDeductions = useMemo(() => {
     let total = 0
     for (const id of selectedDeductionIds) {
-      const exp = expenseOptions.find((e) => e.id === id)
-      if (exp) total += exp.amount
+      total += deductionAmountById.get(id) ?? 0
     }
     return total
-  }, [selectedDeductionIds, expenseOptions])
+  }, [selectedDeductionIds, deductionAmountById])
 
   const expenseAdditions = useMemo(() => {
     let total = 0
     for (const id of selectedAdditionIds) {
-      const exp = expenseOptions.find((e) => e.id === id)
-      if (exp) total += exp.amount
+      total += additionAmountById.get(id) ?? 0
     }
     return total
-  }, [selectedAdditionIds, expenseOptions])
+  }, [selectedAdditionIds, additionAmountById])
 
   const netPayable = calcVendorInvoiceNetPayable(
     baseNumber,
@@ -253,14 +371,6 @@ export function AddVendorInvoiceDrawer({
       else next.delete(expenseId)
       return next
     })
-    if (checked) {
-      setSelectedAdditionIds((prev) => {
-        if (!prev.has(expenseId)) return prev
-        const next = new Set(prev)
-        next.delete(expenseId)
-        return next
-      })
-    }
   }
 
   function toggleAddition(expenseId: string, checked: boolean) {
@@ -270,14 +380,6 @@ export function AddVendorInvoiceDrawer({
       else next.delete(expenseId)
       return next
     })
-    if (checked) {
-      setSelectedDeductionIds((prev) => {
-        if (!prev.has(expenseId)) return prev
-        const next = new Set(prev)
-        next.delete(expenseId)
-        return next
-      })
-    }
   }
 
   async function handleSubmit() {
@@ -356,6 +458,7 @@ export function AddVendorInvoiceDrawer({
 
   const resolvedVm = lockedMilestone ?? milestones.find((m) => m.id === selectedMilestoneId)
   const submitDisabled = saving || !context || milestones.length === 0 || !resolvedVm
+  const showExpenseAdditions = additionOptions.length > 0
 
   return (
     <DrawerForm
@@ -415,7 +518,12 @@ export function AddVendorInvoiceDrawer({
           <Input value={invoiceNumber} onChange={(v) => setInvoiceNumber(v)} size="sm" />
         </FormField>
         <FormField label="Invoice Date" required>
-          <Input type="date" value={invoiceDate} onChange={(v) => setInvoiceDate(v)} size="sm" />
+          <DatePicker
+            value={dateFromIso(invoiceDate)}
+            onChange={(d) => setInvoiceDate(isoFromDate(d))}
+            fullWidth
+            size="sm"
+          />
         </FormField>
         <FormField label="Invoice Amount (₹)" required>
           <Input
@@ -474,28 +582,30 @@ export function AddVendorInvoiceDrawer({
         />
       </FormSection>
 
-      <FormSection title="Expense Additions" columns={2}>
-        <Box sx={{ gridColumn: '1 / -1' }}>
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1, fontSize: 11 }}>
-            Select expenses that should be added to the invoice amount.
-          </Typography>
-        </Box>
-        <ExpenseCheckboxCards
-          expenses={expenseOptions}
-          selectedIds={selectedAdditionIds}
-          onToggle={toggleAddition}
-          emptyMessage="No pending expenses available for addition."
-        />
-      </FormSection>
+      {showExpenseAdditions ? (
+        <FormSection title="Expense Addition" columns={additionOptions.length > 1 ? 2 : 1}>
+          <Box sx={{ gridColumn: '1 / -1' }}>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1, fontSize: 11 }}>
+              Reimburse common expenses this vendor paid on behalf of the project.
+            </Typography>
+          </Box>
+          <ExpenseCheckboxCards
+            options={additionOptions}
+            selectedIds={selectedAdditionIds}
+            onToggle={toggleAddition}
+            emptyMessage="No common expenses paid by this vendor."
+          />
+        </FormSection>
+      ) : null}
 
-      <FormSection title="Expense Deductions" columns={2}>
+      <FormSection title="Expense Deductions" columns={deductionOptions.length > 1 ? 2 : 1}>
         <Box sx={{ gridColumn: '1 / -1' }}>
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1, fontSize: 11 }}>
-            Select expenses that should be deducted from the invoice amount.
+            Common expense shares use the original PO ratio. Unallocated vendors are not deducted.
           </Typography>
         </Box>
         <ExpenseCheckboxCards
-          expenses={expenseOptions}
+          options={deductionOptions}
           selectedIds={selectedDeductionIds}
           onToggle={toggleDeduction}
           emptyMessage="No pending expenses available for deduction."
@@ -524,7 +634,7 @@ export function AddVendorInvoiceDrawer({
             </Typography>
           </Stack>
           <Stack direction="row" justifyContent="space-between">
-            <Typography variant="body2" sx={{ fontSize: 12 }}>Expense Additions</Typography>
+            <Typography variant="body2" sx={{ fontSize: 12 }}>Expense Addition</Typography>
             <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600 }}>
               + ₹{formatCurrency(expenseAdditions)}
             </Typography>

@@ -5,6 +5,7 @@ import {
   Stack,
   Typography,
   Chip as MuiChip,
+  Collapse,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -28,6 +29,7 @@ import {
   Phone,
   Star,
 } from '@mui/icons-material'
+import { ChevronDown } from 'lucide-react'
 
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import PitchTab from './tabs/PitchTab'
@@ -51,7 +53,7 @@ import {
   WorkspaceSection,
 } from '../../components/templates'
 import { DrawerForm, FormField, FormSection } from '../../components/templates/DrawerForm'
-import { StatusBadge, useToast, Input, Toggle } from '@/design-system/components'
+import { StatusBadge, useToast, Input, Toggle, DatePicker, dateFromIso, isoFromDate } from '@/design-system/components'
 import type { StatusType } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { useTheme, alpha } from '@mui/material/styles'
@@ -201,9 +203,19 @@ const TEAM_SECTION_CARD_SX = {
 
 function OverviewTab({ project }: { project: Project }) {
   const theme = useTheme()
+  const [expandedClientIds, setExpandedClientIds] = useState<Set<string>>(new Set())
 
   const additionalTeamMembers = getProjectAdditionalTeamMembers(project)
   const clientTeamMembers = project.clientTeam ?? []
+
+  function toggleClientExpanded(id: string) {
+    setExpandedClientIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
 
   const TeamsRow = (
     <Box
@@ -307,86 +319,176 @@ function OverviewTab({ project }: { project: Project }) {
               display: 'grid',
               gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' },
               gap: 1.25,
-              alignItems: 'stretch',
+              alignItems: 'start',
             }}
           >
-            {clientTeamMembers.map((member, idx) => (
-              <Box
-                key={`${member.name ?? 'client'}-${idx}`}
-                sx={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  minWidth: 0,
-                  height: '100%',
-                  border: '1px solid',
-                  borderColor: idx === 0 ? 'primary.light' : 'divider',
-                  borderRadius: 2,
-                  px: 1.5,
-                  py: 1.25,
-                  bgcolor: idx === 0 ? alpha(theme.palette.primary.main, 0.03) : 'transparent',
-                }}
-              >
-                <Stack direction="row" alignItems="flex-start" justifyContent="space-between" gap={1.5}>
-                  <Stack direction="row" alignItems="flex-start" gap={1.5} sx={{ minWidth: 0, flex: 1 }}>
+            {clientTeamMembers.map((member, idx) => {
+              const memberId = `${member.name ?? 'client'}-${idx}`
+              const isExpanded = expandedClientIds.has(memberId)
+              const isPrimary = idx === 0
+
+              return (
+                <Box
+                  key={memberId}
+                  sx={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    minWidth: 0,
+                    border: '1px solid',
+                    borderColor: isPrimary ? 'primary.light' : 'divider',
+                    borderRadius: 2,
+                    px: 1.5,
+                    py: 1.25,
+                    bgcolor: isPrimary ? alpha(theme.palette.primary.main, 0.03) : 'transparent',
+                  }}
+                >
+                  <Box
+                    role="button"
+                    tabIndex={0}
+                    aria-expanded={isExpanded}
+                    onClick={() => toggleClientExpanded(memberId)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        toggleClientExpanded(memberId)
+                      }
+                    }}
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 1.5,
+                      cursor: 'pointer',
+                      outline: 'none',
+                      '&:focus-visible': {
+                        borderRadius: 1,
+                        boxShadow: `0 0 0 2px ${alpha(theme.palette.primary.main, 0.35)}`,
+                      },
+                    }}
+                  >
+                    <Stack direction="row" alignItems="center" gap={1.5} sx={{ minWidth: 0, flex: 1 }}>
+                      <Box
+                        sx={{
+                          width: 40,
+                          height: 40,
+                          borderRadius: '50%',
+                          bgcolor: alpha(getAvatarColor(member.name || 'Client').bg, 0.15),
+                          color: getAvatarColor(member.name || 'Client').text,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: 12,
+                          fontWeight: 700,
+                          flexShrink: 0,
+                        }}
+                      >
+                        {getInitials(member.name || 'Client')}
+                      </Box>
+                      <Box sx={{ minWidth: 0, flex: 1 }}>
+                        <Stack direction="row" alignItems="center" gap={1} sx={{ minWidth: 0 }}>
+                          <Typography
+                            variant="body2"
+                            sx={{
+                              fontSize: 13,
+                              fontWeight: 600,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {member.name || '—'}
+                          </Typography>
+                          {isPrimary ? (
+                            <MuiChip
+                              size="small"
+                              icon={<Star sx={{ fontSize: '12px !important' }} />}
+                              label="Primary"
+                              sx={{
+                                height: 20,
+                                fontSize: 10,
+                                borderRadius: '6px',
+                                flexShrink: 0,
+                                bgcolor: alpha(theme.palette.primary.main, 0.12),
+                                color: 'primary.main',
+                                '& .MuiChip-label': { px: 1 },
+                                '& .MuiChip-icon': { color: 'primary.main', ml: '4px' },
+                              }}
+                            />
+                          ) : null}
+                        </Stack>
+                        <Typography
+                          variant="caption"
+                          sx={{
+                            fontSize: 11,
+                            color: 'text.secondary',
+                            display: 'block',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {member.designation || '—'}
+                        </Typography>
+                      </Box>
+                    </Stack>
                     <Box
                       sx={{
-                        width: 40,
-                        height: 40,
-                        borderRadius: '50%',
-                        bgcolor: alpha(getAvatarColor(member.name || 'Client').bg, 0.15),
-                        color: getAvatarColor(member.name || 'Client').text,
+                        color: 'text.secondary',
                         display: 'flex',
                         alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: 12,
-                        fontWeight: 700,
                         flexShrink: 0,
+                        transition: 'transform 0.2s ease',
+                        transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
                       }}
                     >
-                      {getInitials(member.name || 'Client')}
+                      <ChevronDown size={16} strokeWidth={1.75} />
                     </Box>
-                    <Box sx={{ minWidth: 0, flex: 1 }}>
-                      <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 600 }}>
-                        {member.name || '—'}
-                      </Typography>
-                      <Typography variant="caption" sx={{ fontSize: 11, color: 'text.secondary', display: 'block', mb: 0.75 }}>
-                        {member.designation || '—'}
-                      </Typography>
-                      <Stack gap={0.75}>
-                        <Stack direction="row" alignItems="center" gap={0.5} sx={{ minWidth: 0 }}>
-                          <Phone sx={{ fontSize: 12, color: 'text.secondary' }} />
-                          <Typography variant="caption" sx={{ fontSize: 11, color: 'text.secondary' }}>
-                            {member.phone || member.contact || '—'}
-                          </Typography>
-                        </Stack>
-                        <Stack direction="row" alignItems="center" gap={0.5} sx={{ minWidth: 0 }}>
-                          <Email sx={{ fontSize: 12, color: 'text.secondary' }} />
-                          <Typography variant="caption" sx={{ fontSize: 11, color: 'primary.main', wordBreak: 'break-word' }}>
-                            {member.email || '—'}
-                          </Typography>
-                        </Stack>
+                  </Box>
+
+                  <Collapse in={isExpanded}>
+                    <Stack
+                      direction="row"
+                      alignItems="center"
+                      gap={1.5}
+                      flexWrap="wrap"
+                      useFlexGap
+                      sx={{ mt: 1.25, pl: 6.5, minWidth: 0 }}
+                    >
+                      <Stack direction="row" alignItems="center" gap={0.5} sx={{ minWidth: 0 }}>
+                        <Phone sx={{ fontSize: 12, color: 'text.secondary', flexShrink: 0 }} />
+                        <Typography
+                          variant="caption"
+                          sx={{
+                            fontSize: 11,
+                            color: 'text.secondary',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {member.phone || member.contact || '—'}
+                        </Typography>
                       </Stack>
-                    </Box>
-                  </Stack>
-                  {idx === 0 ? (
-                    <MuiChip
-                      size="small"
-                      icon={<Star sx={{ fontSize: '12px !important' }} />}
-                      label="Primary"
-                      sx={{
-                        height: 20,
-                        fontSize: 10,
-                        borderRadius: '6px',
-                        bgcolor: alpha(theme.palette.primary.main, 0.12),
-                        color: 'primary.main',
-                        '& .MuiChip-label': { px: 1 },
-                        '& .MuiChip-icon': { color: 'primary.main', ml: '4px' },
-                      }}
-                    />
-                  ) : null}
-                </Stack>
-              </Box>
-            ))}
+                      <Stack direction="row" alignItems="center" gap={0.5} sx={{ minWidth: 0, flex: 1 }}>
+                        <Email sx={{ fontSize: 12, color: 'text.secondary', flexShrink: 0 }} />
+                        <Typography
+                          variant="caption"
+                          sx={{
+                            fontSize: 11,
+                            color: 'primary.main',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {member.email || '—'}
+                        </Typography>
+                      </Stack>
+                    </Stack>
+                  </Collapse>
+                </Box>
+              )
+            })}
           </Box>
         )}
       </Box>
@@ -565,19 +667,20 @@ function EditProjectDrawer({
           </MuiSelect>
         </FormField>
         <FormField label="Start Date">
-          <Input
-            type="date"
-            value={form.startDate ?? ''}
-            onChange={(v) => set('startDate', v || null)}
+          <DatePicker
+            value={dateFromIso(form.startDate)}
+            onChange={(d) => set('startDate', isoFromDate(d) || null)}
+            fullWidth
             size="sm"
           />
         </FormField>
         <FormField label="Expected End Date">
-          <Input
-            type="date"
-            value={form.expectedEndDate ?? ''}
-            onChange={(v) => set('expectedEndDate', v || null)}
+          <DatePicker
+            value={dateFromIso(form.expectedEndDate)}
+            onChange={(d) => set('expectedEndDate', isoFromDate(d) || null)}
+            fullWidth
             size="sm"
+            minDate={dateFromIso(form.startDate) ?? undefined}
           />
         </FormField>
       </FormSection>

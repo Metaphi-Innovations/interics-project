@@ -7,6 +7,7 @@ import {
   Button,
   Checkbox,
   DatePicker,
+  Input,
   Select,
   Textarea,
   useToast,
@@ -40,6 +41,18 @@ import type { Service, SACCode } from '@/slices/settings/reducer'
 function toIsoDate(d: Date | null): string {
   if (!d) return ''
   return dayjs(d).format('YYYY-MM-DD')
+}
+
+function parsePaymentTermDays(value: string): number | null {
+  const trimmed = value.trim()
+  if (trimmed === '') return null
+  const n = Number(trimmed)
+  if (!Number.isFinite(n) || n < 0 || !Number.isInteger(n)) return null
+  return n
+}
+
+function addDaysToDate(base: Date, days: number): Date {
+  return dayjs(base).add(days, 'day').toDate()
 }
 
 function buildAutoDraftLines(
@@ -163,11 +176,35 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved }: C
   const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>([])
   const [projectInvoices, setProjectInvoices] = useState<Invoice[]>([])
   const [invoiceDate, setInvoiceDate] = useState<Date | null>(new Date())
+  const [paymentTermDays, setPaymentTermDays] = useState('30')
   const [dueDate, setDueDate] = useState<Date | null>(null)
   const [notes, setNotes] = useState('')
   const [lines, setLines] = useState<DraftLineItem[]>([])
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [lineError, setLineError] = useState('')
+
+  function applyDueDateFromTerms(nextInvoiceDate: Date | null, nextDays: string) {
+    if (!nextInvoiceDate) return
+    const days = parsePaymentTermDays(nextDays)
+    if (days == null) return
+    setDueDate(addDaysToDate(nextInvoiceDate, days))
+  }
+
+  function handleInvoiceDateChange(next: Date | null) {
+    setInvoiceDate(next)
+    if (errors.invoiceDate) setErrors((prev) => ({ ...prev, invoiceDate: '' }))
+    applyDueDateFromTerms(next, paymentTermDays)
+  }
+
+  function handlePaymentTermDaysChange(value: string) {
+    setPaymentTermDays(value)
+    applyDueDateFromTerms(invoiceDate, value)
+  }
+
+  function handleDueDateChange(next: Date | null) {
+    setDueDate(next)
+    if (errors.dueDate) setErrors((prev) => ({ ...prev, dueDate: '' }))
+  }
 
   const liveProjects = useMemo(() => projects.filter((p) => p.status === 'Live'), [projects])
 
@@ -238,7 +275,8 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved }: C
     setSelectedServiceIds([])
     setLines([])
     setInvoiceDate(new Date())
-    setDueDate(null)
+    setPaymentTermDays('30')
+    setDueDate(addDaysToDate(new Date(), 30))
     setNotes('')
     setErrors({})
     setLineError('')
@@ -273,8 +311,16 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved }: C
       } as Project)
     setProject(p)
     setSelectedPoId(invoice.clientPoId ?? '')
-    setInvoiceDate(invoice.invoiceDate ? new Date(invoice.invoiceDate) : new Date())
-    setDueDate(invoice.dueDate ? new Date(invoice.dueDate) : null)
+    const nextInvoiceDate = invoice.invoiceDate ? new Date(invoice.invoiceDate) : new Date()
+    const nextDueDate = invoice.dueDate ? new Date(invoice.dueDate) : null
+    setInvoiceDate(nextInvoiceDate)
+    setDueDate(nextDueDate)
+    if (nextInvoiceDate && nextDueDate) {
+      const diff = dayjs(nextDueDate).startOf('day').diff(dayjs(nextInvoiceDate).startOf('day'), 'day')
+      setPaymentTermDays(String(Math.max(0, diff)))
+    } else {
+      setPaymentTermDays('30')
+    }
     setNotes(invoice.notes ?? '')
     setLines(invoiceLinesToDraft(invoice.lineItems))
     const ms = invoice.lineItems.map((l) => l.milestoneId).filter(Boolean) as string[]
@@ -679,12 +725,32 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved }: C
           <Stack spacing={2}>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
               <FormField label="Invoice date" required error={errors.invoiceDate}>
-                <DatePicker value={invoiceDate} onChange={setInvoiceDate} fullWidth size="sm" />
+                <DatePicker value={invoiceDate} onChange={handleInvoiceDateChange} fullWidth size="sm" />
               </FormField>
               <FormField label="Due date" required error={errors.dueDate}>
-                <DatePicker value={dueDate} onChange={setDueDate} minDate={minDue} fullWidth size="sm" />
+                <DatePicker
+                  value={dueDate}
+                  onChange={handleDueDateChange}
+                  minDate={minDue}
+                  fullWidth
+                  size="sm"
+                />
               </FormField>
             </Stack>
+            <FormField
+              label="Payment Terms"
+              required
+              hint={!invoiceDate ? 'Select an invoice date first' : 'Number of days from invoice date'}
+            >
+              <Input
+                type="number"
+                value={paymentTermDays}
+                onChange={handlePaymentTermDaysChange}
+                placeholder="e.g. 30"
+                size="sm"
+                disabled={!invoiceDate}
+              />
+            </FormField>
             <FormField label="Notes">
               <Textarea
                 minRows={2}

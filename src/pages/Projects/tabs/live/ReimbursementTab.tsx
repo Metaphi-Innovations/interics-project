@@ -20,8 +20,11 @@ import { WorkspaceSection } from '../../../../components/templates'
 import { DrawerForm, FormField, FormSection } from '../../../../components/templates/DrawerForm'
 import {
   Button,
+  DatePicker,
+  dateFromIso,
   Input,
   FileUpload,
+  isoFromDate,
   StatusBadge,
   useToast,
 } from '@/design-system/components'
@@ -513,7 +516,12 @@ function AddReimbursementDrawer({
           />
         </FormField>
         <FormField label="Date vendor made the payment" required>
-          <Input type="date" value={date} onChange={setDate} size="sm" />
+          <DatePicker
+            value={dateFromIso(date)}
+            onChange={(d) => setDate(isoFromDate(d))}
+            fullWidth
+            size="sm"
+          />
         </FormField>
       </FormSection>
 

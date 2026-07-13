@@ -8,6 +8,7 @@ import {
   makeViewerUserPermissions,
 } from '@/types/permissions'
 import { recalculateRoleUserCountsFromUsers } from './rolesHandlers'
+import { demoProjectListOptions } from '@/mocks/data/canonicalEntities'
 
 interface MockUser {
   id: string
@@ -30,16 +31,8 @@ interface MockProject {
   clientName: string
 }
 
-const mockProjects: MockProject[] = [
-  { id: 'p-001', name: 'Metro Rail Phase II', clientName: 'Mumbai Metro Corp' },
-  { id: 'p-002', name: 'Airport Terminal Expansion', clientName: 'AAI' },
-  { id: 'p-003', name: 'Smart City Infrastructure', clientName: 'Pune Municipal Corp' },
-  { id: 'p-004', name: 'Highway Bridge Rehabilitation', clientName: 'NHAI' },
-  { id: 'p-005', name: 'Solar Power Plant', clientName: 'NTPC Ltd' },
-  { id: 'p-006', name: 'Water Treatment Facility', clientName: 'BWSSB' },
-  { id: 'p-007', name: 'Coastal Road Development', clientName: 'BMC' },
-  { id: 'p-008', name: 'Industrial Zone Development', clientName: 'MIDC' },
-]
+/** Same projects as `/api/projects` — not a parallel infrastructure demo set. */
+const mockProjects: MockProject[] = demoProjectListOptions()
 
 let mockUsers: MockUser[] = [
   {

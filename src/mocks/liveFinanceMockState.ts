@@ -15,11 +15,18 @@ import {
   totalSettledFromPayments,
   totalTdsFromPayments,
 } from '@/pages/Projects/tabs/live/clientInvoiceUtils'
+import {
+  DEMO_PROJECTS,
+  PROJECT_CLIENTS,
+  PROJECT_NAMES,
+} from '@/mocks/data/canonicalEntities'
 
-const P001_NAME = 'Acme Corp - Head Office Redesign'
-const P001_CLIENT = { clientId: 'c-004' as const, clientName: 'Acme Corp' }
-const P002_NAME = 'TechVentures — Office Expansion'
-const P002_CLIENT = { clientId: 'c-005' as const, clientName: 'TechVentures Ltd' }
+const P001_NAME = DEMO_PROJECTS['p-001'].name
+const P001_CLIENT = PROJECT_CLIENTS['p-001']!
+const P002_NAME = DEMO_PROJECTS['p-002'].name
+const P002_CLIENT = PROJECT_CLIENTS['p-002']!
+
+export { PROJECT_NAMES, PROJECT_CLIENTS }
 
 function gstOnLine(amount: number, rate: number): number {
   return Math.round((amount * rate) / 100)
@@ -239,6 +246,9 @@ export let vendorInvoices: VendorInvoice[] = [
     tdsAmount: 20000,
     netPayable: 180000,
     status: 'paid',
+    documentUrl: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
+    fileName: 'BWC-MOB-001.pdf',
+    uploadedAt: '2024-02-11T10:00:00.000Z',
   },
   {
     id: 'VINV-002',
@@ -257,14 +267,17 @@ export let vendorInvoices: VendorInvoice[] = [
     tdsAmount: 15000,
     netPayable: 135000,
     status: 'pending',
+    documentUrl: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
+    fileName: 'BWC-DD-002.pdf',
+    uploadedAt: '2024-03-02T09:30:00.000Z',
   },
   {
     id: 'VINV-003',
     projectId: 'p-001',
     projectName: P001_NAME,
-    vendorId: 'v-002',
-    vendorName: 'FloorMaster',
-    serviceId: 'interior-design',
+    vendorId: 'v-004',
+    vendorName: 'FloorMaster Pvt Ltd',
+    serviceId: 'ps-001',
     serviceName: 'Interior Design',
     milestoneId: 'cm-001',
     milestoneName: 'Mobilization',
@@ -275,13 +288,14 @@ export let vendorInvoices: VendorInvoice[] = [
     tdsAmount: 12000,
     netPayable: 108000,
     status: 'pending',
+    uploadedAt: '2024-02-06T08:00:00.000Z',
   },
   {
     id: 'VINV-004',
     projectId: 'p-002',
     projectName: P002_NAME,
     vendorId: 'v-001',
-    vendorName: 'BuildWell',
+    vendorName: 'BuildWell Constructions',
     serviceId: 'ps-002',
     serviceName: 'Civil Works',
     milestoneId: 'vml-p2-c1',
@@ -298,8 +312,8 @@ export let vendorInvoices: VendorInvoice[] = [
     id: 'VINV-005',
     projectId: 'p-002',
     projectName: P002_NAME,
-    vendorId: 'v-002',
-    vendorName: 'FloorMaster',
+    vendorId: 'v-004',
+    vendorName: 'FloorMaster Pvt Ltd',
     serviceId: 'ps-001',
     serviceName: 'Interior Design',
     milestoneId: 'vml-p2-i1',
@@ -325,8 +339,8 @@ export let vendorPayableControls: VendorPayableControl[] = [
   },
   {
     projectId: 'p-001',
-    vendorId: 'v-002',
-    serviceId: 'interior-design',
+    vendorId: 'v-004',
+    serviceId: 'ps-001',
     clientPaymentReceived: false,
     vendorComplianceStatus: 'complete',
     complianceChecks: { insurance: true, contractSigned: true, documentsSubmitted: true },
@@ -341,7 +355,7 @@ export let vendorPayableControls: VendorPayableControl[] = [
   },
   {
     projectId: 'p-002',
-    vendorId: 'v-002',
+    vendorId: 'v-004',
     serviceId: 'ps-001',
     clientPaymentReceived: true,
     vendorComplianceStatus: 'complete',
@@ -407,7 +421,7 @@ export let expenses: Expense[] = [
     amount: 8000,
     date: '2024-02-08',
     vendorId: 'v-001',
-    vendorName: 'BuildWell',
+    vendorName: 'BuildWell Constructions',
     status: 'pending',
   },
   {
@@ -420,19 +434,21 @@ export let expenses: Expense[] = [
     date: '2024-02-12',
     splitMethod: 'proportional_po',
     paidByVendorId: 'v-001',
-    paidByVendorName: 'BuildWell',
+    paidByVendorName: 'BuildWell Constructions',
     vendorAllocations: [
       {
         vendorId: 'v-001',
-        vendorName: 'BuildWell',
+        vendorName: 'BuildWell Constructions',
         allocationPercent: 60,
         allocationAmount: 54000,
+        includedInRecovery: true,
       },
       {
-        vendorId: 'v-002',
-        vendorName: 'FloorMaster',
+        vendorId: 'v-004',
+        vendorName: 'FloorMaster Pvt Ltd',
         allocationPercent: 40,
         allocationAmount: 36000,
+        includedInRecovery: true,
       },
     ],
     status: 'pending',
@@ -456,7 +472,7 @@ export let expenses: Expense[] = [
     amount: 12000,
     date: '2026-03-22',
     vendorId: 'v-001',
-    vendorName: 'BuildWell',
+    vendorName: 'BuildWell Constructions',
     status: 'pending',
   },
   {
@@ -505,9 +521,9 @@ export let reimbursements: Reimbursement[] = [
     id: 'RMB-002',
     projectId: 'p-001',
     projectName: P001_NAME,
-    vendorId: 'v-002',
-    vendorName: 'FloorMaster',
-    serviceId: 'interior-design',
+    vendorId: 'v-004',
+    vendorName: 'FloorMaster Pvt Ltd',
+    serviceId: 'ps-001',
     serviceName: 'Interior Design',
     description: 'Equipment rental paid by vendor',
     amount: 12000,
@@ -519,7 +535,7 @@ export let reimbursements: Reimbursement[] = [
     projectId: 'p-002',
     projectName: P002_NAME,
     vendorId: 'v-001',
-    vendorName: 'BuildWell',
+    vendorName: 'BuildWell Constructions',
     serviceId: 'ps-002',
     serviceName: 'Civil Works',
     milestoneId: 'vml-p2-c1',
@@ -590,17 +606,4 @@ export function nextReimbursementId(): string {
   return `rmb-${num}`
 }
 
-/** Project display names for MSW aggregations when optional fields are missing */
-export const PROJECT_NAMES: Record<string, string> = {
-  'p-001': P001_NAME,
-  'p-002': P002_NAME,
-  'p-003': 'Acme Corp - Retail Fit-out',
-  'p-004': 'Global Solutions - Store Renovation',
-  'p-006': 'Bandra site project',
-}
-
-export const PROJECT_CLIENTS: Record<string, { clientId: string; clientName: string }> = {
-  'p-001': P001_CLIENT,
-  'p-002': P002_CLIENT,
-  'p-004': { clientId: 'c-006', clientName: 'Global Solutions LLP' },
-}
+/** Re-exported from canonicalEntities for MSW aggregations. */

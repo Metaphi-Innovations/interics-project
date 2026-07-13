@@ -1,4 +1,4 @@
-export { ListingTemplate } from './ListingTemplate'
+export { ListingTemplate, FiltersPopover } from './ListingTemplate'
 export type {
   ListingTemplateProps,
   StatCardItem,

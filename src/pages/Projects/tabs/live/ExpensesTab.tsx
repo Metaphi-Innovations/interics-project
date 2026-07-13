@@ -238,7 +238,7 @@ export default function ExpensesTab({ projectId }: ExpensesTabProps) {
               <TableCell sx={TABLE_HEADER_SX}>Description</TableCell>
               <TableCell sx={TABLE_HEADER_SX}>Vendor</TableCell>
               <TableCell sx={TABLE_HEADER_SX}>Service</TableCell>
-              <TableCell sx={TABLE_HEADER_SX} align="right">
+              <TableCell sx={TABLE_HEADER_SX}>
                 <TableSortLabel
                   active={sortBy === 'amount'}
                   direction={sortBy === 'amount' ? sortDir : 'asc'}
@@ -288,7 +288,7 @@ export default function ExpensesTab({ projectId }: ExpensesTabProps) {
                   </TableCell>
                   <TableCell sx={TABLE_CELL_SX}>{expenseVendorCell(exp)}</TableCell>
                   <TableCell sx={TABLE_CELL_SX}>{expenseServiceCell(exp)}</TableCell>
-                  <TableCell sx={TABLE_CELL_SX} align="right">
+                  <TableCell sx={TABLE_CELL_SX}>
                     ₹{formatCurrency(exp.amount)}
                   </TableCell>
                   <TableCell sx={TABLE_CELL_SX}>{formatDate(exp.date)}</TableCell>

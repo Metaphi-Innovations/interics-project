@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import {
   Box,
   Card,
+  Chip as MuiChip,
   IconButton,
   Stack,
   Tab,
@@ -20,6 +21,7 @@ import { alpha, useTheme } from '@mui/material/styles'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { WorkspaceSection } from '../../../components/templates'
 import { tokens } from '@/design-system/tokens'
+import { Button } from '@/design-system/components'
 import { useAppDispatch, useAppSelector } from '../../../store/hooks'
 import {
   fetchInvoices,
@@ -32,6 +34,7 @@ import { fetchBaseline, fetchClientPO } from '../../../slices/baseline/thunk'
 import type { Project } from '../../../slices/projects/reducer'
 import { formatCurrency } from '../../../utils/formatters'
 import {
+  vendorInvoiceDocumentOpenUrl,
   TABLE_CELL_SX,
   TABLE_HEADER_SX,
 } from './live/vendorSettlement/utils'
@@ -64,7 +67,7 @@ const VARIANCE_NOTE_LINES = [
 ] as const
 const TRACKING_METRIC_COUNT = 6
 
-type FinancialSubTab = 'overview' | 'compliance'
+type FinancialSubTab = 'overview' | 'invoice' | 'compliance'
 
 const FINANCIAL_SUB_TAB_SX = {
   minHeight: 36,
@@ -161,6 +164,34 @@ const VARIANCE_TABLE_COLGROUP = (
     <col style={{ width: '18%' }} />
   </colgroup>
 )
+
+const INVOICES_TABLE_COLGROUP = (
+  <colgroup>
+    <col style={{ width: '14%' }} />
+    <col style={{ width: '20%' }} />
+    <col style={{ width: '12%' }} />
+    <col style={{ width: '14%' }} />
+    <col style={{ width: '14%' }} />
+    <col style={{ width: '14%' }} />
+    <col style={{ width: '12%' }} />
+  </colgroup>
+)
+
+type ProjectInvoiceRow = {
+  id: string
+  invoiceNumber: string
+  party: string
+  invoiceType: 'Client' | 'Vendor'
+  amount: number
+  receivedDate: string
+  uploadedDate: string | undefined
+  documentUrl: string | undefined
+}
+
+function invoiceDocumentOpenUrl(documentUrl: string | undefined): string | null {
+  if (!documentUrl) return null
+  return vendorInvoiceDocumentOpenUrl(documentUrl)
+}
 
 function fmtInr(amount: number): string {
   return `₹${formatCurrency(amount)}`
@@ -355,6 +386,40 @@ export default function FinancialsTab({ project }: FinancialsTabProps) {
     [baseline, projectId, invoices, payments, expenses],
   )
 
+  const projectInvoiceRows = useMemo((): ProjectInvoiceRow[] => {
+    const clientRows: ProjectInvoiceRow[] = invoices
+      .filter((inv) => inv.projectId === projectId)
+      .map((inv) => ({
+        id: `client-${inv.id}`,
+        invoiceNumber: inv.invoiceNumber,
+        party: inv.clientName?.trim() || projectForSummary.customerName || '—',
+        invoiceType: 'Client',
+        amount: inv.grossAmount,
+        receivedDate: inv.invoiceDate,
+        uploadedDate: inv.uploadedAt,
+        documentUrl: inv.documentUrl,
+      }))
+
+    const vendorRows: ProjectInvoiceRow[] = vendorInvoices
+      .filter((inv) => inv.projectId === projectId)
+      .map((inv) => ({
+        id: `vendor-${inv.id}`,
+        invoiceNumber: inv.invoiceNumber,
+        party: inv.vendorName,
+        invoiceType: 'Vendor',
+        amount: inv.netPayable,
+        receivedDate: inv.invoiceDate,
+        uploadedDate: inv.uploadedAt,
+        documentUrl: inv.documentUrl,
+      }))
+
+    return [...clientRows, ...vendorRows].sort((a, b) => {
+      const aTs = new Date(a.receivedDate).getTime()
+      const bTs = new Date(b.receivedDate).getTime()
+      return (Number.isNaN(bTs) ? 0 : bTs) - (Number.isNaN(aTs) ? 0 : aTs)
+    })
+  }, [invoices, vendorInvoices, projectId, projectForSummary.customerName])
+
   const revenue = projectForSummary.totalClientPOValue
   const cost = projectForSummary.totalVendorPOValue
   const grossProfit = revenue - cost
@@ -471,6 +536,7 @@ export default function FinancialsTab({ project }: FinancialsTabProps) {
   const subTabs = useMemo(() => {
     const tabs: { label: string; value: FinancialSubTab }[] = [
       { label: 'Financial Overview', value: 'overview' },
+      { label: 'Invoice', value: 'invoice' },
     ]
     if (canViewCompliance) {
       tabs.push({ label: 'Tax & Compliance', value: 'compliance' })
@@ -922,6 +988,97 @@ export default function FinancialsTab({ project }: FinancialsTabProps) {
           </>
         )}
       </WorkspaceSection>
+        </Stack>
+      ) : null}
+
+      {activeSubTab === 'invoice' ? (
+        <Stack gap={2}>
+          <WorkspaceSection title="Invoices" noPadding>
+            {projectInvoiceRows.length === 0 ? (
+              <Typography variant="body2" color="text.secondary" sx={{ py: 2, px: 2 }}>
+                No invoices available.
+              </Typography>
+            ) : (
+              <TableContainer>
+                <Table
+                  size="small"
+                  sx={{
+                    tableLayout: 'fixed',
+                    width: '100%',
+                    '& .MuiTableCell-root': { verticalAlign: 'middle' },
+                  }}
+                >
+                  {INVOICES_TABLE_COLGROUP}
+                  <TableHead>
+                    <TableRow>
+                      {[
+                        'Invoice No.',
+                        'Party',
+                        'Invoice Type',
+                        'Amount',
+                        'Received Date',
+                        'Uploaded Date',
+                        'Action',
+                      ].map((h) => (
+                        <TableCell key={h} sx={TABLE_HEADER_SX}>
+                          {h}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {projectInvoiceRows.map((row) => {
+                      const openUrl = invoiceDocumentOpenUrl(row.documentUrl)
+                      return (
+                        <TableRow key={row.id} hover>
+                          <TableCell sx={{ ...TABLE_CELL_SX, fontWeight: 600 }}>
+                            {row.invoiceNumber}
+                          </TableCell>
+                          <TableCell sx={TABLE_CELL_SX}>{row.party}</TableCell>
+                          <TableCell sx={TABLE_CELL_SX}>
+                            <MuiChip
+                              label={row.invoiceType}
+                              size="small"
+                              sx={{
+                                height: 20,
+                                fontSize: 11,
+                                fontWeight: 600,
+                                bgcolor:
+                                  row.invoiceType === 'Client'
+                                    ? tokens.color.info[100]
+                                    : tokens.color.neutral[100],
+                                color:
+                                  row.invoiceType === 'Client'
+                                    ? tokens.color.info[800]
+                                    : tokens.color.neutral[700],
+                                '& .MuiChip-label': { px: 1 },
+                              }}
+                            />
+                          </TableCell>
+                          <TableCell sx={TABLE_CELL_SX}>{fmtInr(row.amount)}</TableCell>
+                          <TableCell sx={TABLE_CELL_SX}>{fmtDate(row.receivedDate)}</TableCell>
+                          <TableCell sx={TABLE_CELL_SX}>{fmtDate(row.uploadedDate)}</TableCell>
+                          <TableCell sx={TABLE_CELL_SX}>
+                            <Button
+                              size="sm"
+                              variant="outlined"
+                              color="primary"
+                              label="View"
+                              disabled={!openUrl}
+                              onClick={() => {
+                                if (!openUrl) return
+                                window.open(openUrl, '_blank', 'noopener,noreferrer')
+                              }}
+                            />
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            )}
+          </WorkspaceSection>
         </Stack>
       ) : null}
 

@@ -791,13 +791,25 @@ export default function VendorDetailPage() {
             </Box>
           </WorkspaceSection>
         ) : (
-          <Stack gap={1.5}>
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: {
+                xs: '1fr',
+                sm: 'repeat(2, 1fr)',
+                lg: 'repeat(3, 1fr)',
+              },
+              gap: 1.5,
+            }}
+          >
             {contacts.map((contact) => (
               <Box
                 key={contact.id}
                 sx={{
                   p: 2, borderRadius: 2, border: '1px solid', borderColor: 'divider',
                   bgcolor: contact.isPrimary ? alpha(theme.palette.primary.main, 0.03) : 'background.paper',
+                  height: '100%',
+                  minWidth: 0,
                 }}
               >
                 <Stack direction="row" alignItems="flex-start" gap={2}>
@@ -813,16 +825,21 @@ export default function VendorDetailPage() {
                     {getInitials(contact.name)}
                   </Box>
                   <Box sx={{ flex: 1, minWidth: 0 }}>
-                    {contact.isPrimary ? (
-                      <Typography variant="caption" color="primary" fontWeight={700} sx={{ display: 'block', mb: 0.25 }}>
-                        Primary Contact
-                      </Typography>
-                    ) : null}
-                    <Typography variant="body2" fontWeight={600}>{contact.name}</Typography>
+                    <Stack direction="row" alignItems="center" gap={1} flexWrap="wrap">
+                      <Typography variant="body2" fontWeight={600}>{contact.name}</Typography>
+                      {contact.isPrimary ? (
+                        <Typography
+                          variant="caption"
+                          sx={{ fontSize: 10, fontWeight: 600, color: 'primary.main', letterSpacing: 0.3 }}
+                        >
+                          (Primary Contact)
+                        </Typography>
+                      ) : null}
+                    </Stack>
                     {contact.designation && (
                       <Typography variant="caption" color="text.secondary">{contact.designation}</Typography>
                     )}
-                    <Stack gap={0.25} sx={{ mt: 0.75 }}>
+                    <Stack direction="row" alignItems="center" gap={2} flexWrap="wrap" sx={{ mt: 0.75 }}>
                       <Stack direction="row" alignItems="center" gap={0.5}>
                         <Phone sx={{ fontSize: 11, color: 'text.secondary' }} />
                         <Typography variant="body2" sx={{ fontSize: 12 }}>{contact.phone}</Typography>
@@ -858,7 +875,7 @@ export default function VendorDetailPage() {
                 </Stack>
               </Box>
             ))}
-          </Stack>
+          </Box>
         )}
       </Box>
     )

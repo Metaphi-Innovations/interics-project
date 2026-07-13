@@ -11,7 +11,7 @@ import {
 } from '@mui/material'
 import { UploadedDocumentLink } from '@/components/documents/UploadedDocumentLink'
 import { DrawerForm, FormField } from '@/components/templates/DrawerForm'
-import { Badge, Button, Checkbox, Input, useToast } from '@/design-system/components'
+import { Badge, Button, Checkbox, DatePicker, dateFromIso, Input, isoFromDate, useToast } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import {
@@ -153,8 +153,8 @@ export function VendorPayableWorkflowDrawer({
 
   const expensesForRow = useMemo(() => {
     if (!row) return []
-    return expenseRowsForVendor(projectExpenses, row)
-  }, [projectExpenses, row])
+    return expenseRowsForVendor(projectExpenses, row, projectInvoices)
+  }, [projectExpenses, row, projectInvoices])
 
   const payableControl = useMemo(() => {
     if (!row) return null
@@ -764,7 +764,12 @@ export function VendorPayableWorkflowDrawer({
                   </Grid>
                   <Grid size={{ xs: 12, sm: 6 }}>
                     <FormField label="Payment date" required>
-                      <Input type="date" value={paymentDate} onChange={setPaymentDate} size="sm" />
+                      <DatePicker
+                        value={dateFromIso(paymentDate)}
+                        onChange={(d) => setPaymentDate(isoFromDate(d))}
+                        fullWidth
+                        size="sm"
+                      />
                     </FormField>
                   </Grid>
                 </Grid>

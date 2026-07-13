@@ -57,6 +57,7 @@ export function plannedExpenseToLiveCreateBody(
             vendorName: vendorNameById[s.vendorId] ?? s.vendorId,
             allocationPercent: s.percentage,
             allocationAmount: s.amount,
+            includedInRecovery: s.includedInRecovery,
           }))
         : undefined,
     splitMethod: planned.splitMethod,

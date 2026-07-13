@@ -24,7 +24,7 @@ import {
   poDocumentOpenUrl,
 } from '@/components/documents/PODocumentLinkField'
 import { READONLY_DISABLED_TEXTFIELD_SX } from './readOnlyFieldStyles'
-import { Button, Checkbox, useToast } from '@/design-system/components'
+import { Button, Checkbox, DatePicker, dateFromIso, isoFromDate, useToast } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { DrawerForm, FormField } from '../../../../components/templates'
 import { useAppDispatch, useAppSelector } from '../../../../store/hooks'
@@ -660,12 +660,11 @@ export function AddVendorPODrawer({
             </Box>
           ) : null}
           <FormField label="PO Date" required>
-            <TextField
+            <DatePicker
+              value={dateFromIso(form.poDate)}
+              onChange={(d) => setField('poDate', isoFromDate(d))}
               fullWidth
-              size="small"
-              type="date"
-              value={form.poDate}
-              onChange={(e) => setField('poDate', e.target.value)}
+              size="sm"
             />
           </FormField>
           <FormField
@@ -993,11 +992,11 @@ export function ViewVendorPODrawer({
                       />
                     </FormField>
                     <FormField label="PO Date" required>
-                      <TextField
+                      <DatePicker
+                        value={dateFromIso(resolvedPo.poDate)}
+                        onChange={() => undefined}
                         fullWidth
-                        size="small"
-                        type="date"
-                        value={resolvedPo.poDate}
+                        size="sm"
                         disabled
                       />
                     </FormField>

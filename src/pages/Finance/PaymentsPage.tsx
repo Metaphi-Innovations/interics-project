@@ -94,10 +94,47 @@ async function loadFinanceForAllProjects(dispatch: AppDispatch, projectIds: stri
   )
 }
 
-/** Equal-width columns (data + action); horizontal padding matches listing toolbar (14px). */
-const PAY_COLUMN_COUNT = 7
-const PAY_COL_WIDTH = `${100 / PAY_COLUMN_COUNT}%`
+/** Equal-width data columns + fixed Action; padding matches listing toolbar (14px). */
+const PAY_DATA_COLUMN_COUNT = 6
+const PAY_ACTION_WIDTH_PX = 60
 const PAY_CELL_PAD_X = '14px'
+const PAY_DATA_COL_WIDTH = `calc((100% - ${PAY_ACTION_WIDTH_PX}px) / ${PAY_DATA_COLUMN_COUNT})`
+
+const PAY_HEADER_PADDING = {
+  '&.MuiTableCell-sizeSmall': {
+    paddingTop: '8px',
+    paddingBottom: '8px',
+    paddingLeft: PAY_CELL_PAD_X,
+    paddingRight: PAY_CELL_PAD_X,
+  },
+} as const
+
+const PAY_BODY_PADDING = {
+  '&.MuiTableCell-sizeSmall': {
+    paddingTop: '7px',
+    paddingBottom: '7px',
+    paddingLeft: PAY_CELL_PAD_X,
+    paddingRight: PAY_CELL_PAD_X,
+  },
+} as const
+
+const PAY_HEADER_ACTION_PADDING = {
+  '&.MuiTableCell-sizeSmall': {
+    paddingTop: '8px',
+    paddingBottom: '8px',
+    paddingLeft: 0,
+    paddingRight: PAY_CELL_PAD_X,
+  },
+} as const
+
+const PAY_BODY_ACTION_PADDING = {
+  '&.MuiTableCell-sizeSmall': {
+    paddingTop: '7px',
+    paddingBottom: '7px',
+    paddingLeft: 0,
+    paddingRight: PAY_CELL_PAD_X,
+  },
+} as const
 
 const CENTER_CELL_CONTENT_SX = {
   display: 'flex',
@@ -106,43 +143,38 @@ const CENTER_CELL_CONTENT_SX = {
   width: 1,
 } as const
 
-const STICKY_ACTION_SX = {
-  position: 'sticky' as const,
-  right: 0,
-  zIndex: 1,
-}
-
 const PAY_HEADER_SX = {
   fontSize: 11,
   fontWeight: 600,
   color: 'text.secondary',
-  py: '8px',
-  px: PAY_CELL_PAD_X,
   borderBottom: `2px solid ${tokens.color.neutral[100]}`,
   verticalAlign: 'bottom' as const,
   lineHeight: 1.35,
   boxSizing: 'border-box' as const,
-  width: PAY_COL_WIDTH,
+  width: PAY_DATA_COL_WIDTH,
+  minWidth: 0,
+  ...PAY_HEADER_PADDING,
 }
 
 const PAY_HEADER_ACTION_SX = {
-  ...STICKY_ACTION_SX,
   ...PAY_HEADER_SX,
-  width: PAY_COL_WIDTH,
+  width: PAY_ACTION_WIDTH_PX,
+  minWidth: PAY_ACTION_WIDTH_PX,
+  maxWidth: PAY_ACTION_WIDTH_PX,
   whiteSpace: 'nowrap' as const,
   textAlign: 'center' as const,
   verticalAlign: 'middle' as const,
-  bgcolor: 'background.default',
-  zIndex: 2,
+  ...PAY_HEADER_ACTION_PADDING,
 }
 
 const PAY_CELL_SX = {
   fontSize: 12,
-  py: '7px',
-  px: PAY_CELL_PAD_X,
   verticalAlign: 'top' as const,
   boxSizing: 'border-box' as const,
-  width: PAY_COL_WIDTH,
+  width: PAY_DATA_COL_WIDTH,
+  minWidth: 0,
+  overflow: 'hidden',
+  ...PAY_BODY_PADDING,
 }
 
 const PAY_CELL_CHIP_SX = {
@@ -167,10 +199,13 @@ const PAY_CELL_STATUS_SX = {
 
 const PAY_CELL_ACTION_SX = {
   ...PAY_CELL_SX,
+  width: PAY_ACTION_WIDTH_PX,
+  minWidth: PAY_ACTION_WIDTH_PX,
+  maxWidth: PAY_ACTION_WIDTH_PX,
   verticalAlign: 'middle' as const,
   textAlign: 'center' as const,
-  bgcolor: 'background.paper',
-  ...STICKY_ACTION_SX,
+  overflow: 'visible',
+  ...PAY_BODY_ACTION_PADDING,
 }
 
 /** Vendor / Project — wrap like Vendors name column (wordBreak, no single-line ellipsis). */
@@ -652,14 +687,16 @@ export default function PaymentsPage() {
           onFilterReset={() => setActiveFilters({ dateFrom: '', dateTo: '' })}
           showExport
           onExport={() => showToast({ title: 'Export started (placeholder)', variant: 'success' })}
+          clipCardContent={false}
         >
           <>
               <TableContainer sx={{ overflowX: 'auto', width: '100%' }}>
                 <Table size="small" sx={{ tableLayout: 'fixed', width: '100%', minWidth: 0 }}>
                   <colgroup>
-                    {Array.from({ length: PAY_COLUMN_COUNT }, (_, index) => (
-                      <col key={index} style={{ width: PAY_COL_WIDTH }} />
+                    {Array.from({ length: PAY_DATA_COLUMN_COUNT }, (_, index) => (
+                      <col key={index} style={{ width: PAY_DATA_COL_WIDTH }} />
                     ))}
+                    <col style={{ width: `${PAY_ACTION_WIDTH_PX}px` }} />
                   </colgroup>
                   <TableHead>
                     <TableRow sx={{ bgcolor: alpha(theme.palette.text.primary, 0.02) }}>
@@ -676,7 +713,7 @@ export default function PaymentsPage() {
                         Payment Status
                       </TableCell>
                       <TableCell sx={PAY_HEADER_ACTION_SX}>
-                        <Box sx={CENTER_CELL_CONTENT_SX}>Action</Box>
+                        Action
                       </TableCell>
                     </TableRow>
                   </TableHead>

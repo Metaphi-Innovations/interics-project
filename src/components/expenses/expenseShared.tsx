@@ -368,37 +368,47 @@ export function ViewExpenseModal({
             >
               <Table size="small" sx={{ tableLayout: 'fixed', width: '100%' }}>
                 <colgroup>
-                  <col style={{ width: '44%' }} />
+                  <col style={{ width: '12%' }} />
+                  <col style={{ width: '36%' }} />
                   <col style={{ width: '22%' }} />
-                  <col style={{ width: '34%' }} />
+                  <col style={{ width: '30%' }} />
                 </colgroup>
                 <TableHead>
                   <TableRow sx={{ bgcolor: tokens.color.neutral[50] }}>
+                    <TableCell sx={ALLOCATION_HEADER_SX}>Allocated</TableCell>
                     <TableCell sx={ALLOCATION_HEADER_SX}>Vendor</TableCell>
                     <TableCell align="right" sx={ALLOCATION_HEADER_SX}>
-                      Share (%)
+                      PO Ratio (%)
                     </TableCell>
                     <TableCell align="right" sx={ALLOCATION_HEADER_SX}>
-                      Allocated Amount
+                      Expense Share
                     </TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {allocationRows.map((row) => (
-                    <TableRow key={row.vendorId} hover>
-                      <TableCell sx={ALLOCATION_CELL_SX}>
-                        <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 500 }}>
-                          {row.vendorName}
-                        </Typography>
-                      </TableCell>
-                      <TableCell align="right" sx={ALLOCATION_CELL_SX}>
-                        {row.allocationPercent}%
-                      </TableCell>
-                      <TableCell align="right" sx={{ ...ALLOCATION_CELL_SX, fontWeight: 600 }}>
-                        ₹{formatCurrency(row.allocationAmount)}
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {allocationRows.map((row) => {
+                    const included = row.includedInRecovery !== false
+                    return (
+                      <TableRow key={row.vendorId} hover sx={{ opacity: included ? 1 : 0.65 }}>
+                        <TableCell sx={ALLOCATION_CELL_SX}>
+                          <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 500 }}>
+                            {included ? 'Yes' : 'No'}
+                          </Typography>
+                        </TableCell>
+                        <TableCell sx={ALLOCATION_CELL_SX}>
+                          <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 500 }}>
+                            {row.vendorName}
+                          </Typography>
+                        </TableCell>
+                        <TableCell align="right" sx={ALLOCATION_CELL_SX}>
+                          {row.allocationPercent}%
+                        </TableCell>
+                        <TableCell align="right" sx={{ ...ALLOCATION_CELL_SX, fontWeight: 600 }}>
+                          ₹{formatCurrency(row.allocationAmount)}
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
                 </TableBody>
               </Table>
             </Box>

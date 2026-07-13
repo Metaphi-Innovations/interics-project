@@ -95,7 +95,7 @@ import { PitchFinancialSidebar } from '@/components/projects/PitchFinancialSideb
 import { EditMilestonesDrawer } from '../components/EditMilestonesDrawer'
 import { WorkspaceSection } from '../../../components/templates'
 import { DrawerForm, FormField, FormSection } from '../../../components/templates/DrawerForm'
-import { useToast } from '@/design-system/components'
+import { useToast, DatePicker, dateFromIso, isoFromDate } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { formatCurrency, formatDate, formatInr } from '../../../utils/formatters'
 import { LockedFinancialHierarchy } from './transition/lockedBaselineUi'
@@ -177,21 +177,20 @@ function UploadPODrawer({ open, onClose, projectId, saving }: UploadPODrawerProp
           />
         </FormField>
         <FormField label="Start date" required>
-          <TextField
+          <DatePicker
+            value={dateFromIso(poFormData.startDate)}
+            onChange={(d) => setPoFormData((prev) => ({ ...prev, startDate: isoFromDate(d) }))}
             fullWidth
-            size="small"
-            type="date"
-            value={poFormData.startDate}
-            onChange={handlePoChange('startDate')}
+            size="sm"
           />
         </FormField>
         <FormField label="End date" required>
-          <TextField
+          <DatePicker
+            value={dateFromIso(poFormData.endDate)}
+            onChange={(d) => setPoFormData((prev) => ({ ...prev, endDate: isoFromDate(d) }))}
             fullWidth
-            size="small"
-            type="date"
-            value={poFormData.endDate}
-            onChange={handlePoChange('endDate')}
+            size="sm"
+            minDate={dateFromIso(poFormData.startDate) ?? undefined}
           />
         </FormField>
         <FormField label="PO Value (₹)" required>
@@ -316,21 +315,20 @@ function EditPODrawer({ open, onClose, projectId, po, saving }: EditPODrawerProp
           />
         </FormField>
         <FormField label="Start date" required>
-          <TextField
+          <DatePicker
+            value={dateFromIso(form.startDate)}
+            onChange={(d) => setForm((p) => ({ ...p, startDate: isoFromDate(d) }))}
             fullWidth
-            size="small"
-            type="date"
-            value={form.startDate}
-            onChange={(e) => setForm(p => ({ ...p, startDate: e.target.value }))}
+            size="sm"
           />
         </FormField>
         <FormField label="End date" required>
-          <TextField
+          <DatePicker
+            value={dateFromIso(form.endDate)}
+            onChange={(d) => setForm((p) => ({ ...p, endDate: isoFromDate(d) }))}
             fullWidth
-            size="small"
-            type="date"
-            value={form.endDate}
-            onChange={(e) => setForm(p => ({ ...p, endDate: e.target.value }))}
+            size="sm"
+            minDate={dateFromIso(form.startDate) ?? undefined}
           />
         </FormField>
         <FormField label="PO Value (₹)" required>
@@ -656,12 +654,11 @@ function IssueVendorPODrawer({
           />
         </FormField>
         <FormField label="PO Date" required>
-          <TextField
+          <DatePicker
+            value={dateFromIso(form.poDate)}
+            onChange={(d) => set('poDate', isoFromDate(d))}
             fullWidth
-            size="small"
-            type="date"
-            value={form.poDate}
-            onChange={(e) => set('poDate', e.target.value)}
+            size="sm"
           />
         </FormField>
         <FormField

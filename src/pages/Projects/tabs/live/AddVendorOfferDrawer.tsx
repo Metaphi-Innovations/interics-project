@@ -10,7 +10,7 @@ import {
 } from '@mui/material'
 import { Add, Upload } from '@mui/icons-material'
 import { useTheme, alpha } from '@mui/material/styles'
-import { useToast } from '@/design-system/components'
+import { useToast, DatePicker, dateFromIso, isoFromDate } from '@/design-system/components'
 import { DrawerForm, FormField } from '../../../../components/templates'
 import { useAppDispatch, useAppSelector } from '../../../../store/hooks'
 import { fetchVendors } from '../../../../slices/vendors/thunk'
@@ -521,12 +521,11 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
             />
           </FormField>
           <FormField label="PO Date" required>
-            <TextField
+            <DatePicker
+              value={dateFromIso(form.poDate)}
+              onChange={(d) => setField('poDate', isoFromDate(d))}
               fullWidth
-              size="small"
-              type="date"
-              value={form.poDate}
-              onChange={(e) => setField('poDate', e.target.value)}
+              size="sm"
             />
           </FormField>
           <FormField label="PO Value (₹)" required>
