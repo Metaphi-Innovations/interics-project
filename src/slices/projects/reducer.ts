@@ -61,11 +61,23 @@ export interface Project {
   progress: string
   building?: string
   location: string
+  /** Street / site address line. */
+  address?: string | null
+  city?: string | null
+  state?: string | null
+  country?: string | null
+  pincode?: string | null
   floor?: string
   carpetArea: number | null
   headcount: number | null
   workstationSize?: string | null
   meetingRoomCount?: number | null
+  /** Optional space-planning notes from Create Project → Project Details. */
+  workstations?: string | null
+  cabins?: string | null
+  meetingRooms?: string | null
+  services?: string | null
+  supportFunction?: string | null
   serverRoomDetails?: string | null
   upsCapacity?: string | null
   receptionDetails?: string | null

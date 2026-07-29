@@ -1,30 +1,51 @@
-import { useEffect, useMemo, useState } from 'react'
+import {
+  forwardRef,
+  useEffect,
+  useMemo,
+  useState,
+  type HTMLAttributes,
+  type ReactNode,
+} from 'react'
 import {
   Autocomplete,
   Box,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Button as MuiButton,
   TextField,
-  CircularProgress,
   FormControl,
   Select as MuiSelect,
   MenuItem,
+  Divider,
+  ListSubheader,
+  Button as MuiButton,
+  Stack,
+  Typography,
 } from '@mui/material'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
-import { createCustomerContact } from '@/slices/customers/thunk'
-import { createPendingVendor, fetchVendors } from '@/slices/vendors/thunk'
+import {
+  createCustomerContact,
+  updateCustomerContact,
+} from '@/slices/customers/thunk'
+import {
+  createVendorContact,
+  updateVendorContact,
+  fetchVendors,
+} from '@/slices/vendors/thunk'
 import type { Contact } from '@/slices/customers/reducer'
-import { useToast } from '@/design-system/components'
+import type { ContactInfo } from '@/slices/projects/reducer'
+import type { Vendor } from '@/slices/vendors/reducer'
+import { Button, Modal, useToast } from '@/design-system/components'
+import { DrawerForm } from '@/components/templates'
 import { getVendorContactsList } from '@/utils/vendorContacts'
-import { isActiveVendorContact } from '@/utils/vendorProfileStatus'
+import { isActiveVendorContact, isPendingVendor } from '@/utils/vendorProfileStatus'
 import {
   contactPhoneExists,
-  FORM_CONTROL_INPUT_SX,
+  normalizePhoneNumber,
   type ProjectContactSource,
 } from '../projectCreateHelpers'
+import {
+  filterContacts,
+  renderContactAutocompleteOption,
+} from './ContactPersonAutocomplete'
+import { QuickAddVendorModal } from './QuickAddVendorModal'
 
 interface CreateContactPersonModalProps {
   open: boolean
@@ -33,8 +54,12 @@ interface CreateContactPersonModalProps {
   /** When set, linked vendors are resolved for this project (and customer). */
   projectId?: string
   existingCustomerContacts: Contact[]
+  /** Prefill Contact Type when the drawer opens. */
+  initialContactType?: ProjectContactSource
   /** Called only when a customer contact is saved (added to project dropdown). */
   onSaved?: (contact: Contact) => void
+  /** Called after any contact is saved — for assigning to project client team. */
+  onAssigned?: (info: ContactInfo) => void | Promise<void>
 }
 
 interface VendorOption {
@@ -43,35 +68,84 @@ interface VendorOption {
 }
 
 interface FormState {
+  contactType: ProjectContactSource
+  vendorId: string
+  selectedContactId: string
   name: string
   phone: string
   email: string
   designation: string
-  contactType: ProjectContactSource
-  vendorId: string
 }
 
 interface FormErrors {
+  contactType?: string
+  vendor?: string
+  selectedContactId?: string
   name?: string
   phone?: string
   email?: string
-  contactType?: string
-  vendor?: string
+}
+
+interface NewPersonForm {
+  name: string
+  phone: string
+  email: string
+  designation: string
 }
 
 const EMPTY_FORM: FormState = {
+  contactType: 'customer',
+  vendorId: '',
+  selectedContactId: '',
   name: '',
   phone: '',
   email: '',
   designation: '',
-  contactType: 'customer',
-  vendorId: '',
+}
+
+const EMPTY_NEW_PERSON: NewPersonForm = {
+  name: '',
+  phone: '',
+  email: '',
+  designation: '',
 }
 
 const CONTACT_TYPE_OPTIONS: { value: ProjectContactSource; label: string }[] = [
-  { value: 'customer', label: 'Customer Contact' },
+  { value: 'customer', label: 'Client Contact' },
   { value: 'vendor', label: 'Vendor Contact' },
 ]
+
+function contactDetailsFrom(contact: Contact): Pick<
+  FormState,
+  'name' | 'phone' | 'email' | 'designation'
+> {
+  return {
+    name: contact.name,
+    phone: contact.phone,
+    email: contact.email,
+    designation: contact.designation,
+  }
+}
+
+function clearContactDetails(): Pick<
+  FormState,
+  'selectedContactId' | 'name' | 'phone' | 'email' | 'designation'
+> {
+  return {
+    selectedContactId: '',
+    name: '',
+    phone: '',
+    email: '',
+    designation: '',
+  }
+}
+
+function mergeContactsById(base: Contact[], extras: Contact[]): Contact[] {
+  const map = new Map<string, Contact>()
+  for (const c of base) map.set(c.id, c)
+  for (const c of extras) map.set(c.id, c)
+  return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name))
+}
 
 function validateForm(
   form: FormState,
@@ -80,25 +154,78 @@ function validateForm(
   existingVendorPhones: string[],
 ): FormErrors {
   const errors: FormErrors = {}
-  if (!form.name.trim()) errors.name = 'Contact person name is required'
   if (!form.contactType) errors.contactType = 'Contact type is required'
 
   if (form.contactType === 'vendor' && !form.vendorId.trim()) {
     errors.vendor = 'Vendor is required.'
   }
 
+  if (!form.selectedContactId.trim()) {
+    errors.selectedContactId = 'Select a contact person'
+  }
+
   const trimmedPhone = form.phone.trim()
   if (!trimmedPhone) {
     errors.phone = 'Mobile number is required'
-  } else if (form.contactType === 'vendor') {
-    if (
-      existingVendorPhones.some((p) => p === trimmedPhone) ||
-      contactPhoneExists(existingVendorContacts, trimmedPhone)
-    ) {
-      errors.phone = 'A contact with this mobile number already exists'
+  } else {
+    const peers =
+      form.contactType === 'vendor'
+        ? existingVendorContacts
+        : existingCustomerContacts
+    const others = peers.filter((c) => c.id !== form.selectedContactId)
+    const phoneTaken = contactPhoneExists(others, trimmedPhone)
+
+    if (form.contactType === 'vendor') {
+      const vendorPhoneTaken = existingVendorPhones.some(
+        (p) =>
+          normalizePhoneNumber(p) === normalizePhoneNumber(trimmedPhone) &&
+          normalizePhoneNumber(p) !==
+            normalizePhoneNumber(
+              peers.find((c) => c.id === form.selectedContactId)?.phone ?? '',
+            ),
+      )
+      if (phoneTaken || vendorPhoneTaken) {
+        errors.phone = 'A contact with this mobile number already exists'
+      }
+    } else if (phoneTaken) {
+      errors.phone =
+        'A contact with this mobile number already exists for this customer'
     }
-  } else if (contactPhoneExists(existingCustomerContacts, trimmedPhone)) {
-    errors.phone = 'A contact with this mobile number already exists for this customer'
+  }
+
+  const email = form.email.trim()
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    errors.email = 'Enter a valid email address'
+  }
+
+  return errors
+}
+
+function validateNewPerson(
+  form: NewPersonForm,
+  peers: Contact[],
+  existingVendorPhones: string[],
+  isVendor: boolean,
+): Partial<Record<keyof NewPersonForm, string>> {
+  const errors: Partial<Record<keyof NewPersonForm, string>> = {}
+  if (!form.name.trim()) errors.name = 'Contact person name is required'
+
+  const trimmedPhone = form.phone.trim()
+  if (!trimmedPhone) {
+    errors.phone = 'Mobile number is required'
+  } else {
+    const phoneTaken = contactPhoneExists(peers, trimmedPhone)
+    if (isVendor) {
+      const vendorPhoneTaken = existingVendorPhones.some(
+        (p) => normalizePhoneNumber(p) === normalizePhoneNumber(trimmedPhone),
+      )
+      if (phoneTaken || vendorPhoneTaken) {
+        errors.phone = 'A contact with this mobile number already exists'
+      }
+    } else if (phoneTaken) {
+      errors.phone =
+        'A contact with this mobile number already exists for this customer'
+    }
   }
 
   const email = form.email.trim()
@@ -115,21 +242,30 @@ export function CreateContactPersonModal({
   customerId,
   projectId: _projectId,
   existingCustomerContacts,
+  initialContactType = 'customer',
   onSaved,
+  onAssigned,
 }: CreateContactPersonModalProps) {
   const dispatch = useAppDispatch()
   const { showToast } = useToast()
   const vendors = useAppSelector((s) => s.vendors.items ?? [])
   const vendorsLoading = useAppSelector((s) => s.vendors.loading)
 
-  const [form, setForm] = useState<FormState>(EMPTY_FORM)
+  const [form, setForm] = useState<FormState>({
+    ...EMPTY_FORM,
+    contactType: initialContactType,
+  })
   const [errors, setErrors] = useState<FormErrors>({})
   const [saving, setSaving] = useState(false)
+  const [addVendorOpen, setAddVendorOpen] = useState(false)
+  const [addPersonOpen, setAddPersonOpen] = useState(false)
+  const [localCustomerContacts, setLocalCustomerContacts] = useState<Contact[]>([])
+  const [localVendorContacts, setLocalVendorContacts] = useState<Contact[]>([])
 
   const activeVendorOptions = useMemo<VendorOption[]>(
     () =>
       vendors
-        .filter((v) => v.status === 'Active' && isActiveVendorContact(v))
+        .filter((v) => (v.status === 'Active' && isActiveVendorContact(v)) || isPendingVendor(v))
         .map((v) => ({ id: v.id, label: v.name }))
         .sort((a, b) => a.label.localeCompare(b.label)),
     [vendors],
@@ -145,49 +281,227 @@ export function CreateContactPersonModal({
     [selectedVendor],
   )
 
+  const selectableContacts = useMemo(() => {
+    if (form.contactType === 'vendor') {
+      return mergeContactsById(existingVendorContacts, localVendorContacts)
+    }
+    return mergeContactsById(existingCustomerContacts, localCustomerContacts)
+  }, [
+    form.contactType,
+    existingVendorContacts,
+    existingCustomerContacts,
+    localVendorContacts,
+    localCustomerContacts,
+  ])
+
+  const selectedContact = useMemo(
+    () =>
+      selectableContacts.find((c) => c.id === form.selectedContactId) ?? null,
+    [selectableContacts, form.selectedContactId],
+  )
+
   const existingVendorPhones = useMemo(
     () => vendors.map((v) => v.phone.trim()).filter(Boolean),
     [vendors],
   )
 
+  const showVendorField = form.contactType === 'vendor'
+  const showContactPersonField = !showVendorField || Boolean(form.vendorId)
+
   useEffect(() => {
     if (!open) {
-      setForm(EMPTY_FORM)
+      setForm({ ...EMPTY_FORM, contactType: initialContactType })
       setErrors({})
       setSaving(false)
+      setAddVendorOpen(false)
+      setAddPersonOpen(false)
+      setLocalCustomerContacts([])
+      setLocalVendorContacts([])
       return
     }
+
+    setForm({
+      ...EMPTY_FORM,
+      contactType: initialContactType,
+    })
+    setLocalCustomerContacts([])
+    setLocalVendorContacts([])
 
     void dispatch(
       fetchVendors({
         pageSize: 500,
-        status: 'Active',
-        profileStatus: 'complete',
       }),
     )
-  }, [open, dispatch])
+  }, [open, dispatch, initialContactType])
 
   function setField<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => {
       const next = { ...prev, [key]: value }
-      if (key === 'contactType' && value !== 'vendor') {
+
+      if (key === 'contactType') {
         next.vendorId = ''
+        Object.assign(next, clearContactDetails())
+        setLocalVendorContacts([])
       }
+
+      if (key === 'vendorId') {
+        Object.assign(next, clearContactDetails())
+        setLocalVendorContacts([])
+      }
+
       return next
     })
-    if (errors[key as keyof FormErrors]) {
-      setErrors((prev) => ({ ...prev, [key]: undefined }))
+
+    setErrors((prev) => {
+      const cleared = { ...prev }
+      delete cleared[key as keyof FormErrors]
+      if (key === 'contactType' || key === 'vendorId') {
+        delete cleared.vendor
+        delete cleared.selectedContactId
+        delete cleared.name
+        delete cleared.phone
+        delete cleared.email
+      }
+      return cleared
+    })
+  }
+
+  function applySelectedContact(contact: Contact) {
+    setForm((prev) => ({
+      ...prev,
+      selectedContactId: contact.id,
+      ...contactDetailsFrom(contact),
+    }))
+    setErrors((prev) => ({
+      ...prev,
+      selectedContactId: undefined,
+      name: undefined,
+      phone: undefined,
+      email: undefined,
+    }))
+  }
+
+  function handleSelectExistingContact(contact: Contact | null) {
+    if (!contact) {
+      setForm((prev) => ({ ...prev, ...clearContactDetails() }))
+      setErrors((prev) => ({ ...prev, selectedContactId: undefined }))
+      return
     }
-    if (key === 'contactType' || key === 'vendorId') {
-      setErrors((prev) => ({ ...prev, vendor: undefined }))
+    applySelectedContact(contact)
+  }
+
+  async function refreshVendors() {
+    await dispatch(
+      fetchVendors({
+        pageSize: 500,
+      }),
+    )
+  }
+
+  function selectVendorAndPrimaryContact(vendor: Vendor) {
+    const contacts = getVendorContactsList(vendor)
+    const primary = contacts.find((c) => c.isPrimary) ?? contacts[0] ?? null
+
+    setForm((prev) => ({
+      ...prev,
+      contactType: 'vendor',
+      vendorId: vendor.id,
+      ...(primary
+        ? { selectedContactId: primary.id, ...contactDetailsFrom(primary) }
+        : clearContactDetails()),
+    }))
+    setLocalVendorContacts(primary ? [primary] : [])
+    setErrors({})
+  }
+
+  function detailsChangedFromOriginal(original: Contact): boolean {
+    return (
+      form.phone.trim() !== original.phone.trim() ||
+      form.email.trim() !== original.email.trim() ||
+      form.designation.trim() !== original.designation.trim()
+    )
+  }
+
+  async function handleCreateNewPerson(person: NewPersonForm): Promise<boolean> {
+    const peers =
+      form.contactType === 'vendor'
+        ? selectableContacts
+        : mergeContactsById(existingCustomerContacts, localCustomerContacts)
+    const personErrors = validateNewPerson(
+      person,
+      peers,
+      existingVendorPhones,
+      form.contactType === 'vendor',
+    )
+    if (Object.keys(personErrors).length > 0) {
+      return false
+    }
+
+    const payload = {
+      name: person.name.trim(),
+      phone: person.phone.trim(),
+      email: person.email.trim(),
+      designation: person.designation.trim(),
+    }
+
+    try {
+      if (form.contactType === 'customer') {
+        const result = await dispatch(
+          createCustomerContact({
+            customerId,
+            data: {
+              ...payload,
+              isPrimary: selectableContacts.length === 0,
+            },
+          }),
+        ).unwrap()
+        setLocalCustomerContacts((prev) => mergeContactsById(prev, [result.contact]))
+        applySelectedContact(result.contact)
+        onSaved?.(result.contact)
+      } else {
+        const vendor = selectedVendor
+        if (!vendor) {
+          setErrors((prev) => ({ ...prev, vendor: 'Vendor is required.' }))
+          return false
+        }
+        const result = await dispatch(
+          createVendorContact({
+            vendorId: vendor.id,
+            data: {
+              ...payload,
+              isPrimary: selectableContacts.length === 0,
+            },
+          }),
+        ).unwrap()
+        setLocalVendorContacts((prev) => mergeContactsById(prev, [result.contact]))
+        await refreshVendors()
+        applySelectedContact(result.contact)
+      }
+
+      showToast({ title: 'Contact person created', variant: 'success' })
+      setAddPersonOpen(false)
+      return true
+    } catch (err: unknown) {
+      const message =
+        typeof err === 'string' ? err : 'Failed to create contact person'
+      showToast({ title: message, variant: 'error' })
+      return false
     }
   }
 
   async function handleSave() {
+    const allCustomerPeers = mergeContactsById(
+      existingCustomerContacts,
+      localCustomerContacts,
+    )
+    const allVendorPeers = mergeContactsById(
+      existingVendorContacts,
+      localVendorContacts,
+    )
     const nextErrors = validateForm(
       form,
-      existingCustomerContacts,
-      existingVendorContacts,
+      allCustomerPeers,
+      allVendorPeers,
       existingVendorPhones,
     )
     if (Object.keys(nextErrors).length > 0) {
@@ -205,17 +519,48 @@ export function CreateContactPersonModal({
     try {
       setSaving(true)
 
+      let assigned: ContactInfo = {
+        name: payload.name,
+        phone: payload.phone,
+        email: payload.email,
+        designation: payload.designation,
+      }
+
       if (form.contactType === 'customer') {
-        const result = await dispatch(
-          createCustomerContact({
-            customerId,
-            data: {
-              ...payload,
-              isPrimary: existingCustomerContacts.length === 0,
-            },
-          }),
-        ).unwrap()
-        onSaved?.(result.contact)
+        let contact: Contact
+
+        if (selectedContact) {
+          if (detailsChangedFromOriginal(selectedContact)) {
+            const result = await dispatch(
+              updateCustomerContact({
+                customerId,
+                contactId: selectedContact.id,
+                data: {
+                  phone: payload.phone,
+                  email: payload.email,
+                  designation: payload.designation,
+                },
+              }),
+            ).unwrap()
+            contact = result.contact
+          } else {
+            contact = selectedContact
+          }
+        } else {
+          setErrors((prev) => ({
+            ...prev,
+            selectedContactId: 'Select a contact person',
+          }))
+          return
+        }
+
+        onSaved?.(contact)
+        assigned = {
+          name: contact.name,
+          phone: contact.phone,
+          email: contact.email,
+          designation: contact.designation,
+        }
       } else {
         const vendor = selectedVendor
         if (!vendor) {
@@ -223,18 +568,52 @@ export function CreateContactPersonModal({
           return
         }
 
-        await dispatch(
-          createPendingVendor({
-            vendorId: vendor.id,
-            vendorName: vendor.name,
-            name: payload.name,
-            phone: payload.phone,
-            email: payload.email,
-            designation: payload.designation,
-          }),
-        ).unwrap()
+        let contact: Contact
+
+        if (selectedContact) {
+          // Legacy primary from vendor create cannot be patched via contact API.
+          if (
+            selectedContact.id !== 'legacy-primary' &&
+            detailsChangedFromOriginal(selectedContact)
+          ) {
+            const result = await dispatch(
+              updateVendorContact({
+                vendorId: vendor.id,
+                contactId: selectedContact.id,
+                data: {
+                  phone: payload.phone,
+                  email: payload.email,
+                  designation: payload.designation,
+                },
+              }),
+            ).unwrap()
+            contact = result.contact
+          } else {
+            contact = {
+              ...selectedContact,
+              phone: payload.phone,
+              email: payload.email,
+              designation: payload.designation,
+            }
+          }
+        } else {
+          setErrors((prev) => ({
+            ...prev,
+            selectedContactId: 'Select a contact person',
+          }))
+          return
+        }
+
+        assigned = {
+          name: contact.name,
+          phone: contact.phone,
+          email: contact.email,
+          designation: contact.designation,
+          company: vendor.name,
+        }
       }
 
+      await onAssigned?.(assigned)
       showToast({ title: 'Contact person saved', variant: 'success' })
       onClose()
     } catch (err: unknown) {
@@ -250,16 +629,296 @@ export function CreateContactPersonModal({
     }
   }
 
-  const showVendorField = form.contactType === 'vendor'
+  return (
+    <>
+      <DrawerForm
+        open={open}
+        onClose={onClose}
+        title="Add Contact Person"
+        subtitle="Add a contact for this project"
+        onSubmit={() => void handleSave()}
+        submitLabel="Save Contact"
+        cancelLabel="Cancel"
+        submitLoading={saving}
+        width={480}
+      >
+        <Box display="flex" flexDirection="column" gap={1.5}>
+          <SelectField
+            label="Contact Type"
+            required
+            value={form.contactType}
+            onChange={(v) => setField('contactType', v as ProjectContactSource)}
+            error={errors.contactType}
+            options={CONTACT_TYPE_OPTIONS}
+          />
+
+          {showVendorField ? (
+            <VendorSelectField
+              value={form.vendorId}
+              options={activeVendorOptions}
+              onChange={(vendorId) => setField('vendorId', vendorId)}
+              onAddNewVendor={() => setAddVendorOpen(true)}
+              error={errors.vendor}
+              loading={vendorsLoading}
+            />
+          ) : null}
+
+          {showContactPersonField ? (
+            <>
+              <ContactPersonSelectField
+                contacts={selectableContacts}
+                value={selectedContact}
+                onChange={handleSelectExistingContact}
+                onAddNewPerson={() => setAddPersonOpen(true)}
+                error={errors.selectedContactId}
+              />
+
+              {selectedContact ? (
+                <Box
+                  display="grid"
+                  sx={{
+                    gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' },
+                    gap: 1.5,
+                  }}
+                >
+                  <TypographyField
+                    label="Mobile Number"
+                    required
+                    value={form.phone}
+                    onChange={(v) => setField('phone', v)}
+                    error={errors.phone}
+                    placeholder="+91 98765 43210"
+                  />
+                  <TypographyField
+                    label="Email Address"
+                    value={form.email}
+                    onChange={(v) => setField('email', v)}
+                    error={errors.email}
+                    placeholder="name@company.com"
+                  />
+                  <Box sx={{ gridColumn: { xs: '1', sm: '1 / -1' } }}>
+                    <TypographyField
+                      label="Designation"
+                      value={form.designation}
+                      onChange={(v) => setField('designation', v)}
+                      placeholder="e.g. Managing Director"
+                    />
+                  </Box>
+                </Box>
+              ) : null}
+            </>
+          ) : null}
+        </Box>
+      </DrawerForm>
+
+      <AddNewPersonModal
+        open={addPersonOpen}
+        onClose={() => setAddPersonOpen(false)}
+        onSave={handleCreateNewPerson}
+        peers={selectableContacts}
+        existingVendorPhones={existingVendorPhones}
+        isVendor={form.contactType === 'vendor'}
+      />
+
+      <QuickAddVendorModal
+        open={addVendorOpen}
+        onClose={() => setAddVendorOpen(false)}
+        onCreated={(vendor) => {
+          selectVendorAndPrimaryContact(vendor)
+          void refreshVendors()
+          setAddVendorOpen(false)
+        }}
+      />
+    </>
+  )
+}
+
+interface ContactListboxProps extends HTMLAttributes<HTMLUListElement> {
+  children?: ReactNode
+  onAddNewPerson?: () => void
+}
+
+const ContactPersonListbox = forwardRef<HTMLUListElement, ContactListboxProps>(
+  function ContactPersonListbox({ children, onAddNewPerson, ...props }, ref) {
+    return (
+      <ul ref={ref} {...props} style={{ ...props.style, padding: 0, margin: 0 }}>
+        {children}
+        {onAddNewPerson ? (
+          <>
+            <Divider component="li" sx={{ my: 0.5, listStyle: 'none' }} />
+            <Box component="li" sx={{ listStyle: 'none', p: 0, m: 0 }}>
+              <MuiButton
+                fullWidth
+                size="small"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  onAddNewPerson()
+                }}
+                sx={{
+                  justifyContent: 'flex-start',
+                  px: 2,
+                  py: 1,
+                  fontSize: 13,
+                  textTransform: 'none',
+                  fontWeight: 600,
+                  color: 'primary.main',
+                }}
+              >
+                + Add New Person
+              </MuiButton>
+            </Box>
+          </>
+        ) : null}
+      </ul>
+    )
+  },
+)
+
+function ContactPersonSelectField({
+  contacts,
+  value,
+  onChange,
+  onAddNewPerson,
+  error,
+}: {
+  contacts: Contact[]
+  value: Contact | null
+  onChange: (contact: Contact | null) => void
+  onAddNewPerson: () => void
+  error?: string
+}) {
+  const ListboxWithCreate = useMemo(
+    () =>
+      forwardRef<HTMLUListElement, HTMLAttributes<HTMLUListElement>>(
+        function Listbox(listboxProps, ref) {
+          return (
+            <ContactPersonListbox
+              {...listboxProps}
+              ref={ref}
+              onAddNewPerson={onAddNewPerson}
+            />
+          )
+        },
+      ),
+    [onAddNewPerson],
+  )
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle sx={{ fontSize: 15, fontWeight: 600 }}>Add Contact Person</DialogTitle>
-      <DialogContent>
-        <Box
-          display="grid"
-          sx={{ gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.5, mt: 1 }}
-        >
+    <Box>
+      <FieldLabel label="Contact Person" required />
+      <Autocomplete
+        fullWidth
+        size="small"
+        options={contacts}
+        filterOptions={filterContacts}
+        getOptionLabel={(c) => c.name}
+        isOptionEqualToValue={(a, b) => a.id === b.id}
+        value={value}
+        onChange={(_, contact) => onChange(contact)}
+        renderOption={renderContactAutocompleteOption}
+        noOptionsText="No contacts found"
+        slots={{ listbox: ListboxWithCreate }}
+        renderInput={(params) => (
+          <TextField
+            {...params}
+            placeholder="Search by name…"
+            error={Boolean(error)}
+            helperText={error}
+            sx={{ '& input': { fontSize: 13 } }}
+          />
+        )}
+      />
+    </Box>
+  )
+}
+
+function AddNewPersonModal({
+  open,
+  onClose,
+  onSave,
+  peers,
+  existingVendorPhones,
+  isVendor,
+}: {
+  open: boolean
+  onClose: () => void
+  onSave: (person: NewPersonForm) => Promise<boolean>
+  peers: Contact[]
+  existingVendorPhones: string[]
+  isVendor: boolean
+}) {
+  const [form, setForm] = useState<NewPersonForm>(EMPTY_NEW_PERSON)
+  const [errors, setErrors] = useState<Partial<Record<keyof NewPersonForm, string>>>({})
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (!open) return
+    setForm(EMPTY_NEW_PERSON)
+    setErrors({})
+    setSaving(false)
+  }, [open])
+
+  function setField<K extends keyof NewPersonForm>(key: K, value: NewPersonForm[K]) {
+    setForm((prev) => ({ ...prev, [key]: value }))
+    if (errors[key]) setErrors((prev) => ({ ...prev, [key]: undefined }))
+  }
+
+  async function handleSave() {
+    const nextErrors = validateNewPerson(form, peers, existingVendorPhones, isVendor)
+    if (Object.keys(nextErrors).length > 0) {
+      setErrors(nextErrors)
+      return
+    }
+    setSaving(true)
+    try {
+      const ok = await onSave(form)
+      if (!ok) {
+        const revalidate = validateNewPerson(form, peers, existingVendorPhones, isVendor)
+        if (Object.keys(revalidate).length > 0) setErrors(revalidate)
+      }
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Add New Person"
+      size="sm"
+      loading={saving}
+      footer={
+        <Stack direction="row" spacing={1} justifyContent="flex-end" sx={{ width: 1 }}>
+          <Button
+            variant="outlined"
+            color="secondary"
+            size="sm"
+            label="Cancel"
+            onClick={onClose}
+            disabled={saving}
+          />
+          <Button
+            variant="contained"
+            color="primary"
+            size="sm"
+            label={saving ? 'Saving…' : 'Save'}
+            onClick={() => void handleSave()}
+            disabled={saving}
+          />
+        </Stack>
+      }
+    >
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 2, fontSize: 12 }}>
+        Create a contact without leaving this drawer.
+      </Typography>
+      <Box
+        display="grid"
+        sx={{ gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.5 }}
+      >
+        <Box sx={{ gridColumn: { xs: '1', sm: '1 / -1' } }}>
           <TypographyField
             label="Contact Person Name"
             required
@@ -268,72 +927,55 @@ export function CreateContactPersonModal({
             error={errors.name}
             placeholder="Full name"
           />
-          <Box>
-            <SelectField
-              label="Contact Type"
-              required
-              value={form.contactType}
-              onChange={(v) => setField('contactType', v as ProjectContactSource)}
-              error={errors.contactType}
-              options={CONTACT_TYPE_OPTIONS}
-            />
-          </Box>
-          <TypographyField
-            label="Mobile Number"
-            required
-            value={form.phone}
-            onChange={(v) => setField('phone', v)}
-            error={errors.phone}
-            placeholder="+91 98765 43210"
-          />
-          <TypographyField
-            label="Email Address"
-            value={form.email}
-            onChange={(v) => setField('email', v)}
-            error={errors.email}
-            placeholder="name@company.com"
-          />
-          <Box
-            sx={{
-              gridColumn: { xs: '1', sm: '1 / -1' },
-              display: 'grid',
-              gridTemplateColumns: { xs: '1fr', sm: showVendorField ? '1fr 1fr' : '1fr' },
-              gap: 1.5,
-            }}
-          >
-            <TypographyField
-              label="Designation"
-              value={form.designation}
-              onChange={(v) => setField('designation', v)}
-              placeholder="e.g. Managing Director"
-            />
-            {showVendorField ? (
-              <VendorSelectField
-                value={form.vendorId}
-                options={activeVendorOptions}
-                onChange={(vendorId) => setField('vendorId', vendorId)}
-                error={errors.vendor}
-                loading={vendorsLoading}
-              />
-            ) : null}
-          </Box>
         </Box>
-      </DialogContent>
-      <DialogActions sx={{ px: 3, pb: 2 }}>
-        <MuiButton size="small" onClick={onClose} disabled={saving}>
-          Cancel
-        </MuiButton>
-        <MuiButton
-          size="small"
-          variant="contained"
-          onClick={() => void handleSave()}
-          disabled={saving}
-          startIcon={saving ? <CircularProgress size={14} color="inherit" /> : undefined}
-        >
-          Save Contact
-        </MuiButton>
-      </DialogActions>
-    </Dialog>
+        <TypographyField
+          label="Mobile Number"
+          required
+          value={form.phone}
+          onChange={(v) => setField('phone', v)}
+          error={errors.phone}
+          placeholder="+91 98765 43210"
+        />
+        <TypographyField
+          label="Email Address"
+          value={form.email}
+          onChange={(v) => setField('email', v)}
+          error={errors.email}
+          placeholder="name@company.com"
+        />
+        <Box sx={{ gridColumn: { xs: '1', sm: '1 / -1' } }}>
+          <TypographyField
+            label="Designation"
+            value={form.designation}
+            onChange={(v) => setField('designation', v)}
+            placeholder="e.g. Managing Director"
+          />
+        </Box>
+      </Box>
+    </Modal>
+  )
+}
+
+function FieldLabel({
+  label,
+  required,
+}: {
+  label: string
+  required?: boolean
+}) {
+  return (
+    <Box
+      component="span"
+      sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}
+    >
+      {label}
+      {required ? (
+        <Box component="span" sx={{ color: 'error.main' }}>
+          {' '}
+          *
+        </Box>
+      ) : null}
+    </Box>
   )
 }
 
@@ -354,18 +996,7 @@ function TypographyField({
 }) {
   return (
     <Box>
-      <Box
-        component="span"
-        sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}
-      >
-        {label}
-        {required ? (
-          <Box component="span" sx={{ color: 'error.main' }}>
-            {' '}
-            *
-          </Box>
-        ) : null}
-      </Box>
+      <FieldLabel label={label} required={required} />
       <TextField
         fullWidth
         size="small"
@@ -397,24 +1028,13 @@ function SelectField({
 }) {
   return (
     <Box>
-      <Box
-        component="span"
-        sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}
-      >
-        {label}
-        {required ? (
-          <Box component="span" sx={{ color: 'error.main' }}>
-            {' '}
-            *
-          </Box>
-        ) : null}
-      </Box>
+      <FieldLabel label={label} required={required} />
       <FormControl fullWidth size="small" error={Boolean(error)}>
         <MuiSelect
           value={value}
           onChange={(e) => onChange(e.target.value)}
           displayEmpty
-          sx={{ fontSize: 13 }}
+          sx={{ fontSize: 13, minHeight: 40 }}
         >
           {options.map((opt) => (
             <MenuItem key={opt.value} value={opt.value} sx={{ fontSize: 13 }}>
@@ -432,52 +1052,93 @@ function SelectField({
   )
 }
 
+const ADD_VENDOR_VALUE = '__add_new_vendor__'
+
 function VendorSelectField({
   value,
   options,
   onChange,
+  onAddNewVendor,
   error,
   loading,
 }: {
   value: string
   options: VendorOption[]
   onChange: (vendorId: string) => void
+  onAddNewVendor: () => void
   error?: string
   loading?: boolean
 }) {
-  const selected = options.find((opt) => opt.id === value) ?? null
+  const selectedLabel = options.find((opt) => opt.id === value)?.label
 
   return (
     <Box>
-      <Box
-        component="span"
-        sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}
-      >
-        Vendor
-        <Box component="span" sx={{ color: 'error.main' }}>
-          {' '}
-          *
-        </Box>
-      </Box>
-      <Autocomplete
-        size="small"
-        fullWidth
-        loading={loading}
-        options={options}
-        value={selected}
-        onChange={(_, next) => onChange(next?.id ?? '')}
-        getOptionLabel={(opt) => opt.label}
-        isOptionEqualToValue={(opt, val) => opt.id === val.id}
-        renderInput={(params) => (
-          <TextField
-            {...params}
-            placeholder="Select Vendor"
-            error={Boolean(error)}
-            helperText={error}
-            sx={FORM_CONTROL_INPUT_SX}
-          />
-        )}
-      />
+      <FieldLabel label="Vendor" required />
+      <FormControl fullWidth size="small" error={Boolean(error)}>
+        <MuiSelect
+          value={value}
+          displayEmpty
+          disabled={loading}
+          onChange={(e) => {
+            const next = e.target.value
+            if (next === ADD_VENDOR_VALUE) {
+              onAddNewVendor()
+              return
+            }
+            onChange(next)
+          }}
+          renderValue={(selected) => {
+            if (!selected) {
+              return (
+                <Box component="span" sx={{ color: 'text.secondary', fontSize: 13 }}>
+                  {loading ? 'Loading vendors…' : 'Select vendor…'}
+                </Box>
+              )
+            }
+            return (
+              <Box component="span" sx={{ fontSize: 13 }}>
+                {selectedLabel ?? selected}
+              </Box>
+            )
+          }}
+          sx={{ fontSize: 13, minHeight: 40 }}
+          MenuProps={{
+            PaperProps: {
+              sx: { maxHeight: 320 },
+            },
+          }}
+        >
+          {options.length === 0 ? (
+            <MenuItem disabled sx={{ fontSize: 13 }}>
+              {loading ? 'Loading…' : 'No vendors found'}
+            </MenuItem>
+          ) : (
+            options.map((opt) => (
+              <MenuItem key={opt.id} value={opt.id} sx={{ fontSize: 13 }}>
+                {opt.label}
+              </MenuItem>
+            ))
+          )}
+          <ListSubheader sx={{ lineHeight: '8px', height: 8, p: 0 }}>
+            <Divider />
+          </ListSubheader>
+          <MenuItem
+            value={ADD_VENDOR_VALUE}
+            sx={{
+              fontSize: 13,
+              fontWeight: 600,
+              color: 'primary.main',
+            }}
+          >
+            + Add New Vendor
+          </MenuItem>
+        </MuiSelect>
+        {error ? (
+          <Box component="span" sx={{ fontSize: 11, color: 'error.main', mt: 0.5 }}>
+            {error}
+          </Box>
+        ) : null}
+      </FormControl>
     </Box>
   )
 }

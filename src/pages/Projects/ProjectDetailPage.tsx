@@ -4,8 +4,6 @@ import {
   Box,
   Stack,
   Typography,
-  Chip as MuiChip,
-  Collapse,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -15,6 +13,7 @@ import {
   MenuItem,
   FormControl,
   Skeleton,
+  Chip as MuiChip,
 } from '@mui/material'
 import {
   GridView,
@@ -25,11 +24,7 @@ import {
   History,
   Edit,
   Lock,
-  Email,
-  Phone,
-  Star,
 } from '@mui/icons-material'
-import { ChevronDown } from 'lucide-react'
 
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import PitchTab from './tabs/PitchTab'
@@ -41,11 +36,14 @@ import ActivityTab from './tabs/ActivityTab'
 import { store } from '@/store'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { fetchProjects, fetchProjectById, updateProject, changeProjectStatus } from '../../slices/projects/thunk'
-import { fetchUsers } from '../../slices/users/thunk'
-import { isProjectManagerRole } from './projectManagerRoles'
+import { fetchStatuses, fetchSectors } from '../../slices/settings/thunk'
+import {
+  getStatusMasterChipColors,
+  lifecycleStatusForMasterName,
+} from '../../utils/masterChipStyles'
+import type { StatusMaster } from '../../slices/settings/reducer'
 import { ProjectTypesField } from './components/ProjectTypesField'
-import { ProjectDetailsSections } from './components/ProjectDetailsSections'
-import { getProjectAdditionalTeamMembers } from '@/utils/projectAssignedTeam'
+import { ProjectOverviewTab } from './components/ProjectOverviewTab'
 import { clearSelected } from '../../slices/projects/reducer'
 import type { Project } from '../../slices/projects/reducer'
 import {
@@ -53,15 +51,33 @@ import {
   WorkspaceSection,
 } from '../../components/templates'
 import { DrawerForm, FormField, FormSection } from '../../components/templates/DrawerForm'
-import { StatusBadge, useToast, Input, Toggle, DatePicker, dateFromIso, isoFromDate } from '@/design-system/components'
-import type { StatusType } from '@/design-system/components'
+import {
+  StatusBadge,
+  useToast,
+  Input,
+  Toggle,
+  DatePicker,
+  dateFromIso,
+  isoFromDate,
+  Button,
+  RichTextEditor,
+  AutocompleteField,
+} from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
+import {
+  COUNTRIES,
+  INDIAN_CITIES,
+  INDIAN_STATES,
+  digitsOnly,
+  formatAddressLine,
+} from '@/constants/locations'
 import { useTheme, alpha } from '@mui/material/styles'
 import {
   getInitials,
   getAvatarColor,
   fromSlug,
 } from '../../utils/formatters'
+import { formatExpectedDuration } from './projectOverviewHelpers'
 
 // ─── Loading skeleton ─────────────────────────────────────────────────────────
 
@@ -185,341 +201,17 @@ function EmptyState({
 }
 
 // ─── Tab content ──────────────────────────────────────────────────────────────
-
-const OVERVIEW_CARD_SX = {
-  bgcolor: 'background.paper',
-  border: '1px solid',
-  borderColor: 'divider',
-  borderRadius: 2,
-  p: 2,
-} as const
-
-const TEAM_SECTION_CARD_SX = {
-  ...OVERVIEW_CARD_SX,
-  height: '100%',
-  display: 'flex',
-  flexDirection: 'column',
-} as const
-
-function OverviewTab({ project }: { project: Project }) {
-  const theme = useTheme()
-  const [expandedClientIds, setExpandedClientIds] = useState<Set<string>>(new Set())
-
-  const additionalTeamMembers = getProjectAdditionalTeamMembers(project)
-  const clientTeamMembers = project.clientTeam ?? []
-
-  function toggleClientExpanded(id: string) {
-    setExpandedClientIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
-
-  const TeamsRow = (
-    <Box
-      sx={{
-        mt: 2,
-        display: 'grid',
-        gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
-        gap: 2,
-        alignItems: 'stretch',
-      }}
-    >
-      <Box sx={TEAM_SECTION_CARD_SX}>
-        <Typography
-          variant="overline"
-          sx={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.6, color: 'text.secondary', display: 'block', mb: 1.5 }}
-        >
-          Team
-        </Typography>
-        <Stack gap={1.5} sx={{ flex: 1 }}>
-          <Box>
-            <Typography variant="caption" sx={{ fontSize: 10, color: 'text.secondary', letterSpacing: 0.5, display: 'block', mb: 0.75 }}>
-              PROJECT LEAD
-            </Typography>
-            <Stack direction="row" alignItems="center" gap={1}>
-              <Box
-                sx={{
-                  width: 28,
-                  height: 28,
-                  borderRadius: '50%',
-                  bgcolor: alpha(getAvatarColor(project.projectManager).bg, 0.15),
-                  color: getAvatarColor(project.projectManager).text,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: 10,
-                  fontWeight: 700,
-                }}
-              >
-                {getInitials(project.projectManager)}
-              </Box>
-              <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 500 }}>
-                {project.projectManager}
-              </Typography>
-            </Stack>
-          </Box>
-          <Box>
-            <Typography variant="caption" sx={{ fontSize: 10, color: 'text.secondary', letterSpacing: 0.5, display: 'block', mb: 0.75 }}>
-              TEAM MEMBERS
-            </Typography>
-            <Stack direction="row" alignItems="center" gap={2} flexWrap="wrap" useFlexGap>
-              {additionalTeamMembers.length === 0 ? (
-                <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary' }}>
-                  No additional team members
-                </Typography>
-              ) : (
-                additionalTeamMembers.map((member) => (
-                  <Stack key={member.userId} direction="row" alignItems="center" gap={1}>
-                    <Box
-                      sx={{
-                        width: 28,
-                        height: 28,
-                        borderRadius: '50%',
-                        bgcolor: alpha(getAvatarColor(member.name).bg, 0.15),
-                        color: getAvatarColor(member.name).text,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: 10,
-                        fontWeight: 700,
-                        flexShrink: 0,
-                      }}
-                    >
-                      {getInitials(member.name)}
-                    </Box>
-                    <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap' }}>
-                      {member.name}
-                    </Typography>
-                  </Stack>
-                ))
-              )}
-            </Stack>
-          </Box>
-        </Stack>
-      </Box>
-
-      <Box sx={TEAM_SECTION_CARD_SX}>
-        <Typography
-          variant="overline"
-          sx={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.6, color: 'text.secondary', display: 'block', mb: 1.5 }}
-        >
-          Client Team
-        </Typography>
-        {clientTeamMembers.length === 0 ? (
-          <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary', flex: 1 }}>
-            No client team contacts added.
-          </Typography>
-        ) : (
-          <Box
-            sx={{
-              flex: 1,
-              display: 'grid',
-              gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' },
-              gap: 1.25,
-              alignItems: 'start',
-            }}
-          >
-            {clientTeamMembers.map((member, idx) => {
-              const memberId = `${member.name ?? 'client'}-${idx}`
-              const isExpanded = expandedClientIds.has(memberId)
-              const isPrimary = idx === 0
-
-              return (
-                <Box
-                  key={memberId}
-                  sx={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    minWidth: 0,
-                    border: '1px solid',
-                    borderColor: isPrimary ? 'primary.light' : 'divider',
-                    borderRadius: 2,
-                    px: 1.5,
-                    py: 1.25,
-                    bgcolor: isPrimary ? alpha(theme.palette.primary.main, 0.03) : 'transparent',
-                  }}
-                >
-                  <Box
-                    role="button"
-                    tabIndex={0}
-                    aria-expanded={isExpanded}
-                    onClick={() => toggleClientExpanded(memberId)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault()
-                        toggleClientExpanded(memberId)
-                      }
-                    }}
-                    sx={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: 1.5,
-                      cursor: 'pointer',
-                      outline: 'none',
-                      '&:focus-visible': {
-                        borderRadius: 1,
-                        boxShadow: `0 0 0 2px ${alpha(theme.palette.primary.main, 0.35)}`,
-                      },
-                    }}
-                  >
-                    <Stack direction="row" alignItems="center" gap={1.5} sx={{ minWidth: 0, flex: 1 }}>
-                      <Box
-                        sx={{
-                          width: 40,
-                          height: 40,
-                          borderRadius: '50%',
-                          bgcolor: alpha(getAvatarColor(member.name || 'Client').bg, 0.15),
-                          color: getAvatarColor(member.name || 'Client').text,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          fontSize: 12,
-                          fontWeight: 700,
-                          flexShrink: 0,
-                        }}
-                      >
-                        {getInitials(member.name || 'Client')}
-                      </Box>
-                      <Box sx={{ minWidth: 0, flex: 1 }}>
-                        <Stack direction="row" alignItems="center" gap={1} sx={{ minWidth: 0 }}>
-                          <Typography
-                            variant="body2"
-                            sx={{
-                              fontSize: 13,
-                              fontWeight: 600,
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap',
-                            }}
-                          >
-                            {member.name || '—'}
-                          </Typography>
-                          {isPrimary ? (
-                            <MuiChip
-                              size="small"
-                              icon={<Star sx={{ fontSize: '12px !important' }} />}
-                              label="Primary"
-                              sx={{
-                                height: 20,
-                                fontSize: 10,
-                                borderRadius: '6px',
-                                flexShrink: 0,
-                                bgcolor: alpha(theme.palette.primary.main, 0.12),
-                                color: 'primary.main',
-                                '& .MuiChip-label': { px: 1 },
-                                '& .MuiChip-icon': { color: 'primary.main', ml: '4px' },
-                              }}
-                            />
-                          ) : null}
-                        </Stack>
-                        <Typography
-                          variant="caption"
-                          sx={{
-                            fontSize: 11,
-                            color: 'text.secondary',
-                            display: 'block',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {member.designation || '—'}
-                        </Typography>
-                      </Box>
-                    </Stack>
-                    <Box
-                      sx={{
-                        color: 'text.secondary',
-                        display: 'flex',
-                        alignItems: 'center',
-                        flexShrink: 0,
-                        transition: 'transform 0.2s ease',
-                        transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
-                      }}
-                    >
-                      <ChevronDown size={16} strokeWidth={1.75} />
-                    </Box>
-                  </Box>
-
-                  <Collapse in={isExpanded}>
-                    <Stack
-                      direction="row"
-                      alignItems="center"
-                      gap={1.5}
-                      flexWrap="wrap"
-                      useFlexGap
-                      sx={{ mt: 1.25, pl: 6.5, minWidth: 0 }}
-                    >
-                      <Stack direction="row" alignItems="center" gap={0.5} sx={{ minWidth: 0 }}>
-                        <Phone sx={{ fontSize: 12, color: 'text.secondary', flexShrink: 0 }} />
-                        <Typography
-                          variant="caption"
-                          sx={{
-                            fontSize: 11,
-                            color: 'text.secondary',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {member.phone || member.contact || '—'}
-                        </Typography>
-                      </Stack>
-                      <Stack direction="row" alignItems="center" gap={0.5} sx={{ minWidth: 0, flex: 1 }}>
-                        <Email sx={{ fontSize: 12, color: 'text.secondary', flexShrink: 0 }} />
-                        <Typography
-                          variant="caption"
-                          sx={{
-                            fontSize: 11,
-                            color: 'primary.main',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {member.email || '—'}
-                        </Typography>
-                      </Stack>
-                    </Stack>
-                  </Collapse>
-                </Box>
-              )
-            })}
-          </Box>
-        )}
-      </Box>
-    </Box>
-  )
-
-  return (
-    <Stack
-      sx={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignSelf: 'stretch',
-        '& > .MuiCard-root': {
-          display: 'flex',
-          flexDirection: 'column',
-          mb: 2,
-        },
-        '& > .MuiCard-root > :last-child': {
-          flex: 1,
-          display: 'flex',
-          flexDirection: 'column',
-        },
-      }}
-    >
-      <ProjectDetailsSections project={project} />
-      {TeamsRow}
-    </Stack>
-  )
-}
+// Overview UI lives in ./components/ProjectOverviewTab (shared with Team module).
 
 // ─── Edit Project Drawer ──────────────────────────────────────────────────────
+
+const PROJECT_DETAIL_TOOLBAR = [
+  'bold', 'italic', 'underline',
+  'divider',
+  'bulletList', 'orderedList',
+  'divider',
+  'undo', 'redo',
+] as const
 
 interface EditDrawerProps {
   open: boolean
@@ -527,7 +219,6 @@ interface EditDrawerProps {
   onClose: () => void
   onSave: (data: Partial<Project>) => void
   saving: boolean
-  managerOptions: { value: string; label: string }[]
 }
 
 function EditProjectDrawer({
@@ -536,13 +227,21 @@ function EditProjectDrawer({
   onClose,
   onSave,
   saving,
-  managerOptions,
 }: EditDrawerProps) {
+  const dispatch = useAppDispatch()
+  const sectors = useAppSelector((s) => s.settings.sectors)
+  const activeSectors = sectors.filter((s) => s.status === 'active')
   const [form, setForm] = useState<Partial<Project>>({})
 
   useEffect(() => {
     setForm({ ...project })
   }, [project])
+
+  useEffect(() => {
+    if (open) {
+      void dispatch(fetchSectors())
+    }
+  }, [open, dispatch])
 
   function set(key: keyof Project, value: unknown) {
     setForm((prev) => ({ ...prev, [key]: value }))
@@ -554,10 +253,21 @@ function EditProjectDrawer({
       onClose={onClose}
       title="Edit Project"
       subtitle="Update project information"
-      onSubmit={() => onSave(form)}
+      onSubmit={() =>
+        onSave({
+          ...form,
+          location: formatAddressLine({
+            address: form.address,
+            city: form.city,
+            state: form.state,
+            pincode: form.pincode,
+            country: form.country,
+          }),
+        })
+      }
       submitLoading={saving}
     >
-      <FormSection title="Project Details" columns={2}>
+      <FormSection title="Project Profile" columns={2} divider={false}>
         <Box sx={{ gridColumn: '1 / -1' }}>
           <FormField label="Project Name" required>
             <Input
@@ -567,104 +277,80 @@ function EditProjectDrawer({
             />
           </FormField>
         </Box>
+        <FormField label="Project Code">
+          <Input
+            value={form.projectCode ?? ''}
+            onChange={() => undefined}
+            size="sm"
+            disabled
+          />
+        </FormField>
         <Box sx={{ gridColumn: '1 / -1' }}>
-          <FormField label="Project Type">
-            <ProjectTypesField
-              value={form.projectTypes ?? []}
-              onChange={(v) => set('projectTypes', v)}
+          <FormField label="Address">
+            <Input
+              value={form.address ?? ''}
+              onChange={(v) => set('address', v || null)}
+              placeholder="Street, building, landmark"
+              size="sm"
             />
           </FormField>
         </Box>
-        <FormField label="Location">
-          <Input
-            value={form.location ?? ''}
-            onChange={(v) => set('location', v)}
+        <FormField label="City">
+          <AutocompleteField
+            options={[...INDIAN_CITIES]}
+            value={form.city || null}
+            onChange={(v) => set('city', v)}
+            getOptionLabel={(o) => o}
+            isOptionEqualToValue={(a, b) => a === b}
+            placeholder="Search city…"
             size="sm"
           />
         </FormField>
-        <FormField label="Carpet Area (sq ft)">
-          <Input
-            type="number"
-            value={form.carpetArea?.toString() ?? ''}
-            onChange={(v) =>
-              set('carpetArea', v ? Number(v) : null)
-            }
+        <FormField label="State">
+          <AutocompleteField
+            options={[...INDIAN_STATES]}
+            value={form.state || null}
+            onChange={(v) => set('state', v)}
+            getOptionLabel={(o) => o}
+            isOptionEqualToValue={(a, b) => a === b}
+            placeholder="Search state…"
             size="sm"
           />
         </FormField>
-        <FormField label="Headcount">
-          <Input
-            type="number"
-            value={form.headcount?.toString() ?? ''}
-            onChange={(v) =>
-              set('headcount', v ? Number(v) : null)
-            }
+        <FormField label="Country">
+          <AutocompleteField
+            options={[...COUNTRIES]}
+            value={form.country || null}
+            onChange={(v) => set('country', v)}
+            getOptionLabel={(o) => o}
+            isOptionEqualToValue={(a, b) => a === b}
+            placeholder="Search country…"
             size="sm"
           />
         </FormField>
-        <FormField label="Workstation Size">
+        <FormField label="PIN Code">
           <Input
-            value={form.workstationSize ?? ''}
-            onChange={(v) => set('workstationSize', v || null)}
+            value={form.pincode ?? ''}
+            onChange={(v) => set('pincode', digitsOnly(v).slice(0, 10) || null)}
+            placeholder="e.g. 110001"
             size="sm"
           />
         </FormField>
-        <FormField label="Meeting Room Count">
+        <FormField label="Building">
           <Input
-            type="number"
-            value={form.meetingRoomCount?.toString() ?? ''}
-            onChange={(v) =>
-              set('meetingRoomCount', v ? Number(v) : null)
-            }
+            value={form.building ?? ''}
+            onChange={(v) => set('building', v || undefined)}
+            placeholder="e.g. Connaught Place Tower"
             size="sm"
           />
         </FormField>
-        <FormField label="Server Room Details">
+        <FormField label="Floor">
           <Input
-            value={form.serverRoomDetails ?? ''}
-            onChange={(v) => set('serverRoomDetails', v || null)}
+            value={form.floor ?? ''}
+            onChange={(v) => set('floor', v || undefined)}
+            placeholder="e.g. 12th Floor"
             size="sm"
           />
-        </FormField>
-        <FormField label="UPS Capacity">
-          <Input
-            value={form.upsCapacity ?? ''}
-            onChange={(v) => set('upsCapacity', v || null)}
-            size="sm"
-          />
-        </FormField>
-        <FormField label="Reception Details">
-          <Input
-            value={form.receptionDetails ?? ''}
-            onChange={(v) => set('receptionDetails', v || null)}
-            size="sm"
-          />
-        </FormField>
-        <FormField label="Pantry Details">
-          <Input
-            value={form.pantryDetails ?? ''}
-            onChange={(v) => set('pantryDetails', v || null)}
-            size="sm"
-          />
-        </FormField>
-        <FormField label="Project Lead">
-          <MuiSelect
-            value={form.projectManagerId ?? ''}
-            onChange={(e) => {
-              const opt = managerOptions.find((o) => o.value === e.target.value)
-              set('projectManagerId', e.target.value)
-              if (opt) set('projectManager', opt.label)
-            }}
-            size="small"
-            fullWidth
-            sx={{ fontSize: 12 }}
-          >
-            {managerOptions.map((o) => (
-              <MenuItem key={o.value} value={o.value} sx={{ fontSize: 12 }}>
-                {o.label}
-              </MenuItem>
-            ))}
-          </MuiSelect>
         </FormField>
         <FormField label="Start Date">
           <DatePicker
@@ -683,6 +369,114 @@ function EditProjectDrawer({
             minDate={dateFromIso(form.startDate) ?? undefined}
           />
         </FormField>
+        <FormField label="Sector">
+          <FormControl fullWidth size="small">
+            <MuiSelect
+              value={form.sector ?? ''}
+              onChange={(e) => set('sector', e.target.value || undefined)}
+              displayEmpty
+              sx={{ fontSize: 13 }}
+            >
+              <MenuItem value="" sx={{ fontSize: 13 }}>
+                Select sector…
+              </MenuItem>
+              {activeSectors.map((s) => (
+                <MenuItem key={s.id} value={s.name} sx={{ fontSize: 13 }}>
+                  {s.name}
+                </MenuItem>
+              ))}
+              {form.sector && !activeSectors.some((s) => s.name === form.sector) ? (
+                <MenuItem value={form.sector} sx={{ fontSize: 13 }}>
+                  {form.sector}
+                </MenuItem>
+              ) : null}
+            </MuiSelect>
+          </FormControl>
+        </FormField>
+        <Box sx={{ gridColumn: '1 / -1' }}>
+          <FormField label="Project Scope">
+            <ProjectTypesField
+              value={form.projectTypes ?? []}
+              onChange={(v) => {
+                set('projectTypes', v)
+                set('projectScope', v.join(', ') || undefined)
+              }}
+              placeholder="Select project scope…"
+            />
+          </FormField>
+        </Box>
+        <FormField label="Carpet Area (sq ft)">
+          <Input
+            type="number"
+            value={form.carpetArea?.toString() ?? ''}
+            onChange={(v) => set('carpetArea', v ? Number(v) : null)}
+            placeholder="e.g. 4500"
+            size="sm"
+          />
+        </FormField>
+        <FormField label="Headcount">
+          <Input
+            type="number"
+            value={form.headcount?.toString() ?? ''}
+            onChange={(v) => set('headcount', v ? Number(v) : null)}
+            placeholder="e.g. 120"
+            size="sm"
+          />
+        </FormField>
+      </FormSection>
+
+      <FormSection title="Area & Planning" columns={1} divider={false}>
+        <RichTextEditor
+          label="Workstations"
+          value={form.workstations ?? ''}
+          onChange={(html) => set('workstations', html || null)}
+          placeholder="Describe workstation requirements…"
+          minHeight={100}
+          toolbar={[...PROJECT_DETAIL_TOOLBAR]}
+        />
+        <RichTextEditor
+          label="Cabins"
+          value={form.cabins ?? ''}
+          onChange={(html) => set('cabins', html || null)}
+          placeholder="Describe cabin requirements…"
+          minHeight={100}
+          toolbar={[...PROJECT_DETAIL_TOOLBAR]}
+        />
+        <RichTextEditor
+          label="Meeting Rooms"
+          value={form.meetingRooms ?? ''}
+          onChange={(html) => set('meetingRooms', html || null)}
+          placeholder="Describe meeting room requirements…"
+          minHeight={100}
+          toolbar={[...PROJECT_DETAIL_TOOLBAR]}
+        />
+        <RichTextEditor
+          label="Services"
+          value={form.services ?? ''}
+          onChange={(html) => set('services', html || null)}
+          placeholder="Describe services requirements…"
+          minHeight={100}
+          toolbar={[...PROJECT_DETAIL_TOOLBAR]}
+        />
+        <RichTextEditor
+          label="Support Function"
+          value={form.supportFunction ?? ''}
+          onChange={(html) => set('supportFunction', html || null)}
+          placeholder="Describe support function requirements…"
+          minHeight={100}
+          toolbar={[...PROJECT_DETAIL_TOOLBAR]}
+        />
+        <FormField label="Expected Duration">
+          <Input
+            value={formatExpectedDuration(
+              form.startDate ?? null,
+              form.expectedEndDate ?? null,
+            )}
+            onChange={() => undefined}
+            size="sm"
+            disabled
+          />
+        </FormField>
       </FormSection>
     </DrawerForm>
   )
@@ -690,30 +484,21 @@ function EditProjectDrawer({
 
 // ─── Change Status Dialog ─────────────────────────────────────────────────────
 
-type ProjectStatus = Project['status']
-
-const STATUS_TRANSITIONS: Record<ProjectStatus, ProjectStatus[]> = {
-  Pitch: [],
-  Live: ['Completed', 'Cancelled'],
-  Completed: ['Archived'],
-  Cancelled: ['Archived'],
-  Archived: [],
-}
-
 interface StatusDialogProps {
   open: boolean
   project: Project
+  statusOptions: StatusMaster[]
   onClose: () => void
-  onConfirm: (status: ProjectStatus) => void
+  onConfirm: (statusName: string) => void
 }
 
-function ChangeStatusDialog({ open, project, onClose, onConfirm }: StatusDialogProps) {
-  const [selected, setSelected] = useState<ProjectStatus | ''>('')
-  const available = STATUS_TRANSITIONS[project.status]
+function ChangeStatusDialog({ open, project, statusOptions, onClose, onConfirm }: StatusDialogProps) {
+  const [selected, setSelected] = useState('')
+  const activeOptions = statusOptions.filter((s) => s.status === 'active')
 
   useEffect(() => {
-    setSelected('')
-  }, [open])
+    setSelected(project.progress ?? '')
+  }, [open, project.progress])
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
@@ -724,31 +509,27 @@ function ChangeStatusDialog({ open, project, onClose, onConfirm }: StatusDialogP
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
           Current:{' '}
           <Box component="span" sx={{ fontWeight: 600, color: 'text.primary' }}>
-            {project.status}
+            {project.progress || '—'}
           </Box>
         </Typography>
-        {project.status === 'Pitch' ? (
-          <Typography variant="body2" color="warning.main" sx={{ fontSize: 12 }}>
-            Use Convert Live on the Pitch tab to change status to Live.
-          </Typography>
-        ) : available.length === 0 ? (
+        {activeOptions.length === 0 ? (
           <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12 }}>
-            No further transitions available.
+            No active statuses in Status Master. Add statuses in Settings.
           </Typography>
         ) : (
           <FormControl fullWidth size="small">
             <MuiSelect
               value={selected}
-              onChange={(e) => setSelected(e.target.value as ProjectStatus)}
+              onChange={(e) => setSelected(e.target.value)}
               displayEmpty
               sx={{ fontSize: 13 }}
             >
               <MenuItem value="" sx={{ fontSize: 13 }}>
                 Select status…
               </MenuItem>
-              {available.map((s) => (
-                <MenuItem key={s} value={s} sx={{ fontSize: 13 }}>
-                  {s}
+              {activeOptions.map((s) => (
+                <MenuItem key={s.id} value={s.name} sx={{ fontSize: 13 }}>
+                  {s.name}
                 </MenuItem>
               ))}
             </MuiSelect>
@@ -762,8 +543,8 @@ function ChangeStatusDialog({ open, project, onClose, onConfirm }: StatusDialogP
         <MuiButton
           size="small"
           variant="contained"
-          disabled={!selected}
-          onClick={() => selected && onConfirm(selected as ProjectStatus)}
+          disabled={!selected || selected === project.progress}
+          onClick={() => selected && onConfirm(selected)}
         >
           Confirm
         </MuiButton>
@@ -779,12 +560,13 @@ export default function ProjectDetailPage() {
   const location = useLocation()
   const dispatch = useAppDispatch()
   const toast = useToast()
+  const theme = useTheme()
 
   const { items: rawItems, selectedItem: project, loading, saving } = useAppSelector(
     (s) => s.projects
   )
   const items = rawItems ?? []
-  const users = useAppSelector((s) => s.users.items ?? [])
+  const statusMasters = useAppSelector((s) => s.settings.statuses)
 
   const [activeTab, setActiveTab] = useState('overview')
   const [editDrawerOpen, setEditDrawerOpen] = useState(false)
@@ -820,7 +602,7 @@ export default function ProjectDetailPage() {
   }, [project?.status, activeTab, project?.id])
 
   useEffect(() => {
-    dispatch(fetchUsers({}))
+    dispatch(fetchStatuses())
     dispatch(fetchProjects({})).then((action) => {
       if (fetchProjects.fulfilled.match(action)) {
         const foundId = fromSlug(slug ?? '', action.payload.items)
@@ -837,10 +619,6 @@ export default function ProjectDetailPage() {
     }
   }, [dispatch, slug])
 
-  const managerOptions = users
-    .filter((u) => isProjectManagerRole(u.role))
-    .map((u) => ({ value: u.id, label: u.name }))
-
   async function handleEditSave(data: Partial<Project>) {
     if (!project) return
     try {
@@ -852,11 +630,22 @@ export default function ProjectDetailPage() {
     }
   }
 
-  async function handleStatusConfirm(status: ProjectStatus) {
+  async function handleStatusConfirm(statusName: string) {
     if (!project) return
     try {
-      await dispatch(changeProjectStatus({ id: project.id, status })).unwrap()
-      toast.success(`Status changed to ${status}`)
+      const lifecycle = lifecycleStatusForMasterName(statusName)
+      await dispatch(
+        updateProject({
+          id: project.id,
+          data: { progress: statusName },
+        })
+      ).unwrap()
+      if (lifecycle && lifecycle !== project.status) {
+        await dispatch(
+          changeProjectStatus({ id: project.id, status: lifecycle })
+        ).unwrap()
+      }
+      toast.success(`Status changed to ${statusName}`)
       setStatusDialogOpen(false)
     } catch {
       toast.error('Failed to change status')
@@ -907,6 +696,12 @@ export default function ProjectDetailPage() {
     icon: t.icon,
     disabled: t.locked,
   }))
+  const progressChipColors = project.progress
+    ? getStatusMasterChipColors(
+        project.progress,
+        theme.palette.mode === 'dark' ? 'dark' : 'light',
+      )
+    : null
 
   // ── Tab content ───────────────────────────────────────────────────────────
 
@@ -926,7 +721,7 @@ export default function ProjectDetailPage() {
     const proj = project!
     switch (activeTab) {
       case 'overview':
-        return <OverviewTab project={proj} />
+        return <ProjectOverviewTab project={proj} />
       case 'pitch':
         return <PitchTab project={proj} />
       case 'live':
@@ -938,7 +733,7 @@ export default function ProjectDetailPage() {
       case 'activity':
         return <ActivityTab project={proj} />
       default:
-        return <OverviewTab project={proj} />
+        return <ProjectOverviewTab project={proj} />
     }
   }
 
@@ -955,7 +750,24 @@ export default function ProjectDetailPage() {
         title={project.name}
         titleMeta={
           <Stack direction="row" alignItems="center" gap={1} sx={{ ml: 1 }}>
-            <StatusBadge status={project.status.toLowerCase() as StatusType} />
+            {project.progress && progressChipColors ? (
+              <MuiChip
+                label={project.progress}
+                size="small"
+                sx={{
+                  height: 22,
+                  fontSize: 11,
+                  fontWeight: 600,
+                  bgcolor: progressChipColors.bg,
+                  color: progressChipColors.color,
+                  border: 'none',
+                  borderRadius: '20px',
+                  '& .MuiChip-label': { px: '10px' },
+                }}
+              />
+            ) : (
+              <StatusBadge status={project.status.toLowerCase() as 'pitch' | 'live' | 'completed' | 'cancelled' | 'archived'} />
+            )}
           </Stack>
         }
         metaItems={[]}
@@ -999,13 +811,13 @@ export default function ProjectDetailPage() {
         onClose={() => setEditDrawerOpen(false)}
         onSave={handleEditSave}
         saving={saving}
-        managerOptions={managerOptions}
       />
 
       {/* Status Dialog */}
       <ChangeStatusDialog
         open={statusDialogOpen}
         project={project}
+        statusOptions={statusMasters}
         onClose={() => setStatusDialogOpen(false)}
         onConfirm={handleStatusConfirm}
       />

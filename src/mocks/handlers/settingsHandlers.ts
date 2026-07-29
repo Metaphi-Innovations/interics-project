@@ -46,6 +46,24 @@ interface Service {
   status: 'active' | 'inactive'
 }
 
+interface StatusMaster {
+  id: string
+  name: string
+  status: 'active' | 'inactive'
+}
+
+interface SectorMaster {
+  id: string
+  name: string
+  status: 'active' | 'inactive'
+}
+
+interface RatingMaster {
+  id: string
+  name: string
+  status: 'active' | 'inactive'
+}
+
 interface CompanyProfile {
   companyName: string
   gstin: string
@@ -385,6 +403,29 @@ let services: Service[] = [
   },
 ]
 
+let statuses: StatusMaster[] = [
+  { id: 'sts-1', name: 'Execution Ongoing', status: 'active' },
+  { id: 'sts-2', name: 'Payment Pending', status: 'active' },
+  { id: 'sts-3', name: 'At Risk', status: 'active' },
+  { id: 'sts-4', name: 'Completed', status: 'active' },
+  { id: 'sts-5', name: 'On Hold', status: 'active' },
+]
+
+let sectors: SectorMaster[] = [
+  { id: 'sec-1', name: 'Banking', status: 'active' },
+  { id: 'sec-2', name: 'IT Companies', status: 'active' },
+  { id: 'sec-3', name: 'Healthcare', status: 'active' },
+  { id: 'sec-4', name: 'Hospitality', status: 'active' },
+  { id: 'sec-5', name: 'Manufacturing', status: 'active' },
+]
+
+let ratings: RatingMaster[] = [
+  { id: 'rat-1', name: 'Premium', status: 'active' },
+  { id: 'rat-2', name: 'Luxury', status: 'active' },
+  { id: 'rat-3', name: 'Ultra Premium', status: 'active' },
+  { id: 'rat-4', name: 'Standard', status: 'active' },
+]
+
 let numberingSchemes: NumberingSchemes = {
   projectPrefix: 'PRJ',
   projectFormat: 'PRJ-YY-###',
@@ -534,6 +575,72 @@ export const settingsHandlers = [
     if (idx === -1) return HttpResponse.json({ message: 'Not found' }, { status: 404 })
     services[idx].status = services[idx].status === 'active' ? 'inactive' : 'active'
     return HttpResponse.json(services[idx])
+  }),
+
+  // Status Master
+  http.get('/api/settings/statuses', () => HttpResponse.json(statuses)),
+  http.post('/api/settings/statuses', async ({ request }) => {
+    const data = await request.json() as Omit<StatusMaster, 'id'>
+    const row: StatusMaster = { id: `sts-${nextId()}`, ...data }
+    statuses.push(row)
+    return HttpResponse.json(row, { status: 201 })
+  }),
+  http.put('/api/settings/statuses/:id', async ({ params, request }) => {
+    const data = await request.json() as Partial<StatusMaster>
+    const idx = statuses.findIndex(r => r.id === params.id)
+    if (idx === -1) return HttpResponse.json({ message: 'Not found' }, { status: 404 })
+    statuses[idx] = { ...statuses[idx], ...data }
+    return HttpResponse.json(statuses[idx])
+  }),
+  http.patch('/api/settings/statuses/:id/toggle', ({ params }) => {
+    const idx = statuses.findIndex(r => r.id === params.id)
+    if (idx === -1) return HttpResponse.json({ message: 'Not found' }, { status: 404 })
+    statuses[idx].status = statuses[idx].status === 'active' ? 'inactive' : 'active'
+    return HttpResponse.json(statuses[idx])
+  }),
+
+  // Sector Master
+  http.get('/api/settings/sectors', () => HttpResponse.json(sectors)),
+  http.post('/api/settings/sectors', async ({ request }) => {
+    const data = await request.json() as Omit<SectorMaster, 'id'>
+    const row: SectorMaster = { id: `sec-${nextId()}`, ...data }
+    sectors.push(row)
+    return HttpResponse.json(row, { status: 201 })
+  }),
+  http.put('/api/settings/sectors/:id', async ({ params, request }) => {
+    const data = await request.json() as Partial<SectorMaster>
+    const idx = sectors.findIndex(r => r.id === params.id)
+    if (idx === -1) return HttpResponse.json({ message: 'Not found' }, { status: 404 })
+    sectors[idx] = { ...sectors[idx], ...data }
+    return HttpResponse.json(sectors[idx])
+  }),
+  http.patch('/api/settings/sectors/:id/toggle', ({ params }) => {
+    const idx = sectors.findIndex(r => r.id === params.id)
+    if (idx === -1) return HttpResponse.json({ message: 'Not found' }, { status: 404 })
+    sectors[idx].status = sectors[idx].status === 'active' ? 'inactive' : 'active'
+    return HttpResponse.json(sectors[idx])
+  }),
+
+  // Rating Master
+  http.get('/api/settings/ratings', () => HttpResponse.json(ratings)),
+  http.post('/api/settings/ratings', async ({ request }) => {
+    const data = await request.json() as Omit<RatingMaster, 'id'>
+    const row: RatingMaster = { id: `rat-${nextId()}`, ...data }
+    ratings.push(row)
+    return HttpResponse.json(row, { status: 201 })
+  }),
+  http.put('/api/settings/ratings/:id', async ({ params, request }) => {
+    const data = await request.json() as Partial<RatingMaster>
+    const idx = ratings.findIndex(r => r.id === params.id)
+    if (idx === -1) return HttpResponse.json({ message: 'Not found' }, { status: 404 })
+    ratings[idx] = { ...ratings[idx], ...data }
+    return HttpResponse.json(ratings[idx])
+  }),
+  http.patch('/api/settings/ratings/:id/toggle', ({ params }) => {
+    const idx = ratings.findIndex(r => r.id === params.id)
+    if (idx === -1) return HttpResponse.json({ message: 'Not found' }, { status: 404 })
+    ratings[idx].status = ratings[idx].status === 'active' ? 'inactive' : 'active'
+    return HttpResponse.json(ratings[idx])
   }),
 
   // Numbering Schemes

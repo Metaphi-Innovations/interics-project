@@ -2,6 +2,9 @@ import { useCallback, useSyncExternalStore, type Dispatch, type SetStateAction }
 
 /** Document upload categories (aligned with Documents tab). */
 export type UploadCategory =
+  | 'client_documents'
+  | 'vendor_documents'
+  | 'project_documents'
   | 'client_quotation'
   | 'client_po'
   | 'vendor_quotation'

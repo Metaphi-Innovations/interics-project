@@ -11,11 +11,13 @@ import {
   FormControl,
   Button as MuiButton,
   Divider,
+  Collapse,
+  CircularProgress,
 } from '@mui/material'
-import { Add, PersonOutline } from '@mui/icons-material'
+import { Add, PersonOutline, Check } from '@mui/icons-material'
 import { useNavigate } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
-import { fetchCustomers } from '../../slices/customers/thunk'
+import { fetchCustomers, createCustomer } from '../../slices/customers/thunk'
 import { fetchUsers } from '../../slices/users/thunk'
 import { fetchRoles } from '../../slices/roles/thunk'
 import { isProjectManagerRole } from './projectManagerRoles'
@@ -27,11 +29,18 @@ import type { Contact, Customer } from '../../slices/customers/reducer'
 import type { User } from '../../slices/users/reducer'
 import { FullPageForm, FullPageFormSection } from '../../components/templates/FullPageForm'
 import { FormField } from '../../components/templates/DrawerForm'
-import { Input, useToast, DatePicker, dateFromIso, isoFromDate } from '@/design-system/components'
+import { Input, useToast, DatePicker, dateFromIso, isoFromDate, RichTextEditor, AutocompleteField } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { toSlug, getInitials, getAvatarColor } from '../../utils/formatters'
 import { alpha } from '@mui/material/styles'
-import { SECTOR_OPTIONS } from '../../constants/sectors'
+import { fetchSectors, fetchStatuses } from '../../slices/settings/thunk'
+import {
+  COUNTRIES,
+  INDIAN_CITIES,
+  INDIAN_STATES,
+  digitsOnly,
+  formatAddressLine,
+} from '@/constants/locations'
 import {
   getContactsForCustomer,
   getDefaultContactIds,
@@ -39,7 +48,6 @@ import {
   clientTeamFromContacts,
   buildProjectDocumentsFromForm,
   buildProjectSetupPayload,
-  validateProjectSetupFields,
   FORM_CONTROL_INPUT_SX,
 } from './projectCreateHelpers'
 import { buildAssignedTeamPayload } from '@/utils/projectAssignedTeam'
@@ -47,18 +55,29 @@ import { buildAssignedTeamPayload } from '@/utils/projectAssignedTeam'
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface WizardFormData {
-  // Step 1
+  // Step 1 — Customer
   customerId: string
   customerName: string
   contactIds: string[]
-  // Step 2
-  requirementFile: File | null
-  requirementNotes: string
-  // Step 3
+  // Step 2 — Project Setup
   name: string
-  location: string
   projectTypes: string[]
   sector: string
+  startDate: string
+  expectedEndDate: string
+  // Step 3 — Project Details (optional)
+  workstations: string
+  cabins: string
+  meetingRooms: string
+  services: string
+  supportFunction: string
+  // Kept for payload compatibility / documents
+  location: string
+  address: string
+  city: string
+  state: string
+  country: string
+  pincode: string
   carpetArea: string
   buildValuePerSqft: string
   designFeePerSqft: string
@@ -69,13 +88,13 @@ interface WizardFormData {
   upsCapacity: string
   receptionDetails: string
   pantryDetails: string
+  requirementFile: File | null
+  requirementNotes: string
+  // Step 4 — Team
   projectManagerId: string
   projectManagerName: string
-  startDate: string
-  expectedEndDate: string
-  // Step 4
   teamMembers: User[]
-  // Step 5
+  // Documents (unused in wizard UI but still submitted)
   finalLayoutDescription: string
   finalLayoutLink: string
   finalRcpDescription: string
@@ -99,9 +118,14 @@ interface StepErrors {
   name?: string
   projectTypes?: string
   sector?: string
+  address?: string
+  city?: string
+  state?: string
+  country?: string
+  pincode?: string
+  startDate?: string
+  expectedEndDate?: string
   projectManagerId?: string
-  headcount?: string
-  meetingRoomCount?: string
 }
 
 // ─── Step 1 — Customer Selection ─────────────────────────────────────────────
@@ -163,7 +187,25 @@ function Step1Customer({
   errors: StepErrors
   setErrors: React.Dispatch<React.SetStateAction<StepErrors>>
 }) {
+  const dispatch = useAppDispatch()
+  const toast = useToast()
+  const sectors = useAppSelector((s) => s.settings.sectors)
+  const activeSectors = sectors.filter((s) => s.status === 'active')
+
   const [createContactOpen, setCreateContactOpen] = useState(false)
+  const [showInlineCustomer, setShowInlineCustomer] = useState(false)
+  const [savingCustomer, setSavingCustomer] = useState(false)
+  const [newCustomerData, setNewCustomerData] = useState({
+    name: '',
+    type: 'Company' as 'Company' | 'Individual',
+    sector: '',
+    contactPerson: '',
+    phone: '',
+    email: '',
+    city: '',
+    state: '',
+  })
+
   const selectedCustomer =
     customers.find((c) => c.id === formData.customerId) ?? null
   const customerContacts = useMemo(
@@ -181,6 +223,60 @@ function Step1Customer({
       contactIds: [...new Set([...prev.contactIds, contact.id])],
     }))
     setErrors((prev) => ({ ...prev, contactId: undefined }))
+  }
+
+  async function handleCreateCustomer() {
+    if (!newCustomerData.name || !newCustomerData.contactPerson || !newCustomerData.phone) {
+      toast.error('Please fill in company name, contact person, and phone')
+      return
+    }
+    try {
+      setSavingCustomer(true)
+      const result = await dispatch(
+        createCustomer({
+          name: newCustomerData.name,
+          type: newCustomerData.type,
+          sector: newCustomerData.sector || undefined,
+          contactPerson: newCustomerData.contactPerson,
+          phone: newCustomerData.phone,
+          email: newCustomerData.email,
+          city: newCustomerData.city,
+          state: newCustomerData.state,
+          gstStatus: 'Unregistered',
+          gstin: null,
+          pan: null,
+          address: null,
+          tags: [],
+          notes: null,
+          status: 'Active',
+          activeProjects: 0,
+          totalReceivables: 0,
+        }),
+      ).unwrap()
+      const contacts = getContactsForCustomer(result)
+      setFormData((prev) => ({
+        ...prev,
+        customerId: result.id,
+        customerName: result.name,
+        contactIds: getDefaultContactIds(contacts),
+      }))
+      setShowInlineCustomer(false)
+      setNewCustomerData({
+        name: '',
+        type: 'Company',
+        sector: '',
+        contactPerson: '',
+        phone: '',
+        email: '',
+        city: '',
+        state: '',
+      })
+      toast.success('Customer created')
+    } catch {
+      toast.error('Failed to create customer')
+    } finally {
+      setSavingCustomer(false)
+    }
   }
 
   return (
@@ -242,14 +338,150 @@ function Step1Customer({
 
       <Box sx={{ gridColumn: '1 / -1' }}>
         <Divider sx={{ my: 2 }} />
-        <MuiButton
-          variant="outlined"
-          size="small"
-          startIcon={<Add />}
-          sx={{ fontSize: 13 }}
-        >
-          Create New Customer
-        </MuiButton>
+        {!showInlineCustomer ? (
+          <MuiButton
+            variant="outlined"
+            size="small"
+            startIcon={<Add />}
+            sx={{ fontSize: 13 }}
+            onClick={() => setShowInlineCustomer(true)}
+          >
+            Create New Customer
+          </MuiButton>
+        ) : null}
+
+        <Collapse in={showInlineCustomer}>
+          <Box
+            sx={{
+              mt: showInlineCustomer ? 0 : 2,
+              p: 2,
+              border: '1px solid',
+              borderColor: 'divider',
+              borderRadius: '10px',
+              bgcolor: 'background.default',
+              boxShadow: tokens.shadow.sm,
+            }}
+          >
+            <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 2 }}>
+              New Customer Details
+            </Typography>
+
+            <Box display="grid" sx={{ gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.5 }}>
+              <Box>
+                <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
+                  Company Name
+                </Typography>
+                <TextField
+                  fullWidth
+                  size="small"
+                  value={newCustomerData.name}
+                  onChange={(e) => setNewCustomerData((prev) => ({ ...prev, name: e.target.value }))}
+                  placeholder="e.g. Acme Corp"
+                />
+              </Box>
+              <Box>
+                <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
+                  Sector
+                </Typography>
+                <FormControl fullWidth size="small">
+                  <MuiSelect
+                    value={newCustomerData.sector}
+                    displayEmpty
+                    onChange={(e) => setNewCustomerData((prev) => ({ ...prev, sector: e.target.value }))}
+                  >
+                    <MenuItem value="" disabled>
+                      Select sector…
+                    </MenuItem>
+                    {activeSectors.map((s) => (
+                      <MenuItem key={s.id} value={s.name}>
+                        {s.name}
+                      </MenuItem>
+                    ))}
+                  </MuiSelect>
+                </FormControl>
+              </Box>
+              <Box>
+                <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
+                  Contact Person
+                </Typography>
+                <TextField
+                  fullWidth
+                  size="small"
+                  value={newCustomerData.contactPerson}
+                  onChange={(e) => setNewCustomerData((prev) => ({ ...prev, contactPerson: e.target.value }))}
+                  placeholder="Full name"
+                />
+              </Box>
+              <Box>
+                <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
+                  Phone
+                </Typography>
+                <TextField
+                  fullWidth
+                  size="small"
+                  value={newCustomerData.phone}
+                  onChange={(e) => setNewCustomerData((prev) => ({ ...prev, phone: e.target.value }))}
+                  placeholder="+91 98765 43210"
+                />
+              </Box>
+              <Box>
+                <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
+                  Email
+                </Typography>
+                <TextField
+                  fullWidth
+                  size="small"
+                  value={newCustomerData.email}
+                  onChange={(e) => setNewCustomerData((prev) => ({ ...prev, email: e.target.value }))}
+                  placeholder="name@company.com"
+                />
+              </Box>
+              <Box>
+                <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
+                  City
+                </Typography>
+                <TextField
+                  fullWidth
+                  size="small"
+                  value={newCustomerData.city}
+                  onChange={(e) => setNewCustomerData((prev) => ({ ...prev, city: e.target.value }))}
+                  placeholder="City"
+                />
+              </Box>
+            </Box>
+
+            <Box display="flex" justifyContent="flex-end" gap={1} sx={{ mt: 2 }}>
+              <MuiButton
+                size="small"
+                variant="outlined"
+                onClick={() => {
+                  setShowInlineCustomer(false)
+                  setNewCustomerData({
+                    name: '',
+                    type: 'Company',
+                    sector: '',
+                    contactPerson: '',
+                    phone: '',
+                    email: '',
+                    city: '',
+                    state: '',
+                  })
+                }}
+              >
+                Cancel
+              </MuiButton>
+              <MuiButton
+                size="small"
+                variant="contained"
+                onClick={() => void handleCreateCustomer()}
+                disabled={savingCustomer}
+                endIcon={savingCustomer ? <CircularProgress size={12} /> : <Check fontSize="small" />}
+              >
+                Save Customer
+              </MuiButton>
+            </Box>
+          </Box>
+        </Collapse>
       </Box>
     </FullPageFormSection>
 
@@ -264,9 +496,9 @@ function Step1Customer({
   )
 }
 
-// ─── Step 3 — Project Setup ───────────────────────────────────────────────────
+// ─── Step 2 — Project Setup ───────────────────────────────────────────────────
 
-function Step3ProjectSetup({
+function Step2ProjectSetup({
   formData,
   setFormData,
   errors,
@@ -275,23 +507,28 @@ function Step3ProjectSetup({
   setFormData: React.Dispatch<React.SetStateAction<WizardFormData>>
   errors: StepErrors
 }) {
+  const sectors = useAppSelector((s) => s.settings.sectors)
+  const activeSectors = sectors.filter((s) => s.status === 'active')
+
   function set(key: keyof WizardFormData, value: string) {
     setFormData((prev) => ({ ...prev, [key]: value }))
   }
 
   return (
-    <FullPageFormSection title="Project Details" columns={2}>
-      <FormField label="Project Name" required error={errors.name}>
-        <Input
-          value={formData.name}
-          onChange={(v) => set('name', v)}
-          placeholder="e.g. Acme Corp - Head Office Redesign"
-          size="sm"
-          error={Boolean(errors.name)}
-        />
-      </FormField>
+    <FullPageFormSection title="Project Setup" subtitle="Basic project information" columns={2}>
+      <Box sx={{ gridColumn: '1 / -1' }}>
+        <FormField label="Project Name" required error={errors.name}>
+          <Input
+            value={formData.name}
+            onChange={(v) => set('name', v)}
+            placeholder="e.g. Acme Corp - Head Office Redesign"
+            size="sm"
+            error={Boolean(errors.name)}
+          />
+        </FormField>
+      </Box>
 
-      <FormField label="Project Type" required error={errors.projectTypes}>
+      <FormField label="Project Scope" required error={errors.projectTypes}>
         <ProjectTypesField
           value={formData.projectTypes}
           onChange={(v) => setFormData((prev) => ({ ...prev, projectTypes: v }))}
@@ -310,21 +547,78 @@ function Step3ProjectSetup({
             <MenuItem value="" disabled sx={{ fontSize: 13 }}>
               Select sector…
             </MenuItem>
-            {SECTOR_OPTIONS.map((s) => (
-              <MenuItem key={s} value={s} sx={{ fontSize: 13 }}>
-                {s}
+            {activeSectors.map((s) => (
+              <MenuItem key={s.id} value={s.name} sx={{ fontSize: 13 }}>
+                {s.name}
               </MenuItem>
             ))}
+            {formData.sector && !activeSectors.some((s) => s.name === formData.sector) ? (
+              <MenuItem value={formData.sector} sx={{ fontSize: 13 }}>
+                {formData.sector}
+              </MenuItem>
+            ) : null}
           </MuiSelect>
         </FormControl>
       </FormField>
 
-      <FormField label="Location">
-        <Input
-          value={formData.location}
-          onChange={(v) => set('location', v)}
-          placeholder="Building, City"
+      <Box sx={{ gridColumn: '1 / -1' }}>
+        <FormField label="Address" error={errors.address}>
+          <Input
+            value={formData.address}
+            onChange={(v) => set('address', v)}
+            placeholder="Street, building, landmark"
+            size="sm"
+            error={Boolean(errors.address)}
+          />
+        </FormField>
+      </Box>
+
+      <FormField label="City" error={errors.city}>
+        <AutocompleteField
+          options={[...INDIAN_CITIES]}
+          value={formData.city || null}
+          onChange={(v) => set('city', v ?? '')}
+          getOptionLabel={(o) => o}
+          isOptionEqualToValue={(a, b) => a === b}
+          placeholder="Search city…"
+          error={Boolean(errors.city)}
           size="sm"
+        />
+      </FormField>
+
+      <FormField label="State" error={errors.state}>
+        <AutocompleteField
+          options={[...INDIAN_STATES]}
+          value={formData.state || null}
+          onChange={(v) => set('state', v ?? '')}
+          getOptionLabel={(o) => o}
+          isOptionEqualToValue={(a, b) => a === b}
+          placeholder="Search state…"
+          error={Boolean(errors.state)}
+          size="sm"
+        />
+      </FormField>
+
+      <FormField label="Country" error={errors.country}>
+        <AutocompleteField
+          options={[...COUNTRIES]}
+          value={formData.country || null}
+          onChange={(v) => set('country', v ?? '')}
+          getOptionLabel={(o) => o}
+          isOptionEqualToValue={(a, b) => a === b}
+          placeholder="Search country…"
+          error={Boolean(errors.country)}
+          size="sm"
+        />
+      </FormField>
+
+      <FormField label="PIN Code" error={errors.pincode}>
+        <Input
+          value={formData.pincode}
+          onChange={(v) => set('pincode', digitsOnly(v).slice(0, 10))}
+          placeholder="e.g. 110001"
+          size="sm"
+          error={Boolean(errors.pincode)}
         />
       </FormField>
 
@@ -338,74 +632,17 @@ function Step3ProjectSetup({
         />
       </FormField>
 
-      <FormField label="Headcount" error={errors.headcount}>
+      <FormField label="Headcount">
         <Input
           type="number"
           value={formData.headcount}
           onChange={(v) => set('headcount', v)}
           placeholder="e.g. 120"
           size="sm"
-          error={Boolean(errors.headcount)}
         />
       </FormField>
 
-      <FormField label="Workstation Size">
-        <Input
-          value={formData.workstationSize}
-          onChange={(v) => set('workstationSize', v)}
-          placeholder="e.g. 1200 sq ft"
-          size="sm"
-        />
-      </FormField>
-
-      <FormField label="Meeting Room Count" error={errors.meetingRoomCount}>
-        <Input
-          type="number"
-          value={formData.meetingRoomCount}
-          onChange={(v) => set('meetingRoomCount', v)}
-          placeholder="e.g. 4"
-          size="sm"
-          error={Boolean(errors.meetingRoomCount)}
-        />
-      </FormField>
-
-      <FormField label="Server Room Details">
-        <Input
-          value={formData.serverRoomDetails}
-          onChange={(v) => set('serverRoomDetails', v)}
-          placeholder="e.g. 200 sq ft, raised floor"
-          size="sm"
-        />
-      </FormField>
-
-      <FormField label="UPS Capacity">
-        <Input
-          value={formData.upsCapacity}
-          onChange={(v) => set('upsCapacity', v)}
-          placeholder="e.g. 20 KVA"
-          size="sm"
-        />
-      </FormField>
-
-      <FormField label="Reception Details">
-        <Input
-          value={formData.receptionDetails}
-          onChange={(v) => set('receptionDetails', v)}
-          placeholder="e.g. Open reception with waiting lounge"
-          size="sm"
-        />
-      </FormField>
-
-      <FormField label="Pantry Details">
-        <Input
-          value={formData.pantryDetails}
-          onChange={(v) => set('pantryDetails', v)}
-          placeholder="e.g. 2 pantries with wet and dry zones"
-          size="sm"
-        />
-      </FormField>
-
-      <FormField label="Expected Start Date">
+      <FormField label="Expected Start Date" error={errors.startDate}>
         <DatePicker
           value={dateFromIso(formData.startDate)}
           onChange={(d) => set('startDate', isoFromDate(d))}
@@ -414,7 +651,7 @@ function Step3ProjectSetup({
         />
       </FormField>
 
-      <FormField label="Expected End Date">
+      <FormField label="Expected End Date" error={errors.expectedEndDate}>
         <DatePicker
           value={dateFromIso(formData.expectedEndDate)}
           onChange={(d) => set('expectedEndDate', isoFromDate(d))}
@@ -423,6 +660,81 @@ function Step3ProjectSetup({
           minDate={dateFromIso(formData.startDate) ?? undefined}
         />
       </FormField>
+    </FullPageFormSection>
+  )
+}
+
+// ─── Step 3 — Project Details (optional) ──────────────────────────────────────
+
+const PROJECT_DETAIL_TOOLBAR = [
+  'bold', 'italic', 'underline',
+  'divider',
+  'bulletList', 'orderedList',
+  'divider',
+  'undo', 'redo',
+] as const
+
+function Step3ProjectDetails({
+  formData,
+  setFormData,
+}: {
+  formData: WizardFormData
+  setFormData: React.Dispatch<React.SetStateAction<WizardFormData>>
+}) {
+  function set(key: keyof WizardFormData, value: string) {
+    setFormData((prev) => ({ ...prev, [key]: value }))
+  }
+
+  return (
+    <FullPageFormSection
+      title="Project Details"
+      subtitle="Optional space and requirement details — you can skip this step"
+      columns={2}
+    >
+      <RichTextEditor
+        label="Workstations"
+        value={formData.workstations}
+        onChange={(html) => set('workstations', html)}
+        placeholder="Describe workstation requirements…"
+        minHeight={120}
+        toolbar={[...PROJECT_DETAIL_TOOLBAR]}
+      />
+
+      <RichTextEditor
+        label="Cabins"
+        value={formData.cabins}
+        onChange={(html) => set('cabins', html)}
+        placeholder="Describe cabin requirements…"
+        minHeight={120}
+        toolbar={[...PROJECT_DETAIL_TOOLBAR]}
+      />
+
+      <RichTextEditor
+        label="Meeting Rooms"
+        value={formData.meetingRooms}
+        onChange={(html) => set('meetingRooms', html)}
+        placeholder="Describe meeting room requirements…"
+        minHeight={120}
+        toolbar={[...PROJECT_DETAIL_TOOLBAR]}
+      />
+
+      <RichTextEditor
+        label="Services"
+        value={formData.services}
+        onChange={(html) => set('services', html)}
+        placeholder="Describe services requirements…"
+        minHeight={120}
+        toolbar={[...PROJECT_DETAIL_TOOLBAR]}
+      />
+
+      <RichTextEditor
+        label="Support Function"
+        value={formData.supportFunction}
+        onChange={(html) => set('supportFunction', html)}
+        placeholder="Describe support function requirements…"
+        minHeight={120}
+        toolbar={[...PROJECT_DETAIL_TOOLBAR]}
+      />
     </FullPageFormSection>
   )
 }
@@ -654,6 +966,7 @@ function Step4Team({
 const STEPS = [
   { label: 'Customer', description: 'Select client' },
   { label: 'Project Setup', description: 'Basic details' },
+  { label: 'Project Details', description: 'Space & requirements' },
   { label: 'Team', description: 'Assign users' },
 ]
 
@@ -661,12 +974,22 @@ const INITIAL_FORM: WizardFormData = {
   customerId: '',
   customerName: '',
   contactIds: [],
-  requirementFile: null,
-  requirementNotes: '',
   name: '',
-  location: '',
   projectTypes: [],
   sector: '',
+  startDate: '',
+  expectedEndDate: '',
+  workstations: '',
+  cabins: '',
+  meetingRooms: '',
+  services: '',
+  supportFunction: '',
+  location: '',
+  address: '',
+  city: '',
+  state: '',
+  country: 'India',
+  pincode: '',
   carpetArea: '',
   buildValuePerSqft: '',
   designFeePerSqft: '',
@@ -677,10 +1000,10 @@ const INITIAL_FORM: WizardFormData = {
   upsCapacity: '',
   receptionDetails: '',
   pantryDetails: '',
+  requirementFile: null,
+  requirementNotes: '',
   projectManagerId: '',
   projectManagerName: '',
-  startDate: '',
-  expectedEndDate: '',
   teamMembers: [],
   finalLayoutDescription: '',
   finalLayoutLink: '',
@@ -709,6 +1032,9 @@ export default function CreateProjectPage() {
   const users = useAppSelector((s) => s.users.items ?? [])
   const roles = useAppSelector((s) => s.roles.items ?? [])
   const saving = useAppSelector((s) => s.projects.saving)
+  const statuses = useAppSelector((s) => s.settings.statuses)
+  const defaultProgress =
+    statuses.find((s) => s.status === 'active')?.name ?? 'Execution Ongoing'
 
   const [activeStep, setActiveStep] = useState(0)
   const [formData, setFormData] = useState<WizardFormData>(INITIAL_FORM)
@@ -718,6 +1044,8 @@ export default function CreateProjectPage() {
     dispatch(fetchCustomers({}))
     dispatch(fetchUsers({}))
     dispatch(fetchRoles(undefined))
+    dispatch(fetchSectors())
+    dispatch(fetchStatuses())
   }, [dispatch])
 
   const managers = users.filter((u) => isProjectManagerRole(u.role))
@@ -743,9 +1071,12 @@ export default function CreateProjectPage() {
         newErrors.projectTypes = 'Select at least one project type'
       }
       if (!formData.sector) newErrors.sector = 'Sector is required'
-      Object.assign(newErrors, validateProjectSetupFields(formData))
+      if (formData.pincode.trim() && !/^\d+$/.test(formData.pincode.trim())) {
+        newErrors.pincode = 'PIN code must be numeric'
+      }
     }
-    if (step === 2 && !formData.projectManagerId) {
+    // Step 2 (Project Details) is fully optional — no required validation
+    if (step === 3 && !formData.projectManagerId) {
       newErrors.projectManagerId = 'Project lead is required'
     }
 
@@ -769,11 +1100,23 @@ export default function CreateProjectPage() {
 
     const customer = customers.find((c) => c.id === formData.customerId) ?? null
     const selectedContacts = findContactsByIds(customer, formData.contactIds)
+    const location = formatAddressLine({
+      address: formData.address,
+      city: formData.city,
+      state: formData.state,
+      pincode: formData.pincode,
+      country: formData.country,
+    })
     const payload = {
       customerId: formData.customerId,
       customerName: formData.customerName,
       name: formData.name,
-      location: formData.location,
+      location,
+      address: formData.address.trim(),
+      city: formData.city.trim(),
+      state: formData.state.trim(),
+      country: formData.country.trim(),
+      pincode: formData.pincode.trim(),
       projectTypes: formData.projectTypes,
       sector: formData.sector,
       carpetArea: formData.carpetArea ? Number(formData.carpetArea) : null,
@@ -792,7 +1135,7 @@ export default function CreateProjectPage() {
       startDate: formData.startDate || null,
       expectedEndDate: formData.expectedEndDate || null,
       status: 'Pitch' as const,
-      progress: 'Quotation pending',
+      progress: defaultProgress,
       projectValue: 0,
       totalClientPOValue: 0,
       totalVendorPOValue: 0,
@@ -827,13 +1170,20 @@ export default function CreateProjectPage() {
         )
       case 1:
         return (
-          <Step3ProjectSetup
+          <Step2ProjectSetup
             formData={formData}
             setFormData={setFormData}
             errors={errors}
           />
         )
       case 2:
+        return (
+          <Step3ProjectDetails
+            formData={formData}
+            setFormData={setFormData}
+          />
+        )
+      case 3:
         return (
           <Step4Team
             formData={formData}
@@ -852,12 +1202,14 @@ export default function CreateProjectPage() {
   const stepTitles = [
     'Who is the client?',
     'Set up the project',
+    'Project details',
     'Build the team',
   ]
 
   const stepSubtitles = [
     'Select the customer and one or more contact persons for this project.',
-    'Fill in the core project details.',
+    'Enter the basic project information to continue.',
+    'Add optional space and requirement details, or skip this step.',
     'Choose a project lead, then add team members who will work on this project.',
   ]
 

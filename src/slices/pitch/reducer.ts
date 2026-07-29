@@ -38,13 +38,6 @@ export interface VendorRetention {
   amount: number
 }
 
-/** Final milestone is stored separately from regular vendor milestones. */
-export interface VendorFinalMilestone {
-  name: string
-  percentage: number
-  amount: number
-}
-
 /** Vendor quotation document (PO Transition); stored per service–vendor mapping. */
 export interface VendorQuotation {
   fileName: string
@@ -63,8 +56,6 @@ export interface VendorMapping {
   milestones: VendorMilestone[]
   /** Optional retention slice (single); not part of `milestones`. */
   retention?: VendorRetention
-  /** Optional final milestone (single); not part of `milestones`. */
-  finalMilestone?: VendorFinalMilestone
   isMeasurable: boolean
   quotation?: VendorQuotation
   gstRate?: number

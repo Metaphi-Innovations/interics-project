@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Box,
   Divider,
@@ -11,7 +11,15 @@ import {
 } from '@mui/material'
 import { UploadedDocumentLink } from '@/components/documents/UploadedDocumentLink'
 import { DrawerForm, FormField } from '@/components/templates/DrawerForm'
-import { Badge, Button, Checkbox, DatePicker, dateFromIso, Input, isoFromDate, useToast } from '@/design-system/components'
+import {
+  Badge,
+  Button,
+  DatePicker,
+  dateFromIso,
+  Input,
+  isoFromDate,
+  useToast,
+} from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import {
@@ -21,23 +29,16 @@ import {
   fetchReimbursements,
   fetchVendorInvoices,
   updateVendorInvoice,
-  updateVendorPayableControl,
 } from '@/slices/live/thunk'
 import type { Baseline } from '@/slices/baseline/reducer'
-import type { Expense } from '@/slices/live/types'
+import type { Expense, VendorPayment } from '@/slices/live/types'
 import { formatCurrency, formatDate } from '@/utils/formatters'
 import {
   computeMilestonePayableStatus,
-  computePayablePaymentStatus,
-  computeVendorCardCounts,
   calcVendorInvoiceNetPayable,
   calcVendorInvoiceTdsAmount,
-  deriveVendorComplianceStatus,
-  expenseRowsForVendor,
   findInvoiceForMilestone,
-  getPayableControl,
   invoiceMatchesRow,
-  isPayableReleaseAllowed,
   payableStatusBadgeColor,
   payableStatusLabel,
   TDS_RATE_OPTIONS,
@@ -46,7 +47,21 @@ import {
   type VendorMilestoneEntry,
 } from './utils'
 
-export type VendorPayableDrawerFocus = 'details' | 'payment' | 'compliance' | 'client-payment'
+export type VendorPayableDrawerFocus = 'details' | 'payment'
+
+export type PaymentReleaseOutcome = 'complete' | 'partial' | 'not_paid'
+
+const PAYMENT_OUTCOME_OPTIONS: { value: PaymentReleaseOutcome; label: string }[] = [
+  { value: 'complete', label: 'Complete Payment' },
+  { value: 'partial', label: 'Partial Payment' },
+  { value: 'not_paid', label: 'Not Paid' },
+]
+
+function paymentStatusFromOutcome(outcome: PaymentReleaseOutcome): VendorPayment['status'] {
+  if (outcome === 'complete') return 'completed'
+  if (outcome === 'partial') return 'partial'
+  return 'not_paid'
+}
 
 export interface VendorPayableWorkflowDrawerProps {
   open: boolean
@@ -71,35 +86,23 @@ function ReadOnlyField({ label, value }: { label: string; value: string }) {
   )
 }
 
-const FIELD_CONTAINER_SX = {
-  p: 1.5,
-  borderRadius: 1,
-  bgcolor: 'background.paper',
-  border: `1px solid ${tokens.color.neutral[100]}`,
-  height: '100%',
-} as const
-
 export function VendorPayableWorkflowDrawer({
   open,
   onClose,
   entry,
-  baseline,
-  focus = 'details',
+  focus: _focus = 'details',
   readOnly = false,
   onUploadInvoice,
 }: VendorPayableWorkflowDrawerProps) {
   const dispatch = useAppDispatch()
   const toast = useToast()
-  const complianceRef = useRef<HTMLDivElement>(null)
-  const paymentRef = useRef<HTMLDivElement>(null)
 
-  const { vendorInvoices, expenses, reimbursements, vendorPayableControls, payments, saving } =
-    useAppSelector((s) => s.live)
+  const { vendorInvoices, expenses, payments, saving } = useAppSelector((s) => s.live)
 
-  const [selInv, setSelInv] = useState<Set<string>>(() => new Set())
-  const [selExp, setSelExp] = useState<Set<string>>(() => new Set())
   const [paymentDate, setPaymentDate] = useState('')
   const [referenceNumber, setReferenceNumber] = useState('')
+  const [paymentOutcome, setPaymentOutcome] = useState<PaymentReleaseOutcome>('complete')
+  const [partialAmount, setPartialAmount] = useState('')
   const [tdsRateDraft, setTdsRateDraft] = useState(10)
   const [tdsSaving, setTdsSaving] = useState(false)
 
@@ -111,16 +114,15 @@ export function VendorPayableWorkflowDrawer({
     if (!open || !projectId) return
     void dispatch(fetchVendorInvoices(projectId))
     void dispatch(fetchExpenses(projectId))
-    void dispatch(fetchReimbursements(projectId))
     void dispatch(fetchPayments(projectId))
   }, [open, projectId, dispatch])
 
   useEffect(() => {
     if (!open) {
-      setSelInv(new Set())
-      setSelExp(new Set())
       setPaymentDate('')
       setReferenceNumber('')
+      setPaymentOutcome('complete')
+      setPartialAmount('')
     }
   }, [open, entry?.milestone.id, row?.vendorId, row?.serviceId])
 
@@ -131,10 +133,6 @@ export function VendorPayableWorkflowDrawer({
   const projectExpenses = useMemo(
     () => expenses.filter((e) => e.projectId === projectId),
     [expenses, projectId],
-  )
-  const projectReimb = useMemo(
-    () => reimbursements.filter((r) => r.projectId === projectId),
-    [reimbursements, projectId],
   )
   const projectPayments = useMemo(
     () => payments.filter((p) => p.projectId === projectId),
@@ -151,52 +149,10 @@ export function VendorPayableWorkflowDrawer({
     return findInvoiceForMilestone(invoicesForRow, milestone)
   }, [invoicesForRow, milestone])
 
-  const expensesForRow = useMemo(() => {
-    if (!row) return []
-    return expenseRowsForVendor(projectExpenses, row, projectInvoices)
-  }, [projectExpenses, row, projectInvoices])
-
-  const payableControl = useMemo(() => {
-    if (!row) return null
-    return getPayableControl(vendorPayableControls, projectId, row)
-  }, [vendorPayableControls, projectId, row])
-
-  const countsForRow = useMemo(() => {
-    if (!row) {
-      return {
-        pendingInv: 0,
-        pendingExp: 0,
-        pendingRmb: 0,
-        pendingExpAmount: 0,
-        pendingRmbAmount: 0,
-        outstanding: 0,
-        allSettled: true,
-        milestoneCount: 0,
-        uninvoicedMilestones: 0,
-        billSubmitted: false,
-      }
-    }
-    return computeVendorCardCounts(
-      baseline,
-      projectInvoices,
-      projectExpenses,
-      projectReimb,
-      row,
-      [],
-    )
-  }, [baseline, projectInvoices, projectExpenses, projectReimb, row])
-
-  const payableStatus = useMemo(() => {
-    if (!payableControl) return 'pending_compliance' as const
-    return computeMilestonePayableStatus(milestoneInvoice, payableControl)
-  }, [milestoneInvoice, payableControl])
-
-  const vendorServiceStatus = useMemo(() => {
-    if (!payableControl) return 'pending_compliance' as const
-    return computePayablePaymentStatus(countsForRow, payableControl)
-  }, [countsForRow, payableControl])
-
-  const releaseAllowed = payableControl ? isPayableReleaseAllowed(payableControl) : false
+  const payableStatus = useMemo(
+    () => computeMilestonePayableStatus(milestoneInvoice),
+    [milestoneInvoice],
+  )
 
   const linkedExpenses = useMemo(() => {
     if (!milestoneInvoice) return [] as Expense[]
@@ -222,26 +178,6 @@ export function VendorPayableWorkflowDrawer({
       setTdsRateDraft(milestoneInvoice.tdsRate)
     }
   }, [milestoneInvoice?.id, milestoneInvoice?.tdsRate])
-
-  useEffect(() => {
-    if (!open || focus !== 'payment' || !milestoneInvoice || milestoneInvoice.status === 'paid') return
-    setSelInv(new Set([milestoneInvoice.id]))
-  }, [open, focus, milestoneInvoice])
-
-  useEffect(() => {
-    if (!open) return
-    const section =
-      focus === 'payment'
-        ? paymentRef.current
-        : focus === 'compliance' || focus === 'client-payment'
-          ? complianceRef.current
-          : null
-    if (!section) return
-    const timer = window.setTimeout(() => {
-      section.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    }, 150)
-    return () => window.clearTimeout(timer)
-  }, [open, focus])
 
   async function handleTdsRateChange(nextRate: number) {
     if (!milestoneInvoice || readOnly || milestoneInvoice.status === 'paid' || tdsSaving) return
@@ -285,55 +221,23 @@ export function VendorPayableWorkflowDrawer({
   const tdsEditable =
     !readOnly && milestoneInvoice != null && milestoneInvoice.status !== 'paid' && !tdsSaving
 
-  async function persistPayableControl(
-    patch: Partial<{
-      clientPaymentReceived: boolean
-      complianceChecks: NonNullable<typeof payableControl>['complianceChecks']
-    }>,
-  ) {
-    if (readOnly || !row || !payableControl) return
-    const complianceChecks = patch.complianceChecks ?? payableControl.complianceChecks
-    try {
-      await dispatch(
-        updateVendorPayableControl({
-          projectId,
-          data: {
-            projectId,
-            vendorId: row.vendorId,
-            serviceId: row.serviceId,
-            clientPaymentReceived:
-              patch.clientPaymentReceived ?? payableControl.clientPaymentReceived,
-            complianceChecks,
-            vendorComplianceStatus: deriveVendorComplianceStatus(complianceChecks),
-          },
-        }),
-      ).unwrap()
-    } catch {
-      toast.error('Failed to save payable checks')
-    }
-  }
+  const showReleasePayment =
+    !readOnly && milestoneInvoice != null && milestoneInvoice.status !== 'paid'
 
-  const netCalc = useMemo(() => {
-    const invObjs = projectInvoices.filter((i) => selInv.has(i.id))
-    const invoiceTotal = invObjs.reduce((s, i) => s + i.baseAmount, 0)
-    const tdsDeducted = invObjs.reduce((s, i) => s + i.tdsAmount, 0)
-    let expenseDeductions = 0
-    for (const id of selExp) {
-      const expRow = expensesForRow.find((x) => x.expense.id === id)
-      if (expRow) expenseDeductions += expRow.amount
-    }
-    const netPaid = invoiceTotal - expenseDeductions - tdsDeducted
-    return { invoiceTotal, expenseDeductions, tdsDeducted, reimbursementAdditions: 0, netPaid }
-  }, [projectInvoices, selInv, selExp, expensesForRow])
+  const partialAmountNumber = Number(partialAmount)
+  const partialAmountValid =
+    paymentOutcome !== 'partial' ||
+    (partialAmount.trim() !== '' &&
+      Number.isFinite(partialAmountNumber) &&
+      partialAmountNumber > 0 &&
+      partialAmountNumber < invoiceNetPayable)
 
   const canSubmitPayment =
-    !readOnly &&
-    selInv.size > 0 &&
-    netCalc.netPaid > 0 &&
+    showReleasePayment &&
     paymentDate.trim() !== '' &&
-    referenceNumber.trim() !== '' &&
-    releaseAllowed &&
-    milestoneInvoice?.status !== 'paid' &&
+    (paymentOutcome === 'not_paid' || referenceNumber.trim() !== '') &&
+    (paymentOutcome !== 'complete' || invoiceNetPayable > 0) &&
+    partialAmountValid &&
     !saving
 
   const refreshProjectLive = useCallback(async () => {
@@ -346,7 +250,17 @@ export function VendorPayableWorkflowDrawer({
   }, [dispatch, projectId])
 
   async function handleCreatePayment() {
-    if (!row || !canSubmitPayment) return
+    if (!row || !milestoneInvoice || !canSubmitPayment) return
+
+    const paymentStatus = paymentStatusFromOutcome(paymentOutcome)
+    const netPaid =
+      paymentOutcome === 'complete'
+        ? invoiceNetPayable
+        : paymentOutcome === 'partial'
+          ? partialAmountNumber
+          : 0
+    const totalAmount = paymentOutcome === 'not_paid' ? 0 : netPaid
+
     try {
       await dispatch(
         createPayment({
@@ -355,21 +269,27 @@ export function VendorPayableWorkflowDrawer({
             vendorId: row.vendorId,
             vendorName: row.vendorName,
             paymentDate,
-            totalAmount: netCalc.netPaid,
-            linkedInvoiceIds: [...selInv],
-            linkedExpenseIds: [...selExp],
+            totalAmount,
+            linkedInvoiceIds: [milestoneInvoice.id],
+            linkedExpenseIds: [],
             linkedReimbursementIds: [],
-            invoiceTotal: netCalc.invoiceTotal,
-            expenseDeductions: netCalc.expenseDeductions,
-            reimbursementAdditions: netCalc.reimbursementAdditions,
-            tdsDeducted: netCalc.tdsDeducted,
-            netPaid: netCalc.netPaid,
-            status: 'completed',
-            referenceNumber: referenceNumber.trim(),
+            invoiceTotal: milestoneInvoice.baseAmount,
+            expenseDeductions: milestoneInvoice.expenseDeductions ?? 0,
+            reimbursementAdditions: 0,
+            tdsDeducted: paymentOutcome === 'not_paid' ? 0 : invoiceTdsAmount,
+            netPaid,
+            status: paymentStatus,
+            referenceNumber: referenceNumber.trim() || undefined,
           },
         }),
       ).unwrap()
-      toast.success('Payment recorded')
+      toast.success(
+        paymentOutcome === 'not_paid'
+          ? 'Marked as not paid'
+          : paymentOutcome === 'partial'
+            ? 'Partial payment recorded'
+            : 'Payment recorded',
+      )
       await refreshProjectLive()
       onClose()
     } catch {
@@ -434,7 +354,7 @@ export function VendorPayableWorkflowDrawer({
                 />
                 <Box>
                   <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
-                    Status
+                    Payment status
                   </Typography>
                   <Box sx={{ mt: 0.5 }}>
                     <Badge
@@ -445,28 +365,32 @@ export function VendorPayableWorkflowDrawer({
                     />
                   </Box>
                 </Box>
+                {documentName ? (
+                  <Box>
+                    <Typography
+                      variant="caption"
+                      color="text.secondary"
+                      sx={{ fontSize: 11, display: 'block', mb: 0.5 }}
+                    >
+                      Uploaded document
+                    </Typography>
+                    <UploadedDocumentLink
+                      fileName={documentName}
+                      documentUrl={documentUrl}
+                      onOpenFailed={() =>
+                        toast.error('The invoice file is no longer available in this session.')
+                      }
+                    />
+                  </Box>
+                ) : null}
               </Box>
-              {documentName ? (
+              {milestoneInvoice.description ? (
                 <Box>
                   <Typography
                     variant="caption"
                     color="text.secondary"
                     sx={{ fontSize: 11, display: 'block', mb: 0.5 }}
                   >
-                    Uploaded document
-                  </Typography>
-                  <UploadedDocumentLink
-                    fileName={documentName}
-                    documentUrl={documentUrl}
-                    onOpenFailed={() =>
-                      toast.error('The invoice file is no longer available in this session.')
-                    }
-                  />
-                </Box>
-              ) : null}
-              {milestoneInvoice.description ? (
-                <Box>
-                  <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11, display: 'block', mb: 0.5 }}>
                     Description
                   </Typography>
                   <Typography variant="body2" sx={{ fontSize: 12, whiteSpace: 'pre-wrap' }}>
@@ -556,7 +480,10 @@ export function VendorPayableWorkflowDrawer({
                   <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 700 }}>
                     Net payable
                   </Typography>
-                  <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 700, color: 'primary.main' }}>
+                  <Typography
+                    variant="body2"
+                    sx={{ fontSize: 13, fontWeight: 700, color: 'primary.main' }}
+                  >
                     ₹{formatCurrency(invoiceNetPayable)}
                   </Typography>
                 </Stack>
@@ -575,9 +502,18 @@ export function VendorPayableWorkflowDrawer({
                     SETTLEMENT
                   </Typography>
                   <Typography variant="body2" sx={{ fontSize: 12, mt: 0.5 }}>
-                    Paid {formatDate(settlementPayment.paymentDate)} · Ref{' '}
-                    {settlementPayment.referenceNumber ?? '—'} · ₹
-                    {formatCurrency(settlementPayment.netPaid)}
+                    {settlementPayment.status === 'not_paid'
+                      ? 'Not paid'
+                      : settlementPayment.status === 'partial'
+                        ? 'Partial'
+                        : 'Paid'}{' '}
+                    {formatDate(settlementPayment.paymentDate)}
+                    {settlementPayment.referenceNumber
+                      ? ` · Ref ${settlementPayment.referenceNumber}`
+                      : ''}
+                    {settlementPayment.status !== 'not_paid'
+                      ? ` · ₹${formatCurrency(settlementPayment.netPaid)}`
+                      : ''}
                   </Typography>
                 </Box>
               ) : null}
@@ -600,188 +536,78 @@ export function VendorPayableWorkflowDrawer({
           )}
         </Box>
 
-        <Divider />
-
-        <Box ref={complianceRef}>
-          <Typography
-            variant="overline"
-            sx={{ fontSize: 10, letterSpacing: 0.6, display: 'block', mb: 1.5 }}
-          >
-            Compliance
-          </Typography>
-          <Stack gap={1.5}>
-            <FormField label="Client payment received">
-              {readOnly ? (
-                <Typography variant="body2" sx={{ fontSize: 13, py: 0.5 }}>
-                  {payableControl?.clientPaymentReceived ? 'Yes' : 'No'}
-                </Typography>
-              ) : (
-                <FormControl size="small" fullWidth>
-                  <Select
-                    value={payableControl?.clientPaymentReceived ? 'yes' : 'no'}
-                    onChange={(e) =>
-                      void persistPayableControl({
-                        clientPaymentReceived: e.target.value === 'yes',
-                      })
-                    }
-                    sx={{ fontSize: 12 }}
-                  >
-                    <MenuItem value="yes" sx={{ fontSize: 12 }}>
-                      Yes
-                    </MenuItem>
-                    <MenuItem value="no" sx={{ fontSize: 12 }}>
-                      No
-                    </MenuItem>
-                  </Select>
-                </FormControl>
-              )}
-            </FormField>
-            <Box>
-              <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11, mb: 0.75 }}>
-                Vendor compliance
-              </Typography>
-              <Grid container spacing={1.5}>
-                {(
-                  [
-                    ['insurance', 'Insurance'],
-                    ['contractSigned', 'Contract Signed'],
-                    ['documentsSubmitted', 'Required Documents Submitted'],
-                  ] as const
-                ).map(([key, label]) => (
-                  <Grid key={key} size={{ xs: 6 }}>
-                    <Box sx={FIELD_CONTAINER_SX}>
-                      <Checkbox
-                        size="sm"
-                        label={label}
-                        checked={payableControl?.complianceChecks[key] ?? false}
-                        disabled={readOnly}
-                        onChange={(checked) => {
-                          if (!payableControl || readOnly) return
-                          void persistPayableControl({
-                            complianceChecks: {
-                              ...payableControl.complianceChecks,
-                              [key]: checked,
-                            },
-                          })
-                        }}
-                        sx={{ m: 0 }}
-                      />
-                    </Box>
-                  </Grid>
-                ))}
-                <Grid size={{ xs: 6 }}>
-                  <Box sx={FIELD_CONTAINER_SX}>
-                    <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
-                      Compliance status
-                    </Typography>
-                    <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 600, mt: 0.25 }}>
-                      {payableControl?.vendorComplianceStatus === 'complete' ? 'Complete' : 'Pending'}
-                    </Typography>
-                  </Box>
-                </Grid>
-              </Grid>
-            </Box>
-            {!readOnly && !releaseAllowed && milestoneInvoice?.status !== 'paid' ? (
-              <Typography variant="caption" color="warning.main" sx={{ fontSize: 11 }}>
-                {vendorServiceStatus === 'waiting_for_client_payment'
-                  ? 'Waiting for client payment before vendor release.'
-                  : vendorServiceStatus === 'pending_compliance'
-                    ? 'Complete compliance checks before vendor release.'
-                    : 'Payment release is blocked.'}
-              </Typography>
-            ) : null}
-          </Stack>
-        </Box>
-
-        {!readOnly && milestoneInvoice && milestoneInvoice.status !== 'paid' ? (
+        {showReleasePayment ? (
           <>
             <Divider />
-            <Box ref={paymentRef}>
+            <Box>
               <Typography
                 variant="overline"
                 sx={{ fontSize: 10, letterSpacing: 0.6, display: 'block', mb: 1.5 }}
               >
                 Release payment
               </Typography>
-              <Stack gap={1.5}>
-                {expensesForRow.length > 0 ? (
-                  <Box>
-                    <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11, mb: 0.75, display: 'block' }}>
-                      Optional expense deductions
-                    </Typography>
-                    <Grid container spacing={1.5}>
-                      {expensesForRow.map(({ expense: e, amount }) => {
-                        const locked = e.status !== 'pending'
-                        return (
-                          <Grid key={e.id} size={{ xs: 6 }}>
-                            <Box sx={FIELD_CONTAINER_SX}>
-                              <Checkbox
-                                size="sm"
-                                label={`${e.description} · ₹${formatCurrency(amount)}`}
-                                checked={!locked && selExp.has(e.id)}
-                                disabled={locked}
-                                onChange={(checked) => {
-                                  setSelExp((prev) => {
-                                    const next = new Set(prev)
-                                    if (checked) next.add(e.id)
-                                    else next.delete(e.id)
-                                    return next
-                                  })
-                                }}
-                                sx={{ m: 0 }}
-                              />
-                            </Box>
-                          </Grid>
-                        )
-                      })}
-                    </Grid>
-                  </Box>
+              <Grid container spacing={1.5}>
+                <Grid size={{ xs: 12 }}>
+                  <FormField label="Payment type" required>
+                    <FormControl fullWidth size="small">
+                      <Select
+                        value={paymentOutcome}
+                        onChange={(e) => {
+                          setPaymentOutcome(e.target.value as PaymentReleaseOutcome)
+                          if (e.target.value !== 'partial') setPartialAmount('')
+                        }}
+                        sx={{ fontSize: 12, height: 36 }}
+                      >
+                        {PAYMENT_OUTCOME_OPTIONS.map((opt) => (
+                          <MenuItem key={opt.value} value={opt.value} sx={{ fontSize: 12 }}>
+                            {opt.label}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  </FormField>
+                </Grid>
+                {paymentOutcome === 'partial' ? (
+                  <Grid size={{ xs: 12 }}>
+                    <FormField label="Amount paid" required>
+                      <Input
+                        value={partialAmount}
+                        onChange={setPartialAmount}
+                        size="sm"
+                        placeholder={`Less than ₹${formatCurrency(invoiceNetPayable)}`}
+                      />
+                    </FormField>
+                  </Grid>
                 ) : null}
-                <Box
-                  sx={{
-                    p: 1.5,
-                    borderRadius: 1,
-                    bgcolor: tokens.color.neutral[50],
-                    border: `1px solid ${tokens.color.neutral[100]}`,
-                  }}
-                >
-                  <Stack gap={0.5}>
-                    <Stack direction="row" justifyContent="space-between">
-                      <Typography variant="body2" sx={{ fontSize: 12 }}>
-                        Net payment
-                      </Typography>
-                      <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 700 }}>
-                        ₹{formatCurrency(netCalc.netPaid)}
-                      </Typography>
-                    </Stack>
-                  </Stack>
-                </Box>
-                <Grid container spacing={1.5}>
+                {paymentOutcome !== 'not_paid' ? (
                   <Grid size={{ xs: 12, sm: 6 }}>
                     <FormField label="Payment reference" required>
                       <Input value={referenceNumber} onChange={setReferenceNumber} size="sm" />
                     </FormField>
                   </Grid>
-                  <Grid size={{ xs: 12, sm: 6 }}>
-                    <FormField label="Payment date" required>
-                      <DatePicker
-                        value={dateFromIso(paymentDate)}
-                        onChange={(d) => setPaymentDate(isoFromDate(d))}
-                        fullWidth
-                        size="sm"
-                      />
-                    </FormField>
-                  </Grid>
+                ) : null}
+                <Grid size={{ xs: 12, sm: paymentOutcome === 'not_paid' ? 12 : 6 }}>
+                  <FormField label="Payment date" required>
+                    <DatePicker
+                      value={dateFromIso(paymentDate)}
+                      onChange={(d) => setPaymentDate(isoFromDate(d))}
+                      fullWidth
+                      size="sm"
+                    />
+                  </FormField>
                 </Grid>
+              </Grid>
+              <Box sx={{ mt: 1.5 }}>
                 <Button
                   size="sm"
                   variant="contained"
                   color="primary"
                   label="Release Payment"
+                  fullWidth
                   disabled={!canSubmitPayment}
                   onClick={() => void handleCreatePayment()}
                 />
-              </Stack>
+              </Box>
             </Box>
           </>
         ) : null}

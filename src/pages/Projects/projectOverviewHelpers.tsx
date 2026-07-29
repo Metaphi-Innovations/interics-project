@@ -47,7 +47,23 @@ export const METADATA_PREWRAP_SX = {
   whiteSpace: 'pre-wrap' as const,
 } as const
 
-export function formatBuildingFloor(project: Pick<Project, 'building' | 'floor' | 'location'>): string {
+export function formatBuildingFloor(
+  project: Pick<
+    Project,
+    'building' | 'floor' | 'location' | 'address' | 'city' | 'state' | 'country' | 'pincode'
+  >,
+): string {
+  const addressParts = [
+    project.address,
+    project.city,
+    project.state,
+    project.pincode,
+    project.country,
+  ]
+    .map((p) => p?.trim())
+    .filter(Boolean)
+  if (addressParts.length) return addressParts.join(', ')
+
   const parts = [project.building, project.floor].filter(Boolean)
   if (parts.length) return parts.join(' · ')
   return project.location || '—'

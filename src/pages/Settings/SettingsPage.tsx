@@ -6,6 +6,9 @@ import ReceiptIcon from '@mui/icons-material/Receipt'
 import QrCode2Icon from '@mui/icons-material/QrCode2'
 import CategoryIcon from '@mui/icons-material/Category'
 import MiscellaneousServicesIcon from '@mui/icons-material/MiscellaneousServices'
+import FlagIcon from '@mui/icons-material/Flag'
+import DomainIcon from '@mui/icons-material/Domain'
+import StarIcon from '@mui/icons-material/Star'
 import TuneIcon from '@mui/icons-material/Tune'
 import type { SvgIconComponent } from '@mui/icons-material'
 import { useTheme, alpha } from '@mui/material/styles'
@@ -16,6 +19,9 @@ import TaxConfigSection from './sections/TaxConfigSection'
 import SACCodesSection from './sections/SACCodesSection'
 import CategoriesSection from './sections/CategoriesSection'
 import ServicesSection from './sections/ServicesSection'
+import StatusesSection from './sections/StatusesSection'
+import SectorsSection from './sections/SectorsSection'
+import RatingsSection from './sections/RatingsSection'
 import SystemDefaultsSection from './sections/SystemDefaultsSection'
 
 interface NavItem {
@@ -30,6 +36,9 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'sac', label: 'SAC Codes', icon: QrCode2Icon },
   { id: 'categories', label: 'Categories', icon: CategoryIcon },
   { id: 'services', label: 'Services', icon: MiscellaneousServicesIcon },
+  { id: 'statuses', label: 'Status Master', icon: FlagIcon },
+  { id: 'sectors', label: 'Sector Master', icon: DomainIcon },
+  { id: 'ratings', label: 'Rating Master', icon: StarIcon },
   { id: 'defaults', label: 'System Defaults', icon: TuneIcon },
 ]
 
@@ -164,6 +173,9 @@ export default function SettingsPage() {
           {activeSection === 'sac' && <SACCodesSection />}
           {activeSection === 'categories' && <CategoriesSection />}
           {activeSection === 'services' && <ServicesSection />}
+          {activeSection === 'statuses' && <StatusesSection />}
+          {activeSection === 'sectors' && <SectorsSection />}
+          {activeSection === 'ratings' && <RatingsSection />}
           {activeSection === 'defaults' && <SystemDefaultsSection />}
         </Box>
       </Box>

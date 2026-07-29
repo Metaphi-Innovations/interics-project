@@ -1,20 +1,16 @@
 import { useEffect, useState } from 'react'
-import { Stack, Typography } from '@mui/material'
-import { Button, Input, Modal } from '@/design-system/components'
-import {
-  formatVendorRating,
-  normalizeVendorRating,
-  parseVendorRatingInput,
-  validateVendorRatingInput,
-} from '@/utils/vendorRating'
+import { MenuItem, Stack, Typography, TextField } from '@mui/material'
+import { Button, Modal } from '@/design-system/components'
+import { useAppDispatch, useAppSelector } from '@/store/hooks'
+import { fetchRatings } from '@/slices/settings/thunk'
 
 export interface EditVendorRatingModalProps {
   open: boolean
   onClose: () => void
   vendorName: string
-  currentRating: number | null
+  currentRating: string | null
   saving?: boolean
-  onSave: (rating: number) => Promise<void>
+  onSave: (rating: string) => Promise<void>
 }
 
 export function EditVendorRatingModal({
@@ -25,40 +21,36 @@ export function EditVendorRatingModal({
   saving = false,
   onSave,
 }: EditVendorRatingModalProps) {
-  const [ratingInput, setRatingInput] = useState('')
+  const dispatch = useAppDispatch()
+  const ratings = useAppSelector((s) => s.settings.ratings)
+  const [selected, setSelected] = useState('')
   const [ratingError, setRatingError] = useState<string | undefined>()
+
+  const activeRatings = ratings.filter((r) => r.status === 'active')
+
+  useEffect(() => {
+    if (open) {
+      dispatch(fetchRatings())
+    }
+  }, [open, dispatch])
 
   useEffect(() => {
     if (!open) {
-      setRatingInput('')
+      setSelected('')
       setRatingError(undefined)
       return
     }
-    const normalized = normalizeVendorRating(currentRating)
-    setRatingInput(normalized != null ? formatVendorRating(normalized) : '')
+    setSelected(currentRating ?? '')
     setRatingError(undefined)
   }, [open, currentRating])
 
-  function handleRatingChange(value: string) {
-    setRatingInput(value)
-    if (ratingError) {
-      setRatingError(validateVendorRatingInput(value))
-    }
-  }
-
   async function handleSave() {
-    const error = validateVendorRatingInput(ratingInput)
-    if (error) {
-      setRatingError(error)
-      return
-    }
-    const parsed = parseVendorRatingInput(ratingInput)
-    if (parsed == null) {
-      setRatingError('Enter a valid rating')
+    if (!selected.trim()) {
+      setRatingError('Rating is required')
       return
     }
     setRatingError(undefined)
-    await onSave(parsed)
+    await onSave(selected)
   }
 
   return (
@@ -91,18 +83,32 @@ export function EditVendorRatingModal({
             {vendorName}
           </Typography>
         </Stack>
-        <Input
+        <TextField
+          select
           label="Rating"
-          value={ratingInput}
-          onChange={handleRatingChange}
-          placeholder="Enter rating"
-          type="number"
+          value={selected}
+          onChange={(e) => {
+            setSelected(e.target.value)
+            if (ratingError) setRatingError(undefined)
+          }}
           fullWidth
-          size="sm"
+          size="small"
           required
           error={Boolean(ratingError)}
-          helperText={ratingError ?? 'Enter a value from 0.0 to 5.0 (one decimal place)'}
-        />
+          helperText={ratingError ?? 'Select a rating from Rating Master'}
+        >
+          <MenuItem value="" disabled>
+            Select rating…
+          </MenuItem>
+          {activeRatings.map((r) => (
+            <MenuItem key={r.id} value={r.name}>
+              {r.name}
+            </MenuItem>
+          ))}
+          {selected && !activeRatings.some((r) => r.name === selected) ? (
+            <MenuItem value={selected}>{selected}</MenuItem>
+          ) : null}
+        </TextField>
       </Stack>
     </Modal>
   )

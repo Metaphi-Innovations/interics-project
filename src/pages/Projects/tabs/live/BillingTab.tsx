@@ -399,8 +399,8 @@ function GenerateInvoiceDrawer({
     if (!preset) return
     const invDate = toIsoDate(invoiceDate)
     const due = toIsoDate(dueDate)
-    if (!invoiceNumber.trim() || !invDate || !due) {
-      showToast({ title: 'Please fill in all required fields', variant: 'error' })
+    if (!invoiceNumber.trim()) {
+      showToast({ title: 'Invoice number is required', variant: 'error' })
       return
     }
     if (!lines.length || lines.some((l) => !l.serviceId || l.amount <= 0)) {
@@ -533,12 +533,12 @@ function GenerateInvoiceDrawer({
             </FormField>
             <Stack direction={{ xs: 'column', sm: 'row' }} gap={2}>
               <Box sx={{ flex: 1, minWidth: 0 }}>
-                <FormField label="Invoice Date" required>
+                <FormField label="Invoice Date">
                   <DatePicker value={invoiceDate} onChange={setInvoiceDate} fullWidth size="sm" />
                 </FormField>
               </Box>
               <Box sx={{ flex: 1, minWidth: 0 }}>
-                <FormField label="Due Date" required>
+                <FormField label="Due Date">
                   <DatePicker value={dueDate} onChange={setDueDate} fullWidth size="sm" />
                 </FormField>
               </Box>
@@ -665,6 +665,20 @@ function ViewInvoiceDrawer({
       width={560}
       footer={
         <Stack direction="row" justifyContent="flex-end" gap={1} sx={{ px: 2.5, py: 1.75 }}>
+          <Button
+            size="sm"
+            variant="outlined"
+            color="secondary"
+            label="Cancel"
+            onClick={onClose}
+          />
+          <Button
+            size="sm"
+            variant="contained"
+            color="primary"
+            label="Download Invoice"
+            onClick={onDownloadPdf}
+          />
           {showPay ? (
             <Button
               size="sm"
@@ -674,13 +688,6 @@ function ViewInvoiceDrawer({
               onClick={onRecordPayment}
             />
           ) : null}
-          <Button
-            size="sm"
-            variant="text"
-            color="primary"
-            label="Download Invoice"
-            onClick={onDownloadPdf}
-          />
         </Stack>
       }
     >

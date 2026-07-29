@@ -100,7 +100,8 @@ export interface VendorInvoice {
   /** Optional notes or invoice details entered at upload. */
   description?: string
   netPayable: number
-  status: 'pending' | 'approved' | 'paid'
+  /** pending = uploaded / ready for payment; payment outcomes update status on release */
+  status: 'pending' | 'approved' | 'paid' | 'partially_paid' | 'not_paid'
   documentUrl?: string
   /** Uploaded invoice PDF filename (not the invoice number). */
   fileName?: string
@@ -143,7 +144,8 @@ export interface VendorPayment {
   reimbursementAdditions: number
   tdsDeducted: number
   netPaid: number
-  status: 'completed'
+  /** completed = full settle; partial = partial payment; not_paid = recorded as unpaid */
+  status: 'completed' | 'partial' | 'not_paid'
   referenceNumber?: string
 }
 

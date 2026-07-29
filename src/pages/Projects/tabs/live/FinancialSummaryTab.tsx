@@ -17,6 +17,10 @@ import { ChevronDown, ChevronRight } from 'lucide-react'
 import { tokens } from '@/design-system/tokens'
 import { useAppDispatch, useAppSelector } from '../../../../store/hooks'
 import { fetchBaseline, fetchClientPO, fetchVendorPOs } from '../../../../slices/baseline/thunk'
+import { fetchVersions } from '../../../../slices/pitch/thunk'
+import { fetchExpenses } from '../../../../slices/live/thunk'
+import { resolvePitchVersionForProject } from '@/store/selectors/pitchSelectors'
+import type { PlannedExpense } from '@/slices/pitch/reducer'
 import { formatCurrency } from '../../../../utils/formatters'
 import {
   TABLE_CELL_SX,
@@ -95,6 +99,11 @@ const NUM_CELL_SX = {
   fontVariantNumeric: 'tabular-nums',
 } as const
 
+/** Office Expenses only — sourced from Pitch → Expenses. */
+function officeExpensesFromPitch(planned: PlannedExpense[] | undefined): PlannedExpense[] {
+  return (planned ?? []).filter((pe) => pe.type === 'office_expenses')
+}
+
 interface FinancialSummaryTabProps {
   projectId: string
 }
@@ -104,6 +113,7 @@ export default function FinancialSummaryTab({ projectId }: FinancialSummaryTabPr
   const dispatch = useAppDispatch()
   const { baseline, clientPOs, vendorPOs } = useAppSelector((s) => s.baseline)
   const { invoices, vendorInvoices, expenses } = useAppSelector((s) => s.live)
+  const { activeVersion, versions } = useAppSelector((s) => s.pitch)
 
   const [sortField, setSortField] = useState<FinancialSummarySortField>('workstream')
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
@@ -113,9 +123,24 @@ export default function FinancialSummaryTab({ projectId }: FinancialSummaryTabPr
     void dispatch(fetchBaseline(projectId))
     void dispatch(fetchClientPO(projectId))
     void dispatch(fetchVendorPOs(projectId))
+    void dispatch(fetchVersions(projectId))
+    void dispatch(fetchExpenses(projectId))
   }, [dispatch, projectId])
 
   const baselineForProject = baseline?.projectId === projectId ? baseline : null
+
+  const pitchVersion = useMemo(
+    () => resolvePitchVersionForProject(projectId, activeVersion, versions),
+    [projectId, activeVersion, versions],
+  )
+
+  /** Prefer live Pitch → Expenses; fall back to baseline snapshot only if pitch is not loaded. */
+  const pitchOfficeExpenses = useMemo((): PlannedExpense[] => {
+    if (pitchVersion) {
+      return officeExpensesFromPitch(pitchVersion.plannedExpenses)
+    }
+    return officeExpensesFromPitch(baselineForProject?.plannedExpenses)
+  }, [pitchVersion, baselineForProject])
 
   const allGroups = useMemo(
     () =>
@@ -127,6 +152,7 @@ export default function FinancialSummaryTab({ projectId }: FinancialSummaryTabPr
         invoices,
         vendorInvoices,
         expenses,
+        pitchOfficeExpenses,
       ),
     [
       baselineForProject,
@@ -136,6 +162,7 @@ export default function FinancialSummaryTab({ projectId }: FinancialSummaryTabPr
       invoices,
       vendorInvoices,
       expenses,
+      pitchOfficeExpenses,
     ],
   )
 

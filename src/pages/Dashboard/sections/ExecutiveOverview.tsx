@@ -99,6 +99,13 @@ export function ExecutiveOverview({
       onClick: () => onNavigate('/finance/receivables'),
     },
     {
+      label: 'LABOUR CESS',
+      value: ru(kpis.labourCess),
+      subtext: 'Total from applicable invoices',
+      trend: formatGrowthTrend(kpis.labourCess, kpis.prevLabourCess, dateRange),
+      onClick: () => onNavigate('/finance/receivables'),
+    },
+    {
       label: 'REPEAT CLIENT %',
       value: `${Math.round(kpis.repeatClientPct)}%`,
       subtext: 'Repeat customers in scope',

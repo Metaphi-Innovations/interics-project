@@ -35,6 +35,8 @@ import {
   Visibility,
   Edit,
   LocationOn,
+  Archive,
+  CancelOutlined,
 } from '@mui/icons-material'
 import { FolderKanban, Plus } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
@@ -50,11 +52,17 @@ import {
 } from '../../slices/projects/reducer'
 import type { Project } from '../../slices/projects/reducer'
 import { ListingTemplate } from '../../components/templates/ListingTemplate'
-import CreateProjectModal from './CreateProjectModal'
 import { DrawerForm, FormField, FormSection } from '../../components/templates/DrawerForm'
-import { useToast, Input, DatePicker, dateFromIso, isoFromDate } from '@/design-system/components'
+import { useToast, Input, DatePicker, dateFromIso, isoFromDate, ConfirmDialog, AutocompleteField } from '@/design-system/components'
+import {
+  COUNTRIES,
+  INDIAN_CITIES,
+  INDIAN_STATES,
+  digitsOnly,
+  formatAddressLine,
+} from '@/constants/locations'
 import { tokens } from '@/design-system/tokens'
-import { useTheme, alpha } from '@mui/material/styles'
+import { useTheme } from '@mui/material/styles'
 import {
   formatCurrency,
   formatDate,
@@ -67,6 +75,12 @@ import { formatProjectSite } from '../../utils/projectSite'
 import { getProjectTypes, PROJECT_TYPE_OPTIONS } from './projectTypes'
 import { ProjectTypeTags } from './components/ProjectTypeTags'
 import { ProjectTypesField } from './components/ProjectTypesField'
+import { fetchStatuses } from '../../slices/settings/thunk'
+import {
+  getStatusMasterChipColors,
+  lifecycleStatusForMasterName,
+} from '../../utils/masterChipStyles'
+import type { StatusMaster } from '../../slices/settings/reducer'
 
 // ─── Column visibility state ──────────────────────────────────────────────────
 
@@ -103,29 +117,12 @@ function ProjectAvatar({ name }: { name: string }) {
   )
 }
 
-// ─── Progress badge ───────────────────────────────────────────────────────────
+// ─── Progress badge (Status Master colors) ────────────────────────────────────
 
 function ProgressBadge({ label }: { label: string }) {
   const theme = useTheme()
-  const lower = label.toLowerCase()
-  let bg = theme.palette.action.hover
-  let color = theme.palette.text.secondary
-  if (lower.includes('risk') || lower.includes('cancel')) {
-    bg = alpha(theme.palette.error.main, 0.12)
-    color = theme.palette.error.main
-  } else if (lower.includes('complete')) {
-    bg = alpha(theme.palette.info.main, 0.12)
-    color = theme.palette.info.main
-  } else if (lower.includes('ongoing') || lower.includes('execution')) {
-    bg = alpha(theme.palette.info.main, 0.12)
-    color = theme.palette.info.main
-  } else if (lower.includes('quotation') || lower.includes('pitch')) {
-    bg = alpha(theme.palette.warning.main, 0.12)
-    color = theme.palette.warning.main
-  } else if (lower.includes('archive')) {
-    bg = theme.palette.action.hover
-    color = theme.palette.text.secondary
-  }
+  const mode = theme.palette.mode === 'dark' ? 'dark' : 'light'
+  const colors = getStatusMasterChipColors(label, mode)
   return (
     <MuiChip
       label={label}
@@ -133,9 +130,11 @@ function ProgressBadge({ label }: { label: string }) {
       sx={{
         height: 18,
         fontSize: 10,
-        bgcolor: bg,
-        color,
+        fontWeight: 600,
+        bgcolor: colors.bg,
+        color: colors.color,
         borderRadius: '4px',
+        border: 'none',
         '& .MuiChip-label': { px: '6px' },
       }}
     />
@@ -188,11 +187,21 @@ interface RowActionsProps {
   onView: () => void
   onEdit: () => void
   onChangeStatus: () => void
+  onArchive: () => void
+  onCancel: () => void
 }
 
-function RowActions(props: RowActionsProps) {
-  const { onView, onEdit, onChangeStatus } = props
+function RowActions({
+  project,
+  onView,
+  onEdit,
+  onChangeStatus,
+  onArchive,
+  onCancel,
+}: RowActionsProps) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
+  const showLifecycleActions = project.status === 'Live'
+
   return (
     <>
       <IconButton size="small" onClick={(e) => setAnchor(e.currentTarget)}>
@@ -223,6 +232,22 @@ function RowActions(props: RowActionsProps) {
         >
           Change Status
         </MenuItem>
+        {showLifecycleActions ? (
+          <>
+            <MenuItem
+              onClick={() => { setAnchor(null); onArchive() }}
+              sx={{ fontSize: 13, gap: 1 }}
+            >
+              <Archive sx={{ fontSize: 14 }} /> Archive Project
+            </MenuItem>
+            <MenuItem
+              onClick={() => { setAnchor(null); onCancel() }}
+              sx={{ fontSize: 13, gap: 1, color: 'error.main' }}
+            >
+              <CancelOutlined sx={{ fontSize: 14 }} /> Cancel Project
+            </MenuItem>
+          </>
+        ) : null}
       </Menu>
     </>
   )
@@ -240,6 +265,8 @@ interface ProjectsTableProps {
   onView: (project: Project) => void
   onEdit: (project: Project) => void
   onChangeStatus: (project: Project) => void
+  onArchive: (project: Project) => void
+  onCancel: (project: Project) => void
 }
 
 function ProjectsTable({
@@ -252,6 +279,8 @@ function ProjectsTable({
   onView,
   onEdit,
   onChangeStatus,
+  onArchive,
+  onCancel,
 }: ProjectsTableProps) {
   const theme = useTheme()
 
@@ -328,7 +357,7 @@ function ProjectsTable({
             {columns.status && <TableCell sx={headSx}>Status</TableCell>}
             {columns.type && (
               <TableCell sx={{ ...headSx, display: { xs: 'none', lg: 'table-cell' } }}>
-                Type
+                Scope
               </TableCell>
             )}
             {columns.projectLead && (
@@ -470,6 +499,8 @@ function ProjectsTable({
                       onView={() => onView(project)}
                       onEdit={() => onEdit(project)}
                       onChangeStatus={() => onChangeStatus(project)}
+                      onArchive={() => onArchive(project)}
+                      onCancel={() => onCancel(project)}
                     />
                   </Box>
                 </TableCell>
@@ -489,12 +520,22 @@ interface ProjectGridCardProps {
   onView: (project: Project) => void
   onEdit: (project: Project) => void
   onChangeStatus: (project: Project) => void
+  onArchive: (project: Project) => void
+  onCancel: (project: Project) => void
 }
 
-function ProjectGridCard({ project, onView, onEdit, onChangeStatus }: ProjectGridCardProps) {
+function ProjectGridCard({
+  project,
+  onView,
+  onEdit,
+  onChangeStatus,
+  onArchive,
+  onCancel,
+}: ProjectGridCardProps) {
   const theme = useTheme()
   const gridColors = getAvatarColor(project.name)
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
+  const showLifecycleActions = project.status === 'Live'
 
   return (
     <MuiCard
@@ -560,6 +601,19 @@ function ProjectGridCard({ project, onView, onEdit, onChangeStatus }: ProjectGri
           <MenuItem onClick={() => { setAnchor(null); onChangeStatus(project) }} sx={{ fontSize: 13 }}>
             Change Status
           </MenuItem>
+          {showLifecycleActions ? (
+            <>
+              <MenuItem onClick={() => { setAnchor(null); onArchive(project) }} sx={{ fontSize: 13, gap: 1 }}>
+                <Archive sx={{ fontSize: 14 }} /> Archive Project
+              </MenuItem>
+              <MenuItem
+                onClick={() => { setAnchor(null); onCancel(project) }}
+                sx={{ fontSize: 13, gap: 1, color: 'error.main' }}
+              >
+                <CancelOutlined sx={{ fontSize: 14 }} /> Cancel Project
+              </MenuItem>
+            </>
+          ) : null}
         </Menu>
       </Stack>
 
@@ -621,9 +675,19 @@ interface ProjectsGridProps {
   onView: (project: Project) => void
   onEdit: (project: Project) => void
   onChangeStatus: (project: Project) => void
+  onArchive: (project: Project) => void
+  onCancel: (project: Project) => void
 }
 
-function ProjectsGrid({ items, loading, onView, onEdit, onChangeStatus }: ProjectsGridProps) {
+function ProjectsGrid({
+  items,
+  loading,
+  onView,
+  onEdit,
+  onChangeStatus,
+  onArchive,
+  onCancel,
+}: ProjectsGridProps) {
   if (loading) {
     return (
       <Box
@@ -670,6 +734,8 @@ function ProjectsGrid({ items, loading, onView, onEdit, onChangeStatus }: Projec
           onView={onView}
           onEdit={onEdit}
           onChangeStatus={onChangeStatus}
+          onArchive={onArchive}
+          onCancel={onCancel}
         />
       ))}
     </Box>
@@ -727,37 +793,19 @@ function SimplePagination({
 
 // ─── Change Status Dialog ─────────────────────────────────────────────────────
 
-type ProjectStatus = Project['status']
-
-interface StatusTransition {
-  from: ProjectStatus
-  to: ProjectStatus[]
-}
-
-const STATUS_TRANSITIONS: StatusTransition[] = [
-  { from: 'Pitch', to: [] }, // Only via baseline
-  { from: 'Live', to: ['Completed', 'Cancelled'] },
-  { from: 'Completed', to: ['Archived'] },
-  { from: 'Cancelled', to: ['Archived'] },
-  { from: 'Archived', to: [] },
-]
-
-function getAvailableTransitions(current: ProjectStatus): ProjectStatus[] {
-  return STATUS_TRANSITIONS.find((t) => t.from === current)?.to ?? []
-}
-
 interface ChangeStatusDialogProps {
   project: Project | null
+  statusOptions: StatusMaster[]
   onClose: () => void
-  onConfirm: (status: ProjectStatus) => void
+  onConfirm: (statusName: string) => void
 }
 
-function ChangeStatusDialog({ project, onClose, onConfirm }: ChangeStatusDialogProps) {
-  const [selected, setSelected] = useState<ProjectStatus | ''>('')
-  const available = project ? getAvailableTransitions(project.status) : []
+function ChangeStatusDialog({ project, statusOptions, onClose, onConfirm }: ChangeStatusDialogProps) {
+  const [selected, setSelected] = useState('')
+  const activeOptions = statusOptions.filter((s) => s.status === 'active')
 
   useEffect(() => {
-    setSelected('')
+    setSelected(project?.progress ?? '')
   }, [project])
 
   if (!project) return null
@@ -771,32 +819,28 @@ function ChangeStatusDialog({ project, onClose, onConfirm }: ChangeStatusDialogP
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
           Current status:{' '}
           <Box component="span" sx={{ fontWeight: 600, color: 'text.primary' }}>
-            {project.status}
+            {project.progress || '—'}
           </Box>
         </Typography>
 
-        {project.status === 'Pitch' ? (
-          <Typography variant="body2" color="warning.main" sx={{ fontSize: 12 }}>
-            Status changes to Live automatically when baseline is created.
-          </Typography>
-        ) : available.length === 0 ? (
+        {activeOptions.length === 0 ? (
           <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12 }}>
-            No further status transitions available.
+            No active statuses in Status Master. Add statuses in Settings.
           </Typography>
         ) : (
           <FormControl fullWidth size="small">
             <MuiSelect
               value={selected}
-              onChange={(e) => setSelected(e.target.value as ProjectStatus)}
+              onChange={(e) => setSelected(e.target.value)}
               displayEmpty
               sx={{ fontSize: 13 }}
             >
               <MenuItem value="" sx={{ fontSize: 13 }}>
                 Select new status…
               </MenuItem>
-              {available.map((s) => (
-                <MenuItem key={s} value={s} sx={{ fontSize: 13 }}>
-                  {s}
+              {activeOptions.map((s) => (
+                <MenuItem key={s.id} value={s.name} sx={{ fontSize: 13 }}>
+                  {s.name}
                 </MenuItem>
               ))}
             </MuiSelect>
@@ -810,8 +854,8 @@ function ChangeStatusDialog({ project, onClose, onConfirm }: ChangeStatusDialogP
         <MuiButton
           size="small"
           variant="contained"
-          disabled={!selected}
-          onClick={() => selected && onConfirm(selected as ProjectStatus)}
+          disabled={!selected || selected === project.progress}
+          onClick={() => selected && onConfirm(selected)}
         >
           Confirm
         </MuiButton>
@@ -855,7 +899,18 @@ function EditProjectDrawer({
       onClose={onClose}
       title="Edit Project"
       subtitle="Update project information"
-      onSubmit={() => onSave(form)}
+      onSubmit={() =>
+        onSave({
+          ...form,
+          location: formatAddressLine({
+            address: form.address,
+            city: form.city,
+            state: form.state,
+            pincode: form.pincode,
+            country: form.country,
+          }),
+        })
+      }
       submitLoading={saving}
       submitLabel="Save"
     >
@@ -880,11 +935,58 @@ function EditProjectDrawer({
           </FormField>
         </Box>
 
-        <FormField label="Location">
+        <Box sx={{ gridColumn: '1 / -1' }}>
+          <FormField label="Address">
+            <Input
+              value={form.address ?? ''}
+              onChange={(v) => set('address', v || null)}
+              placeholder="Street, building, landmark"
+              size="sm"
+            />
+          </FormField>
+        </Box>
+
+        <FormField label="City">
+          <AutocompleteField
+            options={[...INDIAN_CITIES]}
+            value={form.city || null}
+            onChange={(v) => set('city', v)}
+            getOptionLabel={(o) => o}
+            isOptionEqualToValue={(a, b) => a === b}
+            placeholder="Search city…"
+            size="sm"
+          />
+        </FormField>
+
+        <FormField label="State">
+          <AutocompleteField
+            options={[...INDIAN_STATES]}
+            value={form.state || null}
+            onChange={(v) => set('state', v)}
+            getOptionLabel={(o) => o}
+            isOptionEqualToValue={(a, b) => a === b}
+            placeholder="Search state…"
+            size="sm"
+          />
+        </FormField>
+
+        <FormField label="Country">
+          <AutocompleteField
+            options={[...COUNTRIES]}
+            value={form.country || null}
+            onChange={(v) => set('country', v)}
+            getOptionLabel={(o) => o}
+            isOptionEqualToValue={(a, b) => a === b}
+            placeholder="Search country…"
+            size="sm"
+          />
+        </FormField>
+
+        <FormField label="PIN Code">
           <Input
-            value={form.location ?? ''}
-            onChange={(v) => set('location', v)}
-            placeholder="Building, City"
+            value={form.pincode ?? ''}
+            onChange={(v) => set('pincode', digitsOnly(v).slice(0, 10) || null)}
+            placeholder="e.g. 110001"
             size="sm"
           />
         </FormField>
@@ -1027,8 +1129,7 @@ export default function ProjectsPage() {
   )
   const items = rawItems ?? []
   const users = useAppSelector((s) => s.users.items ?? [])
-
-  const [createModalOpen, setCreateModalOpen] = useState(false)
+  const statusMasters = useAppSelector((s) => s.settings.statuses)
 
   // Local state
   const [activeTab, setActiveTab] = useState(() => filters.status || 'Live')
@@ -1042,14 +1143,20 @@ export default function ProjectsPage() {
   const [editDrawerOpen, setEditDrawerOpen] = useState(false)
   const [editingProject, setEditingProject] = useState<Project | null>(null)
   const [statusDialogProject, setStatusDialogProject] = useState<Project | null>(null)
+  const [lifecycleConfirm, setLifecycleConfirm] = useState<{
+    project: Project
+    status: 'Archived' | 'Cancelled'
+  } | null>(null)
+  const [lifecycleSaving, setLifecycleSaving] = useState(false)
   const [viewMode, setViewMode] = useState<'table' | 'grid'>('table')
 
   // Debounce timer
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Load users
+  // Load users + status master
   useEffect(() => {
     dispatch(fetchUsers({}))
+    dispatch(fetchStatuses())
   }, [dispatch])
 
   // Default to Live tab/filter on entry unless a status already exists in current session state.
@@ -1164,7 +1271,7 @@ export default function ProjectsPage() {
     },
     {
       field: 'type',
-      label: 'Project Type',
+      label: 'Project Scope',
       type: 'select' as const,
       options: [
         { label: 'All', value: '' },
@@ -1184,7 +1291,7 @@ export default function ProjectsPage() {
 
   const columnItems = [
     { field: 'status', label: 'Status', visible: columnVisibility.status },
-    { field: 'type', label: 'Type', visible: columnVisibility.type },
+    { field: 'type', label: 'Scope', visible: columnVisibility.type },
     { field: 'projectLead', label: 'Project Lead', visible: columnVisibility.projectLead },
     { field: 'dates', label: 'Dates', visible: columnVisibility.dates },
   ]
@@ -1260,16 +1367,48 @@ export default function ProjectsPage() {
     }
   }
 
-  async function handleStatusConfirm(status: ProjectStatus) {
+  async function handleStatusConfirm(statusName: string) {
     if (!statusDialogProject) return
     try {
+      const lifecycle = lifecycleStatusForMasterName(statusName)
       await dispatch(
-        changeProjectStatus({ id: statusDialogProject.id, status })
+        updateProject({
+          id: statusDialogProject.id,
+          data: { progress: statusName },
+        })
       ).unwrap()
-      toast.success(`Status changed to ${status}`)
+      if (lifecycle && lifecycle !== statusDialogProject.status) {
+        await dispatch(
+          changeProjectStatus({ id: statusDialogProject.id, status: lifecycle })
+        ).unwrap()
+      }
+      toast.success(`Status changed to ${statusName}`)
       setStatusDialogProject(null)
     } catch {
       toast.error('Failed to change status')
+    }
+  }
+
+  async function handleLifecycleConfirm() {
+    if (!lifecycleConfirm) return
+    const { project, status } = lifecycleConfirm
+    setLifecycleSaving(true)
+    try {
+      await dispatch(changeProjectStatus({ id: project.id, status })).unwrap()
+      toast.success(
+        status === 'Archived'
+          ? 'Project archived'
+          : 'Project cancelled',
+      )
+      setLifecycleConfirm(null)
+    } catch {
+      toast.error(
+        status === 'Archived'
+          ? 'Failed to archive project'
+          : 'Failed to cancel project',
+      )
+    } finally {
+      setLifecycleSaving(false)
     }
   }
 
@@ -1283,7 +1422,7 @@ export default function ProjectsPage() {
         subtitle="Track and manage all design projects"
         primaryAction={{
           label: 'Create Project',
-          onClick: () => setCreateModalOpen(true),
+          onClick: () => navigate('/projects/create'),
           startIcon: <Plus size={16} strokeWidth={2} />,
         }}
         statCards={statCards}
@@ -1313,6 +1452,8 @@ export default function ProjectsPage() {
             onView={handleView}
             onEdit={handleEdit}
             onChangeStatus={(p) => setStatusDialogProject(p)}
+            onArchive={(p) => setLifecycleConfirm({ project: p, status: 'Archived' })}
+            onCancel={(p) => setLifecycleConfirm({ project: p, status: 'Cancelled' })}
           />
         ) : (
           <ProjectsTable
@@ -1325,6 +1466,8 @@ export default function ProjectsPage() {
             onView={handleView}
             onEdit={handleEdit}
             onChangeStatus={(p) => setStatusDialogProject(p)}
+            onArchive={(p) => setLifecycleConfirm({ project: p, status: 'Archived' })}
+            onCancel={(p) => setLifecycleConfirm({ project: p, status: 'Cancelled' })}
           />
         )}
         <SimplePagination
@@ -1348,14 +1491,34 @@ export default function ProjectsPage() {
       {/* Change Status Dialog */}
       <ChangeStatusDialog
         project={statusDialogProject}
+        statusOptions={statusMasters}
         onClose={() => setStatusDialogProject(null)}
         onConfirm={handleStatusConfirm}
       />
 
-      {/* Create Project Modal */}
-      <CreateProjectModal
-        open={createModalOpen}
-        onClose={() => setCreateModalOpen(false)}
+      <ConfirmDialog
+        open={Boolean(lifecycleConfirm)}
+        onClose={() => {
+          if (lifecycleSaving) return
+          setLifecycleConfirm(null)
+        }}
+        onConfirm={handleLifecycleConfirm}
+        loading={lifecycleSaving}
+        variant={lifecycleConfirm?.status === 'Cancelled' ? 'destructive' : 'default'}
+        title={
+          lifecycleConfirm?.status === 'Archived'
+            ? 'Archive Project?'
+            : 'Cancel Project?'
+        }
+        description={
+          lifecycleConfirm?.status === 'Archived'
+            ? `“${lifecycleConfirm.project.name}” will be moved to the Archived tab. All project data will be preserved.`
+            : `“${lifecycleConfirm?.project.name ?? ''}” will be moved to the Cancelled tab. All project data will be preserved for historical records.`
+        }
+        confirmLabel={
+          lifecycleConfirm?.status === 'Archived' ? 'Archive Project' : 'Cancel Project'
+        }
+        cancelLabel="Keep Project"
       />
     </>
   )

@@ -204,7 +204,7 @@ export function InvoiceLineItems({
               </TableCell>
               {showLabourCessColumn ? (
                 <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', width: 80 }}>
-                  Labour cess
+                  Labour Cess
                 </TableCell>
               ) : null}
               <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', width: 88 }}>

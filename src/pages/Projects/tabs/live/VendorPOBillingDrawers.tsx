@@ -59,11 +59,9 @@ import {
 import {
   VendorPOMilestoneEditor,
   buildVendorPOMilestonePayload,
-  isVendorPOMilestoneBreakdownValid,
   vendorPOMilestoneEditorStateFromPo,
   type VendorPOMilestoneRow,
   type VendorPORetentionRow,
-  type VendorPOFinalMilestoneRow,
 } from './VendorPOMilestoneEditor'
 
 const PO_VENDOR_SUMMARY_SX = {
@@ -218,7 +216,6 @@ function VendorPOMilestonesReadOnlySections({
   const regularMilestones = milestones.filter(
     (m) => resolveVendorPOMilestoneKind(m) === 'regular',
   )
-  const finalMilestones = milestones.filter((m) => resolveVendorPOMilestoneKind(m) === 'final')
   const retentionMilestones = milestones.filter(
     (m) => resolveVendorPOMilestoneKind(m) === 'retention',
   )
@@ -247,22 +244,6 @@ function VendorPOMilestonesReadOnlySections({
           projectVendorInvoices={projectVendorInvoices}
         />
       </Box>
-      {finalMilestones.length > 0 ? (
-        <Box>
-          <Typography
-            component="span"
-            variant="overline"
-            sx={{ ...PO_SECTION_TITLE_SX, display: 'block', mb: 1.5 }}
-          >
-            Final Milestone
-          </Typography>
-          <VendorPOMilestoneDetailTable
-            milestones={finalMilestones}
-            serviceLabel={serviceLabel}
-            projectVendorInvoices={projectVendorInvoices}
-          />
-        </Box>
-      ) : null}
       {retentionMilestones.length > 0 ? (
         <Box>
           <Typography
@@ -364,7 +345,6 @@ export function AddVendorPODrawer({
   })
   const [milestones, setMilestones] = useState<VendorPOMilestoneRow[]>([])
   const [retention, setRetention] = useState<VendorPORetentionRow | null>(null)
-  const [finalMilestone, setFinalMilestone] = useState<VendorPOFinalMilestoneRow | null>(null)
 
   useEffect(() => {
     if (open) {
@@ -386,7 +366,6 @@ export function AddVendorPODrawer({
       })
       setMilestones([])
       setRetention(null)
-      setFinalMilestone(null)
       offerLinkRef.current = null
       return
     }
@@ -427,6 +406,26 @@ export function AddVendorPODrawer({
   const selectedVendor = vendors.find((v) => v.vendorId === form.vendorId)
   const fromOfferRow = Boolean(initialVendorId && initialServiceId)
 
+  useEffect(() => {
+    if (milestoneBaseValue <= 0) return
+    setMilestones((prev) => {
+      let changed = false
+      const next = prev.map((m) => {
+        const value = Math.round((m.percentage / 100) * milestoneBaseValue)
+        if (m.value === value) return m
+        changed = true
+        return { ...m, value }
+      })
+      return changed ? next : prev
+    })
+    setRetention((prev) => {
+      if (!prev) return prev
+      const amount = Math.round((prev.percentage / 100) * milestoneBaseValue)
+      if (prev.amount === amount) return prev
+      return { ...prev, amount }
+    })
+  }, [milestoneBaseValue])
+
   const vendorRecord = useMemo(
     () => vendorItems.find((v) => v.id === (initialVendorId ?? form.vendorId)),
     [vendorItems, initialVendorId, form.vendorId],
@@ -453,18 +452,6 @@ export function AddVendorPODrawer({
     )
     return formatted || vendorAddress
   }, [vendorRecord, vendorAddress])
-
-  const milestonesValid = useMemo(
-    () => isVendorPOMilestoneBreakdownValid(milestoneBaseValue, milestones, retention, finalMilestone),
-    [milestoneBaseValue, milestones, retention, finalMilestone],
-  )
-
-  useEffect(() => {
-    if (milestoneBaseValue <= 0) return
-    setFinalMilestone((prev) =>
-      prev ? { ...prev, amount: Math.round((prev.percentage / 100) * milestoneBaseValue) } : null,
-    )
-  }, [milestoneBaseValue])
 
   function setField<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
     setForm((prev) => ({ ...prev, [key]: value }))
@@ -493,13 +480,9 @@ export function AddVendorPODrawer({
       toast({ title: 'Please fill in all required fields', variant: 'error' })
       return
     }
-    if (!milestonesValid) {
-      toast({ title: 'Milestone, retention, and final milestone percentages must equal 100%', variant: 'error' })
-      return
-    }
     const vendor = vendors.find((v) => v.vendorId === form.vendorId)
     const documentUrl = form.file ? URL.createObjectURL(form.file) : null
-    const milestonePayload = buildVendorPOMilestonePayload(milestones, retention, finalMilestone)
+    const milestonePayload = buildVendorPOMilestonePayload(milestones, retention)
     const link = offerLinkRef.current
     const linkedIds = link?.serviceIds?.length ? link.serviceIds : undefined
     try {
@@ -706,10 +689,8 @@ export function AddVendorPODrawer({
         poValue={milestoneBaseValue}
         milestones={milestones}
         retention={retention}
-        finalMilestone={finalMilestone}
         onMilestonesChange={setMilestones}
         onRetentionChange={setRetention}
-        onFinalMilestoneChange={setFinalMilestone}
       />
     </DrawerForm>
   )
@@ -743,6 +724,10 @@ export function ViewVendorPODrawer({
   const [updatingExecutedValue, setUpdatingExecutedValue] = useState(false)
   const [executedValueDraft, setExecutedValueDraft] = useState('')
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [milestoneOverrides, setMilestoneOverrides] = useState<VendorPOMilestoneRow[] | null>(null)
+  const [retentionOverride, setRetentionOverride] = useState<VendorPORetentionRow | null | undefined>(
+    undefined,
+  )
 
   const projectVendorInvoices = useMemo(
     () => vendorInvoices.filter((i) => i.projectId === projectId),
@@ -797,31 +782,97 @@ export function ViewVendorPODrawer({
     if (!open || !resolvedPo) {
       setUpdatingExecutedValue(false)
       setDeleteOpen(false)
+      setMilestoneOverrides(null)
+      setRetentionOverride(undefined)
       return
     }
     setExecutedValueDraft(String(effectiveExecutedValue(resolvedPo)))
   }, [open, resolvedPo?.id])
 
-  const previewMilestones = useMemo(() => {
-    if (!resolvedPo || !updatingExecutedValue) return resolvedPo?.milestones ?? []
-    const nextValue = Number(executedValueDraft)
-    if (!Number.isFinite(nextValue) || nextValue <= 0) return resolvedPo.milestones
-    return recalculateVendorPOMilestonesForExecutedValue(
-      resolvedPo.milestones,
-      nextValue,
-      projectVendorInvoices,
-    )
-  }, [resolvedPo, updatingExecutedValue, executedValueDraft, projectVendorInvoices])
+  useEffect(() => {
+    setMilestoneOverrides(null)
+    setRetentionOverride(undefined)
+  }, [updatingExecutedValue, executedValueDraft, resolvedPo?.id])
 
-  const previewEditorState = useMemo(
-    () => vendorPOMilestoneEditorStateFromPo({ milestones: previewMilestones }),
-    [previewMilestones],
-  )
+  const recalculatedEditorState = useMemo(() => {
+    if (!updatingExecutedValue || !resolvedPo) {
+      return { milestones: [] as VendorPOMilestoneRow[], retention: null as VendorPORetentionRow | null }
+    }
+    const nextValue = Number(executedValueDraft)
+    const milestones =
+      !Number.isFinite(nextValue) || nextValue <= 0
+        ? resolvedPo.milestones
+        : recalculateVendorPOMilestonesForExecutedValue(
+            resolvedPo.milestones,
+            nextValue,
+            projectVendorInvoices,
+          )
+    return vendorPOMilestoneEditorStateFromPo({ milestones })
+  }, [updatingExecutedValue, executedValueDraft, resolvedPo, projectVendorInvoices])
+
+  const editMilestones = milestoneOverrides ?? recalculatedEditorState.milestones
+  const editRetention =
+    retentionOverride === undefined ? recalculatedEditorState.retention : retentionOverride
+
+  const editMilestoneStatuses = useMemo(() => {
+    const statuses: Record<string, MilestonePaymentStatusLabel> = {}
+    if (!resolvedPo) return statuses
+    for (const m of resolvedPo.milestones) {
+      const kind = m.kind ?? (m.name.trim().toLowerCase() === 'retention' ? 'retention' : 'regular')
+      if (kind === 'retention') continue
+      statuses[m.id] =
+        m.status === 'Paid' || vendorMilestonePaymentStatus(projectVendorInvoices, m.id) === 'Paid'
+          ? 'Paid'
+          : 'Unpaid'
+    }
+    return statuses
+  }, [resolvedPo, projectVendorInvoices])
+
+  const editRetentionStatus = useMemo((): MilestonePaymentStatusLabel | undefined => {
+    if (!resolvedPo) return undefined
+    const retention = resolvedPo.milestones.find(
+      (m) => m.kind === 'retention' || m.name.trim().toLowerCase() === 'retention',
+    )
+    if (!retention) return undefined
+    return retention.status === 'Paid' ||
+      vendorMilestonePaymentStatus(projectVendorInvoices, retention.id) === 'Paid'
+      ? 'Paid'
+      : 'Unpaid'
+  }, [resolvedPo, projectVendorInvoices])
 
   function resetExecutedValueEdit() {
     if (!resolvedPo) return
     setExecutedValueDraft(String(effectiveExecutedValue(resolvedPo)))
     setUpdatingExecutedValue(false)
+    setMilestoneOverrides(null)
+    setRetentionOverride(undefined)
+  }
+
+  function mergeVendorMilestoneEdits(
+    base: import('@/slices/baseline/reducer').VendorPOMilestone[],
+  ): import('@/slices/baseline/reducer').VendorPOMilestone[] {
+    const editsById = new Map(editMilestones.map((m) => [m.id, m]))
+    return base.map((m) => {
+      const kind = m.kind ?? (m.name.trim().toLowerCase() === 'retention' ? 'retention' : 'regular')
+      const isPaid =
+        m.status === 'Paid' || vendorMilestonePaymentStatus(projectVendorInvoices, m.id) === 'Paid'
+      if (isPaid) return m
+      if (kind === 'retention') {
+        if (!editRetention) return m
+        return {
+          ...m,
+          percentage: editRetention.percentage,
+          value: editRetention.amount,
+        }
+      }
+      const edit = editsById.get(m.id)
+      if (!edit) return m
+      return {
+        ...m,
+        percentage: edit.percentage,
+        value: edit.value,
+      }
+    })
   }
 
   async function handleSaveExecutedValue() {
@@ -836,11 +887,12 @@ export function ViewVendorPODrawer({
       return
     }
     try {
-      const nextMilestones = recalculateVendorPOMilestonesForExecutedValue(
+      const recalculated = recalculateVendorPOMilestonesForExecutedValue(
         resolvedPo.milestones,
         nextValue,
         projectVendorInvoices,
       )
+      const nextMilestones = mergeVendorMilestoneEdits(recalculated)
       await dispatch(
         updateVendorPO({
           projectId,
@@ -851,6 +903,8 @@ export function ViewVendorPODrawer({
       await dispatch(fetchVendorPOs(projectId)).unwrap()
       toast({ title: 'Executed value updated', variant: 'success' })
       setUpdatingExecutedValue(false)
+      setMilestoneOverrides(null)
+      setRetentionOverride(undefined)
     } catch (err) {
       toast({
         title: typeof err === 'string' ? err : 'Failed to update executed value',
@@ -929,7 +983,7 @@ export function ViewVendorPODrawer({
                     size="sm"
                     variant="outlined"
                     color="primary"
-                    label="Update Executed Value"
+                    label="Updated"
                     onClick={() => setUpdatingExecutedValue(true)}
                   />
                 ) : null}
@@ -1005,8 +1059,8 @@ export function ViewVendorPODrawer({
                         fullWidth
                         size="small"
                         type="number"
-                        value={resolvedPo.poValue}
-                        disabled
+                        value={executedValueDraft}
+                        onChange={(e) => setExecutedValueDraft(e.target.value)}
                       />
                     </FormField>
                     <FormField label="Executed Value (₹)" required>
@@ -1032,14 +1086,14 @@ export function ViewVendorPODrawer({
                 <Divider sx={{ my: 2 }} />
 
                 <VendorPOMilestoneEditor
-                  readOnly
+                  structureLocked
                   poValue={Number(executedValueDraft) || effectiveExecutedValue(resolvedPo)}
-                  milestones={previewEditorState.milestones}
-                  retention={previewEditorState.retention}
-                  finalMilestone={previewEditorState.finalMilestone}
-                  onMilestonesChange={() => undefined}
-                  onRetentionChange={() => undefined}
-                  onFinalMilestoneChange={() => undefined}
+                  milestones={editMilestones}
+                  retention={editRetention}
+                  milestoneStatuses={editMilestoneStatuses}
+                  retentionStatus={editRetentionStatus}
+                  onMilestonesChange={setMilestoneOverrides}
+                  onRetentionChange={setRetentionOverride}
                 />
               </>
             ) : (

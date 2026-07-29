@@ -1,9 +1,8 @@
 import type { ReactNode } from 'react'
 import {
+  Autocomplete,
   Box,
   IconButton as MuiIconButton,
-  MenuItem,
-  Select as MuiSelect,
   Stack,
   TextField,
   Typography,
@@ -44,12 +43,6 @@ interface ServiceScopedCard {
 export interface VendorOfferMilestoneCard extends ServiceScopedCard {
   milestones: VendorPOMilestoneRow[]
   retention?: VendorPORetentionRow | null
-}
-
-export interface VendorOfferFinalMilestoneCard extends ServiceScopedCard {
-  name: string
-  percentage: number
-  value: number
 }
 
 export interface VendorOfferRetentionCard extends ServiceScopedCard {
@@ -136,21 +129,6 @@ export function createVendorOfferMilestoneCard(
   }
 }
 
-export function createVendorOfferFinalMilestoneCard(
-  categoryOptions: CategoryOption[],
-  serviceOptions: ServiceOption[],
-): VendorOfferFinalMilestoneCard {
-  const { categoryId, serviceId } = defaultCategoryService(categoryOptions, serviceOptions)
-  return {
-    id: newCardId('final-card'),
-    categoryId,
-    serviceId,
-    name: '',
-    percentage: 0,
-    value: 0,
-  }
-}
-
 export function createVendorOfferRetentionCard(
   categoryOptions: CategoryOption[],
   serviceOptions: ServiceOption[],
@@ -197,8 +175,8 @@ function CategoryServiceFields({
   readOnly?: boolean
 }) {
   const servicesForCategory = serviceOptions.filter((s) => s.categoryId === categoryId)
-  const selectedCategory = categoryOptions.find((c) => c.id === categoryId)
-  const selectedService = servicesForCategory.find((s) => s.id === serviceId)
+  const selectedCategory = categoryOptions.find((c) => c.id === categoryId) ?? null
+  const selectedService = servicesForCategory.find((s) => s.id === serviceId) ?? null
 
   if (readOnly) {
     return (
@@ -217,6 +195,11 @@ function CategoryServiceFields({
     )
   }
 
+  const autocompleteSx = {
+    '& .MuiInputBase-root': { fontSize: 12, minHeight: 40 },
+    '& .MuiInputBase-input': { fontSize: 12 },
+  } as const
+
   return (
     <Box
       sx={{
@@ -227,63 +210,35 @@ function CategoryServiceFields({
         minWidth: 0,
       }}
     >
-      <MuiSelect
-        value={categoryId}
-        onChange={(e) => {
-          const nextCategoryId = e.target.value
+      <Autocomplete
+        size="small"
+        options={categoryOptions}
+        value={selectedCategory}
+        getOptionLabel={(opt) => opt.label}
+        isOptionEqualToValue={(a, b) => a.id === b.id}
+        onChange={(_, next) => {
+          const nextCategoryId = next?.id ?? ''
           const firstService = serviceOptions.find((s) => s.categoryId === nextCategoryId)
           onCategoryChange(nextCategoryId, firstService?.id ?? '')
         }}
+        renderInput={(params) => (
+          <TextField {...params} placeholder="Category" sx={autocompleteSx} />
+        )}
+        noOptionsText="No categories"
+      />
+      <Autocomplete
         size="small"
-        fullWidth
-        displayEmpty
-        renderValue={(selected) =>
-          selected ? (
-            selectedCategory?.label ?? ''
-          ) : (
-            <Typography component="span" sx={{ fontSize: 12, color: 'text.secondary' }}>
-              Category
-            </Typography>
-          )
-        }
-        sx={{ fontSize: 12 }}
-      >
-        <MenuItem value="" disabled sx={{ fontSize: 12 }}>
-          Category
-        </MenuItem>
-        {categoryOptions.map((c) => (
-          <MenuItem key={c.id} value={c.id} sx={{ fontSize: 12 }}>
-            {c.label}
-          </MenuItem>
-        ))}
-      </MuiSelect>
-      <MuiSelect
-        value={serviceId}
-        onChange={(e) => onServiceChange(e.target.value)}
-        size="small"
-        fullWidth
-        displayEmpty
+        options={servicesForCategory}
+        value={selectedService}
         disabled={!categoryId}
-        renderValue={(selected) =>
-          selected ? (
-            selectedService?.label ?? ''
-          ) : (
-            <Typography component="span" sx={{ fontSize: 12, color: 'text.secondary' }}>
-              Service
-            </Typography>
-          )
-        }
-        sx={{ fontSize: 12 }}
-      >
-        <MenuItem value="" disabled sx={{ fontSize: 12 }}>
-          Service
-        </MenuItem>
-        {servicesForCategory.map((s) => (
-          <MenuItem key={s.id} value={s.id} sx={{ fontSize: 12 }}>
-            {s.label}
-          </MenuItem>
-        ))}
-      </MuiSelect>
+        getOptionLabel={(opt) => opt.label}
+        isOptionEqualToValue={(a, b) => a.id === b.id}
+        onChange={(_, next) => onServiceChange(next?.id ?? '')}
+        renderInput={(params) => (
+          <TextField {...params} placeholder="Service" sx={autocompleteSx} />
+        )}
+        noOptionsText={categoryId ? 'No services' : 'Select a category first'}
+      />
     </Box>
   )
 }
@@ -331,6 +286,8 @@ interface MilestoneCardEditorProps {
   milestoneBaseValue: number
   includeRetention?: boolean
   readOnly?: boolean
+  /** Lock category/service and add/remove; unpaid % / value remain editable. */
+  structureLocked?: boolean
   milestoneStatuses?: Record<string, MilestonePaymentStatusLabel>
   retentionStatus?: MilestonePaymentStatusLabel
   onChange: (patch: Partial<VendorOfferMilestoneCard>) => void
@@ -344,14 +301,17 @@ export function VendorOfferMilestoneCardEditor({
   milestoneBaseValue,
   includeRetention = false,
   readOnly = false,
+  structureLocked = false,
   milestoneStatuses,
   retentionStatus,
   onChange,
   onRemove,
 }: MilestoneCardEditorProps) {
+  const lockStructure = readOnly || structureLocked
+
   return (
     <Box sx={CARD_SX}>
-      {readOnly ? (
+      {lockStructure ? (
         <Box
           sx={{
             px: 1.5,
@@ -387,17 +347,16 @@ export function VendorOfferMilestoneCardEditor({
         <VendorPOMilestoneEditor
           embedded
           readOnly={readOnly}
+          structureLocked={structureLocked}
           regularOnly={!includeRetention}
           cardWithRetention={includeRetention}
           poValue={milestoneBaseValue}
           milestones={card.milestones}
           retention={card.retention ?? null}
-          finalMilestone={null}
           milestoneStatuses={milestoneStatuses}
           retentionStatus={retentionStatus}
           onMilestonesChange={(milestones) => onChange({ milestones })}
           onRetentionChange={(retention) => onChange({ retention })}
-          onFinalMilestoneChange={() => undefined}
         />
       </Box>
     </Box>
@@ -405,12 +364,12 @@ export function VendorOfferMilestoneCardEditor({
 }
 
 interface ValueRowCardEditorProps {
-  card: VendorOfferFinalMilestoneCard | VendorOfferRetentionCard
+  card: VendorOfferRetentionCard
   categoryOptions: CategoryOption[]
   serviceOptions: ServiceOption[]
   milestoneBaseValue: number
   nameLabel: string
-  onChange: (patch: Partial<VendorOfferFinalMilestoneCard>) => void
+  onChange: (patch: Partial<VendorOfferRetentionCard>) => void
   onRemove: () => void
   removeLabel: string
 }
@@ -499,21 +458,6 @@ function ValueRowCardEditor({
   )
 }
 
-export function VendorOfferFinalMilestoneCardEditor(
-  props: Omit<ValueRowCardEditorProps, 'nameLabel' | 'removeLabel'> & {
-    card: VendorOfferFinalMilestoneCard
-    onChange: (patch: Partial<VendorOfferFinalMilestoneCard>) => void
-  },
-) {
-  return (
-    <ValueRowCardEditor
-      {...props}
-      nameLabel="Final milestone name"
-      removeLabel="Remove final milestone card"
-    />
-  )
-}
-
 export function VendorOfferRetentionCardEditor(
   props: Omit<ValueRowCardEditorProps, 'nameLabel' | 'removeLabel'> & {
     card: VendorOfferRetentionCard
@@ -533,7 +477,6 @@ export interface GroupedServiceMilestones {
   serviceId: string
   categoryId: string
   milestones: VendorPOMilestoneRow[]
-  finalMilestones: VendorOfferFinalMilestoneCard[]
   retentions: VendorOfferRetentionCard[]
 }
 
@@ -542,15 +485,6 @@ export function isMilestoneCardConfigured(card: VendorOfferMilestoneCard): boole
     card.categoryId &&
       card.serviceId &&
       card.milestones.some((m) => m.name.trim()),
-  )
-}
-
-export function isFinalMilestoneCardConfigured(card: VendorOfferFinalMilestoneCard): boolean {
-  return Boolean(
-    card.categoryId &&
-      card.serviceId &&
-      card.name.trim() &&
-      (card.percentage > 0 || card.value > 0),
   )
 }
 
@@ -565,7 +499,6 @@ export function isRetentionCardConfigured(card: VendorOfferRetentionCard): boole
 
 export function groupAllCardsByService(
   milestoneCards: VendorOfferMilestoneCard[],
-  finalCards: VendorOfferFinalMilestoneCard[],
   retentionCards: VendorOfferRetentionCard[],
 ): GroupedServiceMilestones[] {
   const map = new Map<string, GroupedServiceMilestones>()
@@ -577,7 +510,6 @@ export function groupAllCardsByService(
       serviceId,
       categoryId,
       milestones: [],
-      finalMilestones: [],
       retentions: [],
     }
     map.set(serviceId, group)
@@ -587,10 +519,6 @@ export function groupAllCardsByService(
   for (const card of milestoneCards) {
     if (!card.serviceId || !card.categoryId) continue
     ensure(card.serviceId, card.categoryId).milestones.push(...card.milestones)
-  }
-  for (const card of finalCards) {
-    if (!card.serviceId || !card.categoryId) continue
-    ensure(card.serviceId, card.categoryId).finalMilestones.push(card)
   }
   for (const card of retentionCards) {
     if (!card.serviceId || !card.categoryId) continue
@@ -606,12 +534,10 @@ export function isGroupedServiceValid(
 ): boolean {
   const totalPct =
     group.milestones.reduce((sum, m) => sum + m.percentage, 0) +
-    group.finalMilestones.reduce((sum, m) => sum + m.percentage, 0) +
     group.retentions.reduce((sum, m) => sum + m.percentage, 0)
 
   const hasEntries =
     group.milestones.length > 0 ||
-    group.finalMilestones.length > 0 ||
     group.retentions.length > 0
 
   if (!hasEntries) return true
@@ -633,19 +559,6 @@ export function buildVendorPOMilestonePayloadFromGroup(
       status: 'Pending' as const,
       kind: 'regular' as const,
     }))
-
-  for (const final of group.finalMilestones) {
-    if (!final.name.trim() || (final.percentage <= 0 && final.value <= 0)) continue
-    rows.push({
-      id: `vpo-final-${final.id}`,
-      name: final.name.trim(),
-      percentage: final.percentage,
-      value: final.value,
-      dueDate: null,
-      status: 'Pending',
-      kind: 'final',
-    })
-  }
 
   for (const retention of group.retentions) {
     if (!retention.name.trim() || (retention.percentage <= 0 && retention.value <= 0)) continue

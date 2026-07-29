@@ -1,184 +1,26 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Box, Divider, MenuItem, Select, Stack, Typography } from '@mui/material'
+import { Box, MenuItem, Select, Typography } from '@mui/material'
 import { DrawerForm, FormField, FormSection } from '@/components/templates/DrawerForm'
-import { Checkbox, DatePicker, dateFromIso, FileUpload, Input, isoFromDate, Textarea, useToast } from '@/design-system/components'
+import { DatePicker, dateFromIso, FileUpload, Input, isoFromDate, Textarea, useToast } from '@/design-system/components'
 import { DEFAULT_GST_RATE } from '@/config/billingRates'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { fetchExpenses, fetchVendorInvoices, updateVendorInvoice, uploadVendorInvoice } from '@/slices/live/thunk'
 import type { Baseline, VendorPO } from '@/slices/baseline/reducer'
-import type { Expense, VendorInvoice } from '@/slices/live/types'
 import type { VendorMilestone } from '@/slices/pitch/reducer'
 import { formatCurrency } from '@/utils/formatters'
 import {
   DEFAULT_TDS_PERCENT,
   calcVendorInvoiceNetPayable,
   calcVendorInvoiceTdsAmount,
-  commonExpenseInvoiceAddition,
-  commonExpenseInvoiceDeduction,
   findInvoiceForMilestone,
   invoiceMatchesRow,
   resolveVendorMilestonesForRow,
-  selectableProjectExpensesForInvoice,
   TDS_RATE_OPTIONS,
-  vendorLinkedExpenseMatchesRow,
   type VendorServiceRow,
 } from './utils'
 
 function gstOnBase(base: number, rate: number): number {
   return Math.round((base * rate) / 100)
-}
-
-interface InvoiceExpenseOption {
-  expense: Expense
-  amount: number
-  label: string
-}
-
-function mergeExpenseOptions(
-  pending: Expense[],
-  linkedIds: string[],
-  allExpenses: Expense[],
-): Expense[] {
-  const linked = linkedIds
-    .map((id) => allExpenses.find((e) => e.id === id))
-    .filter((e): e is Expense => Boolean(e))
-  const seen = new Set<string>()
-  return [...linked, ...pending].filter((e) => {
-    if (seen.has(e.id)) return false
-    seen.add(e.id)
-    return true
-  })
-}
-
-/** Common expenses paid by this vendor → full amount addition for reimbursement. */
-function buildAdditionOptions(
-  expenses: Expense[],
-  vendorId: string,
-  projectInvoices: VendorInvoice[],
-  editInvoiceId?: string,
-): InvoiceExpenseOption[] {
-  const out: InvoiceExpenseOption[] = []
-  for (const e of expenses) {
-    if (e.type !== 'common') continue
-    const amount = commonExpenseInvoiceAddition(e, vendorId)
-    if (amount <= 0) continue
-    const alreadyLinked = projectInvoices.some(
-      (inv) =>
-        inv.vendorId === vendorId &&
-        inv.id !== editInvoiceId &&
-        ((inv.linkedExpenseIds ?? []).includes(e.id) ||
-          (inv.linkedAdditionExpenseIds ?? []).includes(e.id)),
-    )
-    if (alreadyLinked) continue
-    out.push({
-      expense: e,
-      amount,
-      label: `Common Expense Paid · ${e.description}`,
-    })
-  }
-  return out
-}
-
-/**
- * Deductions: allocated common-expense PO shares + vendor-linked / other project expenses.
- * Unselected common vendors are omitted (their share stays a project expense).
- */
-function buildDeductionOptions(
-  expenses: Expense[],
-  row: VendorServiceRow,
-  projectInvoices: VendorInvoice[],
-  editInvoiceId?: string,
-): InvoiceExpenseOption[] {
-  const out: InvoiceExpenseOption[] = []
-  for (const e of expenses) {
-    if (e.type === 'common') {
-      const amount = commonExpenseInvoiceDeduction(e, row.vendorId)
-      if (amount <= 0) continue
-      const alreadyLinked = projectInvoices.some(
-        (inv) =>
-          inv.vendorId === row.vendorId &&
-          inv.id !== editInvoiceId &&
-          ((inv.linkedExpenseIds ?? []).includes(e.id) ||
-            (inv.linkedAdditionExpenseIds ?? []).includes(e.id)),
-      )
-      if (alreadyLinked) continue
-      out.push({
-        expense: e,
-        amount,
-        label: e.description,
-      })
-      continue
-    }
-    if (e.type === 'vendor_linked') {
-      if (!vendorLinkedExpenseMatchesRow(e, row)) continue
-      out.push({ expense: e, amount: e.amount, label: e.description })
-      continue
-    }
-    out.push({ expense: e, amount: e.amount, label: e.description })
-  }
-  return out
-}
-
-function ExpenseCheckboxCards({
-  options,
-  selectedIds,
-  onToggle,
-  emptyMessage,
-}: {
-  options: InvoiceExpenseOption[]
-  selectedIds: Set<string>
-  onToggle: (expenseId: string, checked: boolean) => void
-  emptyMessage: string
-}) {
-  if (options.length === 0) {
-    return (
-      <Box sx={{ gridColumn: '1 / -1' }}>
-        <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12, py: 1 }}>
-          {emptyMessage}
-        </Typography>
-      </Box>
-    )
-  }
-
-  const singleOption = options.length === 1
-
-  return (
-    <>
-      {options.map(({ expense: exp, amount, label }) => (
-        <Stack
-          key={exp.id}
-          direction="row"
-          alignItems="center"
-          justifyContent="space-between"
-          gap={1.5}
-          sx={{
-            p: 1.25,
-            border: '1px solid',
-            borderColor: 'divider',
-            borderRadius: 1,
-            minWidth: 0,
-            width: '100%',
-            ...(singleOption ? { gridColumn: '1 / -1' } : null),
-          }}
-        >
-          <Box sx={{ minWidth: 0, flex: 1 }}>
-            <Checkbox
-              size="sm"
-              label={label}
-              checked={selectedIds.has(exp.id)}
-              onChange={(checked) => onToggle(exp.id, checked)}
-            />
-          </Box>
-          <Typography
-            variant="body2"
-            sx={{ fontSize: 12, fontWeight: 600, flexShrink: 0, whiteSpace: 'nowrap' }}
-          >
-            ₹{formatCurrency(amount)}
-          </Typography>
-        </Stack>
-      ))}
-    </>
-  )
 }
 
 export function AddVendorInvoiceDrawer({
@@ -201,7 +43,7 @@ export function AddVendorInvoiceDrawer({
   onClose: () => void
 }) {
   const dispatch = useAppDispatch()
-  const { saving, vendorInvoices, expenses } = useAppSelector((s) => s.live)
+  const { saving, vendorInvoices } = useAppSelector((s) => s.live)
   const toast = useToast()
 
   const [selectedMilestoneId, setSelectedMilestoneId] = useState('')
@@ -211,8 +53,6 @@ export function AddVendorInvoiceDrawer({
   const [description, setDescription] = useState('')
   const [documentUrl, setDocumentUrl] = useState<string | undefined>(undefined)
   const [documentFileName, setDocumentFileName] = useState<string | undefined>(undefined)
-  const [selectedDeductionIds, setSelectedDeductionIds] = useState<Set<string>>(() => new Set())
-  const [selectedAdditionIds, setSelectedAdditionIds] = useState<Set<string>>(() => new Set())
   const [tdsRate, setTdsRate] = useState(DEFAULT_TDS_PERCENT)
 
   const projectScopedInvoices = useMemo(
@@ -243,84 +83,18 @@ export function AddVendorInvoiceDrawer({
 
   const isEditMode = Boolean(existingInvoice)
 
-  const pendingExpenses = useMemo(
-    () => selectableProjectExpensesForInvoice(expenses, projectId),
-    [expenses, projectId],
-  )
-
-  const expensePool = useMemo(() => {
-    if (!existingInvoice) return pendingExpenses
-    const linkedIds = [
-      ...(existingInvoice.linkedExpenseIds ?? []),
-      ...(existingInvoice.linkedAdditionExpenseIds ?? []),
-    ]
-    return mergeExpenseOptions(pendingExpenses, linkedIds, expenses)
-  }, [existingInvoice, expenses, pendingExpenses])
-
-  const additionOptions = useMemo(() => {
-    if (!context) return [] as InvoiceExpenseOption[]
-    return buildAdditionOptions(
-      expensePool,
-      context.vendorId,
-      projectScopedInvoices,
-      existingInvoice?.id,
-    )
-  }, [expensePool, context, projectScopedInvoices, existingInvoice?.id])
-
-  const deductionOptions = useMemo(() => {
-    if (!context) return [] as InvoiceExpenseOption[]
-    return buildDeductionOptions(
-      expensePool,
-      context,
-      projectScopedInvoices,
-      existingInvoice?.id,
-    )
-  }, [expensePool, context, projectScopedInvoices, existingInvoice?.id])
-
-  const additionAmountById = useMemo(() => {
-    const map = new Map<string, number>()
-    for (const opt of additionOptions) map.set(opt.expense.id, opt.amount)
-    return map
-  }, [additionOptions])
-
-  const deductionAmountById = useMemo(() => {
-    const map = new Map<string, number>()
-    for (const opt of deductionOptions) map.set(opt.expense.id, opt.amount)
-    return map
-  }, [deductionOptions])
-
   const baseNumber = Number(baseAmount) || 0
   const gstRateNumber = DEFAULT_GST_RATE
   const gstAmount = gstOnBase(baseNumber, gstRateNumber)
   const tdsAmount = calcVendorInvoiceTdsAmount(baseNumber, tdsRate)
-
-  const expenseDeductions = useMemo(() => {
-    let total = 0
-    for (const id of selectedDeductionIds) {
-      total += deductionAmountById.get(id) ?? 0
-    }
-    return total
-  }, [selectedDeductionIds, deductionAmountById])
-
-  const expenseAdditions = useMemo(() => {
-    let total = 0
-    for (const id of selectedAdditionIds) {
-      total += additionAmountById.get(id) ?? 0
-    }
-    return total
-  }, [selectedAdditionIds, additionAmountById])
-
+  const expenseDeductions = 0
+  const expenseAdditions = 0
   const netPayable = calcVendorInvoiceNetPayable(
     baseNumber,
     expenseDeductions,
     tdsRate,
     expenseAdditions,
   )
-
-  useEffect(() => {
-    if (!open) return
-    void dispatch(fetchExpenses(projectId))
-  }, [open, dispatch, projectId])
 
   useEffect(() => {
     if (!open) {
@@ -331,8 +105,6 @@ export function AddVendorInvoiceDrawer({
       setDescription('')
       setDocumentUrl(undefined)
       setDocumentFileName(undefined)
-      setSelectedDeductionIds(new Set())
-      setSelectedAdditionIds(new Set())
       setTdsRate(DEFAULT_TDS_PERCENT)
       return
     }
@@ -344,8 +116,6 @@ export function AddVendorInvoiceDrawer({
       setDescription(existingInvoice.description ?? '')
       setDocumentUrl(existingInvoice.documentUrl)
       setDocumentFileName(existingInvoice.fileName)
-      setSelectedDeductionIds(new Set(existingInvoice.linkedExpenseIds ?? []))
-      setSelectedAdditionIds(new Set(existingInvoice.linkedAdditionExpenseIds ?? []))
       setTdsRate(existingInvoice.tdsRate)
       return
     }
@@ -363,24 +133,6 @@ export function AddVendorInvoiceDrawer({
       setBaseAmount(String(vm.value))
     }
   }, [open, existingInvoice, lockedMilestone, selectedMilestoneId, milestones])
-
-  function toggleDeduction(expenseId: string, checked: boolean) {
-    setSelectedDeductionIds((prev) => {
-      const next = new Set(prev)
-      if (checked) next.add(expenseId)
-      else next.delete(expenseId)
-      return next
-    })
-  }
-
-  function toggleAddition(expenseId: string, checked: boolean) {
-    setSelectedAdditionIds((prev) => {
-      const next = new Set(prev)
-      if (checked) next.add(expenseId)
-      else next.delete(expenseId)
-      return next
-    })
-  }
 
   async function handleSubmit() {
     if (!context || milestones.length === 0) {
@@ -402,7 +154,7 @@ export function AddVendorInvoiceDrawer({
       return
     }
     if (netPayable < 0) {
-      toast.error('Expense deductions cannot exceed invoice amount plus additions')
+      toast.error('Net payable cannot be negative')
       return
     }
     try {
@@ -421,9 +173,9 @@ export function AddVendorInvoiceDrawer({
         gstAmount,
         tdsRate,
         tdsAmount,
-        linkedExpenseIds: [...selectedDeductionIds],
+        linkedExpenseIds: [] as string[],
         expenseDeductions,
-        linkedAdditionExpenseIds: [...selectedAdditionIds],
+        linkedAdditionExpenseIds: [] as string[],
         expenseAdditions,
         netPayable,
         status: existingInvoice?.status ?? 'pending',
@@ -458,7 +210,6 @@ export function AddVendorInvoiceDrawer({
 
   const resolvedVm = lockedMilestone ?? milestones.find((m) => m.id === selectedMilestoneId)
   const submitDisabled = saving || !context || milestones.length === 0 || !resolvedVm
-  const showExpenseAdditions = additionOptions.length > 0
 
   return (
     <DrawerForm
@@ -581,87 +332,6 @@ export function AddVendorInvoiceDrawer({
           }}
         />
       </FormSection>
-
-      {showExpenseAdditions ? (
-        <FormSection title="Expense Addition" columns={additionOptions.length > 1 ? 2 : 1}>
-          <Box sx={{ gridColumn: '1 / -1' }}>
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1, fontSize: 11 }}>
-              Reimburse common expenses this vendor paid on behalf of the project.
-            </Typography>
-          </Box>
-          <ExpenseCheckboxCards
-            options={additionOptions}
-            selectedIds={selectedAdditionIds}
-            onToggle={toggleAddition}
-            emptyMessage="No common expenses paid by this vendor."
-          />
-        </FormSection>
-      ) : null}
-
-      <FormSection title="Expense Deductions" columns={deductionOptions.length > 1 ? 2 : 1}>
-        <Box sx={{ gridColumn: '1 / -1' }}>
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1, fontSize: 11 }}>
-            Common expense shares use the original PO ratio. Unallocated vendors are not deducted.
-          </Typography>
-        </Box>
-        <ExpenseCheckboxCards
-          options={deductionOptions}
-          selectedIds={selectedDeductionIds}
-          onToggle={toggleDeduction}
-          emptyMessage="No pending expenses available for deduction."
-        />
-      </FormSection>
-
-      <Divider sx={{ my: 1 }} />
-
-      <Box
-        sx={{
-          p: 1.5,
-          borderRadius: 1,
-          bgcolor: 'background.default',
-          border: '1px solid',
-          borderColor: 'divider',
-        }}
-      >
-        <Typography variant="overline" sx={{ fontSize: 10, letterSpacing: 0.6, display: 'block', mb: 1 }}>
-          Payment Summary
-        </Typography>
-        <Stack gap={0.5}>
-          <Stack direction="row" justifyContent="space-between">
-            <Typography variant="body2" sx={{ fontSize: 12 }}>Invoice Amount</Typography>
-            <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600 }}>
-              ₹{formatCurrency(baseNumber)}
-            </Typography>
-          </Stack>
-          <Stack direction="row" justifyContent="space-between">
-            <Typography variant="body2" sx={{ fontSize: 12 }}>Expense Addition</Typography>
-            <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600 }}>
-              + ₹{formatCurrency(expenseAdditions)}
-            </Typography>
-          </Stack>
-          <Stack direction="row" justifyContent="space-between">
-            <Typography variant="body2" sx={{ fontSize: 12 }}>Expense Deductions</Typography>
-            <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600 }}>
-              − ₹{formatCurrency(expenseDeductions)}
-            </Typography>
-          </Stack>
-          <Stack direction="row" justifyContent="space-between">
-            <Typography variant="body2" sx={{ fontSize: 12 }}>
-              TDS ({tdsRate}%)
-            </Typography>
-            <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600 }}>
-              − ₹{formatCurrency(tdsAmount)}
-            </Typography>
-          </Stack>
-          <Divider sx={{ my: 0.5 }} />
-          <Stack direction="row" justifyContent="space-between">
-            <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 700 }}>Net Payable</Typography>
-            <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 700, color: 'primary.main' }}>
-              ₹{formatCurrency(netPayable)}
-            </Typography>
-          </Stack>
-        </Stack>
-      </Box>
     </DrawerForm>
   )
 }

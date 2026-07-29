@@ -1,0 +1,150 @@
+/** Shared location options for project / entity address forms. */
+
+export const INDIAN_STATES = [
+  'Andhra Pradesh',
+  'Arunachal Pradesh',
+  'Assam',
+  'Bihar',
+  'Chhattisgarh',
+  'Goa',
+  'Gujarat',
+  'Haryana',
+  'Himachal Pradesh',
+  'Jharkhand',
+  'Karnataka',
+  'Kerala',
+  'Madhya Pradesh',
+  'Maharashtra',
+  'Manipur',
+  'Meghalaya',
+  'Mizoram',
+  'Nagaland',
+  'Odisha',
+  'Punjab',
+  'Rajasthan',
+  'Sikkim',
+  'Tamil Nadu',
+  'Telangana',
+  'Tripura',
+  'Uttar Pradesh',
+  'Uttarakhand',
+  'West Bengal',
+  'Andaman and Nicobar Islands',
+  'Chandigarh',
+  'Dadra and Nagar Haveli',
+  'Daman and Diu',
+  'Delhi',
+  'Jammu and Kashmir',
+  'Ladakh',
+  'Lakshadweep',
+  'Puducherry',
+] as const
+
+/** Common Indian cities for searchable City dropdowns. */
+export const INDIAN_CITIES = [
+  'Agra',
+  'Ahmedabad',
+  'Ajmer',
+  'Aligarh',
+  'Allahabad',
+  'Amritsar',
+  'Aurangabad',
+  'Bangalore',
+  'Bareilly',
+  'Belgaum',
+  'Bhopal',
+  'Bhubaneswar',
+  'Bikaner',
+  'Chandigarh',
+  'Chennai',
+  'Coimbatore',
+  'Cuttack',
+  'Dehradun',
+  'Delhi',
+  'Dhanbad',
+  'Faridabad',
+  'Gandhinagar',
+  'Ghaziabad',
+  'Goa',
+  'Gorakhpur',
+  'Gurgaon',
+  'Guwahati',
+  'Gwalior',
+  'Hubli',
+  'Hyderabad',
+  'Indore',
+  'Jabalpur',
+  'Jaipur',
+  'Jalandhar',
+  'Jammu',
+  'Jamshedpur',
+  'Jodhpur',
+  'Kanpur',
+  'Kochi',
+  'Kolhapur',
+  'Kolkata',
+  'Kota',
+  'Lucknow',
+  'Ludhiana',
+  'Madurai',
+  'Mangalore',
+  'Meerut',
+  'Mumbai',
+  'Mysore',
+  'Nagpur',
+  'Nashik',
+  'Navi Mumbai',
+  'Noida',
+  'Patna',
+  'Pondicherry',
+  'Pune',
+  'Raipur',
+  'Rajkot',
+  'Ranchi',
+  'Salem',
+  'Shimla',
+  'Srinagar',
+  'Surat',
+  'Thane',
+  'Thiruvananthapuram',
+  'Tiruchirappalli',
+  'Udaipur',
+  'Vadodara',
+  'Varanasi',
+  'Vijayawada',
+  'Visakhapatnam',
+  'Warangal',
+] as const
+
+export const COUNTRIES = [
+  'India',
+  'United Arab Emirates',
+  'United States',
+  'United Kingdom',
+  'Singapore',
+  'Australia',
+  'Canada',
+  'Germany',
+  'France',
+  'Japan',
+  'China',
+  'Other',
+] as const
+
+export function formatAddressLine(parts: {
+  address?: string | null
+  city?: string | null
+  state?: string | null
+  pincode?: string | null
+  country?: string | null
+}): string {
+  return [parts.address, parts.city, parts.state, parts.pincode, parts.country]
+    .map((p) => p?.trim())
+    .filter(Boolean)
+    .join(', ')
+}
+
+/** Keep digits only for PIN / postal code inputs. */
+export function digitsOnly(value: string): string {
+  return value.replace(/\D/g, '')
+}

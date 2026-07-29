@@ -78,6 +78,11 @@ export interface ProjectSetupWizardFields {
   upsCapacity: string
   receptionDetails: string
   pantryDetails: string
+  workstations?: string
+  cabins?: string
+  meetingRooms?: string
+  services?: string
+  supportFunction?: string
 }
 
 export interface ProjectSetupFieldErrors {
@@ -103,6 +108,15 @@ function parseOptionalText(raw: string): string | null {
   return trimmed || null
 }
 
+/** Treat empty rich-text HTML (e.g. `<p></p>`) as unset. */
+function parseOptionalHtml(raw: string): string | null {
+  const trimmed = raw.trim()
+  if (!trimmed) return null
+  const textOnly = trimmed.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim()
+  if (!textOnly) return null
+  return trimmed
+}
+
 export function validateProjectSetupFields(
   fields: ProjectSetupWizardFields,
 ): ProjectSetupFieldErrors {
@@ -117,14 +131,27 @@ export function validateProjectSetupFields(
 }
 
 export function buildProjectSetupPayload(fields: ProjectSetupWizardFields) {
+  const meetingRoomsHtml = parseOptionalHtml(fields.meetingRooms ?? '')
+  const meetingRoomsPlain = meetingRoomsHtml
+    ? meetingRoomsHtml.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim()
+    : ''
+  const meetingRoomCountFromDetails =
+    parseOptionalWholeNumber(meetingRoomsPlain) ??
+    parseOptionalWholeNumber(fields.meetingRoomCount)
+
   return {
     headcount: parseOptionalWholeNumber(fields.headcount),
     workstationSize: parseOptionalText(fields.workstationSize),
-    meetingRoomCount: parseOptionalWholeNumber(fields.meetingRoomCount),
+    meetingRoomCount: meetingRoomCountFromDetails,
     serverRoomDetails: parseOptionalText(fields.serverRoomDetails),
     upsCapacity: parseOptionalText(fields.upsCapacity),
     receptionDetails: parseOptionalText(fields.receptionDetails),
     pantryDetails: parseOptionalText(fields.pantryDetails),
+    workstations: parseOptionalHtml(fields.workstations ?? ''),
+    cabins: parseOptionalHtml(fields.cabins ?? ''),
+    meetingRooms: meetingRoomsHtml,
+    services: parseOptionalHtml(fields.services ?? ''),
+    supportFunction: parseOptionalHtml(fields.supportFunction ?? ''),
   }
 }
 

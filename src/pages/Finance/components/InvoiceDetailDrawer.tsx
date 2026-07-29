@@ -21,6 +21,8 @@ import { fetchInvoiceById } from '@/slices/receivables/thunk'
 import type { Invoice } from '@/slices/receivables/reducer'
 import { InvoiceLineItems } from './InvoiceLineItems'
 import { tokens } from '@/design-system/tokens'
+import { formatInr } from '@/utils/formatters'
+import { rollupsFromLineItems } from '@/pages/Projects/tabs/live/clientInvoiceUtils'
 import { mapInvoiceStatus } from '../BillingsPage'
 
 export function invoiceStatusToBadgeType(status: Invoice['status']): StatusType {
@@ -34,7 +36,7 @@ export interface InvoiceDetailDrawerProps {
   invoiceId: string | null
   onEdit: (inv: Invoice) => void
   onRecordPayment: (inv: Invoice) => void
-  onSend: (inv: Invoice) => void
+  onConvertTax: (inv: Invoice) => void
   onDownloadPdf: (inv: Invoice) => void
 }
 
@@ -44,7 +46,7 @@ export function InvoiceDetailDrawer({
   invoiceId,
   onEdit,
   onRecordPayment,
-  onSend,
+  onConvertTax,
   onDownloadPdf,
 }: InvoiceDetailDrawerProps) {
   const dispatch = useAppDispatch()
@@ -75,23 +77,41 @@ export function InvoiceDetailDrawer({
   const inv = invoice
   const canEdit = inv?.status === 'draft'
   const canPay = inv && inv.status !== 'paid' && inv.status !== 'draft'
-  const canSend = inv?.status === 'draft'
+  const canConvertTax = inv?.status === 'draft'
+  const showFooter = Boolean(inv && (canEdit || canConvertTax))
+  const taxRoll = inv
+    ? rollupsFromLineItems(
+        inv.lineItems.map((l) => ({
+          id: l.id,
+          serviceId: l.serviceId,
+          serviceName: l.serviceName,
+          sacCode: l.sacCode,
+          amount: l.amount,
+          labourCessRate: l.labourCessRate,
+          labourCessAmount: l.labourCessAmount,
+          taxableAmount: l.taxableAmount,
+          gstRate: l.gstRate,
+          gstAmount: l.gstAmount,
+        })),
+      )
+    : null
+  const labourCessPctLabel =
+    taxRoll?.labourCessRatePercent == null
+      ? '—'
+      : `${Number.isInteger(taxRoll.labourCessRatePercent) ? taxRoll.labourCessRatePercent : taxRoll.labourCessRatePercent.toFixed(2)}%`
 
-  const footerBar = inv ? (
+  const footerBar = showFooter && inv ? (
     <Stack direction="row" justifyContent="flex-end" gap={1} sx={{ px: '20px', py: '14px' }}>
       {canEdit ? (
         <Button variant="outlined" size="sm" onClick={() => onEdit(inv)}>
           Edit
         </Button>
       ) : null}
-      {canSend ? (
-        <Button variant="soft" size="sm" color="primary" onClick={() => onSend(inv)}>
-          Send
+      {canConvertTax ? (
+        <Button variant="contained" size="sm" color="primary" onClick={() => onConvertTax(inv)}>
+          Convert to tax Invoice
         </Button>
       ) : null}
-      <Button variant="outlined" size="sm" onClick={() => onDownloadPdf(inv)}>
-        Download Invoice
-      </Button>
     </Stack>
   ) : null
 
@@ -102,7 +122,7 @@ export function InvoiceDetailDrawer({
       title="Invoice"
       subtitle={inv?.clientName}
       width={560}
-      hideFooter={!inv}
+      hideFooter={!showFooter}
       footer={footerBar ?? undefined}
     >
       {detailLoading && !inv ? (
@@ -116,6 +136,9 @@ export function InvoiceDetailDrawer({
               </Typography>
               <StatusBadge status={invoiceStatusToBadgeType(inv.status)} />
             </Stack>
+            <Button variant="outlined" size="sm" onClick={() => onDownloadPdf(inv)}>
+              Download Invoice
+            </Button>
           </Stack>
 
           <FormSection title="Invoice details">
@@ -156,7 +179,13 @@ export function InvoiceDetailDrawer({
           </FormSection>
 
           <FormSection title="Line items">
-            <InvoiceLineItems mode="read" lines={inv.lineItems} services={services} sacCodes={sacCodes} />
+            <InvoiceLineItems
+              mode="read"
+              lines={inv.lineItems}
+              services={services}
+              sacCodes={sacCodes}
+              showLabourCessColumn
+            />
           </FormSection>
 
           <Box
@@ -167,26 +196,48 @@ export function InvoiceDetailDrawer({
             }}
           >
             <Stack spacing={0.75}>
-              <Stack direction="row" justifyContent="space-between">
-                <Typography variant="body2" color="text.secondary">
-                  Base amount
-                </Typography>
-                <Typography variant="body2">₹{inv.baseAmount.toLocaleString('en-IN')}</Typography>
-              </Stack>
-              <Stack direction="row" justifyContent="space-between">
-                <Typography variant="body2" color="text.secondary">
-                  + GST
-                </Typography>
-                <Typography variant="body2">₹{inv.gstAmount.toLocaleString('en-IN')}</Typography>
-              </Stack>
-              <Stack direction="row" justifyContent="space-between">
-                <Typography variant="body2" fontWeight={700}>
-                  Invoice total
-                </Typography>
-                <Typography variant="body2" fontWeight={700}>
-                  ₹{inv.totalAmount.toLocaleString('en-IN')}
-                </Typography>
-              </Stack>
+              {taxRoll ? (
+                <>
+                  <Stack direction="row" justifyContent="space-between">
+                    <Typography variant="body2" color="text.secondary">
+                      Base amount
+                    </Typography>
+                    <Typography variant="body2">₹{formatInr(taxRoll.baseAmount)}</Typography>
+                  </Stack>
+                  <Stack direction="row" justifyContent="space-between">
+                    <Typography variant="body2" color="text.secondary">
+                      Labour cess (%)
+                    </Typography>
+                    <Typography variant="body2">{labourCessPctLabel}</Typography>
+                  </Stack>
+                  <Stack direction="row" justifyContent="space-between">
+                    <Typography variant="body2" color="text.secondary">
+                      Labour cess amount
+                    </Typography>
+                    <Typography variant="body2">₹{formatInr(taxRoll.labourCessAmount)}</Typography>
+                  </Stack>
+                  <Stack direction="row" justifyContent="space-between">
+                    <Typography variant="body2" color="text.secondary">
+                      Taxable amount
+                    </Typography>
+                    <Typography variant="body2">₹{formatInr(taxRoll.taxableAmount)}</Typography>
+                  </Stack>
+                  <Stack direction="row" justifyContent="space-between">
+                    <Typography variant="body2" color="text.secondary">
+                      GST amount
+                    </Typography>
+                    <Typography variant="body2">₹{formatInr(taxRoll.gstAmount)}</Typography>
+                  </Stack>
+                  <Stack direction="row" justifyContent="space-between">
+                    <Typography variant="body2" fontWeight={700}>
+                      Final invoice amount
+                    </Typography>
+                    <Typography variant="body2" fontWeight={700}>
+                      ₹{formatInr(taxRoll.grossAmount)}
+                    </Typography>
+                  </Stack>
+                </>
+              ) : null}
               <Box sx={{ borderTop: `1px solid ${tokens.color.neutral[200]}`, my: 0.5 }} />
               <Stack direction="row" justifyContent="space-between">
                 <Typography variant="body2" color="text.secondary">

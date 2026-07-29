@@ -390,7 +390,7 @@ export let expenses: Expense[] = [
     id: 'EXP-001',
     projectId: 'p-001',
     projectName: P001_NAME,
-    type: 'additional',
+    type: 'office_expenses',
     description: 'Office supplies',
     amount: 5000,
     date: '2024-02-01',

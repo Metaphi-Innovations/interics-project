@@ -23,6 +23,18 @@ import {
   createService,
   updateService,
   toggleServiceStatus,
+  fetchStatuses,
+  createStatus,
+  updateStatus,
+  toggleStatusMaster,
+  fetchSectors,
+  createSector,
+  updateSector,
+  toggleSectorStatus,
+  fetchRatings,
+  createRating,
+  updateRating,
+  toggleRatingStatus,
   fetchNumberingSchemes,
   updateNumberingSchemes,
   fetchSystemDefaults,
@@ -75,6 +87,24 @@ export interface Service {
   status: 'active' | 'inactive'
 }
 
+export interface StatusMaster {
+  id: string
+  name: string
+  status: 'active' | 'inactive'
+}
+
+export interface SectorMaster {
+  id: string
+  name: string
+  status: 'active' | 'inactive'
+}
+
+export interface RatingMaster {
+  id: string
+  name: string
+  status: 'active' | 'inactive'
+}
+
 export interface CompanyProfile {
   companyName: string
   gstin: string
@@ -120,6 +150,9 @@ interface SettingsState {
   sacCodes: SACCode[]
   categories: Category[]
   services: Service[]
+  statuses: StatusMaster[]
+  sectors: SectorMaster[]
+  ratings: RatingMaster[]
   loading: boolean
   saving: boolean
 }
@@ -163,6 +196,9 @@ const initialState: SettingsState = {
   sacCodes: [],
   categories: [],
   services: [],
+  statuses: [],
+  sectors: [],
+  ratings: [],
   loading: false,
   saving: false,
 }
@@ -315,6 +351,84 @@ const settingsSlice = createSlice({
       .addCase(toggleServiceStatus.fulfilled, (state, action: PayloadAction<Service>) => {
         const idx = state.services.findIndex(r => r.id === action.payload.id)
         if (idx !== -1) state.services[idx] = action.payload
+      })
+
+    // Status Master
+    builder
+      .addCase(fetchStatuses.pending, (state) => { state.loading = true })
+      .addCase(fetchStatuses.fulfilled, (state, action: PayloadAction<StatusMaster[]>) => {
+        state.loading = false
+        state.statuses = action.payload
+      })
+      .addCase(fetchStatuses.rejected, (state) => { state.loading = false })
+      .addCase(createStatus.pending, (state) => { state.saving = true })
+      .addCase(createStatus.fulfilled, (state, action: PayloadAction<StatusMaster>) => {
+        state.saving = false
+        state.statuses.push(action.payload)
+      })
+      .addCase(createStatus.rejected, (state) => { state.saving = false })
+      .addCase(updateStatus.pending, (state) => { state.saving = true })
+      .addCase(updateStatus.fulfilled, (state, action: PayloadAction<StatusMaster>) => {
+        state.saving = false
+        const idx = state.statuses.findIndex(r => r.id === action.payload.id)
+        if (idx !== -1) state.statuses[idx] = action.payload
+      })
+      .addCase(updateStatus.rejected, (state) => { state.saving = false })
+      .addCase(toggleStatusMaster.fulfilled, (state, action: PayloadAction<StatusMaster>) => {
+        const idx = state.statuses.findIndex(r => r.id === action.payload.id)
+        if (idx !== -1) state.statuses[idx] = action.payload
+      })
+
+    // Sector Master
+    builder
+      .addCase(fetchSectors.pending, (state) => { state.loading = true })
+      .addCase(fetchSectors.fulfilled, (state, action: PayloadAction<SectorMaster[]>) => {
+        state.loading = false
+        state.sectors = action.payload
+      })
+      .addCase(fetchSectors.rejected, (state) => { state.loading = false })
+      .addCase(createSector.pending, (state) => { state.saving = true })
+      .addCase(createSector.fulfilled, (state, action: PayloadAction<SectorMaster>) => {
+        state.saving = false
+        state.sectors.push(action.payload)
+      })
+      .addCase(createSector.rejected, (state) => { state.saving = false })
+      .addCase(updateSector.pending, (state) => { state.saving = true })
+      .addCase(updateSector.fulfilled, (state, action: PayloadAction<SectorMaster>) => {
+        state.saving = false
+        const idx = state.sectors.findIndex(r => r.id === action.payload.id)
+        if (idx !== -1) state.sectors[idx] = action.payload
+      })
+      .addCase(updateSector.rejected, (state) => { state.saving = false })
+      .addCase(toggleSectorStatus.fulfilled, (state, action: PayloadAction<SectorMaster>) => {
+        const idx = state.sectors.findIndex(r => r.id === action.payload.id)
+        if (idx !== -1) state.sectors[idx] = action.payload
+      })
+
+    // Rating Master
+    builder
+      .addCase(fetchRatings.pending, (state) => { state.loading = true })
+      .addCase(fetchRatings.fulfilled, (state, action: PayloadAction<RatingMaster[]>) => {
+        state.loading = false
+        state.ratings = action.payload
+      })
+      .addCase(fetchRatings.rejected, (state) => { state.loading = false })
+      .addCase(createRating.pending, (state) => { state.saving = true })
+      .addCase(createRating.fulfilled, (state, action: PayloadAction<RatingMaster>) => {
+        state.saving = false
+        state.ratings.push(action.payload)
+      })
+      .addCase(createRating.rejected, (state) => { state.saving = false })
+      .addCase(updateRating.pending, (state) => { state.saving = true })
+      .addCase(updateRating.fulfilled, (state, action: PayloadAction<RatingMaster>) => {
+        state.saving = false
+        const idx = state.ratings.findIndex(r => r.id === action.payload.id)
+        if (idx !== -1) state.ratings[idx] = action.payload
+      })
+      .addCase(updateRating.rejected, (state) => { state.saving = false })
+      .addCase(toggleRatingStatus.fulfilled, (state, action: PayloadAction<RatingMaster>) => {
+        const idx = state.ratings.findIndex(r => r.id === action.payload.id)
+        if (idx !== -1) state.ratings[idx] = action.payload
       })
 
     // Numbering Schemes

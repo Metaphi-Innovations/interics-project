@@ -10,6 +10,7 @@ import {
   updateVendor,
   deleteVendor,
   createVendorContact,
+  updateVendorContact,
   createPendingVendor,
 } from './thunk'
 
@@ -110,8 +111,8 @@ export interface Vendor {
   status: 'Active' | 'Inactive'
   /** When pending, only basic contact fields are captured until the vendor profile is completed. */
   profileStatus?: 'pending' | 'complete'
-  /** Performance rating on a 0–5 scale; null when not yet rated. */
-  rating: number | null
+  /** Vendor rating from Rating Master (e.g. Premium); null when not yet rated. */
+  rating: string | null
   activeProjects: number
   totalPayables: number
   createdAt: string
@@ -274,6 +275,27 @@ const vendorsSlice = createSlice({
             ? vendor.contacts
             : getVendorContactsList(vendor)
           state.selectedItem = { ...vendor, contacts: [...baseContacts, contact] }
+        }
+      })
+      .addCase(updateVendorContact.fulfilled, (state, action) => {
+        const { vendorId, contact } = action.payload
+        const patchContacts = (contacts: Contact[]) =>
+          contacts.map((c) => (c.id === contact.id ? contact : c))
+
+        const idx = state.items.findIndex((v) => v.id === vendorId)
+        if (idx !== -1) {
+          const vendor = state.items[idx]
+          const baseContacts = vendor.contacts?.length
+            ? vendor.contacts
+            : getVendorContactsList(vendor)
+          state.items[idx] = { ...vendor, contacts: patchContacts(baseContacts) }
+        }
+        if (state.selectedItem?.id === vendorId) {
+          const vendor = state.selectedItem
+          const baseContacts = vendor.contacts?.length
+            ? vendor.contacts
+            : getVendorContactsList(vendor)
+          state.selectedItem = { ...vendor, contacts: patchContacts(baseContacts) }
         }
       })
       .addCase(createPendingVendor.pending, (state) => {

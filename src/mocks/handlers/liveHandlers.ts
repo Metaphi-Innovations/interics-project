@@ -19,22 +19,6 @@ import {
 } from '@/mocks/liveFinanceMockState'
 import { nextExpenseStatusAfterInvoiceLink } from '@/utils/commonExpensePayables'
 
-function findPayableControl(
-  projectId: string,
-  vendorId: string,
-  serviceId: string,
-): VendorPayableControl | undefined {
-  return vendorPayableControls.find(
-    (c) => c.projectId === projectId && c.vendorId === vendorId && c.serviceId === serviceId,
-  )
-}
-
-function isPayableReleaseAllowed(projectId: string, vendorId: string, serviceId: string): boolean {
-  const ctrl = findPayableControl(projectId, vendorId, serviceId)
-  if (!ctrl) return false
-  return ctrl.clientPaymentReceived && ctrl.vendorComplianceStatus === 'complete'
-}
-
 // ─── Handlers ─────────────────────────────────────────────────────────────────
 // Client invoices: use global GET/POST /api/invoices (receivablesHandlers).
 
@@ -155,26 +139,21 @@ export const liveHandlers = [
   http.post('/api/projects/:id/payments', async ({ params, request }) => {
     const id = params.id as string
     const body = await request.json() as Omit<VendorPayment, 'id' | 'projectId'>
-    const firstInv = body.linkedInvoiceIds.length
-      ? vendorInvoices.find((v) => v.id === body.linkedInvoiceIds[0])
-      : undefined
-    if (firstInv) {
-      if (!isPayableReleaseAllowed(firstInv.projectId, firstInv.vendorId, firstInv.serviceId)) {
-        return HttpResponse.json(
-          { message: 'Payment blocked until client payment is received and vendor compliance is complete.' },
-          { status: 400 },
-        )
-      }
-    }
     const newP: VendorPayment = {
       id: nextPaymentId(),
       projectId: id,
       ...body,
     }
     payments.push(newP)
+    const invoiceStatus =
+      newP.status === 'completed'
+        ? 'paid'
+        : newP.status === 'partial'
+          ? 'partially_paid'
+          : 'not_paid'
     for (const invId of newP.linkedInvoiceIds) {
       const vi = vendorInvoices.find((v) => v.id === invId)
-      if (vi) vi.status = 'paid'
+      if (vi) vi.status = invoiceStatus
     }
     for (const expId of newP.linkedExpenseIds) {
       const ex = expenses.find((e) => e.id === expId)

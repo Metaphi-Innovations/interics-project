@@ -14,6 +14,7 @@ import { Add, Delete } from '@mui/icons-material'
 import { useTheme, alpha } from '@mui/material/styles'
 import { tokens } from '@/design-system/tokens'
 import { READONLY_DISABLED_TEXTFIELD_SX } from './readOnlyFieldStyles'
+import type { MilestonePaymentStatusLabel } from './milestonePaymentStatus'
 import { VENDOR_MILESTONE_PCT_EPS, validateVendorMilestonePercents } from '@/utils/vendorMilestones'
 import type { VendorMapping, VendorMilestone } from '@/slices/pitch/reducer'
 
@@ -38,32 +39,28 @@ export interface VendorPORetentionRow {
   amount: number
 }
 
-export interface VendorPOFinalMilestoneRow {
-  name: string
-  percentage: number
-  amount: number
-}
-
 interface VendorPOMilestoneEditorProps {
   poValue: number
   milestones: VendorPOMilestoneRow[]
   retention: VendorPORetentionRow | null
-  finalMilestone: VendorPOFinalMilestoneRow | null
   onMilestonesChange: (next: VendorPOMilestoneRow[]) => void
   onRetentionChange: (next: VendorPORetentionRow | null) => void
-  onFinalMilestoneChange: (next: VendorPOFinalMilestoneRow | null) => void
   /** Lighter styling when nested inside a service card. */
   embedded?: boolean
-  /** When true, only render the regular milestones table (no final / retention). */
+  /** When true, only render the regular milestones table (no retention). */
   regularOnly?: boolean
-  /** Embedded card: milestones table plus aligned retention row (no final milestone). */
+  /** Embedded card: milestones table plus aligned retention row. */
   cardWithRetention?: boolean
-  /** Lock structure and percentages; values still reflect props (e.g. executed-value preview). */
+  /** Lock structure and all fields (preview / read-only mode). */
   readOnly?: boolean
+  /**
+   * Lock names and add/remove controls, but allow editing % / value
+   * for unpaid milestones (e.g. Update Executed Value).
+   */
+  structureLocked?: boolean
   /** Optional payment status per milestone row id (regular rows only). */
-  milestoneStatuses?: Record<string, import('./milestonePaymentStatus').MilestonePaymentStatusLabel>
-  retentionStatus?: import('./milestonePaymentStatus').MilestonePaymentStatusLabel
-  finalMilestoneStatus?: import('./milestonePaymentStatus').MilestonePaymentStatusLabel
+  milestoneStatuses?: Record<string, MilestonePaymentStatusLabel>
+  retentionStatus?: MilestonePaymentStatusLabel
 }
 
 const GRID_COLUMNS = 'repeat(3, minmax(0, 1fr)) 28px'
@@ -131,7 +128,6 @@ function toValidationMapping(
   poValue: number,
   milestones: VendorPOMilestoneRow[],
   retention: VendorPORetentionRow | null,
-  finalMilestone: VendorPOFinalMilestoneRow | null,
 ): VendorMapping {
   return {
     id: 'po-temp',
@@ -148,13 +144,6 @@ function toValidationMapping(
       }),
     ),
     retention: retention ?? undefined,
-    finalMilestone: finalMilestone
-      ? {
-          name: finalMilestone.name,
-          percentage: finalMilestone.percentage,
-          amount: finalMilestone.amount,
-        }
-      : undefined,
     isMeasurable: false,
   }
 }
@@ -281,23 +270,21 @@ export function VendorPOMilestoneEditor({
   poValue,
   milestones,
   retention,
-  finalMilestone,
   onMilestonesChange,
   onRetentionChange,
-  onFinalMilestoneChange,
   embedded = false,
   regularOnly = false,
   cardWithRetention = false,
   readOnly = false,
+  structureLocked = false,
   milestoneStatuses,
   retentionStatus,
-  finalMilestoneStatus: _finalMilestoneStatus,
 }: VendorPOMilestoneEditorProps) {
   const theme = useTheme()
   const isCardMilestoneList = embedded && (regularOnly || cardWithRetention)
-  const showStandaloneFinalRetention = !regularOnly && !cardWithRetention
+  const showStandaloneRetention = !regularOnly && !cardWithRetention
   const validation = validateVendorMilestonePercents(
-    toValidationMapping(poValue, milestones, retention, cardWithRetention ? null : finalMilestone),
+    toValidationMapping(poValue, milestones, retention),
   )
   const totalPct = regularOnly
     ? milestones.reduce((sum, m) => sum + m.percentage, 0)
@@ -309,36 +296,58 @@ export function VendorPOMilestoneEditor({
     ? milestones.length > 0
     : cardWithRetention
       ? milestones.length > 0 || Boolean(retention)
-      : milestones.length > 0 || Boolean(retention) || Boolean(finalMilestone)
-  const showActionColumn = !readOnly && isCardMilestoneList && milestones.length > 1
+      : milestones.length > 0 || Boolean(retention)
+  const lockStructure = readOnly || structureLocked
+  const showActionColumn = !lockStructure && isCardMilestoneList && milestones.length > 1
   const showRetentionActionColumn =
-    !readOnly && (showActionColumn || (cardWithRetention && Boolean(retention)))
+    !lockStructure && (showActionColumn || (cardWithRetention && Boolean(retention)))
   const showStatusColumn = milestoneStatuses !== undefined
-  const standaloneGridColumns = readOnly ? 'repeat(3, minmax(0, 1fr))' : GRID_COLUMNS
+  const standaloneGridColumns = lockStructure ? 'repeat(3, minmax(0, 1fr))' : GRID_COLUMNS
+
+  function isMilestonePaid(id: string): boolean {
+    return milestoneStatuses?.[id] === 'Paid'
+  }
+
+  function isRetentionPaid(): boolean {
+    return retentionStatus === 'Paid'
+  }
+
+  function isMilestoneFieldDisabled(id: string): boolean {
+    return readOnly || isMilestonePaid(id)
+  }
+
+  function isRetentionFieldDisabled(): boolean {
+    return readOnly || isRetentionPaid()
+  }
 
   function updateMilestone(idx: number, field: keyof VendorPOMilestoneRow, val: string | number) {
-    if (readOnly) return
+    const row = milestones[idx]
+    if (!row) return
+    if (readOnly || isMilestonePaid(row.id)) return
+    if (lockStructure && field === 'name') return
     const next = milestones.map((m, i) => {
       if (i !== idx) return m
-      const row = { ...m, [field]: val }
+      const updated = { ...m, [field]: val }
       if (field === 'percentage') {
-        row.value = calcValue(poValue, Number(val))
+        updated.value = calcValue(poValue, Number(val))
       } else if (field === 'value') {
-        row.percentage = calcPercentage(poValue, Number(val))
+        updated.percentage = calcPercentage(poValue, Number(val))
       }
-      return row
+      return updated
     })
     onMilestonesChange(next)
   }
 
   function addMilestone() {
-    if (readOnly) return
+    if (lockStructure) return
     onMilestonesChange([...milestones, createEmptyVendorPOMilestoneRow()])
   }
 
   function removeMilestone(idx: number) {
-    if (readOnly) return
+    if (lockStructure) return
     if (isCardMilestoneList && milestones.length <= 1) return
+    const row = milestones[idx]
+    if (row && isMilestonePaid(row.id)) return
     const next = milestones.filter((_, i) => i !== idx)
     onMilestonesChange(
       isCardMilestoneList && next.length === 0 ? [createEmptyVendorPOMilestoneRow()] : next,
@@ -346,7 +355,7 @@ export function VendorPOMilestoneEditor({
   }
 
   function updateRetention(field: 'percentage' | 'amount', val: number) {
-    if (readOnly || !retention) return
+    if (readOnly || !retention || isRetentionPaid()) return
     const next = { ...retention }
     if (field === 'percentage') {
       next.percentage = val
@@ -356,20 +365,6 @@ export function VendorPOMilestoneEditor({
       next.percentage = calcPercentage(poValue, val)
     }
     onRetentionChange(next)
-  }
-
-  function updateFinalMilestone(
-    field: keyof VendorPOFinalMilestoneRow,
-    val: string | number,
-  ) {
-    if (readOnly || !finalMilestone) return
-    const next = { ...finalMilestone, [field]: val }
-    if (field === 'percentage') {
-      next.amount = calcValue(poValue, Number(val))
-    } else if (field === 'amount') {
-      next.percentage = calcPercentage(poValue, Number(val))
-    }
-    onFinalMilestoneChange(next)
   }
 
   return (
@@ -400,6 +395,7 @@ export function VendorPOMilestoneEditor({
           />
           {milestones.map((m, idx) => {
             const isLast = idx === milestones.length - 1
+            const rowDisabled = isMilestoneFieldDisabled(m.id)
 
             return (
               <CardAlignedRow key={m.id}>
@@ -417,7 +413,7 @@ export function VendorPOMilestoneEditor({
                     value={m.name}
                     onChange={(e) => updateMilestone(idx, 'name', e.target.value)}
                     placeholder="Milestone name"
-                    disabled={readOnly}
+                    disabled={lockStructure || rowDisabled}
                     sx={MILESTONE_INPUT_SX}
                   />
                   <TextField
@@ -427,7 +423,7 @@ export function VendorPOMilestoneEditor({
                     value={m.percentage}
                     onChange={(e) => updateMilestone(idx, 'percentage', Number(e.target.value))}
                     placeholder="%"
-                    disabled={readOnly}
+                    disabled={rowDisabled}
                     sx={MILESTONE_INPUT_SX}
                   />
                   <TextField
@@ -437,7 +433,7 @@ export function VendorPOMilestoneEditor({
                     value={m.value}
                     onChange={(e) => updateMilestone(idx, 'value', Number(e.target.value))}
                     placeholder="₹ VALUE"
-                    disabled={readOnly}
+                    disabled={rowDisabled}
                     sx={MILESTONE_INPUT_SX}
                   />
                   {showStatusColumn ? (
@@ -459,6 +455,7 @@ export function VendorPOMilestoneEditor({
                           size="small"
                           aria-label="Remove milestone row"
                           onClick={() => removeMilestone(idx)}
+                          disabled={isMilestonePaid(m.id)}
                           sx={{ color: 'error.main', width: 28, height: 28, p: 0.25 }}
                         >
                           <Delete sx={{ fontSize: 16 }} />
@@ -476,7 +473,7 @@ export function VendorPOMilestoneEditor({
                 showActionColumn={showRetentionActionColumn}
                 showStatusColumn={showStatusColumn}
               />
-              {!readOnly && !retention ? (
+              {!lockStructure && !retention ? (
                 <CardAlignedRow>
                   <MuiButton
                     size="small"
@@ -521,7 +518,7 @@ export function VendorPOMilestoneEditor({
                       value={retention.percentage}
                       onChange={(e) => updateRetention('percentage', Number(e.target.value))}
                       placeholder="%"
-                      disabled={readOnly}
+                      disabled={isRetentionFieldDisabled()}
                       sx={MILESTONE_INPUT_SX}
                     />
                     <TextField
@@ -531,7 +528,7 @@ export function VendorPOMilestoneEditor({
                       value={retention.amount}
                       onChange={(e) => updateRetention('amount', Number(e.target.value))}
                       placeholder="₹ VALUE"
-                      disabled={readOnly}
+                      disabled={isRetentionFieldDisabled()}
                       sx={MILESTONE_INPUT_SX}
                     />
                     {showStatusColumn ? (
@@ -543,6 +540,7 @@ export function VendorPOMilestoneEditor({
                           size="small"
                           aria-label="Remove retention"
                           onClick={() => onRetentionChange(null)}
+                          disabled={isRetentionPaid()}
                           sx={{ color: 'error.main', width: 28, height: 28, p: 0.25 }}
                         >
                           <Delete sx={{ fontSize: 16 }} />
@@ -565,136 +563,60 @@ export function VendorPOMilestoneEditor({
             px: embedded ? 0 : 1,
           }}
         >
-          {milestones.map((m, idx) => (
-            <Fragment key={m.id}>
-              <TextField
-                size="small"
-                fullWidth
-                value={m.name}
-                onChange={(e) => updateMilestone(idx, 'name', e.target.value)}
-                placeholder="Milestone name"
-                disabled={readOnly}
-                sx={MILESTONE_INPUT_SX}
-              />
-              <TextField
-                size="small"
-                fullWidth
-                type="number"
-                value={m.percentage}
-                onChange={(e) => updateMilestone(idx, 'percentage', Number(e.target.value))}
-                placeholder="%"
-                disabled={readOnly}
-                sx={MILESTONE_INPUT_SX}
-              />
-              <TextField
-                size="small"
-                fullWidth
-                type="number"
-                value={m.value}
-                onChange={(e) => updateMilestone(idx, 'value', Number(e.target.value))}
-                placeholder="₹ VALUE"
-                disabled={readOnly}
-                sx={MILESTONE_INPUT_SX}
-              />
-              {!readOnly ? (
-                <Box sx={CARD_ACTION_CELL_SX}>
-                  <MuiIconButton
-                    size="small"
-                    aria-label="Remove milestone row"
-                    onClick={() => removeMilestone(idx)}
-                    sx={{ color: 'error.main', width: 28, height: 28, p: 0.25 }}
-                  >
-                    <Delete sx={{ fontSize: 16 }} />
-                  </MuiIconButton>
-                </Box>
-              ) : null}
-            </Fragment>
-          ))}
+          {milestones.map((m, idx) => {
+            const rowDisabled = isMilestoneFieldDisabled(m.id)
+            return (
+              <Fragment key={m.id}>
+                <TextField
+                  size="small"
+                  fullWidth
+                  value={m.name}
+                  onChange={(e) => updateMilestone(idx, 'name', e.target.value)}
+                  placeholder="Milestone name"
+                  disabled={lockStructure || rowDisabled}
+                  sx={MILESTONE_INPUT_SX}
+                />
+                <TextField
+                  size="small"
+                  fullWidth
+                  type="number"
+                  value={m.percentage}
+                  onChange={(e) => updateMilestone(idx, 'percentage', Number(e.target.value))}
+                  placeholder="%"
+                  disabled={rowDisabled}
+                  sx={MILESTONE_INPUT_SX}
+                />
+                <TextField
+                  size="small"
+                  fullWidth
+                  type="number"
+                  value={m.value}
+                  onChange={(e) => updateMilestone(idx, 'value', Number(e.target.value))}
+                  placeholder="₹ VALUE"
+                  disabled={rowDisabled}
+                  sx={MILESTONE_INPUT_SX}
+                />
+                {!lockStructure ? (
+                  <Box sx={CARD_ACTION_CELL_SX}>
+                    <MuiIconButton
+                      size="small"
+                      aria-label="Remove milestone row"
+                      onClick={() => removeMilestone(idx)}
+                      disabled={isMilestonePaid(m.id)}
+                      sx={{ color: 'error.main', width: 28, height: 28, p: 0.25 }}
+                    >
+                      <Delete sx={{ fontSize: 16 }} />
+                    </MuiIconButton>
+                  </Box>
+                ) : null}
+              </Fragment>
+            )
+          })}
         </Box>
       )}
 
-      {showStandaloneFinalRetention ? (
+      {showStandaloneRetention ? (
         <>
-      <Divider sx={{ my: 2 }} />
-
-      <Typography
-        variant="caption"
-        sx={{ fontSize: 10, fontWeight: 700, color: 'text.secondary', letterSpacing: 0.5, display: 'block', mb: 1 }}
-      >
-        FINAL MILESTONE
-      </Typography>
-
-      <Box
-        sx={{
-          borderRadius: 1,
-          p: 1.5,
-          bgcolor: alpha(theme.palette.text.primary, 0.04),
-          border: `1px solid ${alpha(theme.palette.divider, 0.8)}`,
-        }}
-      >
-        {!readOnly && !finalMilestone ? (
-          <Stack gap={1}>
-            <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12 }}>
-              No final milestone defined
-            </Typography>
-            <MuiButton
-              size="small"
-              variant="outlined"
-              startIcon={<Add sx={{ fontSize: 16 }} />}
-              onClick={() => onFinalMilestoneChange({ name: '', percentage: 0, amount: 0 })}
-              sx={{ fontSize: 12, alignSelf: 'flex-start' }}
-            >
-              Add Final Milestone
-            </MuiButton>
-          </Stack>
-        ) : finalMilestone ? (
-          <Box
-            sx={{
-              display: 'grid',
-              gridTemplateColumns: standaloneGridColumns,
-              gap: 1,
-              alignItems: 'center',
-            }}
-          >
-            <TextField
-              size="small"
-              value={finalMilestone.name}
-              onChange={(e) => updateFinalMilestone('name', e.target.value)}
-              placeholder="Milestone name"
-              disabled={readOnly}
-              sx={{ '& .MuiInputBase-input': { fontSize: 11 } }}
-            />
-            <TextField
-              size="small"
-              type="number"
-              value={finalMilestone.percentage}
-              onChange={(e) => updateFinalMilestone('percentage', Number(e.target.value))}
-              placeholder="%"
-              disabled={readOnly}
-              sx={{ '& .MuiInputBase-input': { fontSize: 11 } }}
-            />
-            <TextField
-              size="small"
-              type="number"
-              value={finalMilestone.amount}
-              onChange={(e) => updateFinalMilestone('amount', Number(e.target.value))}
-              placeholder="₹ VALUE"
-              disabled={readOnly}
-              sx={{ '& .MuiInputBase-input': { fontSize: 11 } }}
-            />
-            {!readOnly ? (
-              <MuiIconButton
-                size="small"
-                onClick={() => onFinalMilestoneChange(null)}
-                sx={{ color: 'error.main' }}
-              >
-                <Delete sx={{ fontSize: 16 }} />
-              </MuiIconButton>
-            ) : null}
-          </Box>
-        ) : null}
-      </Box>
-
       <Divider sx={{ my: 2 }} />
 
       <Typography
@@ -712,7 +634,7 @@ export function VendorPOMilestoneEditor({
           border: `1px solid ${alpha(theme.palette.divider, 0.8)}`,
         }}
       >
-        {!readOnly && !retention ? (
+        {!lockStructure && !retention ? (
           <Stack gap={1}>
             <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12 }}>
               No retention defined
@@ -748,7 +670,7 @@ export function VendorPOMilestoneEditor({
               value={retention.percentage}
               onChange={(e) => updateRetention('percentage', Number(e.target.value))}
               placeholder="%"
-              disabled={readOnly}
+              disabled={isRetentionFieldDisabled()}
               sx={{ '& .MuiInputBase-input': { fontSize: 11 } }}
             />
             <TextField
@@ -757,11 +679,16 @@ export function VendorPOMilestoneEditor({
               value={retention.amount}
               onChange={(e) => updateRetention('amount', Number(e.target.value))}
               placeholder="₹ VALUE"
-              disabled={readOnly}
+              disabled={isRetentionFieldDisabled()}
               sx={{ '& .MuiInputBase-input': { fontSize: 11 } }}
             />
-            {!readOnly ? (
-              <MuiIconButton size="small" onClick={() => onRetentionChange(null)} sx={{ color: 'error.main' }}>
+            {!lockStructure ? (
+              <MuiIconButton
+                size="small"
+                onClick={() => onRetentionChange(null)}
+                disabled={isRetentionPaid()}
+                sx={{ color: 'error.main' }}
+              >
                 <Delete sx={{ fontSize: 16 }} />
               </MuiIconButton>
             ) : null}
@@ -770,10 +697,10 @@ export function VendorPOMilestoneEditor({
       </Box>
 
       <Typography variant="caption" color="text.secondary" sx={{ fontSize: 10, display: 'block', mt: 1.5 }}>
-        Total of milestones, retention, and final milestone must equal 100%.
+        Total of milestones and retention must equal 100%.
       </Typography>
 
-      {!validation.valid && hasBreakdown && showStandaloneFinalRetention && (validation.pctMessage || validation.structureMessage) ? (
+      {!validation.valid && hasBreakdown && showStandaloneRetention && (validation.pctMessage || validation.structureMessage) ? (
         <Alert severity="error" sx={{ mt: 1, fontSize: 12 }}>
           {validation.structureMessage ?? validation.pctMessage}
         </Alert>
@@ -813,12 +740,10 @@ export function VendorPOMilestoneEditor({
 export function buildVendorPOMilestonePayload(
   milestones: VendorPOMilestoneRow[],
   retention: VendorPORetentionRow | null,
-  finalMilestone: VendorPOFinalMilestoneRow | null,
 ): import('@/slices/baseline/reducer').VendorPOMilestone[] {
   return buildVendorPOMilestonePayloadForUpdate(
     milestones,
     retention,
-    finalMilestone,
     [],
   )
 }
@@ -828,11 +753,9 @@ export function vendorPOMilestoneEditorStateFromPo(
 ): {
   milestones: VendorPOMilestoneRow[]
   retention: VendorPORetentionRow | null
-  finalMilestone: VendorPOFinalMilestoneRow | null
 } {
   const milestones: VendorPOMilestoneRow[] = []
   let retention: VendorPORetentionRow | null = null
-  let finalMilestone: VendorPOFinalMilestoneRow | null = null
 
   for (const m of po.milestones) {
     const kind = m.kind ?? (m.name.trim().toLowerCase() === 'retention' ? 'retention' : 'regular')
@@ -840,14 +763,7 @@ export function vendorPOMilestoneEditorStateFromPo(
       retention = { percentage: m.percentage, amount: m.value }
       continue
     }
-    if (kind === 'final') {
-      finalMilestone = {
-        name: m.name,
-        percentage: m.percentage,
-        amount: m.value,
-      }
-      continue
-    }
+    // Legacy kind === 'final' (and any other non-retention) → regular milestone.
     milestones.push({
       id: m.id,
       name: m.name,
@@ -856,20 +772,18 @@ export function vendorPOMilestoneEditorStateFromPo(
     })
   }
 
-  return { milestones, retention, finalMilestone }
+  return { milestones, retention }
 }
 
 export function buildVendorPOMilestonePayloadForUpdate(
   milestones: VendorPOMilestoneRow[],
   retention: VendorPORetentionRow | null,
-  finalMilestone: VendorPOFinalMilestoneRow | null,
   existingMilestones: import('@/slices/baseline/reducer').VendorPOMilestone[],
 ): import('@/slices/baseline/reducer').VendorPOMilestone[] {
   const existingById = new Map(existingMilestones.map((m) => [m.id, m]))
   const existingRetention = existingMilestones.find(
     (m) => m.kind === 'retention' || m.name.trim().toLowerCase() === 'retention',
   )
-  const existingFinal = existingMilestones.find((m) => m.kind === 'final')
 
   const rows: import('@/slices/baseline/reducer').VendorPOMilestone[] = milestones
     .filter((m) => m.name.trim())
@@ -898,22 +812,6 @@ export function buildVendorPOMilestonePayloadForUpdate(
     })
   }
 
-  if (
-    finalMilestone &&
-    finalMilestone.name.trim() &&
-    (finalMilestone.percentage > 0 || finalMilestone.amount > 0)
-  ) {
-    rows.push({
-      id: existingFinal?.id ?? `vpo-final-${Date.now()}`,
-      name: finalMilestone.name.trim(),
-      percentage: finalMilestone.percentage,
-      value: finalMilestone.amount,
-      dueDate: existingFinal?.dueDate ?? null,
-      status: existingFinal?.status ?? 'Pending',
-      kind: 'final',
-    })
-  }
-
   return rows
 }
 
@@ -921,11 +819,10 @@ export function isVendorPOMilestoneBreakdownValid(
   poValue: number,
   milestones: VendorPOMilestoneRow[],
   retention: VendorPORetentionRow | null,
-  finalMilestone: VendorPOFinalMilestoneRow | null,
 ): boolean {
-  const hasBreakdown = milestones.length > 0 || Boolean(retention) || Boolean(finalMilestone)
+  const hasBreakdown = milestones.length > 0 || Boolean(retention)
   if (!hasBreakdown) return true
   return validateVendorMilestonePercents(
-    toValidationMapping(poValue, milestones, retention, finalMilestone),
+    toValidationMapping(poValue, milestones, retention),
   ).valid
 }

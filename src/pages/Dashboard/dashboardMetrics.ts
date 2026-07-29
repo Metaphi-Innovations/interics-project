@@ -4,6 +4,10 @@ import type { Customer } from '@/slices/customers/reducer'
 import type { VendorInvoice, Expense } from '@/slices/live/reducer'
 import type { Baseline } from '@/slices/baseline/reducer'
 import {
+  invoiceLabourCessAmount,
+  roundMoney,
+} from '@/pages/Projects/tabs/live/clientInvoiceUtils'
+import {
   CLIENT_PROJECT_TYPES,
   contractedDesignFee,
   displayProjectStatus,
@@ -32,6 +36,11 @@ import type {
 
 export function sumInvoiceRevenue(invoices: ClientInvoice[]): number {
   return invoices.reduce((s, inv) => s + (inv.baseAmount ?? 0), 0)
+}
+
+/** Labour cess total — same formula as Receivables invoice tax rollups. */
+export function sumLabourCess(invoices: ClientInvoice[]): number {
+  return roundMoney(invoices.reduce((sum, inv) => sum + invoiceLabourCessAmount(inv), 0))
 }
 
 export function sumCosts(vendor: VendorInvoice[], expenses: Expense[]): number {
@@ -117,6 +126,9 @@ export function computeExecutiveKpis(
   const outstandingReceivables = outstandingReceivablesAmount(invoices)
   const prevOutstandingReceivables = outstandingReceivablesAmount(prevInvoices)
 
+  const labourCess = sumLabourCess(invoices)
+  const prevLabourCess = sumLabourCess(prevInvoices)
+
   const customerCounts = new Map<string, number>()
   for (const p of projects) {
     customerCounts.set(p.customerId, (customerCounts.get(p.customerId) ?? 0) + 1)
@@ -142,6 +154,7 @@ export function computeExecutiveKpis(
     avgDesignFeePerSqft,
     avgProfitMargin,
     outstandingReceivables,
+    labourCess,
     repeatClientPct,
     prevTotalRevenue: prevRevenue,
     prevTotalProfit: prevProfit,
@@ -150,6 +163,7 @@ export function computeExecutiveKpis(
     prevAvgDesignFeePerSqft,
     prevAvgProfitMargin,
     prevOutstandingReceivables,
+    prevLabourCess,
     prevRepeatClientPct,
   }
 }

@@ -12,6 +12,27 @@ const SECTOR_COLORS: Record<
   string,
   { light: SectorTagColors; dark: SectorTagColors }
 > = {
+  banking: {
+    light: { bg: '#DBEAFE', color: '#1D4ED8' },
+    dark: { bg: '#1E3A8A', color: '#93C5FD' },
+  },
+  'it companies': {
+    light: { bg: '#E0F2FE', color: '#0369A1' },
+    dark: { bg: '#0C4A6E', color: '#7DD3FC' },
+  },
+  healthcare: {
+    light: { bg: '#DCFCE7', color: '#15803D' },
+    dark: { bg: '#14532D', color: '#86EFAC' },
+  },
+  hospitality: {
+    light: { bg: '#EDE9FE', color: '#7C3AED' },
+    dark: { bg: '#4C1D95', color: '#C4B5FD' },
+  },
+  manufacturing: {
+    light: { bg: '#FFEDD5', color: '#C2410C' },
+    dark: { bg: '#7C2D12', color: '#FDBA74' },
+  },
+  // Legacy values still present in older records
   commercial: {
     light: { bg: '#DBEAFE', color: '#1D4ED8' },
     dark: { bg: '#1E3A8A', color: '#93C5FD' },
@@ -19,10 +40,6 @@ const SECTOR_COLORS: Record<
   residential: {
     light: { bg: '#DCFCE7', color: '#15803D' },
     dark: { bg: '#14532D', color: '#86EFAC' },
-  },
-  hospitality: {
-    light: { bg: '#EDE9FE', color: '#7C3AED' },
-    dark: { bg: '#4C1D95', color: '#C4B5FD' },
   },
   retail: {
     light: { bg: '#FFEDD5', color: '#C2410C' },

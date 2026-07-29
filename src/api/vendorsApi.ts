@@ -10,4 +10,9 @@ export const vendorsApi = {
   delete: (id: string) => client.delete(`/vendors/${id}`),
   createContact: (vendorId: string, data: Record<string, unknown>) =>
     client.post(`/vendors/${vendorId}/contacts`, data),
+  updateContact: (
+    vendorId: string,
+    contactId: string,
+    data: Record<string, unknown>,
+  ) => client.put(`/vendors/${vendorId}/contacts/${contactId}`, data),
 }

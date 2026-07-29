@@ -52,6 +52,7 @@ export function payableFocusFromActionLabel(label: string): PayableFocus {
     case 'Upload Invoice':
       return 'invoice'
     case 'Release Payment':
+      return 'payment'
     case 'View Settlement History':
     case 'View Client Payment':
     case 'View Details':

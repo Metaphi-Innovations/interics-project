@@ -1,10 +1,10 @@
-/** Sector values used in Customer listing and project/customer forms. */
+/** @deprecated Prefer Sector Master via settings Redux (`fetchSectors`). Kept for fallback labels. */
 export const SECTOR_OPTIONS = [
-  'Commercial',
-  'Residential',
+  'Banking',
+  'IT Companies',
+  'Healthcare',
   'Hospitality',
-  'Retail',
-  'Industrial',
+  'Manufacturing',
 ] as const
 
 export type SectorOption = (typeof SECTOR_OPTIONS)[number]

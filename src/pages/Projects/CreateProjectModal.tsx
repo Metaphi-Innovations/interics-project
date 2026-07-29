@@ -41,10 +41,17 @@ import { ContactPersonAutocomplete } from './components/ContactPersonAutocomplet
 import { CreateContactPersonModal } from './components/CreateContactPersonModal'
 import { createProject } from '../../slices/projects/thunk'
 import type { User } from '../../slices/users/reducer'
-import { useToast, DatePicker, dateFromIso, isoFromDate } from '@/design-system/components'
+import { useToast, DatePicker, dateFromIso, isoFromDate, AutocompleteField } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { toSlug, getInitials, getAvatarColor } from '../../utils/formatters'
-import { SECTOR_OPTIONS } from '../../constants/sectors'
+import { fetchSectors, fetchStatuses } from '../../slices/settings/thunk'
+import {
+  COUNTRIES,
+  INDIAN_CITIES,
+  INDIAN_STATES,
+  digitsOnly,
+  formatAddressLine,
+} from '@/constants/locations'
 import type { Contact, Customer } from '../../slices/customers/reducer'
 import {
   PROJECT_SETUP_GRID_SX,
@@ -70,6 +77,11 @@ interface WizardFormData {
   requirementNotes: string
   name: string
   location: string
+  address: string
+  city: string
+  state: string
+  country: string
+  pincode: string
   projectTypes: string[]
   sector: string
   carpetArea: string
@@ -110,6 +122,11 @@ interface StepErrors {
   name?: string
   projectTypes?: string
   sector?: string
+  address?: string
+  city?: string
+  state?: string
+  country?: string
+  pincode?: string
   projectManagerId?: string
   headcount?: string
   meetingRoomCount?: string
@@ -125,6 +142,11 @@ const INITIAL_FORM: WizardFormData = {
   requirementNotes: '',
   name: '',
   location: '',
+  address: '',
+  city: '',
+  state: '',
+  country: 'India',
+  pincode: '',
   projectTypes: [],
   sector: '',
   carpetArea: '',
@@ -174,6 +196,11 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
   const users = useAppSelector((s) => s.users.items ?? [])
   const roles = useAppSelector((s) => s.roles.items ?? [])
   const saving = useAppSelector((s) => s.projects.saving)
+  const sectors = useAppSelector((s) => s.settings.sectors)
+  const statuses = useAppSelector((s) => s.settings.statuses)
+  const activeSectors = sectors.filter((s) => s.status === 'active')
+  const defaultProgress =
+    statuses.find((s) => s.status === 'active')?.name ?? 'Execution Ongoing'
 
   const [activeStep, setActiveStep] = useState(0)
   const [formData, setFormData] = useState<WizardFormData>(INITIAL_FORM)
@@ -185,6 +212,7 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
   const [newCustomerData, setNewCustomerData] = useState({
     name: '',
     type: 'Company' as 'Company' | 'Individual',
+    sector: '',
     contactPerson: '',
     phone: '',
     email: '',
@@ -197,6 +225,8 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
       dispatch(fetchCustomers({}))
       dispatch(fetchUsers({}))
       dispatch(fetchRoles(undefined))
+      dispatch(fetchSectors())
+      dispatch(fetchStatuses())
     }
   }, [open, dispatch])
 
@@ -230,6 +260,9 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
         newErrors.projectTypes = 'Select at least one project type'
       }
       if (!formData.sector) newErrors.sector = 'Sector is required'
+      if (formData.pincode.trim() && !/^\d+$/.test(formData.pincode.trim())) {
+        newErrors.pincode = 'PIN code must be numeric'
+      }
       Object.assign(newErrors, validateProjectSetupFields(formData))
     }
     if (step === 2 && !formData.projectManagerId) {
@@ -260,11 +293,23 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
     if (!validateStep(activeStep)) return
 
     const selectedContacts = findContactsByIds(selectedCustomer, formData.contactIds)
+    const location = formatAddressLine({
+      address: formData.address,
+      city: formData.city,
+      state: formData.state,
+      pincode: formData.pincode,
+      country: formData.country,
+    })
     const payload = {
       customerId: formData.customerId,
       customerName: formData.customerName,
       name: formData.name,
-      location: formData.location,
+      location,
+      address: formData.address.trim(),
+      city: formData.city.trim(),
+      state: formData.state.trim(),
+      country: formData.country.trim(),
+      pincode: formData.pincode.trim(),
       projectTypes: formData.projectTypes,
       sector: formData.sector,
       carpetArea: formData.carpetArea ? Number(formData.carpetArea) : null,
@@ -283,7 +328,7 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
       startDate: formData.startDate || null,
       expectedEndDate: formData.expectedEndDate || null,
       status: 'Pitch' as const,
-      progress: 'Quotation pending',
+      progress: defaultProgress,
       projectValue: 0,
       totalClientPOValue: 0,
       totalVendorPOValue: 0,
@@ -313,6 +358,7 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
         createCustomer({
           name: newCustomerData.name,
           type: newCustomerData.type,
+          sector: newCustomerData.sector || undefined,
           contactPerson: newCustomerData.contactPerson,
           phone: newCustomerData.phone,
           email: newCustomerData.email,
@@ -337,7 +383,7 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
         contactIds: getDefaultContactIds(contacts),
       }))
       setShowInlineCustomer(false)
-      setNewCustomerData({ name: '', type: 'Company', contactPerson: '', phone: '', email: '', city: '', state: '' })
+      setNewCustomerData({ name: '', type: 'Company', sector: '', contactPerson: '', phone: '', email: '', city: '', state: '' })
       showToast({ title: 'Customer created', variant: 'success' })
     } catch {
       showToast({ title: 'Failed to create customer', variant: 'error' })
@@ -509,7 +555,7 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
             <Box display="grid" sx={{ gridTemplateColumns: '1fr 1fr', gap: 1.5 }}>
               <Box>
                 <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
-                  Company Name <Box component="span" sx={{ color: 'error.main' }}>*</Box>
+                  Company Name
                 </Typography>
                 <TextField
                   fullWidth size="small"
@@ -520,21 +566,28 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
               </Box>
               <Box>
                 <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
-                  Type <Box component="span" sx={{ color: 'error.main' }}>*</Box>
+                  Sector
                 </Typography>
                 <FormControl fullWidth size="small">
                   <MuiSelect
-                    value={newCustomerData.type}
-                    onChange={(e) => setNewCustomerData((prev) => ({ ...prev, type: e.target.value as 'Company' | 'Individual' }))}
+                    value={newCustomerData.sector}
+                    displayEmpty
+                    onChange={(e) => setNewCustomerData((prev) => ({ ...prev, sector: e.target.value }))}
                   >
-                    <MenuItem value="Company">Company</MenuItem>
-                    <MenuItem value="Individual">Individual</MenuItem>
+                    <MenuItem value="" disabled>
+                      Select sector…
+                    </MenuItem>
+                    {activeSectors.map((s) => (
+                      <MenuItem key={s.id} value={s.name}>
+                        {s.name}
+                      </MenuItem>
+                    ))}
                   </MuiSelect>
                 </FormControl>
               </Box>
               <Box>
                 <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
-                  Contact Person <Box component="span" sx={{ color: 'error.main' }}>*</Box>
+                  Contact Person
                 </Typography>
                 <TextField
                   fullWidth size="small"
@@ -545,7 +598,7 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
               </Box>
               <Box>
                 <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
-                  Phone <Box component="span" sx={{ color: 'error.main' }}>*</Box>
+                  Phone
                 </Typography>
                 <TextField
                   fullWidth size="small"
@@ -584,7 +637,7 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
                 variant="outlined"
                 onClick={() => {
                   setShowInlineCustomer(false)
-                  setNewCustomerData({ name: '', type: 'Company', contactPerson: '', phone: '', email: '', city: '', state: '' })
+                  setNewCustomerData({ name: '', type: 'Company', sector: '', contactPerson: '', phone: '', email: '', city: '', state: '' })
                 }}
               >
                 Cancel
@@ -611,8 +664,8 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
     return (
       <Box>
       <Box sx={PROJECT_SETUP_GRID_SX}>
-        {/* Row 1: Project Name | Project Type */}
-        <Box sx={{ minWidth: 0 }}>
+        {/* Row 1: Project Name (full width) */}
+        <Box sx={{ gridColumn: '1 / -1', minWidth: 0 }}>
           <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
             Project Name <Box component="span" sx={{ color: 'error.main' }}>*</Box>
           </Typography>
@@ -628,9 +681,10 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
           />
         </Box>
 
+        {/* Row 2: Project Scope | Sector */}
         <Box sx={{ minWidth: 0 }}>
           <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
-            Project Type <Box component="span" sx={{ color: 'error.main' }}>*</Box>
+            Project Scope <Box component="span" sx={{ color: 'error.main' }}>*</Box>
           </Typography>
           <ProjectTypesField
             value={formData.projectTypes}
@@ -644,7 +698,6 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
           )}
         </Box>
 
-        {/* Row 2: Sector | Location */}
         <Box sx={{ minWidth: 0 }}>
           <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
             Sector <Box component="span" sx={{ color: 'error.main' }}>*</Box>
@@ -659,11 +712,16 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
               <MenuItem value="" disabled sx={{ fontSize: 13 }}>
                 Select sector…
               </MenuItem>
-              {SECTOR_OPTIONS.map((s) => (
-                <MenuItem key={s} value={s} sx={{ fontSize: 13 }}>
-                  {s}
+              {activeSectors.map((s) => (
+                <MenuItem key={s.id} value={s.name} sx={{ fontSize: 13 }}>
+                  {s.name}
                 </MenuItem>
               ))}
+              {formData.sector && !activeSectors.some((s) => s.name === formData.sector) ? (
+                <MenuItem value={formData.sector} sx={{ fontSize: 13 }}>
+                  {formData.sector}
+                </MenuItem>
+              ) : null}
             </MuiSelect>
             {errors.sector && (
               <Typography variant="caption" color="error" sx={{ mt: '3px', mx: '14px', fontSize: 11 }}>
@@ -673,16 +731,79 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
           </FormControl>
         </Box>
 
-        <Box sx={{ minWidth: 0 }}>
+        <Box sx={{ gridColumn: '1 / -1', minWidth: 0 }}>
           <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
-            Location
+            Address
           </Typography>
           <TextField
             fullWidth
             size="small"
-            value={formData.location}
-            onChange={(e) => setFormData((prev) => ({ ...prev, location: e.target.value }))}
-            placeholder="Building, City"
+            value={formData.address}
+            onChange={(e) => setFormData((prev) => ({ ...prev, address: e.target.value }))}
+            placeholder="Street, building, landmark"
+            sx={FORM_CONTROL_INPUT_SX}
+          />
+        </Box>
+
+        <Box sx={{ minWidth: 0 }}>
+          <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
+            City
+          </Typography>
+          <AutocompleteField
+            options={[...INDIAN_CITIES]}
+            value={formData.city || null}
+            onChange={(v) => setFormData((prev) => ({ ...prev, city: v ?? '' }))}
+            getOptionLabel={(o) => o}
+            isOptionEqualToValue={(a, b) => a === b}
+            placeholder="Search city…"
+            size="sm"
+          />
+        </Box>
+
+        <Box sx={{ minWidth: 0 }}>
+          <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
+            State
+          </Typography>
+          <AutocompleteField
+            options={[...INDIAN_STATES]}
+            value={formData.state || null}
+            onChange={(v) => setFormData((prev) => ({ ...prev, state: v ?? '' }))}
+            getOptionLabel={(o) => o}
+            isOptionEqualToValue={(a, b) => a === b}
+            placeholder="Search state…"
+            size="sm"
+          />
+        </Box>
+
+        <Box sx={{ minWidth: 0 }}>
+          <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
+            Country
+          </Typography>
+          <AutocompleteField
+            options={[...COUNTRIES]}
+            value={formData.country || null}
+            onChange={(v) => setFormData((prev) => ({ ...prev, country: v ?? '' }))}
+            getOptionLabel={(o) => o}
+            isOptionEqualToValue={(a, b) => a === b}
+            placeholder="Search country…"
+            size="sm"
+          />
+        </Box>
+
+        <Box sx={{ minWidth: 0 }}>
+          <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
+            PIN Code
+          </Typography>
+          <TextField
+            fullWidth
+            size="small"
+            value={formData.pincode}
+            onChange={(e) =>
+              setFormData((prev) => ({ ...prev, pincode: digitsOnly(e.target.value).slice(0, 10) }))
+            }
+            placeholder="e.g. 110001"
+            error={Boolean(errors.pincode)}
+            helperText={errors.pincode}
             sx={FORM_CONTROL_INPUT_SX}
           />
         </Box>

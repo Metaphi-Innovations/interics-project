@@ -6,11 +6,10 @@ import {
   validateVendorMilestonePercents,
 } from '@/utils/vendorMilestones'
 
-export type VendorMilestoneKind = 'regular' | 'retention' | 'final'
+export type VendorMilestoneKind = 'regular' | 'retention'
 
 export function resolveVendorPOMilestoneKind(m: VendorPOMilestone): VendorMilestoneKind {
   if (m.kind === 'retention') return 'retention'
-  if (m.kind === 'final') return 'final'
   if (m.name.trim().toLowerCase() === 'retention') return 'retention'
   return 'regular'
 }
@@ -19,8 +18,6 @@ export function vendorMilestoneTypeLabel(type: VendorMilestoneKind): string {
   switch (type) {
     case 'retention':
       return 'Retention'
-    case 'final':
-      return 'Final Milestone'
     default:
       return 'Regular'
   }
@@ -326,19 +323,13 @@ export function findPitchService(
 export function mappingAllocatedTotal(mapping: VendorMapping): number {
   const normalized = normalizeVendorMapping(mapping)
   const fromMilestones = (normalized.milestones ?? []).reduce((sum, m) => sum + m.value, 0)
-  return (
-    fromMilestones +
-    (normalized.retention?.amount ?? 0) +
-    (normalized.finalMilestone?.amount ?? 0)
-  )
+  return fromMilestones + (normalized.retention?.amount ?? 0)
 }
 
 export function deriveVendorMappingRowStatus(mapping: VendorMapping): VendorMappingRowStatus {
   const normalized = normalizeVendorMapping(mapping)
   const hasBreakdown =
-    (normalized.milestones?.length ?? 0) > 0 ||
-    Boolean(normalized.retention) ||
-    Boolean(normalized.finalMilestone)
+    (normalized.milestones?.length ?? 0) > 0 || Boolean(normalized.retention)
   if (!hasBreakdown) {
     return normalized.value > 0 ? 'Mapped' : 'Milestones Pending'
   }
@@ -360,9 +351,7 @@ export function buildVendorMilestoneOverviewRows(
         const normalized = normalizeVendorMapping(vm)
         const allocated = mappingAllocatedTotal(normalized)
         const allocationStatus =
-          normalized.milestones.length === 0 &&
-          !normalized.retention &&
-          !normalized.finalMilestone
+          normalized.milestones.length === 0 && !normalized.retention
             ? 'No breakdown'
             : Math.abs(allocated - normalized.value) <= 1
               ? 'Fully allocated'
@@ -394,20 +383,6 @@ export function buildVendorMilestoneOverviewRows(
             retentionAmount: normalized.retention.amount,
             allocationStatus,
             milestoneType: 'retention',
-          })
-        }
-        if (normalized.finalMilestone) {
-          rows.push({
-            key: `${svc.id}-${vm.id}-final`,
-            service: svc.name,
-            category: cat.categoryName,
-            vendor: vm.vendorName,
-            name: normalized.finalMilestone.name,
-            pct: normalized.finalMilestone.percentage,
-            amount: normalized.finalMilestone.amount,
-            retentionAmount: 0,
-            allocationStatus,
-            milestoneType: 'final',
           })
         }
       }

@@ -89,15 +89,9 @@ export interface VendorDrawerProps {
 function validate(form: FormState): Record<string, string> {
   const errors: Record<string, string> = {}
   if (!form.name.trim()) errors.name = 'Name is required'
-  if (!form.contactPerson.trim()) errors.contactPerson = 'Contact person is required'
-  if (!form.phone.trim()) errors.phone = 'Phone is required'
-  if (!form.email.trim()) {
-    errors.email = 'Email is required'
-  } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
+  if (form.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
     errors.email = 'Invalid email format'
   }
-  if (!form.city.trim()) errors.city = 'City is required'
-  if (!form.state) errors.state = 'State is required'
   if (form.gstStatus === 'Registered') {
     if (!form.gstin.trim()) {
       errors.gstin = 'GSTIN is required for registered vendors'
@@ -320,14 +314,13 @@ export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: Vendo
       </FormSection>
 
       <FormSection title="Contact Details" columns={2}>
-        <FormField label="Contact Person" required error={errors.contactPerson}>
+        <FormField label="Contact Person">
           <TextField
             fullWidth
             size="small"
             value={form.contactPerson}
             onChange={(e) => update('contactPerson', e.target.value)}
             placeholder="Full name"
-            error={!!errors.contactPerson}
           />
         </FormField>
 
@@ -341,7 +334,7 @@ export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: Vendo
           />
         </FormField>
 
-        <FormField label="Phone" required error={errors.phone}>
+        <FormField label="Phone">
           <TextField
             fullWidth
             size="small"
@@ -349,11 +342,10 @@ export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: Vendo
             value={form.phone}
             onChange={(e) => update('phone', e.target.value)}
             placeholder="+91 98765 43210"
-            error={!!errors.phone}
           />
         </FormField>
 
-        <FormField label="Email" required error={errors.email}>
+        <FormField label="Email" error={errors.email}>
           <TextField
             fullWidth
             size="small"
@@ -381,25 +373,23 @@ export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: Vendo
           </FormField>
         </Box>
 
-        <FormField label="City" required error={errors.city}>
+        <FormField label="City">
           <TextField
             fullWidth
             size="small"
             value={form.city}
             onChange={(e) => update('city', e.target.value)}
             placeholder="City"
-            error={!!errors.city}
           />
         </FormField>
 
-        <FormField label="State" required error={errors.state}>
+        <FormField label="State">
           <TextField
             fullWidth
             size="small"
             select
             value={form.state}
             onChange={(e) => update('state', e.target.value)}
-            error={!!errors.state}
           >
             {INDIAN_STATES.map((s) => (
               <MenuItem key={s} value={s}>

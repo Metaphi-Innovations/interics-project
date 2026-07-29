@@ -16,23 +16,20 @@ import { useAppDispatch, useAppSelector } from '../../../../store/hooks'
 import { fetchVendors } from '../../../../slices/vendors/thunk'
 import { fetchVersions, updateVendorMapping } from '../../../../slices/pitch/thunk'
 import { createVendorPO, fetchVendorPOs } from '../../../../slices/baseline/thunk'
+import { fetchCategories, fetchServices } from '../../../../slices/settings/thunk'
 import type { PitchService, VendorMapping, VendorMilestone } from '../../../../slices/pitch/reducer'
 import { resolveOfferVersionForProject } from './vendorPOHelpers'
+import { masterCategoryOptions, masterServiceOptions } from './clientPOServiceOptions'
 import {
   VendorOfferMilestoneCardEditor,
-  VendorOfferFinalMilestoneCardEditor,
   VendorOfferRetentionCardEditor,
   createVendorOfferMilestoneCard,
-  createVendorOfferFinalMilestoneCard,
   createVendorOfferRetentionCard,
   groupAllCardsByService,
-  isGroupedServiceValid,
   isMilestoneCardConfigured,
-  isFinalMilestoneCardConfigured,
   isRetentionCardConfigured,
   buildVendorPOMilestonePayloadFromGroup,
   type VendorOfferMilestoneCard,
-  type VendorOfferFinalMilestoneCard,
   type VendorOfferRetentionCard,
   type GroupedServiceMilestones,
 } from './VendorOfferMilestoneCards'
@@ -73,7 +70,6 @@ function pct(value: number, total: number): number {
 function pitchMappingFromGroup(group: GroupedServiceMilestones): {
   milestones: VendorMilestone[]
   retention?: VendorMapping['retention']
-  finalMilestone?: VendorMapping['finalMilestone']
 } {
   const milestones = group.milestones
     .filter((m) => m.name.trim())
@@ -84,7 +80,6 @@ function pitchMappingFromGroup(group: GroupedServiceMilestones): {
       value: m.value,
     }))
 
-  const firstFinal = group.finalMilestones.find((f) => f.name.trim())
   const firstRetention = group.retentions.find((r) => r.name.trim())
 
   return {
@@ -92,18 +87,7 @@ function pitchMappingFromGroup(group: GroupedServiceMilestones): {
     retention: firstRetention
       ? { percentage: firstRetention.percentage, amount: firstRetention.value }
       : undefined,
-    finalMilestone: firstFinal
-      ? {
-          name: firstFinal.name,
-          percentage: firstFinal.percentage,
-          amount: firstFinal.value,
-        }
-      : undefined,
   }
-}
-
-function serviceDisplayName(service: PitchService): string {
-  return service.subcategoryName ?? service.name ?? service.customName ?? '—'
 }
 
 function generatePoNumber(): string {
@@ -189,6 +173,8 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
   const vendorItems = useAppSelector((s) => s.vendors.items ?? [])
   const { activeVersion, versions } = useAppSelector((s) => s.pitch)
   const { baseline } = useAppSelector((s) => s.baseline)
+  const categories = useAppSelector((s) => s.settings.categories)
+  const services = useAppSelector((s) => s.settings.services)
 
   const [form, setForm] = useState({
     poNumber: '',
@@ -199,7 +185,6 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
     file: null as File | null,
   })
   const [milestoneCards, setMilestoneCards] = useState<VendorOfferMilestoneCard[]>([])
-  const [finalMilestoneCards, setFinalMilestoneCards] = useState<VendorOfferFinalMilestoneCard[]>([])
   const [retentionCards, setRetentionCards] = useState<VendorOfferRetentionCard[]>([])
 
   const baselineForProject = baseline?.projectId === projectId ? baseline : null
@@ -217,23 +202,8 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
 
   const serviceTargets = useMemo(() => listServiceTargets(pitchVersion), [pitchVersion])
 
-  const categoryOptions = useMemo(() => {
-    const map = new Map<string, string>()
-    for (const t of serviceTargets) {
-      map.set(t.categoryId, t.categoryName)
-    }
-    return Array.from(map.entries()).map(([id, label]) => ({ id, label }))
-  }, [serviceTargets])
-
-  const serviceOptions = useMemo(
-    () =>
-      serviceTargets.map((t) => ({
-        id: t.service.id,
-        label: serviceDisplayName(t.service),
-        categoryId: t.categoryId,
-      })),
-    [serviceTargets],
-  )
+  const categoryOptions = useMemo(() => masterCategoryOptions(categories), [categories])
+  const serviceOptions = useMemo(() => masterServiceOptions(services), [services])
 
   const vendorOptions = useMemo(
     () => vendorItems.map((v) => ({ id: v.id, label: v.name })),
@@ -248,30 +218,25 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
   const hasConfiguredEntries = useMemo(
     () =>
       milestoneCards.some(isMilestoneCardConfigured) ||
-      finalMilestoneCards.some(isFinalMilestoneCardConfigured) ||
       retentionCards.some(isRetentionCardConfigured),
-    [milestoneCards, finalMilestoneCards, retentionCards],
+    [milestoneCards, retentionCards],
   )
 
   const groupedForSave = useMemo(
     () =>
       groupAllCardsByService(
         milestoneCards.filter(isMilestoneCardConfigured),
-        finalMilestoneCards.filter(isFinalMilestoneCardConfigured),
         retentionCards.filter(isRetentionCardConfigured),
       ),
-    [milestoneCards, finalMilestoneCards, retentionCards],
-  )
-
-  const groupedSaveValid = useMemo(
-    () => groupedForSave.every((group) => isGroupedServiceValid(milestoneBaseValue, group)),
-    [groupedForSave, milestoneBaseValue],
+    [milestoneCards, retentionCards],
   )
 
   useEffect(() => {
     if (open) {
       void dispatch(fetchVendors({ pageSize: 500 }))
       void dispatch(fetchVersions(projectId))
+      void dispatch(fetchCategories())
+      void dispatch(fetchServices())
     }
   }, [open, dispatch, projectId])
 
@@ -286,7 +251,6 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
         file: null,
       })
       setMilestoneCards([])
-      setFinalMilestoneCards([])
       setRetentionCards([])
     }
   }, [open])
@@ -299,16 +263,31 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
   useEffect(() => {
     if (milestoneBaseValue <= 0) return
 
-    setFinalMilestoneCards((prev) => {
+    setMilestoneCards((prev) => {
       let changed = false
-      const next = prev.map((row) => {
-        const amount = Math.round((row.percentage / 100) * milestoneBaseValue)
-        if (row.value === amount) return row
+      const next = prev.map((card) => {
+        let cardChanged = false
+        const milestones = card.milestones.map((m) => {
+          const value = Math.round((m.percentage / 100) * milestoneBaseValue)
+          if (m.value === value) return m
+          cardChanged = true
+          return { ...m, value }
+        })
+        let retention = card.retention ?? null
+        if (retention) {
+          const amount = Math.round((retention.percentage / 100) * milestoneBaseValue)
+          if (retention.amount !== amount) {
+            cardChanged = true
+            retention = { ...retention, amount }
+          }
+        }
+        if (!cardChanged) return card
         changed = true
-        return { ...row, value: amount }
+        return { ...card, milestones, retention }
       })
       return changed ? next : prev
     })
+
     setRetentionCards((prev) => {
       let changed = false
       const next = prev.map((row) => {
@@ -339,7 +318,9 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
   }
 
   function findServiceTarget(serviceId: string): ServiceTarget | undefined {
-    return serviceTargets.find((t) => t.service.id === serviceId)
+    return serviceTargets.find(
+      (t) => t.service.id === serviceId || t.service.subcategoryId === serviceId,
+    )
   }
 
   async function handleSubmit() {
@@ -352,18 +333,7 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
       return
     }
     if (!hasConfiguredEntries || groupedForSave.length === 0) {
-      toast({ title: 'Add at least one milestone, final milestone, or retention entry', variant: 'error' })
-      return
-    }
-    if (!groupedSaveValid) {
-      toast({
-        title: 'Combined milestones per service must equal 100%',
-        variant: 'error',
-      })
-      return
-    }
-    if (!pitchVersion) {
-      toast({ title: 'No pitch version found for this project', variant: 'error' })
+      toast({ title: 'Add at least one milestone or retention entry', variant: 'error' })
       return
     }
 
@@ -386,40 +356,37 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
     try {
       for (const [index, group] of groupedForSave.entries()) {
         const target = findServiceTarget(group.serviceId)
-        if (!target) {
-          toast({ title: 'Selected service is no longer available', variant: 'error' })
-          return
-        }
-
-        const existing = target.service.vendorMappings ?? []
-
         const milestonePayload = buildVendorPOMilestonePayloadFromGroup(group)
-        const { milestones: pitchMilestones, retention, finalMilestone } = pitchMappingFromGroup(group)
-        const mappingId = `vm-${Date.now()}-${index}-${group.serviceId}`
+        let mappingId: string | undefined
 
-        await dispatch(
-          updateVendorMapping({
-            projectId,
-            versionId: pitchVersion.id,
-            serviceId: target.service.id,
-            mappings: [
-              ...existing,
-              {
-                id: mappingId,
-                vendorId: form.vendorId,
-                vendorName: vendor?.name ?? '',
-                value: offerValue,
-                executedValue,
-                percentage: pct(offerValue, target.service.value),
-                milestones: pitchMilestones,
-                retention,
-                finalMilestone,
-                isMeasurable: false,
-                ...(quotation ? { quotation } : {}),
-              },
-            ],
-          }),
-        ).unwrap()
+        if (target && pitchVersion) {
+          const existing = target.service.vendorMappings ?? []
+          const { milestones: pitchMilestones, retention } = pitchMappingFromGroup(group)
+          mappingId = `vm-${Date.now()}-${index}-${group.serviceId}`
+
+          await dispatch(
+            updateVendorMapping({
+              projectId,
+              versionId: pitchVersion.id,
+              serviceId: target.service.id,
+              mappings: [
+                ...existing,
+                {
+                  id: mappingId,
+                  vendorId: form.vendorId,
+                  vendorName: vendor?.name ?? '',
+                  value: offerValue,
+                  executedValue,
+                  percentage: pct(offerValue, target.service.value),
+                  milestones: pitchMilestones,
+                  retention,
+                  isMeasurable: false,
+                  ...(quotation ? { quotation } : {}),
+                },
+              ],
+            }),
+          ).unwrap()
+        }
 
         await dispatch(
           createVendorPO({
@@ -594,37 +561,6 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
               )
             }
             onRemove={() => setMilestoneCards((prev) => prev.filter((c) => c.id !== card.id))}
-          />
-        ))}
-      </MilestoneSectionPanel>
-
-      <MilestoneSectionPanel
-        title="Final Milestone"
-        addLabel="Add Final Milestone"
-        onAdd={() =>
-          setFinalMilestoneCards([
-            createVendorOfferFinalMilestoneCard(categoryOptions, serviceOptions),
-          ])
-        }
-        addDisabled={cardsDisabled}
-        isEmpty={finalMilestoneCards.length === 0}
-        showAddButton={finalMilestoneCards.length === 0}
-      >
-        {finalMilestoneCards.map((card) => (
-          <VendorOfferFinalMilestoneCardEditor
-            key={card.id}
-            card={card}
-            categoryOptions={categoryOptions}
-            serviceOptions={serviceOptions}
-            milestoneBaseValue={milestoneBaseValue}
-            onChange={(patch) =>
-              setFinalMilestoneCards((prev) =>
-                prev.map((c) => (c.id === card.id ? { ...c, ...patch } : c)),
-              )
-            }
-            onRemove={() =>
-              setFinalMilestoneCards((prev) => prev.filter((c) => c.id !== card.id))
-            }
           />
         ))}
       </MilestoneSectionPanel>

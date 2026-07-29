@@ -14,13 +14,9 @@ import {
   Grid,
 } from '@mui/material'
 import {
-  Business,
-  VerifiedUser,
-  LocationOn,
   Edit,
   Phone,
   Email,
-  Receipt,
   FolderOpen,
   Add,
   Delete,
@@ -79,7 +75,7 @@ function LabelValue({ label, children }: { label: string; children: React.ReactN
           textTransform: 'uppercase',
           letterSpacing: '0.4px',
           display: 'block',
-          mb: theme.spacing(0.25),
+          mb: theme.spacing(0.75),
         }}
       >
         {label}
@@ -145,7 +141,7 @@ const ACTIVITY_FILTER_OPTIONS: { id: ActivityFilterCategory; label: string }[] =
 
 // ─── CustomerDetailPage ───────────────────────────────────────────────────────
 
-const CUSTOMER_DETAIL_TABS = ['overview', 'contacts', 'projects', 'billing', 'financial', 'activity'] as const
+const CUSTOMER_DETAIL_TABS = ['overview', 'contacts', 'projects', 'financial', 'activity'] as const
 
 export default function CustomerDetailPage() {
   const { id: slug } = useParams<{ id: string }>()
@@ -281,7 +277,6 @@ export default function CustomerDetailPage() {
     { label: 'Overview', value: 'overview' },
     { label: 'Contacts', value: 'contacts' },
     { label: 'Linked Projects', value: 'projects' },
-    { label: 'Billing History', value: 'billing' },
     { label: 'Financial Details', value: 'financial' },
     { label: 'Activity', value: 'activity' },
   ]
@@ -302,13 +297,21 @@ export default function CustomerDetailPage() {
 
     return (
       <Stack gap={0}>
-        <Box sx={getRecordDetailFlatSectionSx(theme, { isLast: false })}>
+        <Box
+          sx={{
+            ...getRecordDetailFlatSectionSx(theme, { isLast: false }),
+            mb: theme.spacing(3),
+            pb: theme.spacing(3),
+          }}
+        >
           <RecordDetailSectionTitle>Customer profile</RecordDetailSectionTitle>
           <Box
             sx={{
               display: 'grid',
               gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, 1fr)' },
-              gap: theme.spacing(2),
+              gap: theme.spacing(3),
+              rowGap: theme.spacing(3.5),
+              py: theme.spacing(0.5),
             }}
           >
             <LabelValue label="Customer name">
@@ -372,13 +375,20 @@ export default function CustomerDetailPage() {
         customer!.panDocument ||
         customer!.gstin ||
         customer!.pan ? (
-          <Box sx={getRecordDetailFlatSectionSx(theme, { isLast: false })}>
+          <Box
+            sx={{
+              ...getRecordDetailFlatSectionSx(theme, { isLast: false }),
+              mb: theme.spacing(3),
+              pb: theme.spacing(3),
+            }}
+          >
             <RecordDetailSectionTitle>Documents</RecordDetailSectionTitle>
             <Box
               sx={{
                 display: 'grid',
                 gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
-                gap: theme.spacing(2),
+                gap: theme.spacing(2.5),
+                py: theme.spacing(0.5),
               }}
             >
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: theme.spacing(1.5) }}>
@@ -829,25 +839,13 @@ export default function CustomerDetailPage() {
     )
   }
 
-  // ── renderBilling placeholder ──────────────────────────────────────────────
-
-  function renderPlaceholder(icon: React.ReactNode, message: string) {
-    return (
-      <WorkspaceSection>
-        <Box sx={{ py: 5, textAlign: 'center' }}>
-          <Box sx={{ color: tokens.color.neutral[300], mb: 1 }}>{icon}</Box>
-          <Typography variant="body2" color="text.secondary">{message}</Typography>
-        </Box>
-      </WorkspaceSection>
-    )
-  }
+  // ── tab content ────────────────────────────────────────────────────────────
 
   function renderTabContent() {
     switch (activeTab) {
       case 'overview':   return renderOverview()
       case 'contacts':   return renderContacts()
       case 'projects':   return renderProjects()
-      case 'billing':    return renderPlaceholder(<Receipt sx={{ fontSize: 36 }} />, 'Billing history will appear here once invoices are created')
       case 'financial':  return renderFinancial()
       case 'activity':   return renderActivity()
       default:           return null
@@ -863,12 +861,6 @@ export default function CustomerDetailPage() {
         avatarText={getInitials(customer.name)}
         avatarColor={getAvatarColor(customer.name).bg}
         title={customer.name}
-        titleMeta={<StatusBadge status={customer.status.toLowerCase() as StatusType} />}
-        metaItems={[
-          { icon: <Business sx={{ fontSize: 12 }} />, label: customer.type },
-          { icon: <VerifiedUser sx={{ fontSize: 12 }} />, label: `GST: ${customer.gstStatus}` },
-          { icon: <LocationOn sx={{ fontSize: 12 }} />, label: `${customer.city}, ${customer.state}` },
-        ]}
         primaryAction={{
           label: 'Edit Customer',
           onClick: () => setDrawerOpen(true),

@@ -10,4 +10,9 @@ export const customersApi = {
   delete: (id: string) => client.delete(`/customers/${id}`),
   createContact: (customerId: string, data: Record<string, unknown>) =>
     client.post(`/customers/${customerId}/contacts`, data),
+  updateContact: (
+    customerId: string,
+    contactId: string,
+    data: Record<string, unknown>,
+  ) => client.put(`/customers/${customerId}/contacts/${contactId}`, data),
 }

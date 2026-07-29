@@ -20,7 +20,7 @@ import {
 } from '@mui/material'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import { useTheme, alpha } from '@mui/material/styles'
-import { Receipt, Plus, Wallet, Layers, Link2, Users } from 'lucide-react'
+import { Receipt, Plus, Wallet, Layers, Link2, Users, Building2 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { ListingTemplate } from '@/components/templates'
 import type { FilterField, ColumnItem } from '@/components/templates/ListingTemplate'
@@ -274,6 +274,7 @@ export default function ExpensesPage() {
       additional: baseFiltered.filter((e) => e.type === 'additional').length,
       vendor_linked: baseFiltered.filter((e) => e.type === 'vendor_linked').length,
       common: baseFiltered.filter((e) => e.type === 'common').length,
+      office_expenses: baseFiltered.filter((e) => e.type === 'office_expenses').length,
     }
   }, [baseFiltered])
 
@@ -285,7 +286,10 @@ export default function ExpensesPage() {
       .filter((e) => e.type === 'vendor_linked')
       .reduce((s, e) => s + e.amount, 0)
     const common = list.filter((e) => e.type === 'common').reduce((s, e) => s + e.amount, 0)
-    return { total, additional, vendorLinked, common }
+    const officeExpenses = list
+      .filter((e) => e.type === 'office_expenses')
+      .reduce((s, e) => s + e.amount, 0)
+    return { total, additional, vendorLinked, common, officeExpenses }
   }, [tabFiltered])
 
   const statCards = [
@@ -313,6 +317,12 @@ export default function ExpensesPage() {
       variant: 'teal' as const,
       icon: <Users size={24} strokeWidth={1.75} />,
     },
+    {
+      label: 'Office Expenses',
+      value: `₹${formatCurrency(kpis.officeExpenses)}`,
+      variant: 'warning' as const,
+      icon: <Building2 size={24} strokeWidth={1.75} />,
+    },
   ]
 
   const tabs = [
@@ -320,6 +330,7 @@ export default function ExpensesPage() {
     { label: 'Additional', value: 'additional', count: tabCounts.additional },
     { label: 'Vendor Linked', value: 'vendor_linked', count: tabCounts.vendor_linked },
     { label: 'Common', value: 'common', count: tabCounts.common },
+    { label: 'Office Expenses', value: 'office_expenses', count: tabCounts.office_expenses },
   ]
 
   const columnsConfig: ColumnItem[] = useMemo(

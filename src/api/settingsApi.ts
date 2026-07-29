@@ -47,6 +47,30 @@ export const settingsApi = {
   toggleServiceStatus: (id: string) =>
     client.patch(`/settings/services/${id}/toggle`),
 
+  getStatuses: () => client.get('/settings/statuses'),
+  createStatus: (data: Record<string, unknown>) =>
+    client.post('/settings/statuses', data),
+  updateStatus: (id: string, data: Record<string, unknown>) =>
+    client.put(`/settings/statuses/${id}`, data),
+  toggleStatusStatus: (id: string) =>
+    client.patch(`/settings/statuses/${id}/toggle`),
+
+  getSectors: () => client.get('/settings/sectors'),
+  createSector: (data: Record<string, unknown>) =>
+    client.post('/settings/sectors', data),
+  updateSector: (id: string, data: Record<string, unknown>) =>
+    client.put(`/settings/sectors/${id}`, data),
+  toggleSectorStatus: (id: string) =>
+    client.patch(`/settings/sectors/${id}/toggle`),
+
+  getRatings: () => client.get('/settings/ratings'),
+  createRating: (data: Record<string, unknown>) =>
+    client.post('/settings/ratings', data),
+  updateRating: (id: string, data: Record<string, unknown>) =>
+    client.put(`/settings/ratings/${id}`, data),
+  toggleRatingStatus: (id: string) =>
+    client.patch(`/settings/ratings/${id}/toggle`),
+
   getNumberingSchemes: () => client.get('/settings/numbering-schemes'),
   updateNumberingSchemes: (data: Record<string, unknown>) =>
     client.put('/settings/numbering-schemes', data),

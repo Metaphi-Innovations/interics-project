@@ -8,6 +8,7 @@ import {
   updateCustomer,
   deleteCustomer,
   createCustomerContact,
+  updateCustomerContact,
 } from './thunk'
 
 export interface Contact {
@@ -205,6 +206,27 @@ const customersSlice = createSlice({
             ? customer.contacts
             : getCustomerContactsList(customer)
           state.selectedItem = { ...customer, contacts: [...baseContacts, contact] }
+        }
+      })
+      .addCase(updateCustomerContact.fulfilled, (state, action) => {
+        const { customerId, contact } = action.payload
+        const patchContacts = (contacts: Contact[]) =>
+          contacts.map((c) => (c.id === contact.id ? contact : c))
+
+        const idx = state.items.findIndex((c) => c.id === customerId)
+        if (idx !== -1) {
+          const customer = state.items[idx]
+          const baseContacts = customer.contacts?.length
+            ? customer.contacts
+            : getCustomerContactsList(customer)
+          state.items[idx] = { ...customer, contacts: patchContacts(baseContacts) }
+        }
+        if (state.selectedItem?.id === customerId) {
+          const customer = state.selectedItem
+          const baseContacts = customer.contacts?.length
+            ? customer.contacts
+            : getCustomerContactsList(customer)
+          state.selectedItem = { ...customer, contacts: patchContacts(baseContacts) }
         }
       })
       .addCase(deleteCustomer.fulfilled, (state, action) => {

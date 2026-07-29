@@ -239,9 +239,17 @@ const liveSlice = createSlice({
         state.saving = false
         state.payments.push(action.payload)
         const pay = action.payload
+        const invoiceStatus =
+          pay.status === 'completed'
+            ? 'paid'
+            : pay.status === 'partial'
+              ? 'partially_paid'
+              : 'not_paid'
         for (const invId of pay.linkedInvoiceIds ?? []) {
           const idx = state.vendorInvoices.findIndex((v) => v.id === invId)
-          if (idx !== -1) state.vendorInvoices[idx] = { ...state.vendorInvoices[idx], status: 'paid' }
+          if (idx !== -1) {
+            state.vendorInvoices[idx] = { ...state.vendorInvoices[idx], status: invoiceStatus }
+          }
         }
         for (const expId of pay.linkedExpenseIds ?? []) {
           const idx = state.expenses.findIndex((e) => e.id === expId)
