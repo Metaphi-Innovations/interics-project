@@ -19,7 +19,7 @@ import {
 import { useTheme, alpha } from '@mui/material/styles'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import axios from 'axios'
-import { Banknote, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Banknote, ChevronLeft, ChevronRight, Upload } from 'lucide-react'
 import client from '@/api/client'
 import { ListingTemplate } from '@/components/templates'
 import type { FilterField } from '@/components/templates/ListingTemplate'
@@ -42,30 +42,23 @@ import {
   mergeMilestoneEntriesWithVendorPO,
   vendorInvoiceMilestoneEntries,
   vendorPOVendorMilestoneEntries,
-  clientPaymentLabel,
   computeMilestonePayableStatus,
   findInvoiceForMilestone,
-  getPayableControl,
   globalVendorContextKey,
   invoiceMatchesRow,
-  invoiceUploadedLabel,
   payableStatusBadgeColor,
   payableStatusLabel,
   SettlementSummaryStrip,
-  AddVendorInvoiceDrawer,
+  UploadVendorInvoiceDrawer,
+  buildEligibleVendorInvoiceUploadEntries,
+  buildProjectVendorOptionsFromVendorPOs,
   VendorPayableWorkflowDrawer,
   type PayablePaymentStatus,
+  type UploadVendorInvoiceInitialSelection,
   type VendorMilestoneEntry,
   type VendorServiceRow,
   type VendorPayableDrawerFocus,
 } from '@/pages/Projects/tabs/live/vendorSettlement'
-
-type StatusTab =
-  | 'all'
-  | 'waiting_for_client_payment'
-  | 'pending_compliance'
-  | 'ready_for_payment'
-  | 'settled'
 
 interface CardEntry {
   projectId: string
@@ -78,8 +71,6 @@ interface PaymentTableRow {
   vendorKey: string
   entry: VendorMilestoneEntry
   payableSt: PayablePaymentStatus
-  invLabel: string
-  clientLabel: string
 }
 
 async function loadFinanceForAllProjects(dispatch: AppDispatch, projectIds: string[]): Promise<void> {
@@ -95,7 +86,7 @@ async function loadFinanceForAllProjects(dispatch: AppDispatch, projectIds: stri
 }
 
 /** Equal-width data columns + fixed Action; padding matches listing toolbar (14px). */
-const PAY_DATA_COLUMN_COUNT = 6
+const PAY_DATA_COLUMN_COUNT = 4
 const PAY_ACTION_WIDTH_PX = 60
 const PAY_CELL_PAD_X = '14px'
 const PAY_DATA_COL_WIDTH = `calc((100% - ${PAY_ACTION_WIDTH_PX}px) / ${PAY_DATA_COLUMN_COUNT})`
@@ -226,11 +217,9 @@ const PAY_PAGE_SIZE = 10
 
 const menuItemSx = { fontSize: 12, minHeight: 32, py: 0.5 }
 
-const ACTION_MENU_BY_STATUS: Record<PayablePaymentStatus, string[]> = {
-  ready_for_payment: ['View Details', 'Release Payment', 'Upload Invoice'],
-  waiting_for_client_payment: ['View Details', 'View Client Payment'],
-  pending_compliance: ['View Details'],
-  settled: ['View Details', 'View Settlement History'],
+function actionMenuItemsForStatus(status: PayablePaymentStatus): readonly string[] {
+  if (status === 'settled') return ['View Details']
+  return ['View Details', 'Release Payment']
 }
 
 interface SimplePaginationProps {
@@ -293,7 +282,6 @@ export default function PaymentsPage() {
   const projects = rawProjects ?? []
   const vendorInvoices = useAppSelector((s) => s.live.vendorInvoices ?? [])
   const payments = useAppSelector((s) => s.live.payments ?? [])
-  const vendorPayableControls = useAppSelector((s) => s.live.vendorPayableControls ?? [])
 
   const [baselinesByProject, setBaselinesByProject] = useState<Record<string, Baseline | null>>({})
   const [vendorPOsByProject, setVendorPOsByProject] = useState<Record<string, VendorPO[]>>({})
@@ -307,7 +295,6 @@ export default function PaymentsPage() {
   const [filterProjectId, setFilterProjectId] = useState('')
   const [filterVendorId, setFilterVendorId] = useState('')
   const [search, setSearch] = useState('')
-  const [statusTab, setStatusTab] = useState<StatusTab>('all')
   const [activeFilters, setActiveFilters] = useState<Record<string, unknown>>({
     dateFrom: '',
     dateTo: '',
@@ -321,14 +308,9 @@ export default function PaymentsPage() {
     focus: VendorPayableDrawerFocus
     readOnly: boolean
   } | null>(null)
-  const [uploadInvoiceDrawer, setUploadInvoiceDrawer] = useState<{
-    projectId: string
-    context: VendorServiceRow
-    milestoneId: string
-    baseline: Baseline | null
-    vendorPOs: VendorPO[]
-    editInvoiceId?: string
-  } | null>(null)
+  const [uploadOpen, setUploadOpen] = useState(false)
+  const [uploadInitialSelection, setUploadInitialSelection] =
+    useState<UploadVendorInvoiceInitialSelection | null>(null)
 
   useEffect(() => {
     void dispatch(fetchProjects({ pageSize: 100 }))
@@ -426,30 +408,31 @@ export default function PaymentsPage() {
   }, [vendorInvoices])
 
   const enrichMilestone = useCallback(
-    (m: VendorMilestoneEntry): PaymentTableRow => {
+    (m: VendorMilestoneEntry): PaymentTableRow | null => {
       const scopedInv = invoicesByProject.get(m.projectId) ?? []
       const rowInvoices = scopedInv.filter((v) => invoiceMatchesRow(v, m.row))
       const milestoneInv = findInvoiceForMilestone(rowInvoices, m.milestone)
-      const control = getPayableControl(vendorPayableControls, m.projectId, m.row)
-      const payableSt = computeMilestonePayableStatus(milestoneInv, control)
+      if (!milestoneInv) return null
+      const payableSt = computeMilestonePayableStatus(milestoneInv)
       return {
         key: `${globalVendorContextKey(m.projectId, m.row)}::${m.milestone.id}`,
         vendorKey: globalVendorContextKey(m.projectId, m.row),
         entry: m,
         payableSt,
-        invLabel: invoiceUploadedLabel(milestoneInv),
-        clientLabel: clientPaymentLabel(control),
       }
     },
-    [invoicesByProject, vendorPayableControls],
+    [invoicesByProject],
   )
 
   const enrichedMilestones = useMemo(
-    () => milestonesAfterProjectVendor.map(enrichMilestone),
+    () =>
+      milestonesAfterProjectVendor
+        .map(enrichMilestone)
+        .filter((row): row is PaymentTableRow => row != null),
     [milestonesAfterProjectVendor, enrichMilestone],
   )
 
-  const milestonesAfterSearch = useMemo(() => {
+  const listingRows = useMemo(() => {
     const q = search.trim().toLowerCase()
     if (!q) return enrichedMilestones
     return enrichedMilestones.filter((row) => {
@@ -457,8 +440,6 @@ export default function PaymentsPage() {
         row.entry.row.vendorName,
         row.entry.projectName,
         row.entry.milestone.name,
-        row.invLabel,
-        row.clientLabel,
         payableStatusLabel(row.payableSt),
       ]
         .join(' ')
@@ -466,25 +447,6 @@ export default function PaymentsPage() {
       return haystack.includes(q)
     })
   }, [enrichedMilestones, search])
-
-  const statusCounts = useMemo(() => {
-    const counts = {
-      all: milestonesAfterSearch.length,
-      waiting_for_client_payment: 0,
-      pending_compliance: 0,
-      ready_for_payment: 0,
-      settled: 0,
-    }
-    for (const row of milestonesAfterSearch) {
-      counts[row.payableSt] += 1
-    }
-    return counts
-  }, [milestonesAfterSearch])
-
-  const listingRows = useMemo(() => {
-    if (statusTab === 'all') return milestonesAfterSearch
-    return milestonesAfterSearch.filter((row) => row.payableSt === statusTab)
-  }, [milestonesAfterSearch, statusTab])
 
   const isDataLoading =
     projectsLoading ||
@@ -497,29 +459,29 @@ export default function PaymentsPage() {
 
   useEffect(() => {
     setPage(1)
-  }, [statusTab, filterProjectId, filterVendorId, search])
+  }, [filterProjectId, filterVendorId, search])
 
   useEffect(() => {
     const maxPage = Math.max(1, Math.ceil(listingRows.length / PAY_PAGE_SIZE))
     if (page > maxPage) setPage(maxPage)
   }, [listingRows.length, page])
 
-  const summaryInvoices = useMemo(() => {
-    return vendorInvoices.filter((inv) =>
-      listingRows.some(
-        (row) =>
-          row.entry.projectId === inv.projectId &&
-          invoiceMatchesRow(inv, row.entry.row) &&
-          (inv.milestoneId === row.entry.milestone.id ||
-            inv.milestoneName === row.entry.milestone.name),
-      ),
-    )
-  }, [vendorInvoices, listingRows])
+  const summaryVendorPOs = useMemo(() => {
+    const all = Object.values(vendorPOsByProject).flat()
+    return all.filter((po) => {
+      if (filterProjectId && po.projectId !== filterProjectId) return false
+      if (filterVendorId && po.vendorId !== filterVendorId) return false
+      return true
+    })
+  }, [vendorPOsByProject, filterProjectId, filterVendorId])
 
   const summaryPayments = useMemo(() => {
-    const keys = new Set(listingRows.map((row) => `${row.entry.projectId}::${row.entry.row.vendorId}`))
-    return payments.filter((p) => keys.has(`${p.projectId}::${p.vendorId}`))
-  }, [payments, listingRows])
+    return payments.filter((p) => {
+      if (filterProjectId && p.projectId !== filterProjectId) return false
+      if (filterVendorId && p.vendorId !== filterVendorId) return false
+      return true
+    })
+  }, [payments, filterProjectId, filterVendorId])
 
   const vendorOptions = useMemo(() => {
     const labels: Record<string, string> = {}
@@ -554,37 +516,46 @@ export default function PaymentsPage() {
     setMenuContext(null)
   }
 
+  const eligibleUploadEntries = useMemo(
+    () =>
+      buildEligibleVendorInvoiceUploadEntries(
+        projects.map((p) => ({ id: p.id, name: p.name })),
+        vendorPOsByProject,
+        baselinesByProject,
+        vendorInvoices,
+      ),
+    [projects, vendorPOsByProject, baselinesByProject, vendorInvoices],
+  )
+
+  const projectVendorOptions = useMemo(
+    () =>
+      buildProjectVendorOptionsFromVendorPOs(
+        projects.map((p) => ({ id: p.id, name: p.name })),
+        vendorPOsByProject,
+      ),
+    [projects, vendorPOsByProject],
+  )
+
+  function openUploadInvoice(selection?: UploadVendorInvoiceInitialSelection | null) {
+    setUploadInitialSelection(selection ?? null)
+    setUploadOpen(true)
+  }
+
+  function closeUploadInvoice() {
+    setUploadOpen(false)
+    setUploadInitialSelection(null)
+  }
+
   function handleActionMenuItem(label: string) {
     if (!menuContext) return
     const { entry } = menuContext
-    const projectId = entry.projectId
-    const baseline = baselinesByProject[projectId] ?? null
-    const vendorPOs = vendorPOsByProject[projectId] ?? []
-    const scopedInv = (invoicesByProject.get(projectId) ?? []).filter((inv) =>
-      invoiceMatchesRow(inv, entry.row),
-    )
-    const milestoneInv = findInvoiceForMilestone(scopedInv, entry.milestone)
 
     closeActionMenu()
 
     switch (label) {
-      case 'Upload Invoice':
-        setUploadInvoiceDrawer({
-          projectId,
-          context: entry.row,
-          milestoneId: entry.milestone.id,
-          baseline,
-          vendorPOs,
-          editInvoiceId: milestoneInv?.id,
-        })
-        break
       case 'Release Payment':
         setWorkflowDrawer({ entry, focus: 'payment', readOnly: false })
         break
-      case 'View Client Payment':
-        setWorkflowDrawer({ entry, focus: 'client-payment', readOnly: false })
-        break
-      case 'View Settlement History':
       case 'View Details':
       default:
         setWorkflowDrawer({ entry, focus: 'details', readOnly: true })
@@ -596,30 +567,13 @@ export default function PaymentsPage() {
     if (!workflowDrawer) return
     const { entry } = workflowDrawer
     setWorkflowDrawer(null)
-    setUploadInvoiceDrawer({
+    openUploadInvoice({
       projectId: entry.projectId,
-      context: entry.row,
+      vendorId: entry.row.vendorId,
+      serviceId: entry.row.serviceId,
       milestoneId,
-      baseline: baselinesByProject[entry.projectId] ?? null,
-      vendorPOs: vendorPOsByProject[entry.projectId] ?? [],
     })
   }
-
-  const tabs = [
-    { label: 'All', value: 'all', count: statusCounts.all },
-    {
-      label: 'Waiting for Client',
-      value: 'waiting_for_client_payment',
-      count: statusCounts.waiting_for_client_payment,
-    },
-    {
-      label: 'Pending Compliance',
-      value: 'pending_compliance',
-      count: statusCounts.pending_compliance,
-    },
-    { label: 'Ready for Payment', value: 'ready_for_payment', count: statusCounts.ready_for_payment },
-    { label: 'Settled', value: 'settled', count: statusCounts.settled },
-  ]
 
   const toolbarAfterSearch = (
     <Stack direction="row" alignItems="center" gap={1} flexWrap="wrap">
@@ -672,12 +626,14 @@ export default function PaymentsPage() {
           icon={<Banknote size={20} strokeWidth={1.75} />}
           title="Payable"
           subtitle="Cross-project vendor payments and settlement workflow"
+          primaryAction={{
+            label: 'Upload Invoice',
+            onClick: () => openUploadInvoice(),
+            startIcon: <Upload size={16} strokeWidth={1.75} />,
+          }}
           customSummary={
-            <SettlementSummaryStrip vendorInvoices={summaryInvoices} payments={summaryPayments} />
+            <SettlementSummaryStrip vendorPOs={summaryVendorPOs} payments={summaryPayments} />
           }
-          tabs={tabs}
-          activeTab={statusTab}
-          onTabChange={(v) => setStatusTab(v as StatusTab)}
           searchValue={search}
           onSearchChange={handleSearchChange}
           toolbarAfterSearch={toolbarAfterSearch}
@@ -703,24 +659,18 @@ export default function PaymentsPage() {
                       <TableCell sx={PAY_HEADER_SX}>Vendor</TableCell>
                       <TableCell sx={PAY_HEADER_SX}>Project</TableCell>
                       <TableCell sx={PAY_HEADER_SX}>Milestone</TableCell>
-                      <TableCell sx={PAY_HEADER_CHIP_SX}>
-                        Invoice Uploaded
-                      </TableCell>
-                      <TableCell sx={PAY_HEADER_CHIP_SX}>
-                        Client Payment
-                      </TableCell>
                       <TableCell sx={PAY_HEADER_STATUS_SX}>
                         Payment Status
                       </TableCell>
                       <TableCell sx={PAY_HEADER_ACTION_SX}>
-                        Action
+                        Actions
                       </TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
                     {isDataLoading ? (
                       <TableRow>
-                        <TableCell colSpan={7} sx={{ ...PAY_CELL_SX, color: 'text.secondary', py: 4 }}>
+                        <TableCell colSpan={5} sx={{ ...PAY_CELL_SX, color: 'text.secondary', py: 4 }}>
                           <Stack direction="row" alignItems="center" justifyContent="center" gap={1}>
                             <CircularProgress size={20} />
                             <Typography variant="body2" sx={{ fontSize: 12 }}>
@@ -731,8 +681,8 @@ export default function PaymentsPage() {
                       </TableRow>
                     ) : listingRows.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={7} sx={{ ...PAY_CELL_SX, color: 'text.secondary', py: 4 }}>
-                          No vendor milestones match the filters. Finalize baselines or adjust filters.
+                        <TableCell colSpan={5} sx={{ ...PAY_CELL_SX, color: 'text.secondary', py: 4 }}>
+                          No vendor invoices yet. Upload an invoice to get started.
                         </TableCell>
                       </TableRow>
                     ) : (
@@ -768,30 +718,6 @@ export default function PaymentsPage() {
                             <Typography variant="body2" sx={PAY_TEXT_BODY_SX}>
                               {row.entry.milestone.name}
                             </Typography>
-                          </TableCell>
-                          <TableCell sx={PAY_CELL_CHIP_SX}>
-                            <Box sx={CENTER_CELL_CONTENT_SX}>
-                            <Badge
-                              label={row.invLabel}
-                              variant="soft"
-                              color={row.invLabel === 'Uploaded' ? 'success' : 'warning'}
-                              size="sm"
-                            />
-                            </Box>
-                          </TableCell>
-                          <TableCell sx={PAY_CELL_CHIP_SX}>
-                            <Box sx={CENTER_CELL_CONTENT_SX}>
-                            <Typography
-                              variant="body2"
-                              sx={{
-                                ...PAY_TEXT_BODY_SX,
-                                fontWeight: 600,
-                                color: row.clientLabel === 'Received' ? 'success.main' : 'warning.main',
-                              }}
-                            >
-                              {row.clientLabel}
-                            </Typography>
-                            </Box>
                           </TableCell>
                           <TableCell sx={PAY_CELL_STATUS_SX}>
                             <Box sx={CENTER_CELL_CONTENT_SX}>
@@ -839,7 +765,7 @@ export default function PaymentsPage() {
           onClick={(e) => e.stopPropagation()}
           slotProps={{ paper: { elevation: 2 } }}
         >
-          {(menuContext ? ACTION_MENU_BY_STATUS[menuContext.payableSt] : []).map((label) => (
+          {(menuContext ? actionMenuItemsForStatus(menuContext.payableSt) : []).map((label) => (
             <MenuItem key={label} sx={menuItemSx} onClick={() => handleActionMenuItem(label)}>
               {label}
             </MenuItem>
@@ -847,6 +773,7 @@ export default function PaymentsPage() {
         </Menu>
 
         <VendorPayableWorkflowDrawer
+          key={workflowDrawer ? `${workflowDrawer.entry.milestone.id}-${workflowDrawer.focus}` : 'closed'}
           open={workflowDrawer != null}
           onClose={() => setWorkflowDrawer(null)}
           entry={workflowDrawer?.entry ?? null}
@@ -858,15 +785,12 @@ export default function PaymentsPage() {
           onUploadInvoice={openUploadInvoiceFromWorkflow}
         />
 
-        <AddVendorInvoiceDrawer
-          open={uploadInvoiceDrawer != null}
-          onClose={() => setUploadInvoiceDrawer(null)}
-          projectId={uploadInvoiceDrawer?.projectId ?? ''}
-          context={uploadInvoiceDrawer?.context ?? null}
-          presetMilestoneId={uploadInvoiceDrawer?.milestoneId}
-          baseline={uploadInvoiceDrawer?.baseline ?? null}
-          vendorPOs={uploadInvoiceDrawer?.vendorPOs ?? []}
-          editInvoiceId={uploadInvoiceDrawer?.editInvoiceId}
+        <UploadVendorInvoiceDrawer
+          open={uploadOpen}
+          onClose={closeUploadInvoice}
+          eligibleEntries={eligibleUploadEntries}
+          projectVendors={projectVendorOptions}
+          initialSelection={uploadInitialSelection}
         />
     </>
   )

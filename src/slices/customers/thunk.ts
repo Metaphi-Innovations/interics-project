@@ -96,6 +96,31 @@ export const createCustomerContact = createAsyncThunk(
   },
 )
 
+export const updateCustomerContact = createAsyncThunk(
+  'customers/updateContact',
+  async (
+    {
+      customerId,
+      contactId,
+      data,
+    }: { customerId: string; contactId: string; data: Partial<Omit<Contact, 'id'>> },
+    { rejectWithValue },
+  ) => {
+    try {
+      const response = await customersApi.updateContact(customerId, contactId, data)
+      return {
+        customerId,
+        contact: response.data as Contact,
+      }
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { message?: string } } }
+      return rejectWithValue(
+        error.response?.data?.message ?? 'Failed to update contact person',
+      )
+    }
+  },
+)
+
 export const deleteCustomer = createAsyncThunk(
   'customers/delete',
   async (id: string, { rejectWithValue }) => {

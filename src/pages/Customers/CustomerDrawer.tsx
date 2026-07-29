@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
-import { Box, Stack, TextField, MenuItem, Autocomplete, Chip as MuiChip, Typography } from '@mui/material'
+import { Box, Stack, TextField, MenuItem, Typography } from '@mui/material'
 import { DrawerForm, FormSection, FormField } from '../../components/templates'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { createCustomer, updateCustomer } from '../../slices/customers/thunk'
 import { useToast, Button } from '@/design-system/components'
 import type { Customer } from '../../slices/customers/reducer'
-import { SECTOR_OPTIONS } from '../../constants/sectors'
+import { fetchSectors } from '../../slices/settings/thunk'
 
 type GstStatus = Customer['gstStatus']
 
@@ -21,11 +21,6 @@ const INDIAN_STATES = [
   'Andaman and Nicobar Islands', 'Chandigarh', 'Dadra and Nagar Haveli',
   'Daman and Diu', 'Delhi', 'Jammu and Kashmir', 'Ladakh',
   'Lakshadweep', 'Puducherry',
-]
-
-const COMMON_TAGS = [
-  'Enterprise', 'Residential', 'High Value', 'Real Estate',
-  'Tech', 'Startup', 'Corporate', 'Repeat Client',
 ]
 
 const GSTIN_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/
@@ -87,13 +82,8 @@ export interface CustomerDrawerProps {
 function validate(form: FormState): Record<string, string> {
   const errors: Record<string, string> = {}
   if (!form.name.trim()) errors.name = 'Name is required'
-  if (!form.type) errors.type = 'Type is required'
   if (!form.sector) errors.sector = 'Sector is required'
-  if (!form.contactPerson.trim()) errors.contactPerson = 'Contact person is required'
-  if (!form.phone.trim()) errors.phone = 'Phone is required'
-  if (!form.email.trim()) {
-    errors.email = 'Email is required'
-  } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
+  if (form.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
     errors.email = 'Invalid email format'
   }
   if (!form.city.trim()) errors.city = 'City is required'
@@ -113,6 +103,7 @@ function validate(form: FormState): Record<string, string> {
 export function CustomerDrawer({ open, onClose, mode, customer, onSuccess }: CustomerDrawerProps) {
   const dispatch = useAppDispatch()
   const saving = useAppSelector((s) => s.customers.saving)
+  const sectors = useAppSelector((s) => s.settings.sectors)
   const { showToast } = useToast()
 
   const [form, setForm] = useState<FormState>(defaultForm)
@@ -121,6 +112,14 @@ export function CustomerDrawer({ open, onClose, mode, customer, onSuccess }: Cus
   const [panDocFile, setPanDocFile] = useState<File | null>(null)
   const gstFileInputRef = useRef<HTMLInputElement>(null)
   const panFileInputRef = useRef<HTMLInputElement>(null)
+
+  const activeSectors = sectors.filter((s) => s.status === 'active')
+
+  useEffect(() => {
+    if (open) {
+      dispatch(fetchSectors())
+    }
+  }, [open, dispatch])
 
   useEffect(() => {
     if (open) {
@@ -245,39 +244,30 @@ export function CustomerDrawer({ open, onClose, mode, customer, onSuccess }: Cus
           </FormField>
         </Box>
 
-        <FormField label="Customer Type" required error={errors.type}>
-          <TextField
-            fullWidth
-            size="small"
-            select
-            value={form.type}
-            onChange={(e) => update('type', e.target.value as 'Company' | 'Individual')}
-            error={!!errors.type}
-          >
-            <MenuItem value="Company">Company</MenuItem>
-            <MenuItem value="Individual">Individual</MenuItem>
-          </TextField>
-        </FormField>
-
-        <FormField label="Sector" required error={errors.sector}>
-          <TextField
-            fullWidth
-            size="small"
-            select
-            value={form.sector}
-            onChange={(e) => update('sector', e.target.value)}
-            error={!!errors.sector}
-          >
-            <MenuItem value="" disabled>
-              Select sector…
-            </MenuItem>
-            {SECTOR_OPTIONS.map((s) => (
-              <MenuItem key={s} value={s}>
-                {s}
+        <Box sx={{ gridColumn: 'span 2' }}>
+          <FormField label="Sector" required error={errors.sector}>
+            <TextField
+              fullWidth
+              size="small"
+              select
+              value={form.sector}
+              onChange={(e) => update('sector', e.target.value)}
+              error={!!errors.sector}
+            >
+              <MenuItem value="" disabled>
+                Select sector…
               </MenuItem>
-            ))}
-          </TextField>
-        </FormField>
+              {activeSectors.map((s) => (
+                <MenuItem key={s.id} value={s.name}>
+                  {s.name}
+                </MenuItem>
+              ))}
+              {form.sector && !activeSectors.some((s) => s.name === form.sector) ? (
+                <MenuItem value={form.sector}>{form.sector}</MenuItem>
+              ) : null}
+            </TextField>
+          </FormField>
+        </Box>
       </FormSection>
 
       {/* ── Tax & Compliance ────────────────────────────────────────── */}
@@ -395,14 +385,13 @@ export function CustomerDrawer({ open, onClose, mode, customer, onSuccess }: Cus
 
       {/* ── Primary Contact ──────────────────────────────────────────── */}
       <FormSection title="Primary Contact" columns={2}>
-        <FormField label="Contact Person" required error={errors.contactPerson}>
+        <FormField label="Contact Person">
           <TextField
             fullWidth
             size="small"
             value={form.contactPerson}
             onChange={(e) => update('contactPerson', e.target.value)}
             placeholder="Full name"
-            error={!!errors.contactPerson}
           />
         </FormField>
 
@@ -416,7 +405,7 @@ export function CustomerDrawer({ open, onClose, mode, customer, onSuccess }: Cus
           />
         </FormField>
 
-        <FormField label="Phone" required error={errors.phone}>
+        <FormField label="Phone">
           <TextField
             fullWidth
             size="small"
@@ -424,11 +413,10 @@ export function CustomerDrawer({ open, onClose, mode, customer, onSuccess }: Cus
             value={form.phone}
             onChange={(e) => update('phone', e.target.value)}
             placeholder="+91 98765 43210"
-            error={!!errors.phone}
           />
         </FormField>
 
-        <FormField label="Email" required error={errors.email}>
+        <FormField label="Email" error={errors.email}>
           <TextField
             fullWidth
             size="small"
@@ -498,34 +486,6 @@ export function CustomerDrawer({ open, onClose, mode, customer, onSuccess }: Cus
 
       {/* ── Additional ──────────────────────────────────────────────── */}
       <FormSection title="Additional" columns={1}>
-        <FormField label="Tags">
-          <Autocomplete
-            multiple
-            freeSolo
-            options={COMMON_TAGS}
-            value={form.tags}
-            onChange={(_, newValue) => update('tags', newValue as string[])}
-            renderTags={(value, getTagProps) =>
-              value.map((option, index) => (
-                <MuiChip
-                  variant="outlined"
-                  label={option}
-                  size="small"
-                  {...getTagProps({ index })}
-                  key={index}
-                />
-              ))
-            }
-            renderInput={(params) => (
-              <TextField
-                {...params}
-                size="small"
-                placeholder={form.tags.length === 0 ? 'Add tags...' : ''}
-              />
-            )}
-          />
-        </FormField>
-
         <FormField label="Notes">
           <TextField
             fullWidth

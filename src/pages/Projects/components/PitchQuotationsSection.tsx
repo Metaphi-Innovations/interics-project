@@ -159,7 +159,8 @@ export function PitchQuotationsSection({ projectId }: PitchQuotationsSectionProp
           </Typography>
           <MuiButton
             size="small"
-            variant="outlined"
+            variant="contained"
+            color="primary"
             startIcon={<MuiUploadIcon fontSize="small" />}
             sx={{ height: 32, fontSize: 12 }}
             onClick={openCreateDialog}

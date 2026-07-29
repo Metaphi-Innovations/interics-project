@@ -45,7 +45,7 @@ const ContactListbox = forwardRef<HTMLUListElement, ContactListboxProps>(
                   color: 'primary.main',
                 }}
               >
-                + Create New Contact Person
+                + Add New Person
               </MuiButton>
             </Box>
           </>

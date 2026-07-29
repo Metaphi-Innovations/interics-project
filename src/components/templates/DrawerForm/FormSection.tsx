@@ -54,6 +54,9 @@ export function FormSection({
           display: 'grid',
           gridTemplateColumns: `repeat(${columns}, 1fr)`,
           gap: '12px',
+          minWidth: 0,
+          maxWidth: '100%',
+          '& > *': { minWidth: 0, maxWidth: '100%' },
         }}
       >
         {children}

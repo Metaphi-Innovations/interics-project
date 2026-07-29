@@ -96,6 +96,7 @@ export interface ExecutiveKpis {
   avgDesignFeePerSqft: number
   avgProfitMargin: number
   outstandingReceivables: number
+  labourCess: number
   repeatClientPct: number
   prevTotalRevenue: number
   prevTotalProfit: number
@@ -104,5 +105,6 @@ export interface ExecutiveKpis {
   prevAvgDesignFeePerSqft: number
   prevAvgProfitMargin: number
   prevOutstandingReceivables: number
+  prevLabourCess: number
   prevRepeatClientPct: number
 }

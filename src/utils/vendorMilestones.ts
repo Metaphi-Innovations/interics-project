@@ -1,5 +1,4 @@
 import type {
-  VendorFinalMilestone,
   VendorMapping,
   VendorMilestone,
   VendorRetention,
@@ -7,14 +6,17 @@ import type {
 
 export const VENDOR_MILESTONE_PCT_EPS = 0.01
 
-/** Legacy API stored retention as a milestone with `isRetention: true`. */
+/** Legacy API stored retention/final as flags on milestone rows or a separate finalMilestone field. */
 type LegacyVendorMilestone = VendorMilestone & { isRetention?: boolean; isFinal?: boolean }
+type LegacyVendorMapping = VendorMapping & {
+  finalMilestone?: { name: string; percentage: number; amount: number }
+}
 
 /** Migrate legacy milestones + normalize defaults. */
 export function normalizeVendorMapping(vm: VendorMapping): VendorMapping {
+  const legacy = vm as LegacyVendorMapping
   const isMeasurable = vm.isMeasurable ?? false
   let retention: VendorRetention | undefined = vm.retention
-  let finalMilestone: VendorFinalMilestone | undefined = vm.finalMilestone
   const regular: VendorMilestone[] = []
 
   const rawMilestones = vm.milestones as unknown as LegacyVendorMilestone[]
@@ -29,16 +31,6 @@ export function normalizeVendorMapping(vm: VendorMapping): VendorMapping {
       }
       continue
     }
-    if (m.isFinal) {
-      if (!finalMilestone) {
-        finalMilestone = {
-          name: m.name,
-          percentage: m.percentage,
-          amount: m.value,
-        }
-      }
-      continue
-    }
     regular.push({
       id: m.id,
       name: m.name,
@@ -47,12 +39,29 @@ export function normalizeVendorMapping(vm: VendorMapping): VendorMapping {
     })
   }
 
+  // Fold legacy finalMilestone into regular milestones so % totals stay valid.
+  if (legacy.finalMilestone?.name?.trim()) {
+    const fin = legacy.finalMilestone
+    const alreadyPresent = regular.some(
+      (m) =>
+        m.name.trim().toLowerCase() === fin.name.trim().toLowerCase() &&
+        Math.abs(m.percentage - fin.percentage) < VENDOR_MILESTONE_PCT_EPS,
+    )
+    if (!alreadyPresent) {
+      regular.push({
+        id: `final-migrated-${fin.name}`,
+        name: fin.name,
+        percentage: fin.percentage,
+        value: fin.amount,
+      })
+    }
+  }
+
   return {
     ...vm,
     isMeasurable,
     milestones: regular,
     retention,
-    finalMilestone,
   }
 }
 
@@ -60,8 +69,7 @@ export function sumVendorMilestonePercentages(m: VendorMapping): number {
   const milestones = m.milestones ?? []
   const fromMilestones = milestones.reduce((s, x) => s + x.percentage, 0)
   const fromRetention = m.retention?.percentage ?? 0
-  const fromFinal = m.finalMilestone?.percentage ?? 0
-  return fromMilestones + fromRetention + fromFinal
+  return fromMilestones + fromRetention
 }
 
 export type VendorMilestoneValidation = {
@@ -69,31 +77,30 @@ export type VendorMilestoneValidation = {
   currentPct: number
   /** When invalid due to % total */
   pctMessage?: string
-  /** When retention/final exists but no regular milestones */
+  /** When retention exists but no regular milestones */
   structureMessage?: string
 }
 
 /**
- * If any regular milestone, retention, or final milestone exists, require >=1 regular milestone
+ * If any regular milestone or retention exists, require >=1 regular milestone
  * and total % === 100. Empty breakdown: valid (no breakdown yet).
  */
 export function validateVendorMilestonePercents(m: VendorMapping): VendorMilestoneValidation {
   const milestones = m.milestones ?? []
   const hasRetention = Boolean(m.retention)
-  const hasFinalMilestone = Boolean(m.finalMilestone)
   const hasMilestones = milestones.length > 0
   const currentPct = sumVendorMilestonePercentages({ ...m, milestones })
 
-  if (!hasRetention && !hasFinalMilestone && !hasMilestones) {
+  if (!hasRetention && !hasMilestones) {
     return { valid: true, currentPct: 0 }
   }
 
-  if ((hasRetention || hasFinalMilestone) && milestones.length === 0) {
+  if (hasRetention && milestones.length === 0) {
     return {
       valid: false,
       currentPct,
       structureMessage:
-        'Add at least one milestone before retention or final milestone. They cannot be used alone.',
+        'Add at least one milestone before retention. Retention cannot be used alone.',
     }
   }
 
@@ -117,18 +124,9 @@ export function isVendorRetentionMilestone(name: string): boolean {
   return name.trim().toLowerCase() === 'retention'
 }
 
-export function isVendorFinalMilestoneId(id: string): boolean {
-  return id.startsWith('final-')
-}
-
 /** Stable id for retention slice when surfaced as a payable milestone row. */
 export function retentionMilestoneId(vendorId: string, serviceId: string): string {
   return `retention-${vendorId}-${serviceId}`
-}
-
-/** Stable id for final milestone when surfaced as a payable milestone row. */
-export function finalMilestoneId(vendorId: string, serviceId: string): string {
-  return `final-${vendorId}-${serviceId}`
 }
 
 export function retentionAsMilestone(
@@ -144,30 +142,13 @@ export function retentionAsMilestone(
   }
 }
 
-export function finalAsMilestone(
-  finalMilestone: VendorFinalMilestone,
-  vendorId: string,
-  serviceId: string,
-): VendorMilestone {
-  return {
-    id: finalMilestoneId(vendorId, serviceId),
-    name: finalMilestone.name,
-    percentage: finalMilestone.percentage,
-    value: finalMilestone.amount,
-  }
-}
-
-/** Regular milestones plus retention and final milestone (when configured) for payables / invoicing. */
+/** Regular milestones plus retention (when configured) for payables / invoicing. */
 export function mappingMilestonesWithRetention(mapping: VendorMapping, serviceId: string): VendorMilestone[] {
   const normalized = normalizeVendorMapping(mapping)
   const milestones = [...(normalized.milestones ?? [])]
   const ret = normalized.retention
   if (ret && (ret.percentage > 0 || ret.amount > 0)) {
     milestones.push(retentionAsMilestone(ret, mapping.vendorId, serviceId))
-  }
-  const fin = normalized.finalMilestone
-  if (fin && fin.name.trim() && (fin.percentage > 0 || fin.amount > 0)) {
-    milestones.push(finalAsMilestone(fin, mapping.vendorId, serviceId))
   }
   return milestones
 }
@@ -184,11 +165,5 @@ export function reapplyVendorAmountsFromPercentages(m: VendorMapping): VendorMap
         amount: Math.round((m.retention.percentage / 100) * total),
       }
     : undefined
-  const finalMilestone = m.finalMilestone
-    ? {
-        ...m.finalMilestone,
-        amount: Math.round((m.finalMilestone.percentage / 100) * total),
-      }
-    : undefined
-  return { ...m, milestones, retention, finalMilestone }
+  return { ...m, milestones, retention }
 }

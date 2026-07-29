@@ -94,7 +94,7 @@ interface Vendor {
   notes: string | null
   status: 'Active' | 'Inactive'
   profileStatus?: 'pending' | 'complete'
-  rating?: number | null
+  rating?: string | null
   activeProjects: number
   totalPayables: number
   createdAt: string
@@ -704,13 +704,13 @@ const seedVendors: Vendor[] = [
 
 let vendors: Vendor[] = loadPersistedVendors(seedVendors)
 
-const VENDOR_SEED_RATINGS: Record<string, number> = {
-  'v-001': 4.7,
-  'v-002': 4.3,
-  'v-003': 4.8,
-  'v-004': 3.9,
-  'v-005': 4.5,
-  'v-006': 3.2,
+const VENDOR_SEED_RATINGS: Record<string, string> = {
+  'v-001': 'Premium',
+  'v-002': 'Luxury',
+  'v-003': 'Ultra Premium',
+  'v-004': 'Standard',
+  'v-005': 'Premium',
+  'v-006': 'Standard',
 }
 
 vendors = vendors.map((vendor) => ({
@@ -811,12 +811,20 @@ export const vendorsHandlers = [
       vendorType: 'Measurable',
       gstStatus: data.gstStatus,
     }
+    const incomingContacts = (data.contacts ?? []).map((c, i) => ({
+      ...c,
+      id: c.id?.startsWith('tmp-') || !c.id ? `vc-${idCounter}-${i}` : c.id,
+    }))
+    const primaryContact = incomingContacts.find((c) => c.isPrimary) ?? incomingContacts[0]
     const newVendor: Vendor = {
       ...data,
       id: `v-${String(idCounter++).padStart(3, '0')}`,
       createdAt: new Date().toISOString().split('T')[0],
       rating: data.rating ?? null,
-      contacts: data.contacts ?? [],
+      contactPerson: data.contactPerson || primaryContact?.name || '',
+      phone: data.phone || primaryContact?.phone || '',
+      email: data.email || primaryContact?.email || '',
+      contacts: incomingContacts,
       activityLog: data.activityLog ?? [],
       financialDetails: {
         ...defaultFinancial,

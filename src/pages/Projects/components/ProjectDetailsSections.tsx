@@ -10,10 +10,12 @@ import { formatDate } from '@/utils/formatters'
 import {
   PROJECT_DETAILS_GRID_SX,
   METADATA_BODY_SX,
+  METADATA_PREWRAP_SX,
   formatBuildingFloor,
   formatExpectedDuration,
-  ProjectScopeTags,
 } from '../projectOverviewHelpers'
+import { getProjectTypes } from '../projectTypes'
+import { ProjectTypeTags } from './ProjectTypeTags'
 
 function LabelValue({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -27,6 +29,22 @@ function LabelValue({ label, children }: { label: string; children: React.ReactN
       <Box sx={{ mt: '2px', minWidth: 0, flex: 1 }}>{children}</Box>
     </Box>
   )
+}
+
+/** Plain-text preview for optional rich-text project detail fields. */
+function formatOptionalHtml(value?: string | null): string {
+  if (!value?.trim()) return '—'
+  const plain = value
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+  return plain || '—'
 }
 
 interface ProjectDetailsSectionsProps {
@@ -74,14 +92,8 @@ export function ProjectDetailsSections({ project }: ProjectDetailsSectionsProps)
               </Typography>
             </LabelValue>
             <LabelValue label="Project Scope">
-              <ProjectScopeTags scope={project.projectScope} />
+              <ProjectTypeTags types={getProjectTypes(project)} />
             </LabelValue>
-          </Box>
-        </Box>
-
-        <Box sx={getRecordDetailFlatSectionSx(theme, { isLast: true })}>
-          <RecordDetailSectionTitle>Area & Planning</RecordDetailSectionTitle>
-          <Box sx={PROJECT_DETAILS_GRID_SX}>
             <LabelValue label="Carpet Area">
               <Typography variant="body2" sx={METADATA_BODY_SX}>
                 {project.carpetArea ? `${project.carpetArea.toLocaleString()} sq ft` : '—'}
@@ -92,34 +104,35 @@ export function ProjectDetailsSections({ project }: ProjectDetailsSectionsProps)
                 {project.headcount ?? '—'}
               </Typography>
             </LabelValue>
-            <LabelValue label="Workstation Size">
-              <Typography variant="body2" sx={METADATA_BODY_SX}>
-                {project.workstationSize || '—'}
+          </Box>
+        </Box>
+
+        <Box sx={getRecordDetailFlatSectionSx(theme, { isLast: true })}>
+          <RecordDetailSectionTitle>Area & Planning</RecordDetailSectionTitle>
+          <Box sx={PROJECT_DETAILS_GRID_SX}>
+            <LabelValue label="Workstations">
+              <Typography variant="body2" sx={METADATA_PREWRAP_SX}>
+                {formatOptionalHtml(project.workstations)}
               </Typography>
             </LabelValue>
-            <LabelValue label="Meeting Room Count">
-              <Typography variant="body2" sx={METADATA_BODY_SX}>
-                {project.meetingRoomCount ?? '—'}
+            <LabelValue label="Cabins">
+              <Typography variant="body2" sx={METADATA_PREWRAP_SX}>
+                {formatOptionalHtml(project.cabins)}
               </Typography>
             </LabelValue>
-            <LabelValue label="Server Room Details">
-              <Typography variant="body2" sx={METADATA_BODY_SX}>
-                {project.serverRoomDetails || '—'}
+            <LabelValue label="Meeting Rooms">
+              <Typography variant="body2" sx={METADATA_PREWRAP_SX}>
+                {formatOptionalHtml(project.meetingRooms)}
               </Typography>
             </LabelValue>
-            <LabelValue label="UPS Capacity">
-              <Typography variant="body2" sx={METADATA_BODY_SX}>
-                {project.upsCapacity || '—'}
+            <LabelValue label="Services">
+              <Typography variant="body2" sx={METADATA_PREWRAP_SX}>
+                {formatOptionalHtml(project.services)}
               </Typography>
             </LabelValue>
-            <LabelValue label="Reception Details">
-              <Typography variant="body2" sx={METADATA_BODY_SX}>
-                {project.receptionDetails || '—'}
-              </Typography>
-            </LabelValue>
-            <LabelValue label="Pantry Details">
-              <Typography variant="body2" sx={METADATA_BODY_SX}>
-                {project.pantryDetails || '—'}
+            <LabelValue label="Support Function">
+              <Typography variant="body2" sx={METADATA_PREWRAP_SX}>
+                {formatOptionalHtml(project.supportFunction)}
               </Typography>
             </LabelValue>
             <LabelValue label="Expected Duration">

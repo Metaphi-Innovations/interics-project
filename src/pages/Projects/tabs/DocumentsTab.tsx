@@ -86,10 +86,9 @@ const DOCUMENTS_CELL_SX = {
 } as const
 
 const CATEGORY_OPTIONS: { value: UploadCategory; label: string }[] = [
-  { value: 'client_quotation', label: 'Client Quotation' },
-  { value: 'client_po', label: 'Client PO' },
-  { value: 'vendor_quotation', label: 'Vendor Quotation' },
-  { value: 'vendor_po', label: 'Vendor PO' },
+  { value: 'client_documents', label: 'Client Documents' },
+  { value: 'vendor_documents', label: 'Vendor Documents' },
+  { value: 'project_documents', label: 'Project Documents' },
 ]
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
@@ -102,6 +101,9 @@ function formatBytes(bytes: number): string {
 
 function typeLabelForUpload(cat: UploadCategory): string {
   const map: Record<UploadCategory, string> = {
+    client_documents: 'Client Documents',
+    vendor_documents: 'Vendor Documents',
+    project_documents: 'Project Documents',
     client_quotation: 'Client Quotation',
     client_po: 'Client PO',
     vendor_quotation: 'Vendor Quotation',
@@ -404,6 +406,16 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
     [uploadsFiltered, search],
   )
 
+  const clientDocumentUploads = useMemo(
+    () =>
+      filterDocumentRowsBySearch(
+        pickUploads('client_documents').map(buildUploadColumnRow),
+        search,
+        matchesSearch,
+      ),
+    [uploadsFiltered, search],
+  )
+
   const baselineClientPORows = useMemo(() => {
     const rows = clientPOs
       .filter((po) => po.projectId === project.id)
@@ -451,12 +463,22 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
     [uploadsFiltered, baselineVendorPORows, search],
   )
 
+  const vendorDocumentUploads = useMemo(
+    () =>
+      filterDocumentRowsBySearch(
+        pickUploads('vendor_documents').map(buildUploadColumnRow),
+        search,
+        matchesSearch,
+      ),
+    [uploadsFiltered, search],
+  )
+
   const legacyInternalUploadRows = useMemo(() => {
     return uploads
       .filter(
         (u) =>
           u.projectId === project.id &&
-          isLegacyInternalUploadCategory(u.category) &&
+          (isLegacyInternalUploadCategory(u.category) || u.category === 'project_documents') &&
           matchesSearch([u.displayName, u.fileName, u.notes].join(' '), search),
       )
       .map(buildUploadColumnRow)
@@ -500,8 +522,8 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
   const showVendor = filter === 'all' || filter === 'vendor'
 
   const projectRowCount = projectDocumentSections.reduce((sum, s) => sum + s.rows.length, 0)
-  const clientRowCount = clientQuotations.length + clientPO.length
-  const vendorRowCount = vendorQuotations.length + vendorPORows.length
+  const clientRowCount = clientQuotations.length + clientPO.length + clientDocumentUploads.length
+  const vendorRowCount = vendorQuotations.length + vendorPORows.length + vendorDocumentUploads.length
 
   const visibleRowCount = useMemo(() => {
     let n = 0
@@ -522,6 +544,9 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
 
   const clientDocumentContent = (
     <>
+      {clientDocumentUploads.length > 0 ? (
+        <SubsectionBlock title="Uploads" rows={clientDocumentUploads} onDelete={handleDelete} />
+      ) : null}
       <SubsectionBlock title="Client Quotations" rows={clientQuotations} onDelete={handleDelete} />
       <SubsectionBlock title="Client POs" rows={clientPO} onDelete={handleDelete} />
     </>
@@ -529,6 +554,9 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
 
   const vendorDocumentContent = (
     <>
+      {vendorDocumentUploads.length > 0 ? (
+        <SubsectionBlock title="Uploads" rows={vendorDocumentUploads} onDelete={handleDelete} />
+      ) : null}
       <SubsectionBlock title="Vendor Quotations" rows={vendorQuotations} onDelete={handleDelete} />
       <SubsectionBlock title="Vendor POs" rows={vendorPORows} onDelete={handleDelete} />
     </>

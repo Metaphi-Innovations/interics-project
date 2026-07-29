@@ -60,6 +60,8 @@ export interface Invoice {
   dueDate: string
   lineItems: LineItem[]
   baseAmount: number
+  labourCessAmount?: number
+  taxableAmount?: number
   gstAmount: number
   totalAmount: number
   tdsDeducted: number

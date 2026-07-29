@@ -18,7 +18,8 @@ import {
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong'
 import WarningAmberIcon from '@mui/icons-material/WarningAmber'
-import BalanceIcon from '@mui/icons-material/Balance'
+import RequestQuoteIcon from '@mui/icons-material/RequestQuote'
+import DraftsIcon from '@mui/icons-material/Drafts'
 import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore'
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp'
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'
@@ -26,9 +27,9 @@ import { useTheme, alpha } from '@mui/material/styles'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import { TrendingUp, Plus } from 'lucide-react'
 import dayjs from 'dayjs'
-import { ListingTemplate } from '@/components/templates'
+import { ListingTemplate, KpiStatCard } from '@/components/templates'
 import type { FilterField, ColumnItem } from '@/components/templates/ListingTemplate'
-import { StatusBadge, Modal, Button, useToast } from '@/design-system/components'
+import { StatusBadge, Modal, Button, DatePicker, Select, useToast } from '@/design-system/components'
 import type { StatusType } from '@/design-system/components'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import {
@@ -47,6 +48,71 @@ import { tokens } from '@/design-system/tokens'
 import { CreateInvoiceDrawer } from './components/CreateInvoiceDrawer'
 import { InvoiceDetailDrawer, invoiceStatusToBadgeType } from './components/InvoiceDetailDrawer'
 import { RecordPaymentModal } from './components/RecordPaymentModal'
+import {
+  computeReceivableSummaryKpis,
+  type ReceivableKpiDateBounds,
+} from './utils/receivableSummary'
+
+type ReceivableKpiPeriod =
+  | 'Today'
+  | 'This Week'
+  | 'This Month'
+  | 'This Year'
+  | 'Custom Date Range'
+
+const KPI_PERIOD_OPTIONS: { label: string; value: ReceivableKpiPeriod }[] = [
+  { label: 'Today', value: 'Today' },
+  { label: 'This Week', value: 'This Week' },
+  { label: 'This Month', value: 'This Month' },
+  { label: 'This Year', value: 'This Year' },
+  { label: 'Custom Date Range', value: 'Custom Date Range' },
+]
+
+function startOfDay(d: Date): Date {
+  const next = new Date(d)
+  next.setHours(0, 0, 0, 0)
+  return next
+}
+
+function endOfDay(d: Date): Date {
+  const next = new Date(d)
+  next.setHours(23, 59, 59, 999)
+  return next
+}
+
+function getReceivableKpiPeriodBounds(
+  period: ReceivableKpiPeriod,
+  customFrom: Date | null,
+  customTo: Date | null,
+): ReceivableKpiDateBounds | null {
+  if (period === 'Custom Date Range') {
+    if (!customFrom || !customTo) return null
+    const start = startOfDay(customFrom)
+    const end = endOfDay(customTo)
+    return start <= end ? { start, end } : { start: endOfDay(customTo), end: endOfDay(customFrom) }
+  }
+
+  const end = endOfDay(new Date())
+  const start = startOfDay(new Date())
+
+  if (period === 'Today') return { start, end }
+
+  if (period === 'This Week') {
+    const day = start.getDay()
+    const mondayOffset = day === 0 ? -6 : 1 - day
+    start.setDate(start.getDate() + mondayOffset)
+    return { start, end }
+  }
+
+  if (period === 'This Month') {
+    start.setDate(1)
+    return { start, end }
+  }
+
+  // This Year
+  start.setMonth(0, 1)
+  return { start, end }
+}
 
 function isDueOverdue(inv: Invoice): boolean {
   if (inv.status === 'paid' || inv.balance <= 0) return false
@@ -178,17 +244,20 @@ function RowActions({
   onView,
   onPay,
   onSend,
+  onConvertTax,
   onPdf,
 }: {
   inv: Invoice
   onView: () => void
   onPay: () => void
   onSend: () => void
+  onConvertTax: () => void
   onPdf: () => void
 }) {
   const [anchor, setAnchor] = useState<null | HTMLElement>(null)
   const canRecordPayment = inv.status !== 'draft' && inv.status !== 'paid' && inv.balance > 0
   const canMarkSent = inv.status === 'draft'
+  const canConvertTax = inv.status === 'draft'
 
   return (
     <Box sx={CENTER_CELL_CONTENT_SX}>
@@ -239,18 +308,31 @@ function RowActions({
         >
           Download PDF
         </MenuItem>
-        {canMarkSent && (
+        {(canConvertTax || canMarkSent) && (
           <>
             <Divider />
-            <MenuItem
-              sx={menuItemSx}
-              onClick={() => {
-                onSend()
-                setAnchor(null)
-              }}
-            >
-              Mark as Sent
-            </MenuItem>
+            {canConvertTax && (
+              <MenuItem
+                sx={menuItemSx}
+                onClick={() => {
+                  onConvertTax()
+                  setAnchor(null)
+                }}
+              >
+                Convert as tax invoice
+              </MenuItem>
+            )}
+            {canMarkSent && (
+              <MenuItem
+                sx={menuItemSx}
+                onClick={() => {
+                  onSend()
+                  setAnchor(null)
+                }}
+              >
+                Mark as Sent
+              </MenuItem>
+            )}
           </>
         )}
       </Menu>
@@ -289,7 +371,11 @@ export default function BillingsPage() {
   const [detailId, setDetailId] = useState<string | null>(null)
   const [paymentInv, setPaymentInv] = useState<Invoice | null>(null)
   const [sendTarget, setSendTarget] = useState<Invoice | null>(null)
+  const [convertTaxTarget, setConvertTaxTarget] = useState<Invoice | null>(null)
   const [activeFilters, setActiveFilters] = useState<Record<string, unknown>>({})
+  const [kpiPeriod, setKpiPeriod] = useState<ReceivableKpiPeriod>('This Month')
+  const [kpiCustomFrom, setKpiCustomFrom] = useState<Date | null>(null)
+  const [kpiCustomTo, setKpiCustomTo] = useState<Date | null>(null)
   const [visibleColumns, setVisibleColumns] = useState<ReceivablesVisibleColumns>({
     clientName: true,
     projectName: true,
@@ -450,56 +536,153 @@ export default function BillingsPage() {
     }
   }, [baseFiltered])
 
+  const kpiBounds = useMemo(
+    () => getReceivableKpiPeriodBounds(kpiPeriod, kpiCustomFrom, kpiCustomTo),
+    [kpiPeriod, kpiCustomFrom, kpiCustomTo],
+  )
+
   const kpis = useMemo(() => {
-    // TOTAL INVOICED: sum tax, overdue, paid invoices only (exclude draft)
-    const billedStatuses = new Set(['tax', 'sent', 'overdue', 'paid'])
-    const totalInvoiced = rawItems
-      .filter((i) => billedStatuses.has(i.status))
-      .reduce((s, i) => s + i.totalAmount, 0)
-
-    // RECEIVED: sum of actual recorded payment entries only
-    const received = rawItems.reduce((s, i) => s + (i.totalReceived ?? 0), 0)
-
-    // OUTSTANDING: Total Client PO Value − Total Received Amount (Live projects only)
-    const liveProjects = projects.filter((p) => p.status === 'Live')
-    const totalClientPO = liveProjects.reduce((s, p) => s + (p.totalClientPOValue ?? 0), 0)
-    const outstanding = Math.max(0, totalClientPO - received)
-
-    // TOTAL PAYABLE: Sum of all active Vendor PO Values (Live projects only)
-    const totalPayable = Math.max(
-      0,
-      liveProjects.reduce((s, p) => s + (p.totalVendorPOValue ?? 0), 0),
-    )
-
-    return { totalInvoiced, received, outstanding, totalPayable }
-  }, [rawItems, projects])
+    if (kpiPeriod === 'Custom Date Range' && !kpiBounds) {
+      return {
+        totalPoValue: 0,
+        receivedTillDate: 0,
+        pending: 0,
+        taxInvoiceRaised: 0,
+        draftInvoiceSent: 0,
+      }
+    }
+    return computeReceivableSummaryKpis(rawItems ?? [], projects, kpiBounds)
+  }, [rawItems, projects, kpiPeriod, kpiBounds])
 
   const statCards = [
     {
-      label: 'Total invoiced',
-      value: `₹${kpis.totalInvoiced.toLocaleString('en-IN')}`,
+      label: 'Total PO Value',
+      value: `₹${kpis.totalPoValue.toLocaleString('en-IN')}`,
       variant: 'default' as const,
-      icon: <ReceiptLongIcon sx={{ fontSize: 24 }} />,
+      icon: <RequestQuoteIcon sx={{ fontSize: 24 }} />,
     },
     {
-      label: 'Received',
-      value: `₹${kpis.received.toLocaleString('en-IN')}`,
+      label: 'Received Till Date',
+      value: `₹${kpis.receivedTillDate.toLocaleString('en-IN')}`,
       variant: 'success' as const,
       icon: <CheckCircleIcon sx={{ fontSize: 24 }} />,
     },
     {
-      label: 'Outstanding',
-      value: `₹${kpis.outstanding.toLocaleString('en-IN')}`,
+      label: 'Pending',
+      value: `₹${kpis.pending.toLocaleString('en-IN')}`,
       variant: 'warning' as const,
       icon: <WarningAmberIcon sx={{ fontSize: 24 }} />,
     },
     {
-      label: 'Total Payable',
-      value: `₹${kpis.totalPayable.toLocaleString('en-IN')}`,
+      label: 'Tax Invoice Raised',
+      value: `₹${kpis.taxInvoiceRaised.toLocaleString('en-IN')}`,
+      variant: 'info' as const,
+      icon: <ReceiptLongIcon sx={{ fontSize: 24 }} />,
+    },
+    {
+      label: 'Draft Invoice Sent',
+      value: `₹${kpis.draftInvoiceSent.toLocaleString('en-IN')}`,
       variant: 'purple' as const,
-      icon: <BalanceIcon sx={{ fontSize: 24 }} />,
+      icon: <DraftsIcon sx={{ fontSize: 24 }} />,
     },
   ]
+
+  const kpiSummary = (
+    <Box
+      sx={{
+        border: '1px solid',
+        borderColor: 'divider',
+        borderRadius: 2,
+        bgcolor: 'background.paper',
+        overflow: 'hidden',
+      }}
+    >
+      <Stack
+        direction={{ xs: 'column', sm: 'row' }}
+        alignItems={{ xs: 'stretch', sm: 'center' }}
+        justifyContent="flex-end"
+        gap={1.5}
+        sx={{
+          px: 2,
+          py: 1.5,
+          borderBottom: '1px solid',
+          borderColor: 'divider',
+          bgcolor: alpha(theme.palette.text.primary, 0.02),
+        }}
+      >
+        <Stack
+          direction={{ xs: 'column', sm: 'row' }}
+          alignItems={{ xs: 'stretch', sm: 'center' }}
+          gap={1}
+          flexWrap="wrap"
+          justifyContent="flex-end"
+        >
+          <Typography
+            variant="body2"
+            color="text.secondary"
+            sx={{ fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap' }}
+          >
+            Date Range
+          </Typography>
+          <Box sx={{ minWidth: { xs: '100%', sm: 180 } }}>
+            <Select
+              size="sm"
+              value={kpiPeriod}
+              onChange={(v) => {
+                const next = String(v) as ReceivableKpiPeriod
+                setKpiPeriod(next)
+                if (next !== 'Custom Date Range') {
+                  setKpiCustomFrom(null)
+                  setKpiCustomTo(null)
+                }
+              }}
+              options={KPI_PERIOD_OPTIONS}
+              fullWidth
+            />
+          </Box>
+          {kpiPeriod === 'Custom Date Range' ? (
+            <>
+              <DatePicker
+                label="From"
+                value={kpiCustomFrom}
+                onChange={setKpiCustomFrom}
+                size="sm"
+              />
+              <DatePicker label="To" value={kpiCustomTo} onChange={setKpiCustomTo} size="sm" />
+            </>
+          ) : null}
+        </Stack>
+      </Stack>
+
+      <Box sx={{ p: 2 }}>
+        {kpiPeriod === 'Custom Date Range' && !kpiBounds ? (
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+            Select a start and end date to update KPI values.
+          </Typography>
+        ) : null}
+        <Box
+          sx={{
+            display: 'grid',
+            gridTemplateColumns: {
+              xs: 'repeat(2, 1fr)',
+              lg: `repeat(${Math.min(statCards.length, 5)}, 1fr)`,
+            },
+            gap: '12px',
+          }}
+        >
+          {statCards.map((card) => (
+            <KpiStatCard
+              key={card.label}
+              label={card.label}
+              value={card.value}
+              variant={card.variant}
+              icon={card.icon}
+            />
+          ))}
+        </Box>
+      </Box>
+    </Box>
+  )
 
   const tabs = [
     { label: 'All', value: 'all', count: tabCounts.all },
@@ -565,6 +748,18 @@ export default function BillingsPage() {
     setSendTarget(null)
   }
 
+  async function confirmConvertTax() {
+    if (!convertTaxTarget) return
+    try {
+      await dispatch(sendInvoice(convertTaxTarget.id)).unwrap()
+      showToast({ title: 'Converted to tax invoice', variant: 'success' })
+      reload()
+    } catch (e) {
+      showToast({ title: String(e), variant: 'error' })
+    }
+    setConvertTaxTarget(null)
+  }
+
   const detailOpen = Boolean(detailId)
 
   return (
@@ -574,7 +769,7 @@ export default function BillingsPage() {
         title="Receivable"
         subtitle="Cross-project client invoices and payments"
         primaryAction={{ label: 'Create Invoice', onClick: () => setDrawerCreate(true), startIcon: <Plus size={16} /> }}
-        statCards={statCards}
+        customSummary={kpiSummary}
         tabs={tabs}
         activeTab={filters.statusTab}
         onTabChange={handleTabChange}
@@ -729,6 +924,7 @@ export default function BillingsPage() {
                               onView={() => setDetailId(inv.id)}
                               onPay={() => setPaymentInv(inv)}
                               onSend={() => setSendTarget(inv)}
+                              onConvertTax={() => setConvertTaxTarget(inv)}
                               onPdf={() => showToast({ title: 'PDF download (placeholder)', variant: 'success' })}
                             />
                           </TableCell>
@@ -761,6 +957,32 @@ export default function BillingsPage() {
         </Typography>
       </Modal>
 
+      <Modal
+        open={!!convertTaxTarget}
+        onClose={() => setConvertTaxTarget(null)}
+        title="Convert as tax invoice?"
+        size="xs"
+        footer={
+          <Stack direction="row" justifyContent="flex-end" gap={1}>
+            <Button
+              variant="outlined"
+              size="sm"
+              onClick={() => setConvertTaxTarget(null)}
+              disabled={saving}
+            >
+              Cancel
+            </Button>
+            <Button variant="contained" size="sm" onClick={confirmConvertTax} loading={saving}>
+              Convert
+            </Button>
+          </Stack>
+        }
+      >
+        <Typography variant="body2">
+          Convert <strong>{convertTaxTarget?.invoiceNo}</strong> to a tax invoice? This cannot be undone.
+        </Typography>
+      </Modal>
+
       <CreateInvoiceDrawer
         open={drawerCreate}
         onClose={() => setDrawerCreate(false)}
@@ -788,7 +1010,7 @@ export default function BillingsPage() {
           setDrawerEdit(inv)
         }}
         onRecordPayment={(inv) => setPaymentInv(inv)}
-        onSend={(inv) => setSendTarget(inv)}
+        onConvertTax={(inv) => setConvertTaxTarget(inv)}
         onDownloadPdf={() => {
           showToast({ title: 'PDF download (placeholder)', variant: 'success' })
         }}

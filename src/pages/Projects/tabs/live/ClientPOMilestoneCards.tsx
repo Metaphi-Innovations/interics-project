@@ -12,6 +12,8 @@ import {
   serviceNameForOption,
   type ClientPOServiceOption,
 } from './clientPOServiceOptions'
+import { clientMilestonePaymentStatus } from './milestonePaymentStatus'
+import type { ClientInvoice } from '@/slices/live/types'
 
 export {
   VendorOfferMilestoneCardEditor as ClientPOMilestoneCardEditor,
@@ -45,7 +47,6 @@ export function groupClientCardsByService(
       serviceId,
       categoryId,
       milestones: [],
-      finalMilestones: [],
       retentions: [],
     }
     map.set(serviceId, group)
@@ -173,4 +174,60 @@ export function clientPOCardsFromMilestones(
   }
 
   return { milestoneCards }
+}
+
+/** Apply card edits onto existing PO milestones; paid rows stay unchanged. */
+export function mergeClientPOMilestoneEditsFromCards(
+  existing: ClientPOMilestone[],
+  cards: VendorOfferMilestoneCard[],
+  invoices: ClientInvoice[],
+): ClientPOMilestone[] {
+  const editsById = new Map<string, { percentage: number; value: number }>()
+  const retentionByService = new Map<string, { percentage: number; amount: number }>()
+
+  for (const card of cards) {
+    for (const row of card.milestones) {
+      editsById.set(row.id, { percentage: row.percentage, value: row.value })
+    }
+    if (card.retention) {
+      retentionByService.set(card.serviceId, card.retention)
+    }
+  }
+
+  return existing.map((milestone) => {
+    const isPaid =
+      clientMilestonePaymentStatus(invoices, milestone.id, milestone.serviceId) === 'Paid'
+    if (isPaid) return milestone
+
+    if (isRetentionMilestoneRow(milestone)) {
+      const retention = retentionByService.get(milestone.serviceId)
+      if (!retention) return milestone
+      return {
+        ...milestone,
+        percentage: retention.percentage,
+        value: retention.amount,
+      }
+    }
+
+    const edit = editsById.get(milestone.id)
+    let next = edit
+      ? { ...milestone, percentage: edit.percentage, value: edit.value }
+      : milestone
+
+    if (next.retention) {
+      const retention = retentionByService.get(milestone.serviceId)
+      if (retention) {
+        next = {
+          ...next,
+          retention: {
+            ...next.retention,
+            percentage: retention.percentage,
+            value: retention.amount,
+          },
+        }
+      }
+    }
+
+    return next
+  })
 }

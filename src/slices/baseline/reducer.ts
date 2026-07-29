@@ -62,7 +62,7 @@ export interface VendorPOMilestone {
   value: number
   dueDate: string | null
   status: 'Paid' | 'Pending' | 'Overdue'
-  kind?: 'regular' | 'retention' | 'final'
+  kind?: 'regular' | 'retention'
 }
 
 export type VendorPOExecutionStatus = 'Draft' | 'Issued' | 'Accepted'

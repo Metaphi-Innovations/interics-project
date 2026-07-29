@@ -11,11 +11,8 @@ import {
   TableHead,
   TableRow,
   IconButton as MuiIconButton,
-  Rating,
 } from '@mui/material'
 import {
-  VerifiedUser,
-  LocationOn,
   Edit,
   Phone,
   Email,
@@ -81,10 +78,7 @@ import {
   formatActivityTimestamp,
   RecordDetailTaxDocCard,
 } from '../workspace/recordDetailTabUtils'
-import {
-  formatVendorRating,
-  normalizeVendorRating,
-} from '../../utils/vendorRating'
+import { getRatingMasterChipColors } from '../../utils/masterChipStyles'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -100,7 +94,7 @@ function LabelValue({ label, children }: { label: string; children: React.ReactN
           textTransform: 'uppercase',
           letterSpacing: '0.4px',
           display: 'block',
-          mb: theme.spacing(0.25),
+          mb: theme.spacing(0.75),
         }}
       >
         {label}
@@ -117,9 +111,10 @@ function VendorProfileRating({
   vendor: Vendor
   onEdit?: () => void
 }) {
-  const rating = normalizeVendorRating(vendor.rating)
+  const theme = useTheme()
+  const rating = vendor.rating?.trim() || null
 
-  if (rating == null) {
+  if (!rating) {
     return (
       <Stack direction="row" alignItems="center" gap={1} flexWrap="wrap">
         <Typography variant="body2" sx={{ color: 'text.disabled', fontSize: 12 }}>
@@ -132,18 +127,25 @@ function VendorProfileRating({
     )
   }
 
+  const mode = theme.palette.mode === 'dark' ? 'dark' : 'light'
+  const colors = getRatingMasterChipColors(rating, mode)
+
   return (
     <Stack direction="row" alignItems="center" gap={1} flexWrap="wrap">
-      <Rating
-        value={rating}
-        readOnly
-        precision={0.1}
+      <MuiChip
+        label={rating}
         size="small"
-        sx={{ fontSize: 18, color: tokens.color.warning[500] }}
+        sx={{
+          height: 22,
+          fontSize: 11,
+          fontWeight: 600,
+          bgcolor: colors.bg,
+          color: colors.color,
+          border: 'none',
+          borderRadius: '20px',
+          '& .MuiChip-label': { px: '10px' },
+        }}
       />
-      <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 500, color: 'text.secondary' }}>
-        {formatVendorRating(rating)}
-      </Typography>
     </Stack>
   )
 }
@@ -303,7 +305,7 @@ export default function VendorDetailPage() {
     }
   }
 
-  async function handleRatingSave(newRating: number) {
+  async function handleRatingSave(newRating: string) {
     if (!vendor) return
     try {
       await dispatch(updateVendor({ id: vendor.id, data: { rating: newRating } })).unwrap()
@@ -473,13 +475,21 @@ export default function VendorDetailPage() {
 
     return (
       <Stack gap={0}>
-          <Box sx={getRecordDetailFlatSectionSx(theme, { isLast: false })}>
+          <Box
+            sx={{
+              ...getRecordDetailFlatSectionSx(theme, { isLast: false }),
+              mb: theme.spacing(3),
+              pb: theme.spacing(3),
+            }}
+          >
             <RecordDetailSectionTitle>Vendor profile</RecordDetailSectionTitle>
             <Box
               sx={{
                 display: 'grid',
                 gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(3, 1fr)' },
-                gap: theme.spacing(2),
+                gap: theme.spacing(3),
+                rowGap: theme.spacing(3.5),
+                py: theme.spacing(0.5),
               }}
             >
               <LabelValue label="Vendor name">
@@ -546,7 +556,13 @@ export default function VendorDetailPage() {
             </Box>
           </Box>
 
-          <Box sx={getRecordDetailFlatSectionSx(theme, { isLast: false })}>
+          <Box
+            sx={{
+              ...getRecordDetailFlatSectionSx(theme, { isLast: false }),
+              mb: theme.spacing(3),
+              pb: theme.spacing(3),
+            }}
+          >
             <RecordDetailSectionTitle>Billing address</RecordDetailSectionTitle>
             {billingAddressStr ? (
               <Typography
@@ -1044,9 +1060,6 @@ export default function VendorDetailPage() {
     }
   }
 
-  const headerPrimary =
-    getVendorListingPrimaryContact({ ...vendor, contacts })?.name ?? vendor.contactPerson
-
   return (
     <>
       <WorkspaceDetail
@@ -1056,12 +1069,6 @@ export default function VendorDetailPage() {
         avatarText={getInitials(vendor.name)}
         avatarColor={getAvatarColor(vendor.name).bg}
         title={vendor.name}
-        titleMeta={<StatusBadge status={vendor.status.toLowerCase() as StatusType} />}
-        metaItems={[
-          { icon: <Person sx={{ fontSize: 12 }} />, label: headerPrimary },
-          { icon: <VerifiedUser sx={{ fontSize: 12 }} />, label: `GST: ${vendor.gstStatus}` },
-          { icon: <LocationOn sx={{ fontSize: 12 }} />, label: `${vendor.city}, ${vendor.state}` },
-        ]}
         primaryAction={{
           label: 'Edit Vendor',
           onClick: () => setDrawerOpen(true),
@@ -1111,7 +1118,7 @@ export default function VendorDetailPage() {
         open={ratingModalOpen}
         onClose={() => setRatingModalOpen(false)}
         vendorName={vendor.name}
-        currentRating={normalizeVendorRating(vendor.rating)}
+        currentRating={vendor.rating ?? null}
         saving={saving}
         onSave={handleRatingSave}
       />

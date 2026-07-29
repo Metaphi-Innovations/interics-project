@@ -100,7 +100,7 @@ const EXPENSE_TYPE_OPTIONS = {
   additional: 'Additional Expense',
   vendorLinked: 'Vendor Linked Expense',
   common: 'Common Expense (Split Across Build Vendors)',
-  internal: 'Internal Expense',
+  officeExpenses: 'Office Expenses',
 } as const
 
 const COMMON_EXPENSE_SPLIT_METHOD = 'proportional_po' as const
@@ -150,13 +150,13 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
     { value: 'additional', label: EXPENSE_TYPE_OPTIONS.additional },
     { value: 'vendor_linked', label: EXPENSE_TYPE_OPTIONS.vendorLinked },
     { value: 'common', label: EXPENSE_TYPE_OPTIONS.common },
-    { value: 'office_expenses', label: EXPENSE_TYPE_OPTIONS.internal },
+    { value: 'office_expenses', label: EXPENSE_TYPE_OPTIONS.officeExpenses },
   ]
   const pitchTypeOptions: { value: PitchExpenseType; label: string }[] = [
     { value: 'additional', label: EXPENSE_TYPE_OPTIONS.additional },
     { value: 'vendor', label: EXPENSE_TYPE_OPTIONS.vendorLinked },
     { value: 'common', label: EXPENSE_TYPE_OPTIONS.common },
-    { value: 'office_expenses', label: EXPENSE_TYPE_OPTIONS.internal },
+    { value: 'office_expenses', label: EXPENSE_TYPE_OPTIONS.officeExpenses },
   ]
 
   const baselineServices = useMemo(() => flattenBaselineServices(baseline ?? null), [baseline])

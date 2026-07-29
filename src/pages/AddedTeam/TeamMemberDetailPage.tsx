@@ -4,6 +4,7 @@ import {
   Badge,
   Box,
   Card,
+  Chip as MuiChip,
   CircularProgress,
   IconButton,
   InputBase,
@@ -29,16 +30,17 @@ import { Eye } from 'lucide-react'
 import { Button, DatePicker, Modal, StatusBadge, useToast } from '@/design-system/components'
 import type { StatusType } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
-import { FiltersPopover, FormField, WorkspaceSection } from '@/components/templates'
+import { getStatusMasterChipColors } from '@/utils/masterChipStyles'
+import { FiltersPopover } from '@/components/templates'
 import type { FilterField } from '@/components/templates'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { fetchProjects } from '@/slices/projects/thunk'
 import { fetchRoles } from '@/slices/roles/thunk'
 import { fetchUsers, updateUser } from '@/slices/users/thunk'
-import { fetchCustomers } from '@/slices/customers/thunk'
+import { fetchStatuses } from '@/slices/settings/thunk'
 import type { Project } from '@/slices/projects/reducer'
-import type { Contact as CustomerContact } from '@/slices/customers/reducer'
-import { formatBuildingFloor, formatExpectedDuration } from '@/pages/Projects/projectOverviewHelpers'
+import { ProjectOverviewTab } from '@/pages/Projects/components/ProjectOverviewTab'
+import { formatBuildingFloor } from '@/pages/Projects/projectOverviewHelpers'
 import { getProjectAssignedMembers } from '@/utils/projectAssignedTeam'
 import { formatCurrency, formatDate, getAvatarColor, getInitials } from '@/utils/formatters'
 
@@ -61,7 +63,8 @@ const ASSIGNED_PROJECT_COLUMNS: Array<{ key: SortField; label: string }> = [
   { key: 'projectName', label: 'Project Name' },
   { key: 'projectLead', label: 'Project Lead' },
   { key: 'sites', label: 'Sites' },
-  { key: 'status', label: 'Status' },
+  { key: 'status', label: 'Project Status' },
+  { key: 'progress', label: 'Status' },
   { key: 'startDate', label: 'Start Date' },
   { key: 'expectedEndDate', label: 'Expected End Date' },
   { key: 'revenue', label: 'Revenue' },
@@ -69,37 +72,57 @@ const ASSIGNED_PROJECT_COLUMNS: Array<{ key: SortField; label: string }> = [
   { key: 'profitPct', label: 'Profit %' },
 ]
 
-function MemberAvatar({ name }: { name: string }) {
-  const colors = getAvatarColor(name)
-  return (
-    <Box
-      sx={{
-        width: 28,
-        height: 28,
-        borderRadius: '50%',
-        bgcolor: colors.bg,
-        color: colors.text,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        fontSize: 10,
-        fontWeight: 700,
-        flexShrink: 0,
-      }}
-    >
-      {getInitials(name)}
-    </Box>
-  )
+const PAGE_SIZE = 5
+const ACTION_WIDTH_PX = 72
+const CELL_PAD_X = 1.5 // 12px — matches Projects listing cell padding
+const DATA_COL_COUNT = ASSIGNED_PROJECT_COLUMNS.length
+const DATA_COL_WIDTH = `calc((100% - ${ACTION_WIDTH_PX}px) / ${DATA_COL_COUNT})`
+
+const tableHeadCellSx = {
+  fontSize: 11,
+  fontWeight: 600,
+  py: '8px',
+  px: CELL_PAD_X,
+  cursor: 'pointer',
+  userSelect: 'none' as const,
+  whiteSpace: 'nowrap' as const,
+  width: DATA_COL_WIDTH,
 }
 
-const PAGE_SIZE = 5
-const ACTION_WIDTH_PX = 56
-const CELL_PAD_X = '14px'
+const tableBodyCellSx = {
+  py: '7px',
+  px: CELL_PAD_X,
+  width: DATA_COL_WIDTH,
+  verticalAlign: 'middle' as const,
+}
+
+const actionHeadCellSx = {
+  fontSize: 11,
+  fontWeight: 600,
+  py: '8px',
+  px: CELL_PAD_X,
+  width: ACTION_WIDTH_PX,
+  minWidth: ACTION_WIDTH_PX,
+  maxWidth: ACTION_WIDTH_PX,
+  textAlign: 'center' as const,
+  verticalAlign: 'middle' as const,
+}
+
+const actionBodyCellSx = {
+  py: '7px',
+  px: CELL_PAD_X,
+  width: ACTION_WIDTH_PX,
+  minWidth: ACTION_WIDTH_PX,
+  maxWidth: ACTION_WIDTH_PX,
+  textAlign: 'center' as const,
+  verticalAlign: 'middle' as const,
+}
 
 type SortField =
   | 'projectName'
   | 'projectLead'
   | 'status'
+  | 'progress'
   | 'startDate'
   | 'expectedEndDate'
   | 'sites'
@@ -112,6 +135,7 @@ interface AssignedProjectRow {
   projectName: string
   projectLead: string
   status: Project['status']
+  progress: string
   startDate: string | null
   expectedEndDate: string | null
   sites: string
@@ -119,6 +143,29 @@ interface AssignedProjectRow {
   profit: number
   profitPct: number | null
   project: Project
+}
+
+/** Same progress chip used on Projects listing Status column. */
+function ProgressBadge({ label }: { label: string }) {
+  const theme = useTheme()
+  const mode = theme.palette.mode === 'dark' ? 'dark' : 'light'
+  const colors = getStatusMasterChipColors(label, mode)
+  return (
+    <MuiChip
+      label={label}
+      size="small"
+      sx={{
+        height: 18,
+        fontSize: 10,
+        fontWeight: 600,
+        bgcolor: colors.bg,
+        color: colors.color,
+        borderRadius: '4px',
+        border: 'none',
+        '& .MuiChip-label': { px: '6px' },
+      }}
+    />
+  )
 }
 
 function startOfDay(d: Date): Date {
@@ -248,197 +295,17 @@ function ProjectRowActions({ onView }: { onView: () => void }) {
 function ProjectOverviewQuickModal({
   open,
   project,
-  customerContacts,
   onClose,
 }: {
   open: boolean
   project: Project | null
-  customerContacts: CustomerContact[]
   onClose: () => void
 }) {
   if (!project) return null
 
-  const assignedTeam = getProjectAssignedMembers(project)
-    .filter((member) => member.userId !== project.projectManagerId)
-    .map((member) => member.name)
-
-  const leadName = project.projectManager?.trim() || '—'
-  const clientContacts = project.clientTeam?.length
-    ? project.clientTeam
-    : customerContacts.map((contact) => ({
-      name: contact.name,
-      designation: contact.designation,
-      email: contact.email,
-      phone: contact.phone,
-      isPrimary: contact.isPrimary,
-    }))
-
   return (
-    <Modal open={open} onClose={onClose} title="Project Overview" subtitle={project.name} size="lg">
-      <Stack gap={2}>
-        <WorkspaceSection title="Project Profile" noPadding>
-          <Box sx={{ px: 2, py: 1.5 }}>
-            <Box
-              sx={{
-                display: 'grid',
-                gridTemplateColumns: { xs: '1fr', md: 'repeat(3, minmax(0, 1fr))' },
-                gap: 2,
-              }}
-            >
-              <FormField label="Project Name"><Typography variant="body2">{project.name}</Typography></FormField>
-              <FormField label="Project Code"><Typography variant="body2">{project.projectCode}</Typography></FormField>
-              <FormField label="Project Lead"><Typography variant="body2">{project.projectManager || '—'}</Typography></FormField>
-              <FormField label="Location"><Typography variant="body2">{formatBuildingFloor(project)}</Typography></FormField>
-              <FormField label="Start Date"><Typography variant="body2">{formatDate(project.startDate)}</Typography></FormField>
-              <FormField label="End Date"><Typography variant="body2">{formatDate(project.expectedEndDate)}</Typography></FormField>
-              <FormField label="Sector"><Typography variant="body2">{project.sector || '—'}</Typography></FormField>
-              <FormField label="Project Scope"><Typography variant="body2">{project.projectScope || '—'}</Typography></FormField>
-            </Box>
-          </Box>
-        </WorkspaceSection>
-
-        <WorkspaceSection title="Area & Planning" noPadding>
-          <Box sx={{ px: 2, py: 1.5 }}>
-            <Box
-              sx={{
-                display: 'grid',
-                gridTemplateColumns: { xs: '1fr', md: 'repeat(3, minmax(0, 1fr))' },
-                gap: 2,
-              }}
-            >
-              <FormField label="Carpet Area"><Typography variant="body2">{project.carpetArea ? `${project.carpetArea.toLocaleString()} sq ft` : '—'}</Typography></FormField>
-              <FormField label="Headcount"><Typography variant="body2">{project.headcount ?? '—'}</Typography></FormField>
-              <FormField label="Workstation Size"><Typography variant="body2">{project.workstationSize || '—'}</Typography></FormField>
-              <FormField label="Meeting Room Count"><Typography variant="body2">{project.meetingRoomCount ?? '—'}</Typography></FormField>
-              <FormField label="Server Room Details"><Typography variant="body2">{project.serverRoomDetails || '—'}</Typography></FormField>
-              <FormField label="UPS Capacity"><Typography variant="body2">{project.upsCapacity || '—'}</Typography></FormField>
-              <FormField label="Reception Details"><Typography variant="body2">{project.receptionDetails || '—'}</Typography></FormField>
-              <FormField label="Pantry Details"><Typography variant="body2">{project.pantryDetails || '—'}</Typography></FormField>
-              <FormField label="Expected Duration"><Typography variant="body2">{formatExpectedDuration(project.startDate, project.expectedEndDate)}</Typography></FormField>
-            </Box>
-          </Box>
-        </WorkspaceSection>
-
-        <WorkspaceSection title="Team" noPadding sx={{ height: '142px' }}>
-          <Box sx={{ px: 2, py: 2.5, minHeight: 140 }}>
-            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, 1fr)' }, gap: 2 }}>
-              <FormField label="Project Lead">
-                <Stack direction="row" alignItems="center" gap={1}>
-                  {leadName !== '—' ? <MemberAvatar name={leadName} /> : null}
-                  <Typography variant="body2">{leadName}</Typography>
-                </Stack>
-              </FormField>
-              <FormField label="Assigned Team Members">
-                <Typography variant="body2" sx={{ color: assignedTeam.length > 0 ? 'text.primary' : 'text.secondary' }}>
-                  {assignedTeam.length > 0 ? assignedTeam.join(', ') : '—'}
-                </Typography>
-              </FormField>
-            </Box>
-          </Box>
-        </WorkspaceSection>
-
-        <WorkspaceSection title="Client Team" noPadding sx={{ height: '142px' }}>
-          <Box sx={{ px: 2, py: 1.5 }}>
-            {clientContacts.length === 0 ? (
-              <Box
-                sx={{
-                  border: '1px dashed',
-                  borderColor: 'divider',
-                  borderRadius: 2,
-                  py: 2,
-                  px: 2,
-                  textAlign: 'center',
-                }}
-              >
-                <Typography variant="body2" color="text.secondary">
-                  No client team contacts added.
-                </Typography>
-              </Box>
-            ) : (
-              <Stack gap={1}>
-                {clientContacts.map((client, index) => {
-                  const isPrimary =
-                    (client as { primary?: boolean; isPrimary?: boolean }).primary === true
-                    || (client as { primary?: boolean; isPrimary?: boolean }).isPrimary === true
-                    || index === 0
-
-                  const legacyContact = 'contact' in client ? client.contact : undefined
-                  const phoneNumber = client.phone || legacyContact
-                  return (
-                    <Card
-                      key={`${client.email || client.phone || legacyContact || client.name || 'client'}-${index}`}
-                      sx={{
-                        width: '294px',
-                        p: 1.25,
-                        border: '1px solid',
-                        borderColor: isPrimary ? 'primary.light' : 'divider',
-                        borderRadius: 2,
-                        bgcolor: isPrimary ? (theme) => alpha(theme.palette.primary.main, 0.03) : 'transparent',
-                        display: 'flex',
-                        alignItems: 'flex-start',
-                        justifyContent: 'space-between',
-                        gap: 1.5,
-                      }}
-                    >
-                      <Stack direction="row" alignItems="flex-start" gap={1.25} sx={{ minWidth: 0 }}>
-                        <Box
-                          sx={{
-                            width: 32,
-                            height: 32,
-                            borderRadius: '50%',
-                            bgcolor: alpha(getAvatarColor(client.name || 'Client').bg, 0.15),
-                            color: getAvatarColor(client.name || 'Client').text,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            fontSize: 10,
-                            fontWeight: 700,
-                            flexShrink: 0,
-                          }}
-                        >
-                          {getInitials(client.name || 'Client')}
-                        </Box>
-                        <Box sx={{ minWidth: 0 }}>
-                          <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.primary' }}>
-                            {client.name || '—'}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
-                            {client.designation || '—'}
-                          </Typography>
-
-                          <Stack direction="row" alignItems="center" gap={0.5} sx={{ mt: 0.5, minWidth: 0 }}>
-                            <Phone sx={{ fontSize: 12, color: 'text.secondary' }} />
-                            <Typography
-                              variant="caption"
-                              color="text.secondary"
-                              sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                            >
-                              {phoneNumber || '—'}
-                            </Typography>
-                          </Stack>
-
-                          <Stack direction="row" alignItems="center" gap={0.5} sx={{ mt: 0.25, minWidth: 0 }}>
-                            <Email sx={{ fontSize: 12, color: 'text.secondary' }} />
-                            <Typography
-                              variant="caption"
-                              color="primary.main"
-                              sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                            >
-                              {client.email || '—'}
-                            </Typography>
-                          </Stack>
-                        </Box>
-                      </Stack>
-
-                      {isPrimary ? <StatusBadge status="active" label="Primary" /> : null}
-                    </Card>
-                  )
-                })}
-              </Stack>
-            )}
-          </Box>
-        </WorkspaceSection>
-      </Stack>
+    <Modal open={open} onClose={onClose} title="Project Overview" subtitle={project.name} size="xl">
+      <ProjectOverviewTab project={project} readOnly />
     </Modal>
   )
 }
@@ -475,7 +342,6 @@ export default function TeamMemberDetailPage() {
   const users = useAppSelector((state) => state.users.items ?? [])
   const projects = useAppSelector((state) => state.projects.items ?? [])
   const roles = useAppSelector((state) => state.roles.items ?? [])
-  const customers = useAppSelector((state) => state.customers.items ?? [])
   const usersLoading = useAppSelector((state) => state.users.loading)
   const saving = useAppSelector((state) => state.users.saving)
 
@@ -501,7 +367,7 @@ export default function TeamMemberDetailPage() {
     dispatch(fetchUsers({}))
     dispatch(fetchRoles())
     dispatch(fetchProjects({ page: 1, pageSize: 500 }))
-    dispatch(fetchCustomers({ page: 1, pageSize: 500 }))
+    dispatch(fetchStatuses())
   }, [dispatch])
 
   useEffect(() => {
@@ -525,6 +391,7 @@ export default function TeamMemberDetailPage() {
         projectName: project.name,
         projectLead: project.projectManager || '—',
         status: project.status,
+        progress: project.progress || '—',
         startDate: project.startDate,
         expectedEndDate: project.expectedEndDate,
         sites: formatBuildingFloor(project),
@@ -546,11 +413,6 @@ export default function TeamMemberDetailPage() {
   const [page, setPage] = useState(1)
   const [activeProject, setActiveProject] = useState<Project | null>(null)
   const theme = useTheme()
-  const activeProjectCustomerContacts = useMemo(() => {
-    if (!activeProject) return []
-    const customer = customers.find((item) => item.id === activeProject.customerId)
-    return customer?.contacts ?? []
-  }, [activeProject, customers])
 
   const periodBounds = useMemo(
     () => getPeriodBounds(period, customFrom, customTo),
@@ -599,6 +461,9 @@ export default function TeamMemberDetailPage() {
           break
         case 'status':
           cmp = compareText(a.status, b.status)
+          break
+        case 'progress':
+          cmp = compareText(a.progress, b.progress)
           break
         case 'startDate':
           cmp = compareDate(a.startDate, b.startDate)
@@ -936,47 +801,25 @@ export default function TeamMemberDetailPage() {
         </Stack>
 
         <TableContainer sx={{ width: '100%', overflowX: 'auto' }}>
-          <Table size="small" sx={{ tableLayout: 'fixed', width: '100%', minWidth: 1180 }}>
+          <Table size="small" sx={{ tableLayout: 'fixed', width: '100%', minWidth: 1280 }}>
             <TableHead>
               <TableRow sx={{ bgcolor: 'action.hover' }}>
                 {ASSIGNED_PROJECT_COLUMNS.map((column) => (
                   <TableCell
                     key={column.key}
                     onClick={() => handleSort(column.key)}
-                    sx={{
-                      fontSize: 11,
-                      fontWeight: 600,
-                      py: '8px',
-                      px: CELL_PAD_X,
-                      cursor: 'pointer',
-                      userSelect: 'none',
-                      whiteSpace: 'nowrap',
-                    }}
+                    sx={tableHeadCellSx}
                   >
                     {column.label}
                   </TableCell>
                 ))}
-                <TableCell
-                  sx={{
-                    fontSize: 11,
-                    fontWeight: 600,
-                    py: '8px',
-                    pl: 0,
-                    pr: CELL_PAD_X,
-                    width: ACTION_WIDTH_PX,
-                    minWidth: ACTION_WIDTH_PX,
-                    maxWidth: ACTION_WIDTH_PX,
-                    textAlign: 'center',
-                  }}
-                >
-                  Action
-                </TableCell>
+                <TableCell sx={actionHeadCellSx}>Action</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {pageRows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={10} sx={{ py: 5 }}>
+                  <TableCell colSpan={11} sx={{ py: 5 }}>
                     <Typography variant="body2" color="text.secondary" align="center">
                       {period === 'Custom Date Range' && (!customFrom || !customTo)
                         ? 'Select a custom start and end date to view assigned projects.'
@@ -987,22 +830,34 @@ export default function TeamMemberDetailPage() {
               ) : (
                 pageRows.map((row) => (
                   <TableRow key={row.id} hover>
-                    <TableCell sx={{ py: '7px', px: CELL_PAD_X }}>
+                    <TableCell sx={tableBodyCellSx}>
                       <Typography variant="body2" sx={{ fontWeight: 600, fontSize: 12 }}>
                         {row.projectName}
                       </Typography>
                     </TableCell>
-                    <TableCell sx={{ py: '7px', px: CELL_PAD_X }}>{row.projectLead}</TableCell>
-                    <TableCell sx={{ py: '7px', px: CELL_PAD_X }}>{row.sites || '—'}</TableCell>
-                    <TableCell sx={{ py: '7px', px: CELL_PAD_X }}>
-                      <StatusBadge status={row.status.toLowerCase() as 'pitch' | 'live' | 'completed' | 'cancelled' | 'archived'} />
+                    <TableCell sx={tableBodyCellSx}>{row.projectLead}</TableCell>
+                    <TableCell sx={tableBodyCellSx}>{row.sites || '—'}</TableCell>
+                    <TableCell sx={tableBodyCellSx}>
+                      <StatusBadge
+                        status={
+                          row.status.toLowerCase() as
+                            | 'pitch'
+                            | 'live'
+                            | 'completed'
+                            | 'cancelled'
+                            | 'archived'
+                        }
+                      />
                     </TableCell>
-                    <TableCell sx={{ py: '7px', px: CELL_PAD_X }}>{formatDate(row.startDate)}</TableCell>
-                    <TableCell sx={{ py: '7px', px: CELL_PAD_X }}>{formatDate(row.expectedEndDate)}</TableCell>
-                    <TableCell sx={{ py: '7px', px: CELL_PAD_X }}>{fmtInr(row.revenue)}</TableCell>
-                    <TableCell sx={{ py: '7px', px: CELL_PAD_X }}>{fmtInr(row.profit)}</TableCell>
-                    <TableCell sx={{ py: '7px', px: CELL_PAD_X }}>{fmtPct(row.profitPct)}</TableCell>
-                    <TableCell sx={{ py: '7px', pl: 0, pr: CELL_PAD_X, textAlign: 'center' }}>
+                    <TableCell sx={tableBodyCellSx}>
+                      <ProgressBadge label={row.progress} />
+                    </TableCell>
+                    <TableCell sx={tableBodyCellSx}>{formatDate(row.startDate)}</TableCell>
+                    <TableCell sx={tableBodyCellSx}>{formatDate(row.expectedEndDate)}</TableCell>
+                    <TableCell sx={tableBodyCellSx}>{fmtInr(row.revenue)}</TableCell>
+                    <TableCell sx={tableBodyCellSx}>{fmtInr(row.profit)}</TableCell>
+                    <TableCell sx={tableBodyCellSx}>{fmtPct(row.profitPct)}</TableCell>
+                    <TableCell sx={actionBodyCellSx}>
                       <ProjectRowActions onView={() => setActiveProject(row.project)} />
                     </TableCell>
                   </TableRow>
@@ -1042,7 +897,6 @@ export default function TeamMemberDetailPage() {
       <ProjectOverviewQuickModal
         open={Boolean(activeProject)}
         project={activeProject}
-        customerContacts={activeProjectCustomerContacts}
         onClose={() => setActiveProject(null)}
       />
     </>

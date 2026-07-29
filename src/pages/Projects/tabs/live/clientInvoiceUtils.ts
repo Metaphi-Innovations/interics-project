@@ -115,7 +115,18 @@ export function effectiveLabourCessPercent(inv: ClientInvoice): string {
   return `${roll.labourCessRatePercent}%`
 }
 
-export function invoiceLabourCessAmount(inv: ClientInvoice): number {
+export function invoiceLabourCessAmount(inv: {
+  labourCessAmount?: number | null
+  lineItems: Array<{ amount: number; labourCessRate?: number; gstRate: number }>
+}): number {
   if (inv.labourCessAmount != null) return inv.labourCessAmount
-  return rollupsFromLineItems(inv.lineItems).labourCessAmount
+  return roundMoney(
+    inv.lineItems.reduce(
+      (s, li) =>
+        s +
+        computeLineItemTaxBreakdown(li.amount, li.labourCessRate ?? 0, li.gstRate)
+          .labourCessAmount,
+      0,
+    ),
+  )
 }

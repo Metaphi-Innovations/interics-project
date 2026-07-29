@@ -715,7 +715,7 @@ export default function PitchTab({ project }: { project: Project }) {
           <PitchQuotationsSection projectId={project.id} />
 
           <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, p: 2, bgcolor: 'background.paper', mb: 3 }}>
-            <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
+            <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 0.5 }}>
               <Typography variant="subtitle1" sx={{ fontSize: 15, fontWeight: 600 }}>Client Offer</Typography>
             </Stack>
 
@@ -736,9 +736,32 @@ export default function PitchTab({ project }: { project: Project }) {
                   onChange={(_, expanded) =>
                     handleClientOfferAccordionChange(section.key, category, expanded)
                   }
-                  sx={{ mb: 1.5, border: '1px solid', borderColor: 'divider', boxShadow: 'none', borderRadius: '8px !important', '&:before': { display: 'none' } }}
+                  sx={{
+                    mb: 1,
+                    mt: 0,
+                    border: '1px solid',
+                    borderColor: 'divider',
+                    boxShadow: 'none',
+                    borderRadius: '8px !important',
+                    '&:before': { display: 'none' },
+                    '&.Mui-expanded': { margin: '0 0 8px 0' },
+                  }}
                 >
-                  <AccordionSummary expandIcon={<ExpandMore sx={{ fontSize: 20 }} />}>
+                  <AccordionSummary
+                    expandIcon={<ExpandMore sx={{ fontSize: 18 }} />}
+                    sx={{
+                      minHeight: 40,
+                      px: 1.5,
+                      '&.Mui-expanded': { minHeight: 40 },
+                      '& .MuiAccordionSummary-content': {
+                        my: 0.75,
+                        '&.Mui-expanded': { my: 0.75 },
+                      },
+                      '& .MuiAccordionSummary-expandIconWrapper': {
+                        ml: 0.5,
+                      },
+                    }}
+                  >
                     <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ width: '100%', pr: 1 }}>
                       <Typography sx={{ fontSize: 13, fontWeight: 600 }}>{section.title}</Typography>
                       <Stack direction="row" alignItems="center" gap={0.5} onClick={(e) => e.stopPropagation()}>
@@ -888,7 +911,8 @@ export default function PitchTab({ project }: { project: Project }) {
             <Box sx={{ pt: 0.5 }}>
               <MuiButton
                 size="small"
-                variant="outlined"
+                variant="contained"
+                color="primary"
                 startIcon={<Add fontSize="small" />}
                 sx={{ fontSize: 12 }}
                 disabled={!activeVersion}
@@ -908,7 +932,7 @@ export default function PitchTab({ project }: { project: Project }) {
                 Vendor Offers
               </Typography>
               <MuiButton
-                variant="outlined"
+                variant="contained"
                 color="primary"
                 size="small"
                 startIcon={<Add fontSize="small" />}

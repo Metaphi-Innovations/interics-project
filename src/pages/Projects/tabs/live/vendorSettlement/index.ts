@@ -25,6 +25,7 @@ export {
   invoiceUploadedLabel,
   vendorInvoiceDocumentFileName,
   vendorInvoiceDocumentOpenUrl,
+  invoiceStatusFromPaymentStatus,
   isPayableReleaseAllowed,
   itemsSummary,
   payableStatusBadgeColor,
@@ -44,6 +45,16 @@ export {
 } from './utils'
 export { SettlementSummaryStrip } from './SettlementSummaryStrip'
 export { AddVendorInvoiceDrawer } from './AddVendorInvoiceDrawer'
+export {
+  UploadVendorInvoiceDrawer,
+  type EligibleInvoiceUploadEntry,
+  type ProjectVendorOption,
+  type UploadVendorInvoiceInitialSelection,
+} from './UploadVendorInvoiceDrawer'
+export {
+  buildEligibleVendorInvoiceUploadEntries,
+  buildProjectVendorOptionsFromVendorPOs,
+} from './eligibleInvoiceUpload'
 export { PaymentDetailModal, VendorInvoiceDetailModal } from './SettlementModals'
 export {
   VendorPayableWorkflowDrawer,

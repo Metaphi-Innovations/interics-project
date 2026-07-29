@@ -473,7 +473,7 @@ export function ListingTemplate({
             display: 'grid',
             gridTemplateColumns: {
               xs: 'repeat(2, 1fr)',
-              lg: `repeat(${Math.min(statCards.length, 4)}, 1fr)`,
+              lg: `repeat(${Math.min(statCards.length, 5)}, 1fr)`,
             },
             gap: '12px',
             mb: 2,

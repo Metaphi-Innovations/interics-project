@@ -1,6 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type MouseEvent } from 'react'
 import {
   Box,
+  IconButton,
+  Menu,
+  MenuItem,
   Table,
   TableBody,
   TableCell,
@@ -8,7 +11,8 @@ import {
   TableRow,
   Typography,
 } from '@mui/material'
-import { Button } from '@/design-system/components'
+import MoreVertIcon from '@mui/icons-material/MoreVert'
+import { Button, useToast } from '@/design-system/components'
 import { WorkspaceSection } from '@/components/templates'
 import { tokens } from '@/design-system/tokens'
 import type { Baseline, VendorPO } from '@/slices/baseline/reducer'
@@ -49,8 +53,11 @@ const ACTION_CELL_SX = {
   verticalAlign: 'middle' as const,
 }
 
+const MENU_ITEM_SX = { fontSize: 12, py: 0.75 } as const
+
 const VENDOR_OFFER_COL_COUNT = 6
-const VENDOR_OFFER_COL_WIDTH = `${100 / VENDOR_OFFER_COL_COUNT}%`
+const VENDOR_OFFER_ACTION_WIDTH_PX = 56
+const VENDOR_OFFER_DATA_COL_WIDTH = `calc((100% - ${VENDOR_OFFER_ACTION_WIDTH_PX}px) / 5)`
 
 const VENDOR_OFFER_COLUMNS = [
   'Vendor Name',
@@ -60,6 +67,76 @@ const VENDOR_OFFER_COLUMNS = [
   'Notes / Tags',
   'Action',
 ] as const
+
+function OfferRowActions({
+  canView,
+  onView,
+  onDownloadTemplate1,
+  onDownloadTemplate2,
+}: {
+  canView: boolean
+  onView: () => void
+  onDownloadTemplate1: () => void
+  onDownloadTemplate2: () => void
+}) {
+  const [anchor, setAnchor] = useState<null | HTMLElement>(null)
+
+  function open(e: MouseEvent<HTMLElement>) {
+    e.stopPropagation()
+    setAnchor(e.currentTarget)
+  }
+
+  function close() {
+    setAnchor(null)
+  }
+
+  return (
+    <>
+      <IconButton size="small" onClick={open} aria-label="Row actions" sx={{ p: 0.5 }}>
+        <MoreVertIcon sx={{ fontSize: 16 }} />
+      </IconButton>
+      <Menu
+        anchorEl={anchor}
+        open={Boolean(anchor)}
+        onClose={close}
+        onClick={(e) => e.stopPropagation()}
+        slotProps={{ paper: { elevation: 2 } }}
+      >
+        <MenuItem
+          dense
+          disabled={!canView}
+          sx={MENU_ITEM_SX}
+          onClick={() => {
+            onView()
+            close()
+          }}
+        >
+          View
+        </MenuItem>
+        <MenuItem
+          dense
+          sx={MENU_ITEM_SX}
+          onClick={() => {
+            onDownloadTemplate1()
+            close()
+          }}
+        >
+          Download template 1
+        </MenuItem>
+        <MenuItem
+          dense
+          sx={MENU_ITEM_SX}
+          onClick={() => {
+            onDownloadTemplate2()
+            close()
+          }}
+        >
+          Download Template 2
+        </MenuItem>
+      </Menu>
+    </>
+  )
+}
 
 export interface VendorOffersSectionProps {
   offerVersion: PitchVersion | null
@@ -78,6 +155,7 @@ export function VendorOffersSection({
   vendorPOs,
   baseline,
 }: VendorOffersSectionProps) {
+  const { showToast } = useToast()
   const vendorRows = buildVendorOfferRows(offerVersion)
   const [viewVendorPO, setViewVendorPO] = useState<VendorPO | null>(null)
 
@@ -121,9 +199,10 @@ export function VendorOffersSection({
               }}
             >
               <colgroup>
-                {Array.from({ length: VENDOR_OFFER_COL_COUNT }, (_, index) => (
-                  <col key={index} style={{ width: VENDOR_OFFER_COL_WIDTH }} />
+                {Array.from({ length: 5 }, (_, index) => (
+                  <col key={index} style={{ width: VENDOR_OFFER_DATA_COL_WIDTH }} />
                 ))}
+                <col style={{ width: `${VENDOR_OFFER_ACTION_WIDTH_PX}px` }} />
               </colgroup>
               <TableHead>
                 <TableRow>
@@ -175,19 +254,24 @@ export function VendorOffersSection({
                               minHeight: 32,
                             }}
                           >
-                            {linkedPo ? (
-                              <Button
-                                size="sm"
-                                variant="outlined"
-                                color="primary"
-                                label="View"
-                                onClick={() => setViewVendorPO(linkedPo)}
-                              />
-                            ) : (
-                              <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
-                                —
-                              </Typography>
-                            )}
+                            <OfferRowActions
+                              canView={Boolean(linkedPo)}
+                              onView={() => {
+                                if (linkedPo) setViewVendorPO(linkedPo)
+                              }}
+                              onDownloadTemplate1={() =>
+                                showToast({
+                                  title: 'Download template 1 (placeholder)',
+                                  variant: 'success',
+                                })
+                              }
+                              onDownloadTemplate2={() =>
+                                showToast({
+                                  title: 'Download Template 2 (placeholder)',
+                                  variant: 'success',
+                                })
+                              }
+                            />
                           </Box>
                         </TableCell>
                       </TableRow>

@@ -21,8 +21,11 @@ import { fetchServices, fetchSACCodes } from '@/slices/settings/thunk'
 import type { Invoice } from '@/slices/receivables/reducer'
 import type { Project } from '@/slices/projects/reducer'
 import type { ClientPO, Baseline } from '@/slices/baseline/reducer'
-import { InvoiceLineItems, type DraftLineItem, computeGst } from './InvoiceLineItems'
-import { computeLineItemTaxBreakdown } from '@/pages/Projects/tabs/live/clientInvoiceUtils'
+import { InvoiceLineItems, type DraftLineItem } from './InvoiceLineItems'
+import {
+  computeLineItemTaxBreakdown,
+  rollupsFromLineItems,
+} from '@/pages/Projects/tabs/live/clientInvoiceUtils'
 import { tokens } from '@/design-system/tokens'
 import { formatInr } from '@/utils/formatters'
 import {
@@ -438,7 +441,10 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved }: C
       const used = projectInvoices
         .filter((i) => i.clientPoId === selectedPo.id && i.id !== invoice?.id)
         .reduce((s, i) => s + i.totalAmount, 0)
-      const draftTotal = lines.reduce((s, l) => s + l.amount + computeGst(l.amount, l.gstRate), 0)
+      const draftTotal = lines.reduce((s, l) => {
+        const taxed = computeLineItemTaxBreakdown(l.amount, l.labourCessRate ?? 0, l.gstRate)
+        return s + taxed.grossAmount
+      }, 0)
       if (used + draftTotal > selectedPo.poValue + 0.01) {
         le = `Total exceeds PO value (₹${formatInr(selectedPo.poValue)} less ₹${formatInr(used)} already invoiced on this PO)`
       }
@@ -449,18 +455,24 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved }: C
   }
 
   function buildPayload(sendNow: boolean): Record<string, unknown> {
-    const payloadLines = lines.map((l, idx) => ({
-      id: l.id.startsWith('tmp-') ? `li-new-${idx}` : l.id,
-      serviceId: l.serviceId,
-      serviceName: l.serviceName,
-      sacCode: l.sacCode,
-      amount: l.amount,
-      gstRate: l.gstRate,
-      gstAmount: computeGst(l.amount, l.gstRate),
-      milestoneId: l.milestoneId,
-      baselineServiceId: l.baselineServiceId,
-      lineSource: l.lineSource,
-    }))
+    const payloadLines = lines.map((l, idx) => {
+      const taxed = computeLineItemTaxBreakdown(l.amount, l.labourCessRate ?? 0, l.gstRate)
+      return {
+        id: l.id.startsWith('tmp-') ? `li-new-${idx}` : l.id,
+        serviceId: l.serviceId,
+        serviceName: l.serviceName,
+        sacCode: l.sacCode,
+        amount: l.amount,
+        labourCessRate: l.labourCessRate ?? 0,
+        labourCessAmount: taxed.labourCessAmount,
+        taxableAmount: taxed.taxableAmount,
+        gstRate: l.gstRate,
+        gstAmount: taxed.gstAmount,
+        milestoneId: l.milestoneId,
+        baselineServiceId: l.baselineServiceId,
+        lineSource: l.lineSource,
+      }
+    })
     return {
       clientId: project!.customerId,
       clientName: project!.customerName,
@@ -516,9 +528,30 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved }: C
   }
 
   const minDue = invoiceDate ?? undefined
-  const baseTotal = lines.reduce((s, l) => s + l.amount, 0)
-  const gstTotal = lines.reduce((s, l) => s + l.gstAmount, 0)
-  const invoiceTotal = baseTotal + gstTotal
+  const roll = useMemo(
+    () =>
+      rollupsFromLineItems(
+        lines.map((l) => ({
+          id: l.id,
+          serviceId: l.serviceId,
+          serviceName: l.serviceName,
+          sacCode: l.sacCode,
+          amount: l.amount,
+          labourCessRate: l.labourCessRate,
+          labourCessAmount: l.labourCessAmount,
+          taxableAmount: l.taxableAmount,
+          gstRate: l.gstRate,
+          gstAmount: l.gstAmount,
+        })),
+      ),
+    [lines],
+  )
+
+  function formatLabourCessPercent(rate: number | null): string {
+    if (rate === null) return '—'
+    const rounded = Math.round(rate * 100) / 100
+    return `${Number.isInteger(rounded) ? rounded : rounded.toFixed(2)}%`
+  }
 
   const footer = (
     <Stack direction="row" justifyContent="flex-end" gap={1} sx={{ px: 5, py: 3.5 }}>
@@ -718,6 +751,7 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved }: C
             projectSourced={!!project && !!baseline}
             allowEmpty
             manualAddCollapsed
+            showLabourCessColumn
           />
         </FormSection>
 
@@ -778,24 +812,48 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved }: C
                   Base amount
                 </Typography>
                 <Typography variant="body2" fontWeight={600}>
-                  ₹{formatInr(baseTotal)}
+                  ₹{formatInr(roll.baseAmount)}
                 </Typography>
               </Stack>
               <Stack direction="row" justifyContent="space-between">
                 <Typography variant="body2" color="text.secondary">
-                  + GST
+                  Labour cess (%)
                 </Typography>
                 <Typography variant="body2" fontWeight={600}>
-                  ₹{formatInr(gstTotal)}
+                  {formatLabourCessPercent(roll.labourCessRatePercent)}
+                </Typography>
+              </Stack>
+              <Stack direction="row" justifyContent="space-between">
+                <Typography variant="body2" color="text.secondary">
+                  Labour cess amount
+                </Typography>
+                <Typography variant="body2" fontWeight={600}>
+                  ₹{formatInr(roll.labourCessAmount)}
+                </Typography>
+              </Stack>
+              <Stack direction="row" justifyContent="space-between">
+                <Typography variant="body2" color="text.secondary">
+                  Taxable amount
+                </Typography>
+                <Typography variant="body2" fontWeight={600}>
+                  ₹{formatInr(roll.taxableAmount)}
+                </Typography>
+              </Stack>
+              <Stack direction="row" justifyContent="space-between">
+                <Typography variant="body2" color="text.secondary">
+                  GST amount
+                </Typography>
+                <Typography variant="body2" fontWeight={600}>
+                  ₹{formatInr(roll.gstAmount)}
                 </Typography>
               </Stack>
               <Box sx={{ borderTop: `1px solid ${tokens.color.neutral[200]}`, my: 1 }} />
               <Stack direction="row" justifyContent="space-between">
                 <Typography variant="body2" fontWeight={700}>
-                  Invoice total
+                  Final invoice amount
                 </Typography>
                 <Typography variant="body2" fontWeight={700}>
-                  ₹{formatInr(invoiceTotal)}
+                  ₹{formatInr(roll.grossAmount)}
                 </Typography>
               </Stack>
             </Stack>

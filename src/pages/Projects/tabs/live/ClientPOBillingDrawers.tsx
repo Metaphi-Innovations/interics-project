@@ -36,13 +36,13 @@ import {
 } from '../../../../slices/baseline/thunk'
 import { fetchInvoices } from '../../../../slices/live/thunk'
 import type { ClientInvoice } from '../../../../slices/live/types'
-import { fetchVersions } from '../../../../slices/pitch/thunk'
+import { fetchCategories, fetchServices } from '../../../../slices/settings/thunk'
 import type { ClientPO, ClientPOMilestone } from '../../../../slices/baseline/reducer'
 import { formatCurrency } from '../../../../utils/formatters'
 import {
   clientPOCardServiceOptions,
-  clientPOCategoryOptions,
-  flattenClientOfferServices,
+  masterCategoryOptions,
+  masterClientPOServiceOptions,
   type ClientPOServiceOption,
 } from './clientPOServiceOptions'
 import {
@@ -50,9 +50,9 @@ import {
   ClientPOMilestoneCardEditor,
   createClientPOMilestoneCard,
   groupClientCardsByService,
-  isClientGroupedServiceValid,
   isMilestoneCardConfigured,
   clientPOCardsFromMilestones,
+  mergeClientPOMilestoneEditsFromCards,
   type ClientPOMilestoneCard,
 } from './ClientPOMilestoneCards'
 import {
@@ -106,24 +106,32 @@ const MILESTONE_STATUS_CELL_SX = {
   verticalAlign: 'middle' as const,
 }
 
-function useClientPOServiceOptions(projectId: string, open: boolean): ClientPOServiceOption[] {
+function useClientPOMasterOptions(open: boolean): {
+  categoryOptions: { id: string; label: string }[]
+  serviceOptions: ClientPOServiceOption[]
+  cardServiceOptions: { id: string; label: string; categoryId: string }[]
+} {
   const dispatch = useAppDispatch()
-  const { activeVersion } = useAppSelector((s) => s.pitch)
-  const { baseline } = useAppSelector((s) => s.baseline)
+  const categories = useAppSelector((s) => s.settings.categories)
+  const services = useAppSelector((s) => s.settings.services)
 
   useEffect(() => {
-    if (open) void dispatch(fetchVersions(projectId))
-  }, [dispatch, projectId, open])
+    if (!open) return
+    void dispatch(fetchCategories())
+    void dispatch(fetchServices())
+  }, [dispatch, open])
 
-  return useMemo(
-    () =>
-      flattenClientOfferServices(
-        activeVersion,
-        baseline?.projectId === projectId ? baseline : null,
-        projectId,
-      ),
-    [activeVersion, baseline, projectId],
+  const serviceOptions = useMemo(
+    () => masterClientPOServiceOptions(categories, services),
+    [categories, services],
   )
+  const categoryOptions = useMemo(() => masterCategoryOptions(categories), [categories])
+  const cardServiceOptions = useMemo(
+    () => clientPOCardServiceOptions(serviceOptions),
+    [serviceOptions],
+  )
+
+  return { categoryOptions, serviceOptions, cardServiceOptions }
 }
 
 function isRetentionRow(milestone: ClientPOMilestone): boolean {
@@ -323,15 +331,7 @@ export function AddClientPODrawer({ open, onClose, projectId }: AddClientPODrawe
   const dispatch = useAppDispatch()
   const { saving } = useAppSelector((s) => s.baseline)
   const toast = useToast((s) => s.showToast)
-  const serviceOptions = useClientPOServiceOptions(projectId, open)
-  const categoryOptions = useMemo(
-    () => clientPOCategoryOptions(serviceOptions),
-    [serviceOptions],
-  )
-  const cardServiceOptions = useMemo(
-    () => clientPOCardServiceOptions(serviceOptions),
-    [serviceOptions],
-  )
+  const { categoryOptions, serviceOptions, cardServiceOptions } = useClientPOMasterOptions(open)
   const [poFormData, setPoFormData] = useState({
     poNumber: '',
     poValue: '',
@@ -366,21 +366,29 @@ export function AddClientPODrawer({ open, onClose, projectId }: AddClientPODrawe
     [milestoneCards],
   )
 
-  const groupedSaveValid = useMemo(
-    () => groupedForSave.every((group) => isClientGroupedServiceValid(milestoneBaseValue, group)),
-    [groupedForSave, milestoneBaseValue],
-  )
-
   useEffect(() => {
     if (milestoneBaseValue <= 0) return
     setMilestoneCards((prev) => {
       let changed = false
       const next = prev.map((card) => {
-        if (!card.retention) return card
-        const amount = Math.round((card.retention.percentage / 100) * milestoneBaseValue)
-        if (card.retention.amount === amount) return card
+        let cardChanged = false
+        const milestones = card.milestones.map((m) => {
+          const value = Math.round((m.percentage / 100) * milestoneBaseValue)
+          if (m.value === value) return m
+          cardChanged = true
+          return { ...m, value }
+        })
+        let retention = card.retention
+        if (retention) {
+          const amount = Math.round((retention.percentage / 100) * milestoneBaseValue)
+          if (retention.amount !== amount) {
+            cardChanged = true
+            retention = { ...retention, amount }
+          }
+        }
+        if (!cardChanged) return card
         changed = true
-        return { ...card, retention: { ...card.retention, amount } }
+        return { ...card, milestones, retention }
       })
       return changed ? next : prev
     })
@@ -403,7 +411,7 @@ export function AddClientPODrawer({ open, onClose, projectId }: AddClientPODrawe
     })
   }
 
-  const submitDisabled = saving || serviceOptions.length === 0
+  const submitDisabled = saving || categoryOptions.length === 0
   const cardsDisabled = categoryOptions.length === 0
 
   async function handleSubmit() {
@@ -413,13 +421,6 @@ export function AddClientPODrawer({ open, onClose, projectId }: AddClientPODrawe
     }
     if (!hasConfiguredEntries || groupedForSave.length === 0) {
       toast({ title: 'Add at least one milestone entry', variant: 'error' })
-      return
-    }
-    if (!groupedSaveValid) {
-      toast({
-        title: 'Combined milestones per service must equal 100%',
-        variant: 'error',
-      })
       return
     }
 
@@ -463,9 +464,9 @@ export function AddClientPODrawer({ open, onClose, projectId }: AddClientPODrawe
       submitLabel="Save PO"
       submitDisabled={submitDisabled}
     >
-      {serviceOptions.length === 0 ? (
+      {categoryOptions.length === 0 ? (
         <Alert severity="warning" sx={{ mb: 2, fontSize: 12 }}>
-          Add client offer services on the Pitch tab before adding PO milestones.
+          Add active categories and services in Settings before adding PO milestones.
         </Alert>
       ) : null}
       <Box sx={{ mb: 0 }}>
@@ -607,11 +608,16 @@ export function ViewClientPODrawer({ open, onClose, projectId, po }: ViewClientP
   const [updatingExecutedValue, setUpdatingExecutedValue] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [executedValueDraft, setExecutedValueDraft] = useState('')
+  const [milestoneCardOverrides, setMilestoneCardOverrides] = useState<
+    ClientPOMilestoneCard[] | null
+  >(null)
 
   const projectInvoices = useMemo(
     () => invoices.filter((i) => i.projectId === projectId),
     [invoices, projectId],
   )
+
+  const { categoryOptions, serviceOptions, cardServiceOptions } = useClientPOMasterOptions(open)
 
   useEffect(() => {
     if (open) {
@@ -623,36 +629,45 @@ export function ViewClientPODrawer({ open, onClose, projectId, po }: ViewClientP
     if (!open || !po) {
       setUpdatingExecutedValue(false)
       setDeleteOpen(false)
+      setMilestoneCardOverrides(null)
       return
     }
     setExecutedValueDraft(String(effectiveExecutedValue(po)))
   }, [open, po?.id])
 
+  useEffect(() => {
+    setMilestoneCardOverrides(null)
+  }, [updatingExecutedValue, executedValueDraft, po?.id])
+
+  const recalculatedMilestoneCards = useMemo(() => {
+    if (!updatingExecutedValue || !po) return []
+    const nextValue = Number(executedValueDraft)
+    const milestones =
+      !Number.isFinite(nextValue) || nextValue <= 0
+        ? (po.milestones ?? [])
+        : recalculateClientPOMilestonesForExecutedValue(
+            po.milestones ?? [],
+            nextValue,
+            projectInvoices,
+          )
+    return clientPOCardsFromMilestones(milestones, serviceOptions).milestoneCards
+  }, [updatingExecutedValue, executedValueDraft, po, projectInvoices, serviceOptions])
+
+  const editMilestoneCards = milestoneCardOverrides ?? recalculatedMilestoneCards
+
   const previewMilestones = useMemo(() => {
     if (!po || !updatingExecutedValue) return po?.milestones ?? []
     const nextValue = Number(executedValueDraft)
-    if (!Number.isFinite(nextValue) || nextValue <= 0) return po.milestones ?? []
-    return recalculateClientPOMilestonesForExecutedValue(
-      po.milestones ?? [],
-      nextValue,
-      projectInvoices,
-    )
-  }, [po, updatingExecutedValue, executedValueDraft, projectInvoices])
-
-  const serviceOptions = useClientPOServiceOptions(projectId, open)
-  const categoryOptions = useMemo(
-    () => clientPOCategoryOptions(serviceOptions),
-    [serviceOptions],
-  )
-  const cardServiceOptions = useMemo(
-    () => clientPOCardServiceOptions(serviceOptions),
-    [serviceOptions],
-  )
-
-  const previewMilestoneCards = useMemo(() => {
-    if (!updatingExecutedValue) return []
-    return clientPOCardsFromMilestones(previewMilestones, serviceOptions).milestoneCards
-  }, [updatingExecutedValue, previewMilestones, serviceOptions])
+    const base =
+      !Number.isFinite(nextValue) || nextValue <= 0
+        ? (po.milestones ?? [])
+        : recalculateClientPOMilestonesForExecutedValue(
+            po.milestones ?? [],
+            nextValue,
+            projectInvoices,
+          )
+    return mergeClientPOMilestoneEditsFromCards(base, editMilestoneCards, projectInvoices)
+  }, [po, updatingExecutedValue, executedValueDraft, projectInvoices, editMilestoneCards])
 
   const milestoneBaseValue = useMemo(() => {
     const nextValue = Number(executedValueDraft)
@@ -664,6 +679,7 @@ export function ViewClientPODrawer({ open, onClose, projectId, po }: ViewClientP
     if (!po) return
     setExecutedValueDraft(String(effectiveExecutedValue(po)))
     setUpdatingExecutedValue(false)
+    setMilestoneCardOverrides(null)
   }
 
   async function handleSaveExecutedValue() {
@@ -678,9 +694,14 @@ export function ViewClientPODrawer({ open, onClose, projectId, po }: ViewClientP
       return
     }
     try {
-      const nextMilestones = recalculateClientPOMilestonesForExecutedValue(
+      const recalculated = recalculateClientPOMilestonesForExecutedValue(
         po.milestones ?? [],
         nextValue,
+        projectInvoices,
+      )
+      const nextMilestones = mergeClientPOMilestoneEditsFromCards(
+        recalculated,
+        editMilestoneCards,
         projectInvoices,
       )
       await dispatch(
@@ -693,6 +714,7 @@ export function ViewClientPODrawer({ open, onClose, projectId, po }: ViewClientP
       void dispatch(fetchClientPO(projectId))
       toast({ title: 'Executed value updated', variant: 'success' })
       setUpdatingExecutedValue(false)
+      setMilestoneCardOverrides(null)
     } catch (err) {
       toast({
         title: typeof err === 'string' ? err : 'Failed to update executed value',
@@ -771,7 +793,7 @@ export function ViewClientPODrawer({ open, onClose, projectId, po }: ViewClientP
                     size="sm"
                     variant="outlined"
                     color="primary"
-                    label="Update Executed Value"
+                    label="Updated"
                     onClick={() => setUpdatingExecutedValue(true)}
                   />
                 ) : null}
@@ -820,8 +842,8 @@ export function ViewClientPODrawer({ open, onClose, projectId, po }: ViewClientP
                         fullWidth
                         size="small"
                         type="number"
-                        value={po?.poValue ?? ''}
-                        disabled
+                        value={executedValueDraft}
+                        onChange={(e) => setExecutedValueDraft(e.target.value)}
                       />
                     </FormField>
                     <FormField label="Executed Value (₹)" required>
@@ -850,10 +872,10 @@ export function ViewClientPODrawer({ open, onClose, projectId, po }: ViewClientP
                   title="Milestones"
                   addLabel="Add Milestone"
                   onAdd={() => undefined}
-                  isEmpty={previewMilestoneCards.length === 0}
+                  isEmpty={editMilestoneCards.length === 0}
                   showAddButton={false}
                 >
-                  {previewMilestoneCards.map((card) => {
+                  {editMilestoneCards.map((card) => {
                     const { milestoneStatuses, retentionStatus } = clientMilestoneStatusesForCard(
                       previewMilestones,
                       card.serviceId,
@@ -867,10 +889,15 @@ export function ViewClientPODrawer({ open, onClose, projectId, po }: ViewClientP
                         serviceOptions={cardServiceOptions}
                         milestoneBaseValue={milestoneBaseValue}
                         includeRetention
-                        readOnly
+                        structureLocked
                         milestoneStatuses={milestoneStatuses}
                         retentionStatus={retentionStatus}
-                        onChange={() => undefined}
+                        onChange={(patch) => {
+                          setMilestoneCardOverrides((prev) => {
+                            const base = prev ?? recalculatedMilestoneCards
+                            return base.map((c) => (c.id === card.id ? { ...c, ...patch } : c))
+                          })
+                        }}
                         onRemove={() => undefined}
                       />
                     )

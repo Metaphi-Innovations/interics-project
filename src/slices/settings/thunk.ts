@@ -7,6 +7,9 @@ import type {
   SACCode,
   Category,
   Service,
+  StatusMaster,
+  SectorMaster,
+  RatingMaster,
   NumberingSchemes,
   SystemDefaults,
 } from './reducer'
@@ -293,6 +296,162 @@ export const toggleServiceStatus = createAsyncThunk(
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } }
       return rejectWithValue(e.response?.data?.message ?? 'Failed to toggle service status')
+    }
+  }
+)
+
+export const fetchStatuses = createAsyncThunk(
+  'settings/fetchStatuses',
+  async (_, { rejectWithValue }) => {
+    try {
+      const res = await settingsApi.getStatuses()
+      return res.data as StatusMaster[]
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } }
+      return rejectWithValue(e.response?.data?.message ?? 'Failed to fetch statuses')
+    }
+  }
+)
+
+export const createStatus = createAsyncThunk(
+  'settings/createStatus',
+  async (data: Omit<StatusMaster, 'id'>, { rejectWithValue }) => {
+    try {
+      const res = await settingsApi.createStatus(data as Record<string, unknown>)
+      return res.data as StatusMaster
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } }
+      return rejectWithValue(e.response?.data?.message ?? 'Failed to create status')
+    }
+  }
+)
+
+export const updateStatus = createAsyncThunk(
+  'settings/updateStatus',
+  async ({ id, ...data }: StatusMaster, { rejectWithValue }) => {
+    try {
+      const res = await settingsApi.updateStatus(id, data as Record<string, unknown>)
+      return res.data as StatusMaster
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } }
+      return rejectWithValue(e.response?.data?.message ?? 'Failed to update status')
+    }
+  }
+)
+
+export const toggleStatusMaster = createAsyncThunk(
+  'settings/toggleStatusMaster',
+  async (id: string, { rejectWithValue }) => {
+    try {
+      const res = await settingsApi.toggleStatusStatus(id)
+      return res.data as StatusMaster
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } }
+      return rejectWithValue(e.response?.data?.message ?? 'Failed to toggle status')
+    }
+  }
+)
+
+export const fetchSectors = createAsyncThunk(
+  'settings/fetchSectors',
+  async (_, { rejectWithValue }) => {
+    try {
+      const res = await settingsApi.getSectors()
+      return res.data as SectorMaster[]
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } }
+      return rejectWithValue(e.response?.data?.message ?? 'Failed to fetch sectors')
+    }
+  }
+)
+
+export const createSector = createAsyncThunk(
+  'settings/createSector',
+  async (data: Omit<SectorMaster, 'id'>, { rejectWithValue }) => {
+    try {
+      const res = await settingsApi.createSector(data as Record<string, unknown>)
+      return res.data as SectorMaster
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } }
+      return rejectWithValue(e.response?.data?.message ?? 'Failed to create sector')
+    }
+  }
+)
+
+export const updateSector = createAsyncThunk(
+  'settings/updateSector',
+  async ({ id, ...data }: SectorMaster, { rejectWithValue }) => {
+    try {
+      const res = await settingsApi.updateSector(id, data as Record<string, unknown>)
+      return res.data as SectorMaster
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } }
+      return rejectWithValue(e.response?.data?.message ?? 'Failed to update sector')
+    }
+  }
+)
+
+export const toggleSectorStatus = createAsyncThunk(
+  'settings/toggleSectorStatus',
+  async (id: string, { rejectWithValue }) => {
+    try {
+      const res = await settingsApi.toggleSectorStatus(id)
+      return res.data as SectorMaster
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } }
+      return rejectWithValue(e.response?.data?.message ?? 'Failed to toggle sector status')
+    }
+  }
+)
+
+export const fetchRatings = createAsyncThunk(
+  'settings/fetchRatings',
+  async (_, { rejectWithValue }) => {
+    try {
+      const res = await settingsApi.getRatings()
+      return res.data as RatingMaster[]
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } }
+      return rejectWithValue(e.response?.data?.message ?? 'Failed to fetch ratings')
+    }
+  }
+)
+
+export const createRating = createAsyncThunk(
+  'settings/createRating',
+  async (data: Omit<RatingMaster, 'id'>, { rejectWithValue }) => {
+    try {
+      const res = await settingsApi.createRating(data as Record<string, unknown>)
+      return res.data as RatingMaster
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } }
+      return rejectWithValue(e.response?.data?.message ?? 'Failed to create rating')
+    }
+  }
+)
+
+export const updateRating = createAsyncThunk(
+  'settings/updateRating',
+  async ({ id, ...data }: RatingMaster, { rejectWithValue }) => {
+    try {
+      const res = await settingsApi.updateRating(id, data as Record<string, unknown>)
+      return res.data as RatingMaster
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } }
+      return rejectWithValue(e.response?.data?.message ?? 'Failed to update rating')
+    }
+  }
+)
+
+export const toggleRatingStatus = createAsyncThunk(
+  'settings/toggleRatingStatus',
+  async (id: string, { rejectWithValue }) => {
+    try {
+      const res = await settingsApi.toggleRatingStatus(id)
+      return res.data as RatingMaster
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } }
+      return rejectWithValue(e.response?.data?.message ?? 'Failed to toggle rating status')
     }
   }
 )

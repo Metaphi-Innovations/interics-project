@@ -1,5 +1,7 @@
+import type { Category, Service } from '@/slices/settings/reducer'
 import type { Baseline } from '@/slices/baseline/reducer'
 import type { PitchService, PitchVersion } from '@/slices/pitch/reducer'
+import type { CategoryOption, ServiceOption } from './VendorOfferMilestoneCards'
 
 export interface ClientPOServiceOption {
   id: string
@@ -54,6 +56,41 @@ export function flattenClientOfferServices(
   return []
 }
 
+/** Active Category Master rows for Client/Vendor PO milestone pickers. */
+export function masterCategoryOptions(categories: Category[]): CategoryOption[] {
+  return categories
+    .filter((c) => c.status === 'active')
+    .map((c) => ({ id: c.id, label: c.name }))
+    .sort((a, b) => a.label.localeCompare(b.label))
+}
+
+/** Active Service Master rows for Client/Vendor PO milestone pickers. */
+export function masterServiceOptions(services: Service[]): ServiceOption[] {
+  return services
+    .filter((s) => s.status === 'active')
+    .map((s) => ({ id: s.id, label: s.name, categoryId: s.categoryId }))
+    .sort((a, b) => a.label.localeCompare(b.label))
+}
+
+/** Active masters as Client PO service options (includes category name for payloads). */
+export function masterClientPOServiceOptions(
+  categories: Category[],
+  services: Service[],
+): ClientPOServiceOption[] {
+  const activeCats = new Map(
+    categories.filter((c) => c.status === 'active').map((c) => [c.id, c.name] as const),
+  )
+  return services
+    .filter((s) => s.status === 'active' && activeCats.has(s.categoryId))
+    .map((s) => ({
+      id: s.id,
+      label: s.name,
+      categoryId: s.categoryId,
+      categoryName: activeCats.get(s.categoryId) ?? '',
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label))
+}
+
 export function serviceNameForOption(
   options: ClientPOServiceOption[],
   serviceId: string,
@@ -73,7 +110,7 @@ export function clientPOCategoryOptions(
 
 export function clientPOCardServiceOptions(
   serviceOptions: ClientPOServiceOption[],
-): { id: string; label: string; categoryId: string }[] {
+): ServiceOption[] {
   return serviceOptions.map((option) => ({
     id: option.id,
     label: option.label,

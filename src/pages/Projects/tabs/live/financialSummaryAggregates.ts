@@ -130,6 +130,7 @@ function expensePaidAmount(
     .filter(
       (e) =>
         e.projectId === projectId &&
+        e.type === 'office_expenses' &&
         (e.sourcePlannedExpenseId === planned.id ||
           e.description.trim().toLowerCase() === planned.name.trim().toLowerCase()),
     )
@@ -144,6 +145,11 @@ export function buildFinancialSummaryGroups(
   clientInvoices: ClientInvoice[],
   vendorInvoices: VendorInvoice[],
   expenses: Expense[],
+  /**
+   * Office expenses from Pitch → Expenses for this project.
+   * When omitted, falls back to baseline.plannedExpenses (legacy).
+   */
+  pitchOfficeExpenses?: PlannedExpense[],
 ): FinancialSummaryCategoryGroup[] {
   if (!baseline || baseline.projectId !== projectId) return []
 
@@ -180,18 +186,20 @@ export function buildFinancialSummaryGroups(
     }
   })
 
-  const expenseChildren: FinancialSummaryWorkstreamRow[] = (baseline.plannedExpenses ?? []).map(
-    (pe) => {
-      const vendorPOAmount = pe.amount
-      const vendorPaid = expensePaidAmount(pe, expenses, projectId)
-      return {
-        id: pe.id,
-        kind: 'expense',
-        workstreamName: pe.name,
-        ...buildFinancialSummaryMetrics(0, 0, vendorPOAmount, vendorPaid),
-      }
-    },
-  )
+  const officeExpenses =
+    pitchOfficeExpenses ??
+    (baseline.plannedExpenses ?? []).filter((pe) => pe.type === 'office_expenses')
+
+  const expenseChildren: FinancialSummaryWorkstreamRow[] = officeExpenses.map((pe) => {
+    const vendorPOAmount = pe.amount
+    const vendorPaid = expensePaidAmount(pe, expenses, projectId)
+    return {
+      id: pe.id,
+      kind: 'expense',
+      workstreamName: pe.name,
+      ...buildFinancialSummaryMetrics(0, 0, vendorPOAmount, vendorPaid),
+    }
+  })
 
   if (expenseChildren.length > 0) {
     categoryGroups.push({

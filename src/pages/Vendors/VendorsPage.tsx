@@ -18,7 +18,6 @@ import {
   Tooltip,
   Divider,
   Link as MuiLink,
-  Rating,
 } from '@mui/material'
 import {
   VerifiedUser,
@@ -47,7 +46,7 @@ import { isPendingVendor } from '@/utils/vendorProfileStatus'
 import { getInitials, getAvatarColor, toSlug } from '../../utils/formatters'
 import { getSpecializationTagSx } from '../../utils/specializationTagStyles'
 import { tokens } from '@/design-system/tokens'
-import { formatVendorRating, normalizeVendorRating } from '../../utils/vendorRating'
+import { getRatingMasterChipColors } from '../../utils/masterChipStyles'
 
 const VENDOR_ACTION_WIDTH_PX = 60
 const VENDOR_CELL_PAD_X = '14px'
@@ -145,31 +144,32 @@ function getTotalVendorProjectCount(vendor: Vendor): number {
 }
 
 function VendorRatingCell({ vendor }: { vendor: Vendor }) {
-  const rating = normalizeVendorRating(vendor.rating)
-  if (rating == null) {
+  const theme = useTheme()
+  const rating = vendor.rating?.trim() || null
+  if (!rating) {
     return (
       <Typography variant="body2" sx={{ fontSize: 12, color: 'text.disabled' }}>
         —
       </Typography>
     )
   }
+  const mode = theme.palette.mode === 'dark' ? 'dark' : 'light'
+  const colors = getRatingMasterChipColors(rating, mode)
   return (
-    <Stack direction="row" alignItems="center" gap={0.5} sx={{ minWidth: 0, maxWidth: '100%', overflow: 'hidden' }}>
-      <Rating
-        value={rating}
-        readOnly
-        size="small"
-        precision={0.1}
-        sx={{ fontSize: 14, color: tokens.color.warning[500], flexShrink: 0 }}
-      />
-      <Typography
-        variant="body2"
-        noWrap
-        sx={{ fontSize: 12, fontWeight: 500, color: 'text.secondary', minWidth: 0 }}
-      >
-        {formatVendorRating(rating)}
-      </Typography>
-    </Stack>
+    <MuiChip
+      label={rating}
+      size="small"
+      sx={{
+        height: 20,
+        fontSize: 10,
+        fontWeight: 600,
+        bgcolor: colors.bg,
+        color: colors.color,
+        border: 'none',
+        borderRadius: '20px',
+        '& .MuiChip-label': { px: '8px' },
+      }}
+    />
   )
 }
 
@@ -859,9 +859,11 @@ export default function VendorsPage() {
       return sortConfig.direction === 'asc' ? av - bv : bv - av
     }
     if (sortConfig.field === 'rating') {
-      const av = normalizeVendorRating(a.rating) ?? -1
-      const bv = normalizeVendorRating(b.rating) ?? -1
-      return sortConfig.direction === 'asc' ? av - bv : bv - av
+      const av = (a.rating ?? '').toLowerCase()
+      const bv = (b.rating ?? '').toLowerCase()
+      if (av === bv) return 0
+      const cmp = av < bv ? -1 : 1
+      return sortConfig.direction === 'asc' ? cmp : -cmp
     }
     const field = sortConfig.field as keyof Vendor
     const aVal = a[field]

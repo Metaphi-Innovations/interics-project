@@ -26,4 +26,5 @@ export { default as ActivityFeed } from './ActivityFeed'
 export type { ActivityFeedProps } from './ActivityFeed'
 
 export { default as StatusBadge } from './StatusBadge'
-export type { StatusBadgeProps, StatusType } from './StatusBadge'
+export type { StatusBadgeProps, StatusType, StatusBadgeColors } from './StatusBadge'
+export { getStatusBadgeColors, STATUS_COLORS_LIGHT, STATUS_COLORS_DARK } from './StatusBadge'

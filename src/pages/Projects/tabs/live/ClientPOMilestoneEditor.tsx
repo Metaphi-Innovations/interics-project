@@ -14,6 +14,7 @@ import { Add, Delete } from '@mui/icons-material'
 import { useTheme, alpha } from '@mui/material/styles'
 import { tokens } from '@/design-system/tokens'
 import type { ClientPOMilestone, ClientPORetention } from '@/slices/baseline/reducer'
+import type { ClientInvoice } from '@/slices/live/types'
 import {
   CLIENT_PO_MILESTONE_PCT_EPS,
   balanceLabel,
@@ -23,6 +24,7 @@ import {
   serviceNameForOption,
   type ClientPOServiceOption,
 } from './clientPOServiceOptions'
+import { recalculateClientPOMilestonesForExecutedValue } from './poExecutedValueRules'
 
 const MILESTONE_GRID_COLUMNS_WITH_SERVICE =
   'minmax(120px, 1fr) minmax(0, 1fr) 72px 96px 36px'
@@ -497,20 +499,14 @@ export function ClientPOMilestoneEditor({
   )
 }
 
-/** Recalculate milestone and retention amounts when PO value changes. */
+/** Recalculate milestone amounts when PO / executed value changes.
+ * Paid milestones (by invoice status) keep percentage and value locked.
+ */
 export function applyPoValueToMilestones(
   milestones: ClientPOMilestone[],
   poValue: number,
+  invoices: ClientInvoice[] = [],
 ): ClientPOMilestone[] {
   if (poValue <= 0) return milestones
-  return milestones.map((m) => ({
-    ...m,
-    value: calcValue(poValue, m.percentage),
-    retention: m.retention
-      ? {
-          ...m.retention,
-          value: calcValue(poValue, m.retention.percentage),
-        }
-      : undefined,
-  }))
+  return recalculateClientPOMilestonesForExecutedValue(milestones, poValue, invoices)
 }

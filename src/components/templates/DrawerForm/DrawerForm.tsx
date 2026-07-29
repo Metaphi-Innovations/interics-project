@@ -125,7 +125,7 @@ export function DrawerForm({
       </Stack>
 
       {/* Scrollable content */}
-      <Box sx={{ flex: 1, overflowY: 'auto', p: '20px' }}>
+      <Box sx={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', p: '20px', minWidth: 0 }}>
         {children}
       </Box>
 

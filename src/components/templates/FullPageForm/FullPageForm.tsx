@@ -32,7 +32,6 @@ export interface FullPageFormProps {
 
   // Footer actions
   onCancel: () => void
-  cancelLabel?: string
 
   // Wizard props (when steps provided)
   onBack?: () => void
@@ -61,7 +60,6 @@ export function FullPageForm({
   activeStep = 0,
   children,
   onCancel,
-  cancelLabel = 'Cancel',
   onBack,
   onNext,
   onSubmit,
@@ -80,10 +78,12 @@ export function FullPageForm({
   return (
     <Box
       sx={{
-        height: '100vh',
+        height: '100dvh',
+        width: '100%',
         display: 'flex',
         flexDirection: 'column',
         backgroundColor: 'background.default',
+        overflow: 'hidden',
       }}
     >
       {/* Topbar */}
@@ -131,20 +131,6 @@ export function FullPageForm({
 
         {/* Right: actions */}
         <Stack direction="row" alignItems="center" gap={1}>
-          <Button
-            variant="text"
-            color="secondary"
-            size="sm"
-            onClick={onCancel}
-            sx={{
-              color: tokens.color.neutral[600],
-              fontSize: '12px',
-              border: 'none',
-              '&:hover': { border: 'none', backgroundColor: 'transparent' },
-            }}
-          >
-            {cancelLabel}
-          </Button>
           {!isWizard && (
             <Button
               variant="contained"
@@ -251,16 +237,21 @@ export function FullPageForm({
       <Box
         sx={{
           flex: 1,
+          minHeight: 0,
           overflowY: 'auto',
-          padding: { xs: '16px', lg: '28px 24px' },
-          pb: isWizard ? '28px' : '40px',
+          padding: { xs: 2, lg: 3 },
+          pb: isWizard ? 3 : 5,
+          display: 'flex',
+          flexDirection: 'column',
         }}
       >
         <Box
           sx={{
-            maxWidth: { xs: '100%', lg: 800 },
-            margin: '0 auto',
             width: '100%',
+            flex: 1,
+            minHeight: '100%',
+            display: 'flex',
+            flexDirection: 'column',
           }}
         >
           {/* Title block */}
@@ -274,14 +265,16 @@ export function FullPageForm({
             <Typography
               variant="body2"
               color="text.secondary"
-              sx={{ mb: '24px' }}
+              sx={{ mb: 3 }}
             >
               {subtitle}
             </Typography>
           )}
-          <Divider sx={{ mb: '24px' }} />
+          <Divider sx={{ mb: 3 }} />
 
-          {children}
+          <Box sx={{ flex: 1, width: '100%', minHeight: 0 }}>
+            {children}
+          </Box>
         </Box>
       </Box>
 
@@ -318,22 +311,8 @@ export function FullPageForm({
             )}
           </Box>
 
-          {/* Right: Cancel + Next/Submit */}
+          {/* Right: Next/Submit */}
           <Stack direction="row" alignItems="center" gap={1}>
-            <Button
-              variant="text"
-              color="secondary"
-              size="sm"
-              onClick={onCancel}
-              sx={{
-                display: { xs: 'none', lg: 'inline-flex' },
-                color: tokens.color.neutral[600],
-                border: 'none',
-                '&:hover': { border: 'none', backgroundColor: 'transparent' },
-              }}
-            >
-              {cancelLabel}
-            </Button>
             {isLastStep ? (
               <Button
                 variant="contained"

@@ -30,20 +30,44 @@ function isClientRetentionRow(milestone: ClientPOMilestone): boolean {
   return milestone.kind === 'retention' || milestone.id.startsWith('cli-ret-')
 }
 
-function distributeUnpaidMilestoneValues(
+/**
+ * Redistribute `poValue` across milestones:
+ * - Paid slots keep their original value (locked).
+ * - Remaining = poValue − total paid is split among unpaid slots
+ *   preserving their original percentage ratio.
+ * - Rounding remainder is applied to the last unpaid slot so
+ *   paid + unpaid always equals `poValue`.
+ */
+export function distributeUnpaidMilestoneValues(
   slots: { percentage: number; isPaid: boolean; value: number }[],
-  executedValue: number,
+  poValue: number,
 ): number[] {
   const paidTotal = slots.filter((s) => s.isPaid).reduce((sum, s) => sum + s.value, 0)
-  const unpaid = slots.filter((s) => !s.isPaid)
-  const unpaidPctTotal = unpaid.reduce((sum, s) => sum + s.percentage, 0)
-  const remaining = Math.max(0, executedValue - paidTotal)
+  const unpaidIndexes = slots
+    .map((slot, index) => ({ slot, index }))
+    .filter(({ slot }) => !slot.isPaid)
+  const unpaidPctTotal = unpaidIndexes.reduce((sum, { slot }) => sum + slot.percentage, 0)
+  const remaining = Math.max(0, poValue - paidTotal)
 
-  return slots.map((slot) => {
-    if (slot.isPaid) return slot.value
-    if (unpaidPctTotal <= 0 || remaining <= 0) return 0
-    return Math.round(remaining * (slot.percentage / unpaidPctTotal))
+  const next = slots.map((slot) => (slot.isPaid ? slot.value : 0))
+
+  if (unpaidIndexes.length === 0 || unpaidPctTotal <= 0 || remaining <= 0) {
+    return next
+  }
+
+  let assigned = 0
+  unpaidIndexes.forEach(({ slot, index }, i) => {
+    const isLast = i === unpaidIndexes.length - 1
+    if (isLast) {
+      next[index] = Math.max(0, remaining - assigned)
+      return
+    }
+    const share = Math.round(remaining * (slot.percentage / unpaidPctTotal))
+    next[index] = share
+    assigned += share
   })
+
+  return next
 }
 
 /** Recalculate unpaid milestone values; paid milestones keep their amounts. */
@@ -68,9 +92,10 @@ export function recalculateClientPOMilestonesForExecutedValue(
 
   for (const m of result) {
     if (isClientRetentionRow(m)) {
+      const isPaid = clientMilestonePaymentStatus(invoices, m.id, m.serviceId) === 'Paid'
       slots.push({
         percentage: m.percentage,
-        isPaid: false,
+        isPaid,
         value: m.value,
         apply: (nextValue) => {
           m.value = nextValue
@@ -90,6 +115,8 @@ export function recalculateClientPOMilestonesForExecutedValue(
     })
 
     if (m.retention) {
+      // Nested retention rows are not independently invoiceable; keep them unpaid
+      // so they participate in remaining-value redistribution with unpaid work.
       slots.push({
         percentage: m.retention.percentage,
         isPaid: false,
@@ -106,6 +133,10 @@ export function recalculateClientPOMilestonesForExecutedValue(
   return result
 }
 
+/** Alias — PO value / executed value drive the same paid-lock redistribute. */
+export const recalculateClientPOMilestonesForPoValue =
+  recalculateClientPOMilestonesForExecutedValue
+
 /** Recalculate unpaid milestone values; paid milestones keep amounts and status. */
 export function recalculateVendorPOMilestonesForExecutedValue(
   milestones: VendorPOMilestone[],
@@ -121,17 +152,30 @@ export function recalculateVendorPOMilestonesForExecutedValue(
   }))
 
   const nextValues = distributeUnpaidMilestoneValues(slots, executedValue)
-  return result.map((m, index) => ({
-    ...m,
-    value: nextValues[index] ?? m.value,
-  }))
+  return result.map((m, index) => {
+    const isPaid =
+      m.status === 'Paid' || vendorMilestonePaymentStatus(invoices, m.id) === 'Paid'
+    if (isPaid) {
+      // Preserve percentage, value, and status exactly as at payment time.
+      return m
+    }
+    return {
+      ...m,
+      value: nextValues[index] ?? m.value,
+    }
+  })
 }
+
+/** Alias — PO value / executed value drive the same paid-lock redistribute. */
+export const recalculateVendorPOMilestonesForPoValue =
+  recalculateVendorPOMilestonesForExecutedValue
 
 export function buildClientPOExecutedValueUpdatePayload(
   executedValue: number,
   milestones: ClientPOMilestone[],
-): Pick<ClientPO, 'executedValue' | 'executedValueLocked' | 'milestones'> {
+): Pick<ClientPO, 'poValue' | 'executedValue' | 'executedValueLocked' | 'milestones'> {
   return {
+    poValue: executedValue,
     executedValue,
     executedValueLocked: true,
     milestones,
@@ -141,8 +185,9 @@ export function buildClientPOExecutedValueUpdatePayload(
 export function buildVendorPOExecutedValueUpdatePayload(
   executedValue: number,
   milestones: VendorPOMilestone[],
-): Pick<VendorPO, 'executedValue' | 'executedValueLocked' | 'milestones'> {
+): Pick<VendorPO, 'poValue' | 'executedValue' | 'executedValueLocked' | 'milestones'> {
   return {
+    poValue: executedValue,
     executedValue,
     executedValueLocked: true,
     milestones,
@@ -220,6 +265,7 @@ export function mergeClientPOUpdate(
       ok: true,
       po: {
         ...existing,
+        ...(body.poValue != null ? { poValue: body.poValue } : {}),
         executedValue: body.executedValue,
         executedValueLocked: true,
         milestones: nextMilestones,
@@ -286,6 +332,7 @@ export function mergeVendorPOUpdate(
       ok: true,
       po: {
         ...existing,
+        ...(body.poValue != null ? { poValue: body.poValue } : {}),
         executedValue: body.executedValue,
         executedValueLocked: true,
         milestones: nextMilestones,

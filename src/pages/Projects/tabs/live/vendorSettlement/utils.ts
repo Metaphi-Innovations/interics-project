@@ -371,10 +371,11 @@ export interface CardCounts {
 export type RowSettlementStatus = 'settled' | 'partially_paid' | 'payment_pending'
 
 export type PayablePaymentStatus =
-  | 'settled'
+  | 'awaiting_invoice'
   | 'ready_for_payment'
-  | 'waiting_for_client_payment'
-  | 'pending_compliance'
+  | 'partial_payment'
+  | 'not_paid'
+  | 'settled'
 
 export const DEFAULT_PAYABLE_COMPLIANCE_CHECKS = {
   insurance: false,
@@ -423,31 +424,40 @@ export function isPayableReleaseAllowed(control: VendorPayableControl): boolean 
   return control.clientPaymentReceived && control.vendorComplianceStatus === 'complete'
 }
 
+/** Map a recorded vendor payment outcome onto invoice status. */
+export function invoiceStatusFromPaymentStatus(
+  paymentStatus: VendorPayment['status'],
+): VendorInvoice['status'] {
+  if (paymentStatus === 'completed') return 'paid'
+  if (paymentStatus === 'partial') return 'partially_paid'
+  return 'not_paid'
+}
+
 export function computePayablePaymentStatus(
   counts: CardCounts,
-  control: VendorPayableControl,
+  _control?: VendorPayableControl,
 ): PayablePaymentStatus {
   if (counts.allSettled) return 'settled'
-  if (!control.clientPaymentReceived) return 'waiting_for_client_payment'
-  if (control.vendorComplianceStatus !== 'complete') return 'pending_compliance'
-  return 'ready_for_payment'
+  if (counts.pendingInv > 0 || counts.billSubmitted) return 'not_paid'
+  return 'awaiting_invoice'
 }
 
 export function payableStatusLabel(status: PayablePaymentStatus): string {
   switch (status) {
     case 'settled':
-      return 'Settled'
+      return 'Payment done'
+    case 'partial_payment':
+      return 'Partial payment done'
+    case 'not_paid':
     case 'ready_for_payment':
-      return 'Ready for Payment'
-    case 'waiting_for_client_payment':
-      return 'Waiting for Client'
-    case 'pending_compliance':
-      return 'Pending Compliance'
+      return 'Not paid'
+    case 'awaiting_invoice':
+      return 'Not paid'
   }
 }
 
 export function invoiceUploadedLabel(inv: VendorInvoice | undefined): 'Uploaded' | 'Pending' {
-  return inv?.documentUrl ? 'Uploaded' : 'Pending'
+  return inv ? 'Uploaded' : 'Pending'
 }
 
 export function vendorInvoiceDocumentFileName(inv: VendorInvoice): string | null {
@@ -480,12 +490,12 @@ export function complianceDisplayLabel(control: VendorPayableControl): 'Complete
 
 export function computeMilestonePayableStatus(
   inv: VendorInvoice | undefined,
-  control: VendorPayableControl,
+  _control?: VendorPayableControl,
 ): PayablePaymentStatus {
-  if (inv?.status === 'paid') return 'settled'
-  if (!control.clientPaymentReceived) return 'waiting_for_client_payment'
-  if (control.vendorComplianceStatus !== 'complete') return 'pending_compliance'
-  return 'ready_for_payment'
+  if (!inv) return 'awaiting_invoice'
+  if (inv.status === 'paid') return 'settled'
+  if (inv.status === 'partially_paid') return 'partial_payment'
+  return 'not_paid'
 }
 
 export interface VendorMilestoneEntry {
@@ -607,10 +617,10 @@ export function mergeMilestoneEntriesWithVendorPO(
 
 export function payableStatusBadgeColor(
   status: PayablePaymentStatus,
-): 'success' | 'warning' | 'info' | 'neutral' {
+): 'success' | 'warning' | 'info' | 'neutral' | 'error' {
   if (status === 'settled') return 'success'
-  if (status === 'ready_for_payment') return 'info'
-  if (status === 'waiting_for_client_payment') return 'warning'
+  if (status === 'partial_payment') return 'warning'
+  if (status === 'not_paid' || status === 'ready_for_payment') return 'error'
   return 'neutral'
 }
 

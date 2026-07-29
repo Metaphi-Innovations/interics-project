@@ -113,6 +113,31 @@ export const createVendorContact = createAsyncThunk(
   },
 )
 
+export const updateVendorContact = createAsyncThunk(
+  'vendors/updateContact',
+  async (
+    {
+      vendorId,
+      contactId,
+      data,
+    }: { vendorId: string; contactId: string; data: Partial<Omit<Contact, 'id'>> },
+    { rejectWithValue },
+  ) => {
+    try {
+      const response = await vendorsApi.updateContact(vendorId, contactId, data)
+      return {
+        vendorId,
+        contact: response.data as Contact,
+      }
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { message?: string } } }
+      return rejectWithValue(
+        error.response?.data?.message ?? 'Failed to update vendor contact',
+      )
+    }
+  },
+)
+
 export interface PendingVendorContactInput {
   vendorId: string
   vendorName: string
