@@ -291,10 +291,10 @@ export function VendorMilestonesSection({
       await dispatch(deleteVendorPO({ projectId, poId: deleteTarget.poId })).unwrap()
       await dispatch(fetchVendorPOs(projectId)).unwrap()
       if (expandedPoId === deleteTarget.poId) setExpandedPoId(null)
-      toast({ title: 'Vendor PO deleted', variant: 'success' })
+      toast.success('Vendor PO deleted')
       setDeleteTarget(null)
     } catch {
-      toast({ title: 'Failed to delete vendor PO', variant: 'error' })
+      toast.error('Failed to delete vendor PO')
     } finally {
       setDeleting(false)
     }

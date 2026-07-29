@@ -113,6 +113,7 @@ let projects: MockProject[] = [
     projectManager: 'Arjun Nair',
     projectManagerId: 'u-003',
     assignedTeam: [],
+    startDate: null,
     expectedEndDate: null,
     projectValue: 1250000,
     totalClientPOValue: 0,

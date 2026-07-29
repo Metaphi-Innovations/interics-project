@@ -716,7 +716,7 @@ export const receivablesHandlers = [
     if (idx < 0) return HttpResponse.json({ message: 'Not found' }, { status: 404 })
     const body = (await request.json()) as { status: InvoiceStatus }
     const inv = invoices[idx]
-    if ((body.status === 'sent' || body.status === 'tax') && inv.status === 'draft') {
+    if (body.status === 'sent' && inv.status === 'draft') {
       inv.status = 'sent'
       inv.updatedAt = new Date().toISOString()
       return HttpResponse.json(inv)
