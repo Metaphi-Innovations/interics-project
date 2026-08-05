@@ -10,6 +10,7 @@ interface WorkspaceSectionProps {
   children: ReactNode
   noPadding?: boolean
   sx?: SxProps<Theme>
+  contentSx?: SxProps<Theme>
 }
 
 export function WorkspaceSection({
@@ -19,6 +20,7 @@ export function WorkspaceSection({
   children,
   noPadding = false,
   sx,
+  contentSx,
 }: WorkspaceSectionProps) {
   return (
     <Card
@@ -39,6 +41,7 @@ export function WorkspaceSection({
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
+            flexShrink: 0,
           }}
         >
           <Box>
@@ -54,7 +57,7 @@ export function WorkspaceSection({
           {action && <Box>{action}</Box>}
         </Box>
       )}
-      <Box sx={{ p: noPadding ? 0 : 2 }}>{children}</Box>
+      <Box sx={{ p: noPadding ? 0 : 2, ...contentSx }}>{children}</Box>
     </Card>
   )
 }

@@ -64,6 +64,18 @@ interface RatingMaster {
   status: 'active' | 'inactive'
 }
 
+interface ProjectManagementCheckpoint {
+  id: string
+  name: string
+}
+
+interface ProjectManagementMasterCategory {
+  id: string
+  name: string
+  checkpoints: ProjectManagementCheckpoint[]
+  status: 'active' | 'inactive'
+}
+
 interface CompanyProfile {
   companyName: string
   gstin: string
@@ -426,6 +438,55 @@ let ratings: RatingMaster[] = [
   { id: 'rat-4', name: 'Standard', status: 'active' },
 ]
 
+let projectManagementCategories: ProjectManagementMasterCategory[] = [
+  {
+    id: 'pmc-001',
+    name: 'Design',
+    status: 'active',
+    checkpoints: [
+      { id: 'pmc-001-cp-01', name: 'Site Survey' },
+      { id: 'pmc-001-cp-02', name: 'Concept Presentation' },
+      { id: 'pmc-001-cp-03', name: 'Layout Approval' },
+      { id: 'pmc-001-cp-04', name: 'Furniture Layout' },
+      { id: 'pmc-001-cp-05', name: 'Material Board' },
+      { id: 'pmc-001-cp-06', name: 'MEP Approval' },
+      { id: 'pmc-001-cp-07', name: 'Working Drawings' },
+      { id: 'pmc-001-cp-08', name: 'Design Sign-off' },
+    ],
+  },
+  {
+    id: 'pmc-002',
+    name: 'Execution',
+    status: 'active',
+    checkpoints: [
+      { id: 'pmc-002-cp-01', name: 'Kickoff Meeting' },
+      { id: 'pmc-002-cp-02', name: 'Site Handover' },
+      { id: 'pmc-002-cp-03', name: 'Civil Works Start' },
+      { id: 'pmc-002-cp-04', name: 'Partitioning Complete' },
+      { id: 'pmc-002-cp-05', name: 'Electrical Rough-in' },
+      { id: 'pmc-002-cp-06', name: 'HVAC Rough-in' },
+      { id: 'pmc-002-cp-07', name: 'Ceiling Works' },
+      { id: 'pmc-002-cp-08', name: 'Flooring Complete' },
+      { id: 'pmc-002-cp-09', name: 'Painting Complete' },
+      { id: 'pmc-002-cp-10', name: 'Furniture Installation' },
+      { id: 'pmc-002-cp-11', name: 'Snagging' },
+      { id: 'pmc-002-cp-12', name: 'Final Handover' },
+    ],
+  },
+  {
+    id: 'pmc-003',
+    name: 'Procurement',
+    status: 'active',
+    checkpoints: [
+      { id: 'pmc-003-cp-01', name: 'BOQ Finalization' },
+      { id: 'pmc-003-cp-02', name: 'Vendor Shortlisting' },
+      { id: 'pmc-003-cp-03', name: 'Quotations Received' },
+      { id: 'pmc-003-cp-04', name: 'Vendor Finalization' },
+      { id: 'pmc-003-cp-05', name: 'PO Release' },
+    ],
+  },
+]
+
 let numberingSchemes: NumberingSchemes = {
   projectPrefix: 'PRJ',
   projectFormat: 'PRJ-YY-###',
@@ -641,6 +702,47 @@ export const settingsHandlers = [
     if (idx === -1) return HttpResponse.json({ message: 'Not found' }, { status: 404 })
     ratings[idx].status = ratings[idx].status === 'active' ? 'inactive' : 'active'
     return HttpResponse.json(ratings[idx])
+  }),
+
+  // Project Management Master
+  http.get('/api/settings/project-management-categories', () =>
+    HttpResponse.json(projectManagementCategories),
+  ),
+  http.post('/api/settings/project-management-categories', async ({ request }) => {
+    const data = await request.json() as Omit<ProjectManagementMasterCategory, 'id'>
+    const row: ProjectManagementMasterCategory = {
+      id: `pmc-${nextId()}`,
+      name: data.name,
+      status: data.status ?? 'active',
+      checkpoints: (data.checkpoints ?? []).map((cp, i) => ({
+        id: cp.id || `pmc-cp-${nextId()}-${i}`,
+        name: cp.name,
+      })),
+    }
+    projectManagementCategories.push(row)
+    return HttpResponse.json(row, { status: 201 })
+  }),
+  http.put('/api/settings/project-management-categories/:id', async ({ params, request }) => {
+    const data = await request.json() as Partial<ProjectManagementMasterCategory>
+    const idx = projectManagementCategories.findIndex(r => r.id === params.id)
+    if (idx === -1) return HttpResponse.json({ message: 'Not found' }, { status: 404 })
+    const existing = projectManagementCategories[idx]
+    projectManagementCategories[idx] = {
+      ...existing,
+      ...data,
+      checkpoints: (data.checkpoints ?? existing.checkpoints).map((cp, i) => ({
+        id: cp.id || `pmc-cp-${nextId()}-${i}`,
+        name: cp.name,
+      })),
+    }
+    return HttpResponse.json(projectManagementCategories[idx])
+  }),
+  http.patch('/api/settings/project-management-categories/:id/toggle', ({ params }) => {
+    const idx = projectManagementCategories.findIndex(r => r.id === params.id)
+    if (idx === -1) return HttpResponse.json({ message: 'Not found' }, { status: 404 })
+    projectManagementCategories[idx].status =
+      projectManagementCategories[idx].status === 'active' ? 'inactive' : 'active'
+    return HttpResponse.json(projectManagementCategories[idx])
   }),
 
   // Numbering Schemes

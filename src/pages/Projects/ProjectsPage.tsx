@@ -1135,7 +1135,7 @@ export default function ProjectsPage() {
   const [activeTab, setActiveTab] = useState(() => filters.status || 'Live')
   const [columnVisibility, setColumnVisibility] = useState<ColumnVisibility>({
     projectName: true,
-    status: true,
+    status: false,
     type: true,
     projectLead: true,
     dates: true,
@@ -1290,7 +1290,6 @@ export default function ProjectsPage() {
   ]
 
   const columnItems = [
-    { field: 'status', label: 'Status', visible: columnVisibility.status },
     { field: 'type', label: 'Scope', visible: columnVisibility.type },
     { field: 'projectLead', label: 'Project Lead', visible: columnVisibility.projectLead },
     { field: 'dates', label: 'Dates', visible: columnVisibility.dates },

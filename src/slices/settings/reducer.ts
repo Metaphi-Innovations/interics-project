@@ -35,6 +35,10 @@ import {
   createRating,
   updateRating,
   toggleRatingStatus,
+  fetchProjectManagementCategories,
+  createProjectManagementCategory,
+  updateProjectManagementCategory,
+  toggleProjectManagementCategoryStatus,
   fetchNumberingSchemes,
   updateNumberingSchemes,
   fetchSystemDefaults,
@@ -105,6 +109,18 @@ export interface RatingMaster {
   status: 'active' | 'inactive'
 }
 
+export interface ProjectManagementCheckpoint {
+  id: string
+  name: string
+}
+
+export interface ProjectManagementMasterCategory {
+  id: string
+  name: string
+  checkpoints: ProjectManagementCheckpoint[]
+  status: 'active' | 'inactive'
+}
+
 export interface CompanyProfile {
   companyName: string
   gstin: string
@@ -153,6 +169,7 @@ interface SettingsState {
   statuses: StatusMaster[]
   sectors: SectorMaster[]
   ratings: RatingMaster[]
+  projectManagementCategories: ProjectManagementMasterCategory[]
   loading: boolean
   saving: boolean
 }
@@ -199,6 +216,7 @@ const initialState: SettingsState = {
   statuses: [],
   sectors: [],
   ratings: [],
+  projectManagementCategories: [],
   loading: false,
   saving: false,
 }
@@ -430,6 +448,44 @@ const settingsSlice = createSlice({
         const idx = state.ratings.findIndex(r => r.id === action.payload.id)
         if (idx !== -1) state.ratings[idx] = action.payload
       })
+
+    // Project Management Master
+    builder
+      .addCase(fetchProjectManagementCategories.pending, (state) => { state.loading = true })
+      .addCase(
+        fetchProjectManagementCategories.fulfilled,
+        (state, action: PayloadAction<ProjectManagementMasterCategory[]>) => {
+          state.loading = false
+          state.projectManagementCategories = action.payload
+        },
+      )
+      .addCase(fetchProjectManagementCategories.rejected, (state) => { state.loading = false })
+      .addCase(createProjectManagementCategory.pending, (state) => { state.saving = true })
+      .addCase(
+        createProjectManagementCategory.fulfilled,
+        (state, action: PayloadAction<ProjectManagementMasterCategory>) => {
+          state.saving = false
+          state.projectManagementCategories.push(action.payload)
+        },
+      )
+      .addCase(createProjectManagementCategory.rejected, (state) => { state.saving = false })
+      .addCase(updateProjectManagementCategory.pending, (state) => { state.saving = true })
+      .addCase(
+        updateProjectManagementCategory.fulfilled,
+        (state, action: PayloadAction<ProjectManagementMasterCategory>) => {
+          state.saving = false
+          const idx = state.projectManagementCategories.findIndex(r => r.id === action.payload.id)
+          if (idx !== -1) state.projectManagementCategories[idx] = action.payload
+        },
+      )
+      .addCase(updateProjectManagementCategory.rejected, (state) => { state.saving = false })
+      .addCase(
+        toggleProjectManagementCategoryStatus.fulfilled,
+        (state, action: PayloadAction<ProjectManagementMasterCategory>) => {
+          const idx = state.projectManagementCategories.findIndex(r => r.id === action.payload.id)
+          if (idx !== -1) state.projectManagementCategories[idx] = action.payload
+        },
+      )
 
     // Numbering Schemes
     builder

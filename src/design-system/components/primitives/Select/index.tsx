@@ -18,6 +18,7 @@ interface SelectOption {
   value: string | number
   disabled?: boolean
   icon?: ReactNode
+  sx?: SxProps<Theme>
 }
 
 export interface SelectProps {
@@ -108,7 +109,7 @@ export default function Select({
           </MenuItem>
         )}
         {options.map((opt) => (
-          <MenuItem key={opt.value} value={opt.value} disabled={opt.disabled}>
+          <MenuItem key={opt.value} value={opt.value} disabled={opt.disabled} sx={opt.sx}>
             {opt.icon && (
               <Box component="span" sx={{ mr: 1, display: 'inline-flex', alignItems: 'center' }}>
                 {opt.icon}

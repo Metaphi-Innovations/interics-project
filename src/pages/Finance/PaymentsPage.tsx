@@ -22,11 +22,12 @@ import axios from 'axios'
 import { Banknote, ChevronLeft, ChevronRight, Upload } from 'lucide-react'
 import client from '@/api/client'
 import { ListingTemplate } from '@/components/templates'
-import type { FilterField } from '@/components/templates/ListingTemplate'
+import type { FilterField, TabItem } from '@/components/templates/ListingTemplate'
 import { Avatar, Badge, useToast } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import type { AppDispatch } from '@/store'
+import { formatDate, formatInr } from '@/utils/formatters'
 import { fetchProjects } from '@/slices/projects/thunk'
 import {
   fetchExpenses,
@@ -71,6 +72,9 @@ interface PaymentTableRow {
   vendorKey: string
   entry: VendorMilestoneEntry
   payableSt: PayablePaymentStatus
+  invoiceNumber: string
+  invoiceDate: string
+  invoiceAmount: number
 }
 
 async function loadFinanceForAllProjects(dispatch: AppDispatch, projectIds: string[]): Promise<void> {
@@ -86,10 +90,11 @@ async function loadFinanceForAllProjects(dispatch: AppDispatch, projectIds: stri
 }
 
 /** Equal-width data columns + fixed Action; padding matches listing toolbar (14px). */
-const PAY_DATA_COLUMN_COUNT = 4
+const PAY_DATA_COLUMN_COUNT = 7
 const PAY_ACTION_WIDTH_PX = 60
 const PAY_CELL_PAD_X = '14px'
 const PAY_DATA_COL_WIDTH = `calc((100% - ${PAY_ACTION_WIDTH_PX}px) / ${PAY_DATA_COLUMN_COUNT})`
+const PAY_TABLE_COL_SPAN = PAY_DATA_COLUMN_COUNT + 1
 
 const PAY_HEADER_PADDING = {
   '&.MuiTableCell-sizeSmall': {
@@ -139,11 +144,12 @@ const PAY_HEADER_SX = {
   fontWeight: 600,
   color: 'text.secondary',
   borderBottom: `2px solid ${tokens.color.neutral[100]}`,
-  verticalAlign: 'bottom' as const,
+  verticalAlign: 'middle' as const,
   lineHeight: 1.35,
   boxSizing: 'border-box' as const,
   width: PAY_DATA_COL_WIDTH,
   minWidth: 0,
+  whiteSpace: 'nowrap' as const,
   ...PAY_HEADER_PADDING,
 }
 
@@ -216,6 +222,12 @@ const PAY_TEXT_BODY_SX = {
 const PAY_PAGE_SIZE = 10
 
 const menuItemSx = { fontSize: 12, minHeight: 32, py: 0.5 }
+
+type PayableStatusTab = 'pending' | 'completed'
+
+function isPayableCompleted(status: PayablePaymentStatus): boolean {
+  return status === 'settled'
+}
 
 function actionMenuItemsForStatus(status: PayablePaymentStatus): readonly string[] {
   if (status === 'settled') return ['View Details']
@@ -295,6 +307,7 @@ export default function PaymentsPage() {
   const [filterProjectId, setFilterProjectId] = useState('')
   const [filterVendorId, setFilterVendorId] = useState('')
   const [search, setSearch] = useState('')
+  const [statusTab, setStatusTab] = useState<PayableStatusTab>('pending')
   const [activeFilters, setActiveFilters] = useState<Record<string, unknown>>({
     dateFrom: '',
     dateTo: '',
@@ -419,6 +432,9 @@ export default function PaymentsPage() {
         vendorKey: globalVendorContextKey(m.projectId, m.row),
         entry: m,
         payableSt,
+        invoiceNumber: milestoneInv.invoiceNumber,
+        invoiceDate: milestoneInv.invoiceDate,
+        invoiceAmount: milestoneInv.baseAmount,
       }
     },
     [invoicesByProject],
@@ -432,7 +448,7 @@ export default function PaymentsPage() {
     [milestonesAfterProjectVendor, enrichMilestone],
   )
 
-  const listingRows = useMemo(() => {
+  const searchedRows = useMemo(() => {
     const q = search.trim().toLowerCase()
     if (!q) return enrichedMilestones
     return enrichedMilestones.filter((row) => {
@@ -440,6 +456,7 @@ export default function PaymentsPage() {
         row.entry.row.vendorName,
         row.entry.projectName,
         row.entry.milestone.name,
+        row.invoiceNumber,
         payableStatusLabel(row.payableSt),
       ]
         .join(' ')
@@ -447,6 +464,32 @@ export default function PaymentsPage() {
       return haystack.includes(q)
     })
   }, [enrichedMilestones, search])
+
+  const tabCounts = useMemo(() => {
+    let pending = 0
+    let completed = 0
+    for (const row of searchedRows) {
+      if (isPayableCompleted(row.payableSt)) completed += 1
+      else pending += 1
+    }
+    return { pending, completed }
+  }, [searchedRows])
+
+  const listingRows = useMemo(() => {
+    return searchedRows.filter((row) =>
+      statusTab === 'completed'
+        ? isPayableCompleted(row.payableSt)
+        : !isPayableCompleted(row.payableSt),
+    )
+  }, [searchedRows, statusTab])
+
+  const statusTabs: TabItem[] = useMemo(
+    () => [
+      { label: 'Pending', value: 'pending', count: tabCounts.pending },
+      { label: 'Completed', value: 'completed', count: tabCounts.completed },
+    ],
+    [tabCounts],
+  )
 
   const isDataLoading =
     projectsLoading ||
@@ -459,7 +502,7 @@ export default function PaymentsPage() {
 
   useEffect(() => {
     setPage(1)
-  }, [filterProjectId, filterVendorId, search])
+  }, [filterProjectId, filterVendorId, search, statusTab])
 
   useEffect(() => {
     const maxPage = Math.max(1, Math.ceil(listingRows.length / PAY_PAGE_SIZE))
@@ -634,6 +677,9 @@ export default function PaymentsPage() {
           customSummary={
             <SettlementSummaryStrip vendorPOs={summaryVendorPOs} payments={summaryPayments} />
           }
+          tabs={statusTabs}
+          activeTab={statusTab}
+          onTabChange={(v) => setStatusTab(v as PayableStatusTab)}
           searchValue={search}
           onSearchChange={handleSearchChange}
           toolbarAfterSearch={toolbarAfterSearch}
@@ -647,7 +693,7 @@ export default function PaymentsPage() {
         >
           <>
               <TableContainer sx={{ overflowX: 'auto', width: '100%' }}>
-                <Table size="small" sx={{ tableLayout: 'fixed', width: '100%', minWidth: 0 }}>
+                <Table size="small" sx={{ tableLayout: 'fixed', width: '100%', minWidth: 1080 }}>
                   <colgroup>
                     {Array.from({ length: PAY_DATA_COLUMN_COUNT }, (_, index) => (
                       <col key={index} style={{ width: PAY_DATA_COL_WIDTH }} />
@@ -659,18 +705,17 @@ export default function PaymentsPage() {
                       <TableCell sx={PAY_HEADER_SX}>Vendor</TableCell>
                       <TableCell sx={PAY_HEADER_SX}>Project</TableCell>
                       <TableCell sx={PAY_HEADER_SX}>Milestone</TableCell>
-                      <TableCell sx={PAY_HEADER_STATUS_SX}>
-                        Payment Status
-                      </TableCell>
-                      <TableCell sx={PAY_HEADER_ACTION_SX}>
-                        Actions
-                      </TableCell>
+                      <TableCell sx={PAY_HEADER_SX}>Invoice No.</TableCell>
+                      <TableCell sx={PAY_HEADER_SX}>Invoice date</TableCell>
+                      <TableCell sx={PAY_HEADER_SX}>Invoice Amount</TableCell>
+                      <TableCell sx={PAY_HEADER_STATUS_SX}>Payment Status</TableCell>
+                      <TableCell sx={PAY_HEADER_ACTION_SX}>Actions</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
                     {isDataLoading ? (
                       <TableRow>
-                        <TableCell colSpan={5} sx={{ ...PAY_CELL_SX, color: 'text.secondary', py: 4 }}>
+                        <TableCell colSpan={PAY_TABLE_COL_SPAN} sx={{ ...PAY_CELL_SX, color: 'text.secondary', py: 4 }}>
                           <Stack direction="row" alignItems="center" justifyContent="center" gap={1}>
                             <CircularProgress size={20} />
                             <Typography variant="body2" sx={{ fontSize: 12 }}>
@@ -681,8 +726,12 @@ export default function PaymentsPage() {
                       </TableRow>
                     ) : listingRows.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={5} sx={{ ...PAY_CELL_SX, color: 'text.secondary', py: 4 }}>
-                          No vendor invoices yet. Upload an invoice to get started.
+                        <TableCell colSpan={PAY_TABLE_COL_SPAN} sx={{ ...PAY_CELL_SX, color: 'text.secondary', py: 4 }}>
+                          {searchedRows.length === 0
+                            ? 'No vendor invoices yet. Upload an invoice to get started.'
+                            : statusTab === 'completed'
+                              ? 'No completed payments for this filter.'
+                              : 'No pending payments for this filter.'}
                         </TableCell>
                       </TableRow>
                     ) : (
@@ -717,6 +766,21 @@ export default function PaymentsPage() {
                           <TableCell sx={PAY_CELL_SX}>
                             <Typography variant="body2" sx={PAY_TEXT_BODY_SX}>
                               {row.entry.milestone.name}
+                            </Typography>
+                          </TableCell>
+                          <TableCell sx={PAY_CELL_SX}>
+                            <Typography variant="body2" sx={PAY_TEXT_BODY_SX}>
+                              {row.invoiceNumber || '—'}
+                            </Typography>
+                          </TableCell>
+                          <TableCell sx={PAY_CELL_SX}>
+                            <Typography variant="body2" sx={PAY_TEXT_BODY_SX}>
+                              {row.invoiceDate ? formatDate(row.invoiceDate) : '—'}
+                            </Typography>
+                          </TableCell>
+                          <TableCell sx={PAY_CELL_SX}>
+                            <Typography variant="body2" sx={PAY_TEXT_BODY_SX}>
+                              ₹{formatInr(row.invoiceAmount)}
                             </Typography>
                           </TableCell>
                           <TableCell sx={PAY_CELL_STATUS_SX}>

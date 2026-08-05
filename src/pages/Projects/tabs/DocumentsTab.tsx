@@ -14,13 +14,14 @@ import {
   ToggleButtonGroup,
   Typography,
 } from '@mui/material'
-import { FileUp, Trash2 } from 'lucide-react'
+import { FileUp, Plus, Trash2 } from 'lucide-react'
 import { DrawerForm, FormField } from '../../../components/templates/DrawerForm'
 import {
   Badge,
   Button,
   IconButton,
   Input,
+  Modal,
   Select,
 } from '@/design-system/components'
 import { DocumentUploadFormBody } from '@/components/forms/DocumentUploadFormBody'
@@ -57,7 +58,9 @@ import {
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-type DocumentFilter = 'all' | 'client' | 'vendor' | 'project'
+type DocumentFilter = 'all' | 'client' | 'vendor' | 'project' | string
+
+type CategoryOption = { value: string; label: string }
 
 /** Fixed column widths — must sum to 100% for consistent alignment across all document tables. */
 const DOCUMENTS_COL_WIDTH = {
@@ -85,11 +88,25 @@ const DOCUMENTS_CELL_SX = {
   textOverflow: 'ellipsis',
 } as const
 
-const CATEGORY_OPTIONS: { value: UploadCategory; label: string }[] = [
+const BUILTIN_CATEGORY_OPTIONS: CategoryOption[] = [
   { value: 'client_documents', label: 'Client Documents' },
   { value: 'vendor_documents', label: 'Vendor Documents' },
   { value: 'project_documents', label: 'Project Documents' },
 ]
+
+const BUILTIN_TYPE_LABELS: Record<string, string> = {
+  client_documents: 'Client Documents',
+  vendor_documents: 'Vendor Documents',
+  project_documents: 'Project Documents',
+  client_quotation: 'Client Quotation',
+  client_po: 'Client PO',
+  vendor_quotation: 'Vendor Quotation',
+  vendor_po: 'Vendor PO',
+  vendor_invoice_doc: 'Vendor Invoice',
+  internal_requirements: 'Requirements',
+  internal_attachments: 'Attachment',
+  other: 'Other',
+}
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -99,21 +116,19 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-function typeLabelForUpload(cat: UploadCategory): string {
-  const map: Record<UploadCategory, string> = {
-    client_documents: 'Client Documents',
-    vendor_documents: 'Vendor Documents',
-    project_documents: 'Project Documents',
-    client_quotation: 'Client Quotation',
-    client_po: 'Client PO',
-    vendor_quotation: 'Vendor Quotation',
-    vendor_po: 'Vendor PO',
-    vendor_invoice_doc: 'Vendor Invoice',
-    internal_requirements: 'Requirements',
-    internal_attachments: 'Attachment',
-    other: 'Other',
-  }
-  return map[cat]
+function slugifyCategoryValue(name: string): string {
+  const slug = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_|_$/g, '')
+  return `custom_${slug || 'category'}`
+}
+
+function typeLabelForUpload(cat: UploadCategory, customCategories: CategoryOption[]): string {
+  const custom = customCategories.find((c) => c.value === cat)
+  if (custom) return custom.label
+  return BUILTIN_TYPE_LABELS[cat] ?? cat
 }
 
 function matchesSearch(text: string, q: string): boolean {
@@ -350,6 +365,10 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
   const [filter, setFilter] = useState<DocumentFilter>('all')
   const [search, setSearch] = useState('')
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [customCategories, setCustomCategories] = useState<CategoryOption[]>([])
+  const [addCategoryOpen, setAddCategoryOpen] = useState(false)
+  const [newCategoryName, setNewCategoryName] = useState('')
+  const [newCategoryError, setNewCategoryError] = useState('')
 
   const [docName, setDocName] = useState('')
   const [category, setCategory] = useState<UploadCategory | ''>('')
@@ -359,6 +378,11 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
     name?: string
     category?: string
   }>({})
+
+  const categoryOptions = useMemo(
+    () => [...BUILTIN_CATEGORY_OPTIONS, ...customCategories],
+    [customCategories],
+  )
 
   const uploadsFiltered = useMemo(() => {
     const q = search
@@ -372,7 +396,7 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
   const buildUploadColumnRow = (u: UploadedProjectDocument): ColumnRow => ({
     id: u.id,
     name: u.displayName,
-    typeLabel: typeLabelForUpload(u.category),
+    typeLabel: typeLabelForUpload(u.category, customCategories),
     uploadedBy: u.uploadedBy,
     dateStr: formatDate(u.uploadedAt),
     sizeStr: formatBytes(u.sizeBytes),
@@ -520,18 +544,54 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
   const showProject = filter === 'all' || filter === 'project'
   const showClient = filter === 'all' || filter === 'client'
   const showVendor = filter === 'all' || filter === 'vendor'
+  const isCustomFilter = customCategories.some((c) => c.value === filter)
 
   const projectRowCount = projectDocumentSections.reduce((sum, s) => sum + s.rows.length, 0)
   const clientRowCount = clientQuotations.length + clientPO.length + clientDocumentUploads.length
   const vendorRowCount = vendorQuotations.length + vendorPORows.length + vendorDocumentUploads.length
 
+  const customCategorySections = useMemo(
+    () =>
+      customCategories.map((cat) => {
+        const rows = filterDocumentRowsBySearch(
+          pickUploads(cat.value as UploadCategory).map(buildUploadColumnRow),
+          search,
+          matchesSearch,
+        )
+        return { ...cat, rows }
+      }),
+    [customCategories, uploadsFiltered, search],
+  )
+
+  const customRowCount = useMemo(() => {
+    if (filter === 'all') {
+      return customCategorySections.reduce((sum, s) => sum + s.rows.length, 0)
+    }
+    if (isCustomFilter) {
+      return customCategorySections.find((s) => s.value === filter)?.rows.length ?? 0
+    }
+    return 0
+  }, [customCategorySections, filter, isCustomFilter])
+
   const visibleRowCount = useMemo(() => {
     let n = 0
-    if (showProject) n += projectRowCount
-    if (showClient) n += clientRowCount
-    if (showVendor) n += vendorRowCount
+    if (!isCustomFilter) {
+      if (showProject) n += projectRowCount
+      if (showClient) n += clientRowCount
+      if (showVendor) n += vendorRowCount
+    }
+    n += customRowCount
     return n
-  }, [showProject, showClient, showVendor, projectRowCount, clientRowCount, vendorRowCount])
+  }, [
+    showProject,
+    showClient,
+    showVendor,
+    isCustomFilter,
+    projectRowCount,
+    clientRowCount,
+    vendorRowCount,
+    customRowCount,
+  ])
 
   const projectDocumentContent = projectDocumentSections.map((section) => (
     <SubsectionBlock
@@ -562,11 +622,14 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
     </>
   )
 
+  const showCustomCategory = (value: string) =>
+    filter === 'all' || filter === value
+
   const globalEmpty = totalCount === 0
   const hasActiveSearch = search.trim().length > 0
   const noMatches = !globalEmpty && visibleRowCount === 0 && hasActiveSearch
   const showProjectSections =
-    showProject && (filter === 'project' || projectRowCount > 0)
+    showProject && !isCustomFilter && (filter === 'project' || projectRowCount > 0)
 
   const openDrawer = () => {
     setFormErrors({})
@@ -574,6 +637,44 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
   }
 
   const closeDrawer = () => setDrawerOpen(false)
+
+  const openAddCategory = () => {
+    setNewCategoryName('')
+    setNewCategoryError('')
+    setAddCategoryOpen(true)
+  }
+
+  const closeAddCategory = () => {
+    setAddCategoryOpen(false)
+    setNewCategoryName('')
+    setNewCategoryError('')
+  }
+
+  const handleAddCategory = () => {
+    const label = newCategoryName.trim()
+    if (!label) {
+      setNewCategoryError('Category name is required')
+      return
+    }
+    const exists = categoryOptions.some(
+      (o) => o.label.toLowerCase() === label.toLowerCase(),
+    )
+    if (exists) {
+      setNewCategoryError('Category already exists')
+      return
+    }
+    let value = slugifyCategoryValue(label)
+    const usedValues = new Set(categoryOptions.map((o) => o.value))
+    if (usedValues.has(value)) {
+      value = `${value}_${Date.now()}`
+    }
+    setCustomCategories((prev) => [...prev, { value, label }])
+    if (drawerOpen) {
+      setCategory(value as UploadCategory)
+      setFormErrors((prev) => ({ ...prev, category: undefined }))
+    }
+    closeAddCategory()
+  }
 
   useEffect(() => {
     if (!drawerOpen) {
@@ -649,15 +750,30 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
           <ToggleButton value="client">Client Documents</ToggleButton>
           <ToggleButton value="vendor">Vendor Documents</ToggleButton>
           <ToggleButton value="project">Project Documents</ToggleButton>
+          {customCategories.map((cat) => (
+            <ToggleButton key={cat.value} value={cat.value}>
+              {cat.label}
+            </ToggleButton>
+          ))}
         </ToggleButtonGroup>
-        <Box sx={{ minWidth: { md: 220 }, flex: 1 }}>
-          <Input
-            placeholder="Search documents…"
-            value={search}
-            onChange={setSearch}
+        <Stack direction="row" alignItems="center" gap={1} sx={{ minWidth: { md: 220 }, flex: 1 }}>
+          <IconButton
             size="sm"
+            variant="outlined"
+            color="primary"
+            icon={<Plus size={16} strokeWidth={1.75} />}
+            tooltip="Add category"
+            onClick={openAddCategory}
           />
-        </Box>
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Input
+              placeholder="Search documents…"
+              value={search}
+              onChange={setSearch}
+              size="sm"
+            />
+          </Box>
+        </Stack>
       </Stack>
       <Button
         variant="contained"
@@ -669,6 +785,38 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
         Upload Document
       </Button>
     </Stack>
+  )
+
+  const addCategoryModal = (
+    <Modal
+      open={addCategoryOpen}
+      onClose={closeAddCategory}
+      title="Add Category"
+      size="xs"
+      footer={
+        <Stack direction="row" spacing={1} justifyContent="flex-end" sx={{ width: 1 }}>
+          <Button variant="outlined" color="secondary" size="sm" onClick={closeAddCategory}>
+            Cancel
+          </Button>
+          <Button variant="contained" color="primary" size="sm" onClick={handleAddCategory}>
+            Add Category
+          </Button>
+        </Stack>
+      }
+    >
+      <FormField label="Category Name" error={newCategoryError}>
+        <Input
+          placeholder="e.g. Contracts, Site Photos"
+          value={newCategoryName}
+          onChange={(v) => {
+            setNewCategoryName(v)
+            if (newCategoryError) setNewCategoryError('')
+          }}
+          size="sm"
+          error={Boolean(newCategoryError)}
+        />
+      </FormField>
+    </Modal>
   )
 
   if (globalEmpty) {
@@ -710,12 +858,15 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
             setDocName={setDocName}
             category={category}
             setCategory={setCategory}
+            categoryOptions={categoryOptions}
             setSelectedFiles={setSelectedFiles}
             notes={notes}
             setNotes={setNotes}
             formErrors={formErrors}
+            onAddCategory={openAddCategory}
           />
         </DrawerForm>
+        {addCategoryModal}
       </Box>
     )
   }
@@ -735,13 +886,27 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
           <DocumentGroup title="Project Documents">{projectDocumentContent}</DocumentGroup>
         )}
 
-        {showClient && (
+        {showClient && !isCustomFilter && (
           <DocumentGroup title="Client Documents">{clientDocumentContent}</DocumentGroup>
         )}
 
-        {showVendor && (
+        {showVendor && !isCustomFilter && (
           <DocumentGroup title="Vendor Documents">{vendorDocumentContent}</DocumentGroup>
         )}
+
+        {customCategorySections.map((section) => {
+          if (!showCustomCategory(section.value)) return null
+          if (section.rows.length === 0 && filter === 'all') return null
+          return (
+            <DocumentGroup key={section.value} title={section.label}>
+              <SubsectionBlock
+                title="Uploads"
+                rows={section.rows}
+                onDelete={handleDelete}
+              />
+            </DocumentGroup>
+          )
+        })}
       </Stack>
 
       <DrawerForm
@@ -758,12 +923,15 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
           setDocName={setDocName}
           category={category}
           setCategory={setCategory}
+          categoryOptions={categoryOptions}
           setSelectedFiles={setSelectedFiles}
           notes={notes}
           setNotes={setNotes}
           formErrors={formErrors}
+          onAddCategory={openAddCategory}
         />
       </DrawerForm>
+      {addCategoryModal}
     </Box>
   )
 }
@@ -773,21 +941,25 @@ function UploadFormBody({
   setDocName,
   category,
   setCategory,
+  categoryOptions,
   setSelectedFiles,
   notes,
   setNotes,
   formErrors,
   uploadResetKey,
+  onAddCategory,
 }: {
   docName: string
   setDocName: (v: string) => void
   category: UploadCategory | ''
   setCategory: (v: UploadCategory | '') => void
+  categoryOptions: CategoryOption[]
   setSelectedFiles: (f: File[]) => void
   notes: string
   setNotes: (v: string) => void
   formErrors: { name?: string; category?: string }
   uploadResetKey?: number
+  onAddCategory?: () => void
 }) {
   return (
     <DocumentUploadFormBody
@@ -803,8 +975,35 @@ function UploadFormBody({
           <Select
             placeholder="Select category"
             value={category || undefined}
-            onChange={(v) => setCategory(v as UploadCategory)}
-            options={CATEGORY_OPTIONS.map((o) => ({ label: o.label, value: o.value }))}
+            onChange={(v) => {
+              if (v === '__add_category__') {
+                onAddCategory?.()
+                return
+              }
+              setCategory(v as UploadCategory)
+            }}
+            options={[
+              ...categoryOptions.map((o) => ({ label: o.label, value: o.value })),
+              ...(onAddCategory
+                ? [
+                    {
+                      label: 'Add others',
+                      value: '__add_category__',
+                      icon: (
+                        <Plus
+                          size={14}
+                          strokeWidth={1.75}
+                          color={tokens.color.success[700]}
+                        />
+                      ),
+                      sx: {
+                        color: tokens.color.success[700],
+                        fontWeight: 600,
+                      },
+                    },
+                  ]
+                : []),
+            ]}
             size="sm"
             fullWidth
           />
