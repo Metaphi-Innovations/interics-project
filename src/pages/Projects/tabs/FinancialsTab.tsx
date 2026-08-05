@@ -4,7 +4,6 @@ import {
   Box,
   Card,
   Chip as MuiChip,
-  IconButton,
   Stack,
   Tab,
   Table,
@@ -16,9 +15,7 @@ import {
   Tabs,
   Typography,
 } from '@mui/material'
-import type { Theme } from '@mui/material/styles'
 import { alpha, useTheme } from '@mui/material/styles'
-import { ChevronDown, ChevronRight } from 'lucide-react'
 import { WorkspaceSection } from '../../../components/templates'
 import { tokens } from '@/design-system/tokens'
 import { Button } from '@/design-system/components'
@@ -49,22 +46,15 @@ import {
   baselineForProject,
   buildCostBreakdown,
   buildRevenueBreakdown,
-  buildVarianceRows,
   sumExpensesAmount,
   sumPlannedExpensesBaseline,
   sumVendorPaymentsNetPaid,
-  varianceColorKey,
-  type RevenueServiceRow,
 } from './financialsAggregates'
 import { balancePending, totalReceivedBank } from './live/clientInvoiceUtils'
 import { TaxComplianceSection } from './live/TaxComplianceSection'
 
 const SUMMARY_COUNT = 4
 
-const VARIANCE_NOTE_LINES = [
-  'Actual figures based on recorded invoices and payments.',
-  'Baseline from locked project baseline.',
-] as const
 const TRACKING_METRIC_COUNT = 6
 
 type FinancialSubTab = 'overview' | 'invoice' | 'compliance'
@@ -135,32 +125,12 @@ const TRACKING_CELL_SX = {
   ...METRIC_CELL_ALIGN_SX,
 } as const
 
-const REVENUE_TABLE_COLGROUP = (
-  <colgroup>
-    <col style={{ width: '28%' }} />
-    <col style={{ width: '18%' }} />
-    <col style={{ width: '18%' }} />
-    <col style={{ width: '18%' }} />
-    <col style={{ width: '18%' }} />
-  </colgroup>
-)
-
 const COST_TABLE_COLGROUP = (
   <colgroup>
     <col style={{ width: '22%' }} />
     <col style={{ width: '22%' }} />
     <col style={{ width: '19%' }} />
     <col style={{ width: '19%' }} />
-    <col style={{ width: '18%' }} />
-  </colgroup>
-)
-
-const VARIANCE_TABLE_COLGROUP = (
-  <colgroup>
-    <col style={{ width: '28%' }} />
-    <col style={{ width: '18%' }} />
-    <col style={{ width: '18%' }} />
-    <col style={{ width: '18%' }} />
     <col style={{ width: '18%' }} />
   </colgroup>
 )
@@ -195,11 +165,6 @@ function invoiceDocumentOpenUrl(documentUrl: string | undefined): string | null 
 
 function fmtInr(amount: number): string {
   return `₹${formatCurrency(amount)}`
-}
-
-function fmtSignedInr(amount: number): string {
-  const sign = amount > 0 ? '+' : amount < 0 ? '-' : ''
-  return `${sign}₹${formatCurrency(Math.abs(amount))}`
 }
 
 function fmtDate(value: string | null | undefined): string {
@@ -252,100 +217,16 @@ function CommercialRatesSection({ project }: { project: Project }) {
     <WorkspaceSection title="Commercial rates">
       <RecordDetailSectionTitle>Per sqft values</RecordDetailSectionTitle>
       <Box sx={PROJECT_DETAILS_GRID_SX}>
-        <RateField label="Build Value per sqft (Level 1)" value={project.buildValuePerSqft} />
-        <RateField label="Build Value per sqft (Level 2)" value={project.buildValuePerSqftLevel2} />
-        <RateField label="Design Fee per sqft (Level 1)" value={project.designFeePerSqft} />
-        <RateField label="Design Fee per sqft (Level 2)" value={project.designFeePerSqftLevel2} />
+        <RateField label="Build Value per sqft" value={project.buildValuePerSqft} />
+        <RateField label="Design Fee per sqft" value={project.designFeePerSqft} />
       </Box>
     </WorkspaceSection>
-  )
-}
-
-interface RevenueCategorySubtotal {
-  baseline: number
-  invoiced: number
-  received: number
-}
-
-function RevenueCategorySection({
-  categoryName,
-  catRows,
-  subtotal,
-  isCollapsed,
-  onToggle,
-  theme,
-}: {
-  categoryName: string
-  catRows: RevenueServiceRow[]
-  subtotal: RevenueCategorySubtotal
-  isCollapsed: boolean
-  onToggle: () => void
-  theme: Theme
-}) {
-  return (
-    <>
-      <TableRow
-        sx={{
-          bgcolor: alpha(theme.palette.text.primary, 0.04),
-          '& .MuiTableCell-root': {
-            fontWeight: 700,
-            borderBottom: `1px solid ${tokens.color.neutral[100]}`,
-          },
-        }}
-      >
-        <TableCell sx={TABLE_CELL_SX}>
-          <Stack direction="row" alignItems="center" gap={0.5}>
-            <IconButton
-              size="small"
-              aria-label={isCollapsed ? `Expand ${categoryName}` : `Collapse ${categoryName}`}
-              onClick={onToggle}
-              sx={{ p: 0.25 }}
-            >
-              {isCollapsed ? (
-                <ChevronRight size={16} strokeWidth={1.75} />
-              ) : (
-                <ChevronDown size={16} strokeWidth={1.75} />
-              )}
-            </IconButton>
-            <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 700 }}>
-              {categoryName}
-            </Typography>
-          </Stack>
-        </TableCell>
-        <TableCell sx={TABLE_CELL_SX}>{fmtInr(subtotal.baseline)}</TableCell>
-        <TableCell sx={TABLE_CELL_SX}>{fmtInr(subtotal.invoiced)}</TableCell>
-        <TableCell sx={TABLE_CELL_SX}>{fmtInr(subtotal.received)}</TableCell>
-        <TableCell sx={TABLE_CELL_SX} />
-      </TableRow>
-
-      {!isCollapsed
-        ? catRows.map((r, idx) => (
-            <TableRow
-              key={`${r.categoryId}-${r.serviceId}`}
-              sx={{
-                bgcolor: idx % 2 === 0 ? 'background.paper' : tokens.color.neutral[50],
-              }}
-            >
-              <TableCell sx={{ ...TABLE_CELL_SX, pl: 5 }}>
-                <Typography variant="body2" sx={{ fontSize: 12 }}>
-                  {r.serviceName}
-                </Typography>
-              </TableCell>
-              <TableCell sx={TABLE_CELL_SX}>{fmtInr(r.baseline)}</TableCell>
-              <TableCell sx={TABLE_CELL_SX}>{fmtInr(r.invoiced)}</TableCell>
-              <TableCell sx={TABLE_CELL_SX}>{fmtInr(r.received)}</TableCell>
-              <TableCell sx={TABLE_CELL_SX}>{r.status}</TableCell>
-            </TableRow>
-          ))
-        : null}
-    </>
   )
 }
 
 export default function FinancialsTab({ project }: FinancialsTabProps) {
   const theme = useTheme()
   const [activeSubTab, setActiveSubTab] = useState<FinancialSubTab>('overview')
-  const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set())
   const dispatch = useAppDispatch()
   const canViewFinancialMetrics = usePermission('financial', 'view')
   const canViewCompliance = usePermission('compliance', 'view')
@@ -380,11 +261,6 @@ export default function FinancialsTab({ project }: FinancialsTabProps) {
     if (!baseline) return []
     return buildCostBreakdown(baseline, vendorInvoices)
   }, [baseline, vendorInvoices])
-
-  const varianceRows = useMemo(
-    () => buildVarianceRows(baseline, projectId, invoices, payments, expenses),
-    [baseline, projectId, invoices, payments, expenses],
-  )
 
   const projectInvoiceRows = useMemo((): ProjectInvoiceRow[] => {
     const clientRows: ProjectInvoiceRow[] = invoices
@@ -523,15 +399,6 @@ export default function FinancialsTab({ project }: FinancialsTabProps) {
     { label: 'Unbilled Vendor Payments', value: fmtInr(unbilledVendorPayments) },
     { label: 'Soft Expenses', value: fmtInr(totalSoftExpenses) },
   ]
-
-  function toggleCategory(categoryId: string): void {
-    setCollapsedCategories((prev) => {
-      const next = new Set(prev)
-      if (next.has(categoryId)) next.delete(categoryId)
-      else next.add(categoryId)
-      return next
-    })
-  }
 
   const subTabs = useMemo(() => {
     const tabs: { label: string; value: FinancialSubTab }[] = [
@@ -772,83 +639,6 @@ export default function FinancialsTab({ project }: FinancialsTabProps) {
         ))}
       </Card>
 
-      <WorkspaceSection title="Revenue breakdown" noPadding>
-        {!baseline ? (
-          <Typography variant="body2" color="text.secondary" sx={{ py: 2, px: 2 }}>
-            Revenue breakdown requires a locked baseline for this project.
-          </Typography>
-        ) : (
-          <TableContainer>
-            <Table
-              size="small"
-              sx={{
-                tableLayout: 'fixed',
-                width: '100%',
-                '& .MuiTableCell-root': { verticalAlign: 'middle' },
-              }}
-            >
-              {REVENUE_TABLE_COLGROUP}
-              <TableHead>
-                <TableRow>
-                  {['Category / service', 'Baseline value', 'Invoiced', 'Received', 'Status'].map(
-                    (h) => (
-                      <TableCell key={h} sx={TABLE_HEADER_SX}>
-                        {h}
-                      </TableCell>
-                    ),
-                  )}
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {baseline.categories.map((cat) => {
-                  const catRows = revenueRows.filter((r) => r.categoryId === cat.id)
-                  const catSub = catRows.reduce(
-                    (acc, r) => ({
-                      baseline: acc.baseline + r.baseline,
-                      invoiced: acc.invoiced + r.invoiced,
-                      received: acc.received + r.received,
-                    }),
-                    { baseline: 0, invoiced: 0, received: 0 },
-                  )
-                  return (
-                    <RevenueCategorySection
-                      key={cat.id}
-                      categoryName={cat.categoryName}
-                      catRows={catRows}
-                      subtotal={catSub}
-                      isCollapsed={collapsedCategories.has(cat.id)}
-                      onToggle={() => toggleCategory(cat.id)}
-                      theme={theme}
-                    />
-                  )
-                })}
-                <TableRow
-                  sx={{
-                    '& .MuiTableCell-root': {
-                      borderTop: `2px solid ${tokens.color.neutral[200]}`,
-                      bgcolor: alpha(theme.palette.primary.main, 0.06),
-                      fontWeight: 700,
-                    },
-                  }}
-                >
-                  <TableCell sx={{ ...TABLE_CELL_SX, fontWeight: 700 }}>Grand total</TableCell>
-                  <TableCell sx={{ ...TABLE_CELL_SX, fontWeight: 700 }}>
-                    {fmtInr(revenueGrand.baseline)}
-                  </TableCell>
-                  <TableCell sx={{ ...TABLE_CELL_SX, fontWeight: 700 }}>
-                    {fmtInr(revenueGrand.invoiced)}
-                  </TableCell>
-                  <TableCell sx={{ ...TABLE_CELL_SX, fontWeight: 700 }}>
-                    {fmtInr(revenueGrand.received)}
-                  </TableCell>
-                  <TableCell sx={TABLE_CELL_SX} />
-                </TableRow>
-              </TableBody>
-            </Table>
-          </TableContainer>
-        )}
-      </WorkspaceSection>
-
       <WorkspaceSection title="Cost breakdown" noPadding>
         {!baseline ? (
           <Typography variant="body2" color="text.secondary" sx={{ py: 2, px: 2 }}>
@@ -913,79 +703,6 @@ export default function FinancialsTab({ project }: FinancialsTabProps) {
               </TableBody>
             </Table>
           </TableContainer>
-        )}
-      </WorkspaceSection>
-
-      <WorkspaceSection title="Variance analysis" noPadding>
-        {varianceRows.length === 0 ? (
-          <Typography variant="body2" color="text.secondary" sx={{ py: 2, px: 2 }}>
-            Variance analysis requires a locked baseline for this project.
-          </Typography>
-        ) : (
-          <>
-            <TableContainer>
-              <Table
-                size="small"
-                sx={{
-                  tableLayout: 'fixed',
-                  width: '100%',
-                  '& .MuiTableCell-root': { verticalAlign: 'middle' },
-                }}
-              >
-                {VARIANCE_TABLE_COLGROUP}
-                <TableHead>
-                  <TableRow>
-                    {['Item', 'Baseline', 'Actual', 'Variance', 'Variance %'].map((h) => (
-                      <TableCell key={h} sx={TABLE_HEADER_SX}>
-                        {h}
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {varianceRows.map((row) => {
-                    const tone = varianceColorKey(row)
-                    const varColor =
-                      tone === 'success'
-                        ? 'success.main'
-                        : tone === 'error'
-                          ? 'error.main'
-                          : 'text.primary'
-                    return (
-                      <TableRow key={row.item}>
-                        <TableCell sx={TABLE_CELL_SX}>{row.item}</TableCell>
-                        <TableCell sx={TABLE_CELL_SX}>{fmtInr(row.baseline)}</TableCell>
-                        <TableCell sx={TABLE_CELL_SX}>{fmtInr(row.actual)}</TableCell>
-                        <TableCell sx={{ ...TABLE_CELL_SX, color: varColor, fontWeight: 600 }}>
-                          {fmtSignedInr(row.variance)}
-                        </TableCell>
-                        <TableCell sx={{ ...TABLE_CELL_SX, color: varColor, fontWeight: 600 }}>
-                          {row.variancePctLabel}
-                        </TableCell>
-                      </TableRow>
-                    )
-                  })}
-                </TableBody>
-              </Table>
-            </TableContainer>
-            <Box component="footer" sx={{ mt: 2, px: 2 }}>
-              {VARIANCE_NOTE_LINES.map((line) => (
-                <Typography
-                  key={line}
-                  variant="caption"
-                  component="p"
-                  sx={{
-                    m: 0,
-                    color: 'text.secondary',
-                    fontStyle: 'italic',
-                    lineHeight: 1.5,
-                  }}
-                >
-                  {line}
-                </Typography>
-              ))}
-            </Box>
-          </>
         )}
       </WorkspaceSection>
         </Stack>

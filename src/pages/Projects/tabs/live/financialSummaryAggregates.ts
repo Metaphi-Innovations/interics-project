@@ -8,8 +8,10 @@ import { FINANCIALS_EPS } from '../financialsAggregates'
 export interface FinancialSummaryMetrics {
   clientPOAmount: number
   clientReceived: number
+  pendingReceived: number
   vendorPOAmount: number
   vendorPaid: number
+  pendingPaid: number
   projectedProfitPct: number | null
   actualProfitPct: number | null
 }
@@ -32,8 +34,10 @@ export type FinancialSummarySortField =
   | 'workstream'
   | 'clientPOAmount'
   | 'clientReceived'
+  | 'pendingReceived'
   | 'vendorPOAmount'
   | 'vendorPaid'
+  | 'pendingPaid'
   | 'projectedProfitPct'
   | 'actualProfitPct'
 
@@ -56,8 +60,10 @@ export function buildFinancialSummaryMetrics(
   return {
     clientPOAmount,
     clientReceived,
+    pendingReceived: clientPOAmount - clientReceived,
     vendorPOAmount,
     vendorPaid,
+    pendingPaid: vendorPOAmount - vendorPaid,
     projectedProfitPct: projectedProfitPct(clientPOAmount, vendorPOAmount),
     actualProfitPct: actualProfitPct(clientReceived, vendorPaid),
   }

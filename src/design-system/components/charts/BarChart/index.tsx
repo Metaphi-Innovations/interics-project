@@ -55,7 +55,12 @@ export default function BarChart({
         data={data}
         layout={isHorizontal ? 'vertical' : 'horizontal'}
         barCategoryGap="20%"
-        margin={{ top: 4, right: ct.isMobile ? 4 : 16, left: ct.isMobile ? -10 : 0, bottom: 4 }}
+        margin={{
+          top: isHorizontal ? 4 : 16,
+          right: ct.isMobile ? 8 : 16,
+          left: isHorizontal ? (ct.isMobile ? -10 : 0) : (ct.isMobile ? 4 : 8),
+          bottom: 4,
+        }}
       >
         {showGrid && (
           <CartesianGrid
@@ -74,7 +79,14 @@ export default function BarChart({
         ) : (
           <>
             <XAxis dataKey={xKey} tick={ct.axisStyle} tickLine={false} axisLine={{ stroke: ct.gridProps.stroke }} tickFormatter={formatX} />
-            <YAxis tick={ct.axisStyle} tickLine={false} axisLine={false} width={ct.isMobile ? 30 : 42} tickFormatter={formatY} />
+            <YAxis
+              tick={ct.axisStyle}
+              tickLine={false}
+              axisLine={false}
+              width={ct.isMobile ? 44 : 58}
+              tickMargin={4}
+              tickFormatter={formatY}
+            />
           </>
         )}
         {showTooltip && (

@@ -11,29 +11,15 @@ import {
   TableCell,
 } from '@mui/material'
 import { WorkspaceSection } from '../../../../components/templates'
-import { StatusBadge } from '@/design-system/components'
-import type { StatusType } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { useAppSelector } from '../../../../store/hooks'
-import type { ClientInvoice, VendorPayment } from '../../../../slices/live/reducer'
+import type { VendorPayment } from '../../../../slices/live/reducer'
 import { formatInr, formatDate } from '../../../../utils/formatters'
 import {
-  balancePending,
   effectiveGstPercent,
   effectiveLabourCessPercent,
   invoiceLabourCessAmount,
-  isDueDateOverdue,
-  MONEY_EPS,
 } from '@/pages/Projects/tabs/live/clientInvoiceUtils'
-
-function invoiceRowBadge(inv: ClientInvoice): { type: StatusType; label: string } {
-  if (inv.status === 'paid' || balancePending(inv) <= MONEY_EPS) return { type: 'paid', label: 'Paid' }
-  if (inv.status === 'draft') return { type: 'invoice_draft', label: 'Draft' }
-  const overdue = isDueDateOverdue(inv.dueDate) && balancePending(inv) > MONEY_EPS
-  if (overdue) return { type: 'overdue', label: 'Overdue' }
-  if (inv.status === 'partially_paid') return { type: 'partially_paid', label: 'Partially Paid' }
-  return { type: 'sent', label: 'Invoiced' }
-}
 
 function vendorTdsRatePercent(p: VendorPayment): string {
   if (p.invoiceTotal <= 0) return '—'
@@ -81,7 +67,6 @@ export function TaxComplianceSection({ projectId, clientName }: TaxComplianceSec
     () => projectInvoices.reduce((s, i) => s + i.gstAmount, 0),
     [projectInvoices],
   )
-  const gstPayable = gstCollected
   const labourCessCollected = useMemo(
     () => projectInvoices.reduce((s, i) => s + invoiceLabourCessAmount(i), 0),
     [projectInvoices],
@@ -95,7 +80,6 @@ export function TaxComplianceSection({ projectId, clientName }: TaxComplianceSec
     () => projectPayments.reduce((s, p) => s + p.tdsDeducted, 0),
     [projectPayments],
   )
-  const netTaxPosition = gstCollected - (clientTds + vendorTds)
 
   const totalGstInTable = gstCollected
   const totalLabourCessInTable = labourCessCollected
@@ -115,34 +99,13 @@ export function TaxComplianceSection({ projectId, clientName }: TaxComplianceSec
   type SummaryCard = {
     key: string
     overline: string
-    caption?: string
     value: number
-    valueColor?: string
   }
 
   const summaryCards: SummaryCard[] = [
     { key: 'gst-collected', overline: 'GST COLLECTED', value: gstCollected },
-    { key: 'gst-payable', overline: 'GST PAYABLE', value: gstPayable },
     { key: 'labour-cess-collected', overline: 'LABOUR CESS COLLECTED', value: labourCessCollected },
     { key: 'labour-cess-payable', overline: 'LABOUR CESS PAYABLE', value: labourCessPayable },
-    {
-      key: 'client-tds',
-      overline: 'CLIENT TDS',
-      caption: 'TDS Deducted by Client',
-      value: clientTds,
-    },
-    {
-      key: 'vendor-tds',
-      overline: 'VENDOR TDS',
-      caption: 'TDS Deducted on Vendors',
-      value: vendorTds,
-    },
-    {
-      key: 'net-tax',
-      overline: 'NET TAX POSITION',
-      value: netTaxPosition,
-      valueColor: netTaxPosition >= 0 ? 'text.primary' : 'error.main',
-    },
   ]
 
   return (
@@ -153,8 +116,6 @@ export function TaxComplianceSection({ projectId, clientName }: TaxComplianceSec
           gridTemplateColumns: {
             xs: 'repeat(2, 1fr)',
             sm: 'repeat(3, 1fr)',
-            lg: 'repeat(4, 1fr)',
-            xl: 'repeat(7, 1fr)',
           },
           gap: 2,
         }}
@@ -175,18 +136,13 @@ export function TaxComplianceSection({ projectId, clientName }: TaxComplianceSec
             >
               {m.overline}
             </Typography>
-            {m.caption != null && (
-              <Typography variant="caption" sx={{ fontSize: 10, color: 'text.secondary', display: 'block' }}>
-                {m.caption}
-              </Typography>
-            )}
             <Typography
               variant="h6"
               sx={{
                 fontWeight: 700,
                 fontSize: 15,
                 mt: 0.5,
-                color: m.valueColor ?? 'text.primary',
+                color: 'text.primary',
               }}
             >
               ₹{formatInr(m.value)}
@@ -205,13 +161,10 @@ export function TaxComplianceSection({ projectId, clientName }: TaxComplianceSec
               <TableCell sx={TABLE_HEADER_SX}>Base Amount (₹)</TableCell>
               <TableCell sx={TABLE_HEADER_SX}>GST Rate</TableCell>
               <TableCell sx={TABLE_HEADER_SX}>GST Amount (₹)</TableCell>
-              <TableCell sx={TABLE_HEADER_SX}>Status</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {projectInvoices.map((inv) => {
-              const st = invoiceRowBadge(inv)
-              return (
+            {projectInvoices.map((inv) => (
                 <TableRow key={inv.id} hover>
                   <TableCell sx={TABLE_CELL_SX}>
                     <Typography variant="body2" sx={{ fontSize: 12 }}>
@@ -246,12 +199,8 @@ export function TaxComplianceSection({ projectId, clientName }: TaxComplianceSec
                       ₹{formatInr(inv.gstAmount)}
                     </Typography>
                   </TableCell>
-                  <TableCell sx={TABLE_CELL_SX}>
-                    <StatusBadge status={st.type} label={st.label} />
-                  </TableCell>
                 </TableRow>
-              )
-            })}
+            ))}
             <TableRow>
               <TableCell colSpan={5} sx={{ ...TABLE_CELL_SX, fontWeight: 700, borderBottom: 'none' }}>
                 Total GST
@@ -259,7 +208,6 @@ export function TaxComplianceSection({ projectId, clientName }: TaxComplianceSec
               <TableCell sx={{ ...TABLE_CELL_SX, fontWeight: 700, borderBottom: 'none' }}>
                 ₹{formatInr(totalGstInTable)}
               </TableCell>
-              <TableCell sx={{ ...TABLE_CELL_SX, borderBottom: 'none' }} />
             </TableRow>
           </TableBody>
         </Table>
@@ -275,12 +223,10 @@ export function TaxComplianceSection({ projectId, clientName }: TaxComplianceSec
               <TableCell sx={TABLE_HEADER_SX}>Base Amount (₹)</TableCell>
               <TableCell sx={TABLE_HEADER_SX}>Labour Cess Rate</TableCell>
               <TableCell sx={TABLE_HEADER_SX}>Labour Cess Amount (₹)</TableCell>
-              <TableCell sx={TABLE_HEADER_SX}>Status</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {projectInvoices.map((inv) => {
-              const st = invoiceRowBadge(inv)
               const labourCessAmount = invoiceLabourCessAmount(inv)
               return (
                 <TableRow key={`labour-${inv.id}`} hover>
@@ -317,9 +263,6 @@ export function TaxComplianceSection({ projectId, clientName }: TaxComplianceSec
                       ₹{formatInr(labourCessAmount)}
                     </Typography>
                   </TableCell>
-                  <TableCell sx={TABLE_CELL_SX}>
-                    <StatusBadge status={st.type} label={st.label} />
-                  </TableCell>
                 </TableRow>
               )
             })}
@@ -330,7 +273,6 @@ export function TaxComplianceSection({ projectId, clientName }: TaxComplianceSec
               <TableCell sx={{ ...TABLE_CELL_SX, fontWeight: 700, borderBottom: 'none' }}>
                 ₹{formatInr(totalLabourCessInTable)}
               </TableCell>
-              <TableCell sx={{ ...TABLE_CELL_SX, borderBottom: 'none' }} />
             </TableRow>
           </TableBody>
         </Table>
@@ -348,13 +290,10 @@ export function TaxComplianceSection({ projectId, clientName }: TaxComplianceSec
                   <TableCell sx={TABLE_HEADER_SX}>Gross Amount</TableCell>
                   <TableCell sx={TABLE_HEADER_SX}>TDS Rate</TableCell>
                   <TableCell sx={TABLE_HEADER_SX}>TDS Amount</TableCell>
-                  <TableCell sx={TABLE_HEADER_SX}>Status</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
-                {projectInvoices.map((inv) => {
-                  const st = invoiceRowBadge(inv)
-                  return (
+                {projectInvoices.map((inv) => (
                     <TableRow key={`tds-${inv.id}`} hover>
                       <TableCell sx={TABLE_CELL_SX}>
                         <Typography variant="body2" sx={{ fontSize: 12 }}>
@@ -386,12 +325,8 @@ export function TaxComplianceSection({ projectId, clientName }: TaxComplianceSec
                           ₹{formatInr(inv.tdsAmount)}
                         </Typography>
                       </TableCell>
-                      <TableCell sx={TABLE_CELL_SX}>
-                        <StatusBadge status={st.type} label={st.label} />
-                      </TableCell>
                     </TableRow>
-                  )
-                })}
+                ))}
                 <TableRow>
                   <TableCell colSpan={5} sx={{ ...TABLE_CELL_SX, fontWeight: 700, borderBottom: 'none' }}>
                     Total
@@ -399,7 +334,6 @@ export function TaxComplianceSection({ projectId, clientName }: TaxComplianceSec
                   <TableCell sx={{ ...TABLE_CELL_SX, fontWeight: 700, borderBottom: 'none' }}>
                     ₹{formatInr(totalClientTdsInTable)}
                   </TableCell>
-                  <TableCell sx={{ borderBottom: 'none' }} />
                 </TableRow>
               </TableBody>
             </Table>

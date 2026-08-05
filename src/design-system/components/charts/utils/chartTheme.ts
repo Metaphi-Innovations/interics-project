@@ -39,16 +39,17 @@ export function useChartTheme() {
     fontFamily: theme.typography.fontFamily as string,
   }
 
-  // Legend layout: below on mobile, right side on desktop
+  // Legend layout: above the plot, horizontal — keeps the chart full-width
   const legendProps = {
-    layout:        (isMobile ? 'horizontal' : 'vertical')  as 'horizontal' | 'vertical',
-    verticalAlign: (isMobile ? 'bottom'     : 'middle')    as 'bottom' | 'middle' | 'top',
-    align:         (isMobile ? 'center'     : 'right')     as 'center' | 'left' | 'right',
+    layout: 'horizontal' as const,
+    verticalAlign: 'top' as const,
+    align: 'right' as const,
     wrapperStyle: {
       fontFamily: theme.typography.fontFamily as string,
-      fontSize:   12,
-      color:      theme.palette.text.secondary,
-      paddingLeft: isMobile ? 0 : 16,
+      fontSize: 12,
+      color: theme.palette.text.secondary,
+      paddingBottom: 8,
+      width: '100%',
     },
   }
 

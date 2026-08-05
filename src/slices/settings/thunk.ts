@@ -10,6 +10,7 @@ import type {
   StatusMaster,
   SectorMaster,
   RatingMaster,
+  ProjectManagementMasterCategory,
   NumberingSchemes,
   SystemDefaults,
 } from './reducer'
@@ -454,6 +455,74 @@ export const toggleRatingStatus = createAsyncThunk(
       return rejectWithValue(e.response?.data?.message ?? 'Failed to toggle rating status')
     }
   }
+)
+
+export const fetchProjectManagementCategories = createAsyncThunk(
+  'settings/fetchProjectManagementCategories',
+  async (_, { rejectWithValue }) => {
+    try {
+      const res = await settingsApi.getProjectManagementCategories()
+      return res.data as ProjectManagementMasterCategory[]
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } }
+      return rejectWithValue(
+        e.response?.data?.message ?? 'Failed to fetch project management categories',
+      )
+    }
+  },
+)
+
+export const createProjectManagementCategory = createAsyncThunk(
+  'settings/createProjectManagementCategory',
+  async (
+    data: Omit<ProjectManagementMasterCategory, 'id'>,
+    { rejectWithValue },
+  ) => {
+    try {
+      const res = await settingsApi.createProjectManagementCategory(
+        data as unknown as Record<string, unknown>,
+      )
+      return res.data as ProjectManagementMasterCategory
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } }
+      return rejectWithValue(
+        e.response?.data?.message ?? 'Failed to create project management category',
+      )
+    }
+  },
+)
+
+export const updateProjectManagementCategory = createAsyncThunk(
+  'settings/updateProjectManagementCategory',
+  async ({ id, ...data }: ProjectManagementMasterCategory, { rejectWithValue }) => {
+    try {
+      const res = await settingsApi.updateProjectManagementCategory(
+        id,
+        data as unknown as Record<string, unknown>,
+      )
+      return res.data as ProjectManagementMasterCategory
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } }
+      return rejectWithValue(
+        e.response?.data?.message ?? 'Failed to update project management category',
+      )
+    }
+  },
+)
+
+export const toggleProjectManagementCategoryStatus = createAsyncThunk(
+  'settings/toggleProjectManagementCategoryStatus',
+  async (id: string, { rejectWithValue }) => {
+    try {
+      const res = await settingsApi.toggleProjectManagementCategoryStatus(id)
+      return res.data as ProjectManagementMasterCategory
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } }
+      return rejectWithValue(
+        e.response?.data?.message ?? 'Failed to toggle project management category status',
+      )
+    }
+  },
 )
 
 export const fetchNumberingSchemes = createAsyncThunk(

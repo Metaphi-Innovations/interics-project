@@ -78,7 +78,7 @@ export function DrawerForm({
       {/* Header */}
       <Stack
         direction="row"
-        alignItems="flex-start"
+        alignItems="center"
         justifyContent="space-between"
         sx={{
           px: '20px',
@@ -89,7 +89,7 @@ export function DrawerForm({
           ...headerSx,
         }}
       >
-        <Box>
+        <Box sx={{ minWidth: 0, pr: 1 }}>
           <Typography variant="h6" fontWeight={600} lineHeight={1.3}>
             {title}
           </Typography>

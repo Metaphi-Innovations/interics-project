@@ -23,7 +23,7 @@ import {
   TrendingDown,
   Receipt,
   ShieldCheck,
-  BarChart3,
+  // BarChart3,
   // FileStack,
   // ClipboardList,
   Settings2,
@@ -40,7 +40,7 @@ import ForgotPasswordPage from '@/pages/Auth/ForgotPasswordPage'
 import FullPageFormDemo from '@/pages/Demo/FullPageFormDemo'
 
 // App pages
-import DashboardPage from '@/pages/Dashboard/DashboardPage'
+import Dashboard1Page from '@/pages/Dashboard1/Dashboard1Page'
 import ProjectsPage from '@/pages/Projects/ProjectsPage'
 import ProjectDetailPage from '@/pages/Projects/ProjectDetailPage'
 import CreateProjectPage from '@/pages/Projects/CreateProjectPage'
@@ -78,7 +78,7 @@ const navConfig: NavConfig[] = [
         type: 'item',
         label: 'Dashboard',
         icon: <LayoutDashboard size={16} strokeWidth={1.75} />,
-        href: '/dashboard',
+        href: '/dashboard/dashboard-1',
       },
       {
         type: 'item',
@@ -151,6 +151,7 @@ const navConfig: NavConfig[] = [
     type: 'group',
     label: 'SYSTEM',
     children: [
+      /* Hidden from sidebar for now — restore by uncommenting this block and the BarChart3 import above.
       {
         type: 'group',
         label: 'Reports',
@@ -164,6 +165,7 @@ const navConfig: NavConfig[] = [
           { type: 'item', label: 'Vendor Analysis', href: '/reports/vendor-analysis' },
         ],
       },
+      */
       /* Hidden from sidebar for now — restore by uncommenting this block and the FileStack / ClipboardList imports above.
       {
         type: 'item',
@@ -310,8 +312,9 @@ function AppInner() {
             <AppShellLayout user={topbarUser} onLogout={handleLogout} />
           }
         >
-          <Route index element={<Navigate to="/dashboard" replace />} />
-          <Route path="dashboard" element={<DashboardPage />} />
+          <Route index element={<Navigate to="/dashboard/dashboard-1" replace />} />
+          <Route path="dashboard" element={<Navigate to="/dashboard/dashboard-1" replace />} />
+          <Route path="dashboard/dashboard-1" element={<Dashboard1Page />} />
           <Route path="projects" element={<ProjectsPage />} />
           <Route path="projects/:id" element={<ProjectDetailPage />} />
           <Route path="customers" element={<CustomersPage />} />
@@ -379,7 +382,7 @@ function AppInner() {
             }
           />
           <Route path="settings" element={<SettingsPage />} />
-          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          <Route path="*" element={<Navigate to="/dashboard/dashboard-1" replace />} />
         </Route>
       </Route>
     </Routes>

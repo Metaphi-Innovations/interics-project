@@ -39,8 +39,10 @@ const COLUMN_DEFS: { key: FinancialSummarySortField; label: string }[] = [
   { key: 'workstream', label: 'Category / Workstream' },
   { key: 'clientPOAmount', label: 'Client PO Amount (₹)' },
   { key: 'clientReceived', label: 'Client Received (₹)' },
+  { key: 'pendingReceived', label: 'Pending Received (₹)' },
   { key: 'vendorPOAmount', label: 'Vendor PO Amount (₹)' },
   { key: 'vendorPaid', label: 'Vendor Paid (₹)' },
+  { key: 'pendingPaid', label: 'Pending Paid (₹)' },
   { key: 'projectedProfitPct', label: 'Projected Profit (%)' },
   { key: 'actualProfitPct', label: 'Actual Profit (%)' },
 ]
@@ -69,10 +71,16 @@ function MetricCells({ metrics }: { metrics: FinancialSummaryMetrics }) {
         {fmtInr(metrics.clientReceived)}
       </TableCell>
       <TableCell align="left" sx={NUM_CELL_SX}>
+        {fmtInr(metrics.pendingReceived)}
+      </TableCell>
+      <TableCell align="left" sx={NUM_CELL_SX}>
         {fmtInr(metrics.vendorPOAmount)}
       </TableCell>
       <TableCell align="left" sx={NUM_CELL_SX}>
         {fmtInr(metrics.vendorPaid)}
+      </TableCell>
+      <TableCell align="left" sx={NUM_CELL_SX}>
+        {fmtInr(metrics.pendingPaid)}
       </TableCell>
       <TableCell align="left" sx={NUM_CELL_SX}>
         <Typography
@@ -240,7 +248,7 @@ export default function FinancialSummaryTab({ projectId }: FinancialSummaryTabPr
             stickyHeader
             sx={{
               tableLayout: 'fixed',
-              minWidth: 960,
+              minWidth: 1200,
               '& .MuiTableCell-root': { verticalAlign: 'middle' },
             }}
           >
@@ -254,8 +262,9 @@ export default function FinancialSummaryTab({ projectId }: FinancialSummaryTabPr
                       ...TABLE_HEADER_SX,
                       cursor: col.key === 'workstream' ? 'default' : 'pointer',
                       userSelect: 'none',
-                      width: col.key === 'workstream' ? '22%' : '11%',
+                      width: col.key === 'workstream' ? '18%' : '10.25%',
                       bgcolor: tokens.color.neutral[50],
+                      whiteSpace: 'nowrap',
                     }}
                     onClick={() => handleSort(col.key)}
                   >

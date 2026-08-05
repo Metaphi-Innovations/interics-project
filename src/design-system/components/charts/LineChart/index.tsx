@@ -48,7 +48,12 @@ export default function LineChart({
     <ResponsiveContainer width="100%" height={h}>
       <RechartsLineChart
         data={data}
-        margin={{ top: 4, right: ct.isMobile ? 4 : 16, left: ct.isMobile ? -20 : 0, bottom: 4 }}
+        margin={{
+          top: 16,
+          right: ct.isMobile ? 8 : 16,
+          left: ct.isMobile ? 4 : 8,
+          bottom: 4,
+        }}
       >
         {showGrid && (
           <CartesianGrid
@@ -68,7 +73,8 @@ export default function LineChart({
           tick={ct.axisStyle}
           tickLine={false}
           axisLine={false}
-          width={ct.isMobile ? 30 : 42}
+          width={ct.isMobile ? 44 : 58}
+          tickMargin={4}
           tickFormatter={formatY}
         />
         {showTooltip && (

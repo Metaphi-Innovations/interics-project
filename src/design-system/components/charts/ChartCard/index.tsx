@@ -22,8 +22,17 @@ export default function ChartCard({
     <Card variant="outlined" sx={{ height: height ? height + (title ? 80 : 0) : undefined }}>
       <CardContent sx={{ p: { xs: 2, md: 3 }, '&:last-child': { pb: { xs: 2, md: 3 } } }}>
         {(title || action) && (
-          <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 2 }}>
-            <Box>
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'flex-start',
+              justifyContent: 'space-between',
+              gap: 2,
+              mb: 2,
+              flexWrap: 'wrap',
+            }}
+          >
+            <Box sx={{ minWidth: 0, flex: '1 1 auto' }}>
               {loading ? (
                 <>
                   <Skeleton width={160} height={24} />
@@ -44,7 +53,9 @@ export default function ChartCard({
                 </>
               )}
             </Box>
-            {action && <Box sx={{ ml: 2, flexShrink: 0 }}>{action}</Box>}
+            {action && (
+              <Box sx={{ flexShrink: 0, ml: { xs: 0, sm: 'auto' } }}>{action}</Box>
+            )}
           </Box>
         )}
         {children}

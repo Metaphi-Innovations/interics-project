@@ -22,6 +22,7 @@ import {
   BarChart as BarChartIcon,
   FilePresent,
   History,
+  AccountTree,
   Edit,
   Lock,
 } from '@mui/icons-material'
@@ -33,6 +34,7 @@ import { convertProjectToLive } from './convertProjectToLive'
 import FinancialsTab from './tabs/FinancialsTab'
 import DocumentsTab from './tabs/DocumentsTab'
 import ActivityTab from './tabs/ActivityTab'
+import ProjectManagementTab from './tabs/ProjectManagementTab'
 import { store } from '@/store'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { fetchProjects, fetchProjectById, updateProject, changeProjectStatus } from '../../slices/projects/thunk'
@@ -166,6 +168,13 @@ function getTabConfig(status: string): TabConfig[] {
       label: 'Activity',
       value: 'activity',
       icon: <History sx={{ fontSize: 14 }} />,
+      locked: false,
+      lockReason: null,
+    },
+    {
+      label: 'Project Management',
+      value: 'project-management',
+      icon: <AccountTree sx={{ fontSize: 14 }} />,
       locked: false,
       lockReason: null,
     },
@@ -731,6 +740,8 @@ export default function ProjectDetailPage() {
         return <DocumentsTab project={proj} />
       case 'activity':
         return <ActivityTab project={proj} />
+      case 'project-management':
+        return <ProjectManagementTab project={proj} />
       default:
         return <ProjectOverviewTab project={proj} />
     }
