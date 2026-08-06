@@ -211,7 +211,13 @@ function ProjectHighlightCard({ highlight }: { highlight: ProjectHighlight }) {
   )
 }
 
-export function LargerMetaDataSection() {
+export function LargerMetaDataSection({
+  kpis = LARGER_META_KPIS,
+  highlights = PROJECT_HIGHLIGHTS,
+}: {
+  kpis?: MetaKpi[]
+  highlights?: ProjectHighlight[]
+} = {}) {
   return (
     <Box sx={{ mb: 3 }}>
       <Box sx={{ mb: 1.5 }}>
@@ -224,7 +230,7 @@ export function LargerMetaDataSection() {
       </Box>
 
       <Grid container spacing={2} sx={{ mb: 2.5 }}>
-        {LARGER_META_KPIS.map((kpi) => (
+        {kpis.map((kpi) => (
           <Grid key={kpi.id} size={{ xs: 12, sm: 6, md: 3 }}>
             <MetaKpiCard kpi={kpi} />
           </Grid>
@@ -241,7 +247,7 @@ export function LargerMetaDataSection() {
       </Typography>
 
       <Grid container spacing={2}>
-        {PROJECT_HIGHLIGHTS.map((highlight) => (
+        {highlights.map((highlight) => (
           <Grid key={highlight.id} size={{ xs: 12, sm: 6, md: 3 }}>
             <ProjectHighlightCard highlight={highlight} />
           </Grid>

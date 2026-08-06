@@ -1,9 +1,11 @@
 import { Skeleton } from '@mui/material'
+import type { ReactNode } from 'react'
 import {
   LineChart as RechartsLineChart,
   Line, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ResponsiveContainer,
 } from 'recharts'
+import type { TooltipContentProps } from 'recharts'
 import { useChartTheme } from '../utils/chartTheme'
 
 export interface LineConfig {
@@ -24,6 +26,13 @@ export interface LineChartProps {
   formatX?: (value: any) => string
   formatY?: (value: any) => string
   formatTooltip?: (value: any) => string
+  /** Custom tooltip renderer. When set, replaces the default Recharts tooltip content. */
+  tooltipContent?: (props: TooltipContentProps) => ReactNode
+  /**
+   * When false, tooltip shows only the hovered series (item mode).
+   * When true/undefined, tooltip shares all series at the active index (axis mode).
+   */
+  tooltipShared?: boolean
 }
 
 export default function LineChart({
@@ -38,6 +47,8 @@ export default function LineChart({
   formatX,
   formatY,
   formatTooltip,
+  tooltipContent,
+  tooltipShared,
 }: LineChartProps) {
   const ct = useChartTheme()
   const h = ct.isMobile ? Math.round(height * 0.75) : height
@@ -79,10 +90,20 @@ export default function LineChart({
         />
         {showTooltip && (
           <Tooltip
-            contentStyle={ct.tooltipStyle}
-            labelStyle={{ color: ct.theme.palette.text.secondary, fontSize: 11, marginBottom: 4 }}
-            itemStyle={{ color: ct.theme.palette.text.primary, fontSize: 12 }}
-            formatter={formatTooltip as any}
+            content={tooltipContent}
+            shared={tooltipShared}
+            contentStyle={tooltipContent ? undefined : ct.tooltipStyle}
+            labelStyle={
+              tooltipContent
+                ? undefined
+                : { color: ct.theme.palette.text.secondary, fontSize: 11, marginBottom: 4 }
+            }
+            itemStyle={
+              tooltipContent
+                ? undefined
+                : { color: ct.theme.palette.text.primary, fontSize: 12 }
+            }
+            formatter={tooltipContent ? undefined : (formatTooltip as any)}
           />
         )}
         {showLegend && lines.length > 1 && <Legend {...ct.legendProps} />}
