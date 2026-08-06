@@ -1,9 +1,11 @@
 import { Skeleton } from '@mui/material'
+import type { ReactNode } from 'react'
 import {
   BarChart as RechartsBarChart,
   Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ResponsiveContainer,
 } from 'recharts'
+import type { TooltipContentProps } from 'recharts'
 import { useChartTheme } from '../utils/chartTheme'
 
 export interface BarConfig {
@@ -25,6 +27,8 @@ export interface BarChartProps {
   loading?: boolean
   formatX?: (value: any) => string
   formatY?: (value: any) => string
+  /** Custom tooltip renderer. When set, replaces the default Recharts tooltip content. */
+  tooltipContent?: (props: TooltipContentProps) => ReactNode
   barSize?: number
 }
 
@@ -41,6 +45,7 @@ export default function BarChart({
   loading = false,
   formatX,
   formatY,
+  tooltipContent,
   barSize = 32,
 }: BarChartProps) {
   const ct = useChartTheme()
@@ -91,9 +96,18 @@ export default function BarChart({
         )}
         {showTooltip && (
           <Tooltip
-            contentStyle={ct.tooltipStyle}
-            labelStyle={{ color: ct.theme.palette.text.secondary, fontSize: 11, marginBottom: 4 }}
-            itemStyle={{ color: ct.theme.palette.text.primary, fontSize: 12 }}
+            content={tooltipContent}
+            contentStyle={tooltipContent ? undefined : ct.tooltipStyle}
+            labelStyle={
+              tooltipContent
+                ? undefined
+                : { color: ct.theme.palette.text.secondary, fontSize: 11, marginBottom: 4 }
+            }
+            itemStyle={
+              tooltipContent
+                ? undefined
+                : { color: ct.theme.palette.text.primary, fontSize: 12 }
+            }
             cursor={{ fill: ct.theme.palette.action.hover }}
           />
         )}

@@ -35,7 +35,6 @@ import { SectorAnalyticsSection } from './SectorAnalyticsSection'
 import { ProjectDesignAnalyticsSection } from './ProjectDesignAnalyticsSection'
 import { TeamSection } from './TeamSection'
 import { VendorsSection } from './VendorsSection'
-import { LargerMetaDataSection } from './LargerMetaDataSection'
 
 type DateRangePreset = 'This Month' | 'This Quarter' | 'This Year' | 'All Time'
 type StatusFilter =
@@ -434,13 +433,7 @@ export default function Dashboard1Page() {
 
           {activeTab === 'team' && <TeamSection />}
 
-          {activeTab === 'vendors' && (
-            <Box>
-              <VendorsSection />
-
-              <LargerMetaDataSection />
-            </Box>
-          )}
+          {activeTab === 'vendors' && <VendorsSection />}
         </Box>
       </Paper>
     </Box>
