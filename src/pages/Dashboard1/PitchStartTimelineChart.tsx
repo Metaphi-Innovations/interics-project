@@ -14,7 +14,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import type { TooltipProps } from 'recharts'
+import type { TooltipContentProps } from 'recharts'
 import { useChartTheme } from '@/design-system/components/charts/utils/chartTheme'
 import { CHART_COLORS, tokens } from '@/design-system/tokens'
 import {
@@ -26,7 +26,7 @@ import {
 function PitchTimelineTooltip({
   active,
   payload,
-}: TooltipProps<number, string>) {
+}: TooltipContentProps) {
   if (!active || !payload?.length) return null
   const point = payload[0]?.payload as PitchStartTimelinePoint | undefined
   if (!point) return null
@@ -91,7 +91,7 @@ export function PitchStartTimelineChart({ height = 300 }: PitchStartTimelineChar
           tickMargin={4}
           allowDecimals={false}
         />
-        <Tooltip content={<PitchTimelineTooltip />} cursor={{ stroke: tokens.color.neutral[300] }} />
+        <Tooltip content={PitchTimelineTooltip} cursor={{ stroke: tokens.color.neutral[300] }} />
         <ReferenceLine
           x={PITCH_START_MARKER_MONTH}
           stroke={tokens.color.neutral[500]}
