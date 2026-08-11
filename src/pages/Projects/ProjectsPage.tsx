@@ -14,13 +14,8 @@ import {
   Divider,
   Chip as MuiChip,
   Card as MuiCard,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
   Button as MuiButton,
   Select as MuiSelect,
-  FormControl,
   Skeleton,
 } from '@mui/material'
 import {
@@ -75,12 +70,7 @@ import { formatProjectSite } from '../../utils/projectSite'
 import { getProjectTypes, PROJECT_TYPE_OPTIONS } from './projectTypes'
 import { ProjectTypeTags } from './components/ProjectTypeTags'
 import { ProjectTypesField } from './components/ProjectTypesField'
-import { fetchStatuses } from '../../slices/settings/thunk'
-import {
-  getStatusMasterChipColors,
-  lifecycleStatusForMasterName,
-} from '../../utils/masterChipStyles'
-import type { StatusMaster } from '../../slices/settings/reducer'
+import { getStatusMasterChipColors } from '../../utils/masterChipStyles'
 
 // ─── Column visibility state ──────────────────────────────────────────────────
 
@@ -186,7 +176,7 @@ interface RowActionsProps {
   project: Project
   onView: () => void
   onEdit: () => void
-  onChangeStatus: () => void
+  onComplete: () => void
   onArchive: () => void
   onCancel: () => void
 }
@@ -195,7 +185,7 @@ function RowActions({
   project,
   onView,
   onEdit,
-  onChangeStatus,
+  onComplete,
   onArchive,
   onCancel,
 }: RowActionsProps) {
@@ -225,15 +215,15 @@ function RowActions({
         >
           <Edit sx={{ fontSize: 14 }} /> Edit Basic Info
         </MenuItem>
-        <Divider />
-        <MenuItem
-          onClick={() => { setAnchor(null); onChangeStatus() }}
-          sx={{ fontSize: 13 }}
-        >
-          Change Status
-        </MenuItem>
         {showLifecycleActions ? (
           <>
+            <Divider />
+            <MenuItem
+              onClick={() => { setAnchor(null); onComplete() }}
+              sx={{ fontSize: 13, gap: 1 }}
+            >
+              <CheckCircle sx={{ fontSize: 14 }} /> Completed
+            </MenuItem>
             <MenuItem
               onClick={() => { setAnchor(null); onArchive() }}
               sx={{ fontSize: 13, gap: 1 }}
@@ -264,7 +254,7 @@ interface ProjectsTableProps {
   onSort: (field: string) => void
   onView: (project: Project) => void
   onEdit: (project: Project) => void
-  onChangeStatus: (project: Project) => void
+  onComplete: (project: Project) => void
   onArchive: (project: Project) => void
   onCancel: (project: Project) => void
 }
@@ -278,7 +268,7 @@ function ProjectsTable({
   onSort,
   onView,
   onEdit,
-  onChangeStatus,
+  onComplete,
   onArchive,
   onCancel,
 }: ProjectsTableProps) {
@@ -498,7 +488,7 @@ function ProjectsTable({
                       project={project}
                       onView={() => onView(project)}
                       onEdit={() => onEdit(project)}
-                      onChangeStatus={() => onChangeStatus(project)}
+                      onComplete={() => onComplete(project)}
                       onArchive={() => onArchive(project)}
                       onCancel={() => onCancel(project)}
                     />
@@ -519,7 +509,7 @@ interface ProjectGridCardProps {
   project: Project
   onView: (project: Project) => void
   onEdit: (project: Project) => void
-  onChangeStatus: (project: Project) => void
+  onComplete: (project: Project) => void
   onArchive: (project: Project) => void
   onCancel: (project: Project) => void
 }
@@ -528,7 +518,7 @@ function ProjectGridCard({
   project,
   onView,
   onEdit,
-  onChangeStatus,
+  onComplete,
   onArchive,
   onCancel,
 }: ProjectGridCardProps) {
@@ -597,12 +587,12 @@ function ProjectGridCard({
           <MenuItem onClick={() => { setAnchor(null); onEdit(project) }} sx={{ fontSize: 13, gap: 1 }}>
             <Edit sx={{ fontSize: 14 }} /> Edit
           </MenuItem>
-          <Divider />
-          <MenuItem onClick={() => { setAnchor(null); onChangeStatus(project) }} sx={{ fontSize: 13 }}>
-            Change Status
-          </MenuItem>
           {showLifecycleActions ? (
             <>
+              <Divider />
+              <MenuItem onClick={() => { setAnchor(null); onComplete(project) }} sx={{ fontSize: 13, gap: 1 }}>
+                <CheckCircle sx={{ fontSize: 14 }} /> Completed
+              </MenuItem>
               <MenuItem onClick={() => { setAnchor(null); onArchive(project) }} sx={{ fontSize: 13, gap: 1 }}>
                 <Archive sx={{ fontSize: 14 }} /> Archive Project
               </MenuItem>
@@ -674,7 +664,7 @@ interface ProjectsGridProps {
   loading: boolean
   onView: (project: Project) => void
   onEdit: (project: Project) => void
-  onChangeStatus: (project: Project) => void
+  onComplete: (project: Project) => void
   onArchive: (project: Project) => void
   onCancel: (project: Project) => void
 }
@@ -684,7 +674,7 @@ function ProjectsGrid({
   loading,
   onView,
   onEdit,
-  onChangeStatus,
+  onComplete,
   onArchive,
   onCancel,
 }: ProjectsGridProps) {
@@ -733,7 +723,7 @@ function ProjectsGrid({
           project={project}
           onView={onView}
           onEdit={onEdit}
-          onChangeStatus={onChangeStatus}
+          onComplete={onComplete}
           onArchive={onArchive}
           onCancel={onCancel}
         />
@@ -788,79 +778,6 @@ function SimplePagination({
         </MuiButton>
       </Stack>
     </Stack>
-  )
-}
-
-// ─── Change Status Dialog ─────────────────────────────────────────────────────
-
-interface ChangeStatusDialogProps {
-  project: Project | null
-  statusOptions: StatusMaster[]
-  onClose: () => void
-  onConfirm: (statusName: string) => void
-}
-
-function ChangeStatusDialog({ project, statusOptions, onClose, onConfirm }: ChangeStatusDialogProps) {
-  const [selected, setSelected] = useState('')
-  const activeOptions = statusOptions.filter((s) => s.status === 'active')
-
-  useEffect(() => {
-    setSelected(project?.progress ?? '')
-  }, [project])
-
-  if (!project) return null
-
-  return (
-    <Dialog open={Boolean(project)} onClose={onClose} maxWidth="xs" fullWidth>
-      <DialogTitle sx={{ fontSize: 15, fontWeight: 600, pb: 1 }}>
-        Change Project Status
-      </DialogTitle>
-      <DialogContent>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Current status:{' '}
-          <Box component="span" sx={{ fontWeight: 600, color: 'text.primary' }}>
-            {project.progress || '—'}
-          </Box>
-        </Typography>
-
-        {activeOptions.length === 0 ? (
-          <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12 }}>
-            No active statuses in Status Master. Add statuses in Settings.
-          </Typography>
-        ) : (
-          <FormControl fullWidth size="small">
-            <MuiSelect
-              value={selected}
-              onChange={(e) => setSelected(e.target.value)}
-              displayEmpty
-              sx={{ fontSize: 13 }}
-            >
-              <MenuItem value="" sx={{ fontSize: 13 }}>
-                Select new status…
-              </MenuItem>
-              {activeOptions.map((s) => (
-                <MenuItem key={s.id} value={s.name} sx={{ fontSize: 13 }}>
-                  {s.name}
-                </MenuItem>
-              ))}
-            </MuiSelect>
-          </FormControl>
-        )}
-      </DialogContent>
-      <DialogActions sx={{ px: 3, pb: 2 }}>
-        <MuiButton size="small" onClick={onClose}>
-          Cancel
-        </MuiButton>
-        <MuiButton
-          size="small"
-          variant="contained"
-          disabled={!selected || selected === project.progress}
-          onClick={() => selected && onConfirm(selected)}
-        >
-          Confirm
-        </MuiButton>
-      </DialogActions>
-    </Dialog>
   )
 }
 
@@ -1129,7 +1046,6 @@ export default function ProjectsPage() {
   )
   const items = rawItems ?? []
   const users = useAppSelector((s) => s.users.items ?? [])
-  const statusMasters = useAppSelector((s) => s.settings.statuses)
 
   // Local state
   const [activeTab, setActiveTab] = useState(() => filters.status || 'Live')
@@ -1142,10 +1058,9 @@ export default function ProjectsPage() {
   })
   const [editDrawerOpen, setEditDrawerOpen] = useState(false)
   const [editingProject, setEditingProject] = useState<Project | null>(null)
-  const [statusDialogProject, setStatusDialogProject] = useState<Project | null>(null)
   const [lifecycleConfirm, setLifecycleConfirm] = useState<{
     project: Project
-    status: 'Archived' | 'Cancelled'
+    status: 'Completed' | 'Archived' | 'Cancelled'
   } | null>(null)
   const [lifecycleSaving, setLifecycleSaving] = useState(false)
   const [viewMode, setViewMode] = useState<'table' | 'grid'>('table')
@@ -1153,10 +1068,9 @@ export default function ProjectsPage() {
   // Debounce timer
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Load users + status master
+  // Load users
   useEffect(() => {
     dispatch(fetchUsers({}))
-    dispatch(fetchStatuses())
   }, [dispatch])
 
   // Default to Live tab/filter on entry unless a status already exists in current session state.
@@ -1366,28 +1280,6 @@ export default function ProjectsPage() {
     }
   }
 
-  async function handleStatusConfirm(statusName: string) {
-    if (!statusDialogProject) return
-    try {
-      const lifecycle = lifecycleStatusForMasterName(statusName)
-      await dispatch(
-        updateProject({
-          id: statusDialogProject.id,
-          data: { progress: statusName },
-        })
-      ).unwrap()
-      if (lifecycle && lifecycle !== statusDialogProject.status) {
-        await dispatch(
-          changeProjectStatus({ id: statusDialogProject.id, status: lifecycle })
-        ).unwrap()
-      }
-      toast.success(`Status changed to ${statusName}`)
-      setStatusDialogProject(null)
-    } catch {
-      toast.error('Failed to change status')
-    }
-  }
-
   async function handleLifecycleConfirm() {
     if (!lifecycleConfirm) return
     const { project, status } = lifecycleConfirm
@@ -1395,16 +1287,20 @@ export default function ProjectsPage() {
     try {
       await dispatch(changeProjectStatus({ id: project.id, status })).unwrap()
       toast.success(
-        status === 'Archived'
-          ? 'Project archived'
-          : 'Project cancelled',
+        status === 'Completed'
+          ? 'Project marked as completed'
+          : status === 'Archived'
+            ? 'Project archived'
+            : 'Project cancelled',
       )
       setLifecycleConfirm(null)
     } catch {
       toast.error(
-        status === 'Archived'
-          ? 'Failed to archive project'
-          : 'Failed to cancel project',
+        status === 'Completed'
+          ? 'Failed to complete project'
+          : status === 'Archived'
+            ? 'Failed to archive project'
+            : 'Failed to cancel project',
       )
     } finally {
       setLifecycleSaving(false)
@@ -1450,7 +1346,7 @@ export default function ProjectsPage() {
             loading={loading}
             onView={handleView}
             onEdit={handleEdit}
-            onChangeStatus={(p) => setStatusDialogProject(p)}
+            onComplete={(p) => setLifecycleConfirm({ project: p, status: 'Completed' })}
             onArchive={(p) => setLifecycleConfirm({ project: p, status: 'Archived' })}
             onCancel={(p) => setLifecycleConfirm({ project: p, status: 'Cancelled' })}
           />
@@ -1464,7 +1360,7 @@ export default function ProjectsPage() {
             onSort={handleSort}
             onView={handleView}
             onEdit={handleEdit}
-            onChangeStatus={(p) => setStatusDialogProject(p)}
+            onComplete={(p) => setLifecycleConfirm({ project: p, status: 'Completed' })}
             onArchive={(p) => setLifecycleConfirm({ project: p, status: 'Archived' })}
             onCancel={(p) => setLifecycleConfirm({ project: p, status: 'Cancelled' })}
           />
@@ -1487,14 +1383,6 @@ export default function ProjectsPage() {
         managerOptions={managerOptions}
       />
 
-      {/* Change Status Dialog */}
-      <ChangeStatusDialog
-        project={statusDialogProject}
-        statusOptions={statusMasters}
-        onClose={() => setStatusDialogProject(null)}
-        onConfirm={handleStatusConfirm}
-      />
-
       <ConfirmDialog
         open={Boolean(lifecycleConfirm)}
         onClose={() => {
@@ -1505,17 +1393,25 @@ export default function ProjectsPage() {
         loading={lifecycleSaving}
         variant={lifecycleConfirm?.status === 'Cancelled' ? 'destructive' : 'default'}
         title={
-          lifecycleConfirm?.status === 'Archived'
-            ? 'Archive Project?'
-            : 'Cancel Project?'
+          lifecycleConfirm?.status === 'Completed'
+            ? 'Mark Project as Completed?'
+            : lifecycleConfirm?.status === 'Archived'
+              ? 'Archive Project?'
+              : 'Cancel Project?'
         }
         description={
-          lifecycleConfirm?.status === 'Archived'
-            ? `“${lifecycleConfirm.project.name}” will be moved to the Archived tab. All project data will be preserved.`
-            : `“${lifecycleConfirm?.project.name ?? ''}” will be moved to the Cancelled tab. All project data will be preserved for historical records.`
+          lifecycleConfirm?.status === 'Completed'
+            ? `“${lifecycleConfirm.project.name}” will be moved to the Completed tab.`
+            : lifecycleConfirm?.status === 'Archived'
+              ? `“${lifecycleConfirm.project.name}” will be moved to the Archived tab. All project data will be preserved.`
+              : `“${lifecycleConfirm?.project.name ?? ''}” will be moved to the Cancelled tab. All project data will be preserved for historical records.`
         }
         confirmLabel={
-          lifecycleConfirm?.status === 'Archived' ? 'Archive Project' : 'Cancel Project'
+          lifecycleConfirm?.status === 'Completed'
+            ? 'Mark as Completed'
+            : lifecycleConfirm?.status === 'Archived'
+              ? 'Archive Project'
+              : 'Cancel Project'
         }
         cancelLabel="Keep Project"
       />

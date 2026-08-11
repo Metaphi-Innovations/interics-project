@@ -61,6 +61,11 @@ function fmtProfitPct(value: number | null): string {
   return `${value.toFixed(1)}%`
 }
 
+const NUM_CELL_SX = {
+  ...TABLE_CELL_SX,
+  fontVariantNumeric: 'tabular-nums',
+} as const
+
 function MetricCells({ metrics }: { metrics: FinancialSummaryMetrics }) {
   return (
     <>
@@ -101,11 +106,6 @@ function MetricCells({ metrics }: { metrics: FinancialSummaryMetrics }) {
     </>
   )
 }
-
-const NUM_CELL_SX = {
-  ...TABLE_CELL_SX,
-  fontVariantNumeric: 'tabular-nums',
-} as const
 
 /** Office Expenses only — sourced from Pitch → Expenses. */
 function officeExpensesFromPitch(planned: PlannedExpense[] | undefined): PlannedExpense[] {

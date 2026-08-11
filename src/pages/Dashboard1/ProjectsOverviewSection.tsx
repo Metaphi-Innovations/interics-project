@@ -1,8 +1,8 @@
 /**
  * Dashboard 1 — Projects Overview
- * KPI cards + sector tags + status / funnel / pitch start timeline
+ * KPI cards + sector tags + status / monthly pitches vs live
  */
-import type { ReactNode } from 'react'
+import { useEffect, useMemo, type ReactNode } from 'react'
 import { Box, Grid, Paper, Typography } from '@mui/material'
 import { alpha, useTheme } from '@mui/material/styles'
 import {
@@ -16,20 +16,27 @@ import {
   XCircle,
 } from 'lucide-react'
 import {
+  BarChart,
   ChartCard,
   DonutChart,
-  FunnelChart,
 } from '@/design-system/components'
 import { CHART_COLORS, tokens } from '@/design-system/tokens'
+import { useAppDispatch, useAppSelector } from '@/store/hooks'
+import { fetchProjects } from '@/slices/projects/thunk'
+import { ChartSeriesLegend } from './ChartSeriesLegend'
 import {
-  getSectorTagsForFilters,
-  PITCH_CONVERSION_FUNNEL,
+  buildSectorTagsFromMaster,
   PROJECT_OVERVIEW_KPIS,
   PROJECT_STATUS_DISTRIBUTION,
   type ProjectOverviewKpi,
   type SectorTag,
 } from './projectsOverviewData'
-import { PitchStartTimelineChart } from './PitchStartTimelineChart'
+import {
+  buildMonthlyPitchesVsLive,
+  filterProjectsForDashboard,
+} from './projectAnalyticsData'
+import { fetchSectors } from '@/slices/settings/thunk'
+import { getSectorTagSx } from '@/utils/sectorTagStyles'
 
 const ICON_MAP: Record<ProjectOverviewKpi['icon'], { node: ReactNode; color: string }> = {
   active: {
@@ -136,6 +143,7 @@ function ProjectOverviewKpiCard({ kpi }: { kpi: ProjectOverviewKpi }) {
 function SectorTagChip({ tag }: { tag: SectorTag }) {
   const theme = useTheme()
   const isDark = theme.palette.mode === 'dark'
+  const colors = getSectorTagSx(tag.name, isDark ? 'dark' : 'light')
 
   return (
     <Box
@@ -147,8 +155,8 @@ function SectorTagChip({ tag }: { tag: SectorTag }) {
         px: 1.5,
         py: 0.75,
         borderRadius: '9999px',
-        bgcolor: alpha(tag.color, isDark ? 0.22 : 0.12),
-        color: tag.color,
+        bgcolor: colors.bg,
+        color: colors.color,
         fontSize: 12,
         fontWeight: 600,
         lineHeight: 1.2,
@@ -182,13 +190,36 @@ export function ProjectsOverviewSection({
   statusFilter = 'All Status',
   pmFilter = 'All Managers',
 }: ProjectsOverviewSectionProps) {
+  const dispatch = useAppDispatch()
+  const projects = useAppSelector((s) => s.projects.items ?? [])
+  const sectors = useAppSelector((s) => s.settings.sectors)
+
+  useEffect(() => {
+    void dispatch(fetchProjects({ page: 1, pageSize: 500 }))
+    void dispatch(fetchSectors())
+  }, [dispatch])
+
+  const filteredProjects = useMemo(
+    () =>
+      filterProjectsForDashboard(projects, {
+        dateRange,
+        clientFilter,
+        statusFilter,
+        pmFilter,
+      }),
+    [projects, dateRange, clientFilter, statusFilter, pmFilter],
+  )
+
+  const monthlyPitchesVsLive = useMemo(
+    () => buildMonthlyPitchesVsLive(filteredProjects, dateRange),
+    [filteredProjects, dateRange],
+  )
+
   const totalProjects = PROJECT_STATUS_DISTRIBUTION.reduce((sum, s) => sum + s.value, 0)
-  const sectorTags = getSectorTagsForFilters({
-    dateRange,
-    client: clientFilter,
-    status: statusFilter,
-    projectLead: pmFilter,
-  })
+  const sectorTags = useMemo(
+    () => buildSectorTagsFromMaster(sectors, filteredProjects),
+    [sectors, filteredProjects],
+  )
 
   return (
     <Box sx={{ mb: 3 }}>
@@ -212,7 +243,7 @@ export function ProjectsOverviewSection({
       <Box sx={{ mb: 2.5 }}>
         <ChartCard
           title="Sector Tag"
-          subtitle="Projects grouped by business sector"
+          subtitle="Projects grouped by Sector Master"
         >
           <Box
             sx={{
@@ -222,9 +253,15 @@ export function ProjectsOverviewSection({
               alignItems: 'center',
             }}
           >
-            {sectorTags.map((tag) => (
-              <SectorTagChip key={tag.id} tag={tag} />
-            ))}
+            {sectorTags.length === 0 ? (
+              <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12 }}>
+                No active sectors in Sector Master.
+              </Typography>
+            ) : (
+              sectorTags.map((tag) => (
+                <SectorTagChip key={tag.id} tag={tag} />
+              ))
+            )}
           </Box>
         </ChartCard>
       </Box>
@@ -246,19 +283,37 @@ export function ProjectsOverviewSection({
 
         <Grid size={{ xs: 12, lg: 6 }}>
           <ChartCard
-            title="Pitch Conversion Funnel"
-            subtitle="Project conversion journey from pitch to completion"
+            title="Monthly Pitches vs Live Projects"
+            subtitle="Month-wise pitch starts compared with live project starts"
+            action={
+              <ChartSeriesLegend
+                items={[
+                  { label: 'Pitches', color: CHART_COLORS.blue },
+                  { label: 'Live Projects', color: CHART_COLORS.teal },
+                ]}
+              />
+            }
           >
-            <FunnelChart data={[...PITCH_CONVERSION_FUNNEL]} height={300} />
-          </ChartCard>
-        </Grid>
-
-        <Grid size={{ xs: 12 }}>
-          <ChartCard
-            title="Pitch Start Timeline"
-            subtitle="Pitch start dates across the timeline with project markers"
-          >
-            <PitchStartTimelineChart height={300} />
+            {monthlyPitchesVsLive.every((r) => r.pitches === 0 && r.live === 0) ? (
+              <Typography
+                variant="body2"
+                color="text.secondary"
+                sx={{ fontSize: 12, py: 6, textAlign: 'center' }}
+              >
+                No pitch or live projects for the selected filters.
+              </Typography>
+            ) : (
+              <BarChart
+                data={[...monthlyPitchesVsLive]}
+                xKey="month"
+                height={300}
+                showLegend={false}
+                bars={[
+                  { key: 'pitches', label: 'Pitches', color: CHART_COLORS.blue },
+                  { key: 'live', label: 'Live Projects', color: CHART_COLORS.teal },
+                ]}
+              />
+            )}
           </ChartCard>
         </Grid>
       </Grid>

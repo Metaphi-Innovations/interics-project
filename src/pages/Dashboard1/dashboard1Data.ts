@@ -38,16 +38,19 @@ export const DASHBOARD1_FILTER_OPTIONS = {
 export const REVENUE_TIME_PERIOD_OPTIONS = [
   'This Month',
   'Last Month',
-  'This Quarter',
-  'Last Quarter',
   'This Financial Year',
-  'Last Financial Year',
-  'Last 5 Years',
-  'Lifetime',
   'Custom Range',
 ] as const
 
 export type RevenueTimePeriod = (typeof REVENUE_TIME_PERIOD_OPTIONS)[number]
+
+export const REVENUE_DATE_TYPE_OPTIONS = [
+  'PO Date',
+  'Invoice Date',
+  'Payment Received Date',
+] as const
+
+export type RevenueDateType = (typeof REVENUE_DATE_TYPE_OPTIONS)[number]
 
 export type RevenueChartGranularity = 'daily' | 'monthly' | 'yearly'
 
@@ -56,79 +59,135 @@ export interface RevenueKpi {
   title: string
   value: number
   subtitle: string
-  icon: 'po' | 'live' | 'received' | 'pending' | 'paid' | 'payable' | 'cash'
+  icon: 'po' | 'live' | 'received' | 'pending' | 'paid' | 'payable' | 'cash' | 'profit'
 }
 
 export interface RevenueChartPoint {
   month: string
   revenue?: number
-  received?: number
-  pending?: number
-  paid?: number
+  /** Actual client payments received (cash collections). */
+  clientReceived?: number
+  /** Actual payments released to vendors. */
+  vendorPaid?: number
 }
 
 export interface RevenueAnalyticsBundle {
   kpis: RevenueKpi[]
   revenueTrend: RevenueChartPoint[]
-  receivedVsPending: RevenueChartPoint[]
-  vendorPayments: RevenueChartPoint[]
+  /** Combined month-wise Client Revenue Received vs Vendor Payments. */
+  clientReceivedVsVendorPayments: RevenueChartPoint[]
   granularity: RevenueChartGranularity
 }
 
-const BASE_REVENUE_KPIS: RevenueKpi[] = [
-  {
-    id: 'total-po',
-    title: 'Total PO Value',
-    value: 48_500_000,
-    subtitle: 'Total business received.',
-    icon: 'po',
-  },
-  {
-    id: 'live-po',
-    title: 'Live PO Value',
-    value: 32_200_000,
-    subtitle: 'Current active project value.',
-    icon: 'live',
-  },
-  {
-    id: 'received',
-    title: 'Amount Received',
-    value: 18_750_000,
-    subtitle: 'Payments collected.',
-    icon: 'received',
-  },
-  {
-    id: 'pending-claim',
-    title: 'Amount Pending to be Claimed',
-    value: 6_400_000,
-    subtitle: 'Awaiting client payment.',
-    icon: 'pending',
-  },
-  {
-    id: 'paid-vendors',
-    title: 'Amount Paid to Vendors',
-    value: 11_200_000,
-    subtitle: 'Payments released.',
-    icon: 'paid',
-  },
-  {
-    id: 'payable',
-    title: 'Amount Payable',
-    value: 4_850_000,
-    subtitle: 'Outstanding vendor dues.',
-    icon: 'payable',
-  },
-  {
-    id: 'in-hand',
-    title: 'Amount in Hand',
-    value: 7_550_000,
-    subtitle: 'Current available balance.',
-    icon: 'cash',
-  },
-]
+/**
+ * Agreed Revenue Profit formula:
+ *   Profit = Amount Received − Amount Paid to Vendors − non-vendor Expenses
+ *
+ * Vendor payments already reflected in "Amount Paid to Vendors" must not be
+ * subtracted again when the same amounts also appear under Expenses
+ * (e.g. vendor_linked / included_in_payment). Only the residual non-vendor
+ * expense portion is deducted.
+ */
+export function computeRevenueProfit(params: {
+  amountReceived: number
+  amountPaidToVendors: number
+  /** Total expenses in scope (may include vendor-linked amounts). */
+  expensesTotal?: number
+  /** Portion of expensesTotal that is already counted as vendor payments. */
+  vendorPaymentsIncludedInExpenses?: number
+}): number {
+  const expensesTotal = params.expensesTotal ?? 0
+  const vendorInExpenses = Math.max(0, params.vendorPaymentsIncludedInExpenses ?? 0)
+  const nonVendorExpenses = Math.max(0, expensesTotal - vendorInExpenses)
+  return Math.round(
+    params.amountReceived - params.amountPaidToVendors - nonVendorExpenses,
+  )
+}
+
+const BASE_REVENUE_KPI_VALUES = {
+  totalPo: 48_500_000,
+  livePo: 32_200_000,
+  received: 18_750_000,
+  pendingClaim: 6_400_000,
+  paidVendors: 11_200_000,
+  payable: 4_850_000,
+  inHand: 7_550_000,
+} as const
+
+function buildBaseRevenueKpis(factor: number): RevenueKpi[] {
+  const received = scale(BASE_REVENUE_KPI_VALUES.received, factor)
+  const paidVendors = scale(BASE_REVENUE_KPI_VALUES.paidVendors, factor)
+  // Vendor payments already sit in Amount Paid to Vendors. Treat that same
+  // amount as the vendor portion of Expenses so it is not double-counted.
+  const profit = computeRevenueProfit({
+    amountReceived: received,
+    amountPaidToVendors: paidVendors,
+    expensesTotal: paidVendors,
+    vendorPaymentsIncludedInExpenses: paidVendors,
+  })
+
+  return [
+    {
+      id: 'total-po',
+      title: 'Total PO Value',
+      value: scale(BASE_REVENUE_KPI_VALUES.totalPo, factor),
+      subtitle: 'Total business received.',
+      icon: 'po',
+    },
+    {
+      id: 'live-po',
+      title: 'Live PO Value',
+      value: scale(BASE_REVENUE_KPI_VALUES.livePo, factor),
+      subtitle: 'Current active project value.',
+      icon: 'live',
+    },
+    {
+      id: 'received',
+      title: 'Amount Received',
+      value: received,
+      subtitle: 'Payments collected.',
+      icon: 'received',
+    },
+    {
+      id: 'pending-claim',
+      title: 'Amount Pending to be Claimed',
+      value: scale(BASE_REVENUE_KPI_VALUES.pendingClaim, factor),
+      subtitle: 'Awaiting client payment.',
+      icon: 'pending',
+    },
+    {
+      id: 'paid-vendors',
+      title: 'Amount Paid to Vendors',
+      value: paidVendors,
+      subtitle: 'Payments released.',
+      icon: 'paid',
+    },
+    {
+      id: 'payable',
+      title: 'Amount Payable',
+      value: scale(BASE_REVENUE_KPI_VALUES.payable, factor),
+      subtitle: 'Outstanding vendor dues.',
+      icon: 'payable',
+    },
+    {
+      id: 'in-hand',
+      title: 'Amount in Hand',
+      value: scale(BASE_REVENUE_KPI_VALUES.inHand, factor),
+      subtitle: 'Current available balance.',
+      icon: 'cash',
+    },
+    {
+      id: 'profit',
+      title: 'Profit',
+      value: profit,
+      subtitle: 'Net profit after vendor payments and expenses.',
+      icon: 'profit',
+    },
+  ]
+}
 
 /** Prefer getRevenueAnalytics — kept for existing imports. */
-export const REVENUE_KPIS = BASE_REVENUE_KPIS
+export const REVENUE_KPIS = buildBaseRevenueKpis(1)
 
 const FY_MONTHS = [
   'Apr',
@@ -145,21 +204,43 @@ const FY_MONTHS = [
   'Mar',
 ] as const
 
-const BASE_REVENUE_TREND = [
+/** Revenue grouped by client PO date. */
+const BASE_REVENUE_BY_PO_DATE = [
   2_800_000, 3_100_000, 3_450_000, 3_200_000, 3_900_000, 4_150_000, 4_000_000, 4_600_000,
   5_100_000, 4_800_000, 5_250_000, 5_600_000,
 ]
 
-const BASE_RECEIVED = [
+/**
+ * Revenue grouped by client invoice date — lags PO bookings (invoices follow POs).
+ * Same annual total as PO Date, different monthly distribution.
+ */
+const BASE_REVENUE_BY_INVOICE_DATE = [
+  2_200_000, 2_750_000, 3_150_000, 3_500_000, 3_450_000, 3_950_000, 4_400_000, 4_250_000,
+  4_900_000, 5_200_000, 5_400_000, 6_800_000,
+]
+
+/**
+ * Revenue grouped by payment received date — further lags invoicing (cash collections).
+ * Same annual total as PO Date, different monthly distribution.
+ */
+const BASE_REVENUE_BY_PAYMENT_DATE = [
+  1_750_000, 2_300_000, 2_700_000, 3_050_000, 3_400_000, 3_700_000, 4_050_000, 4_450_000,
+  4_800_000, 5_200_000, 5_700_000, 8_850_000,
+]
+
+const BASE_REVENUE_BY_DATE_TYPE: Record<RevenueDateType, number[]> = {
+  'PO Date': BASE_REVENUE_BY_PO_DATE,
+  'Invoice Date': BASE_REVENUE_BY_INVOICE_DATE,
+  'Payment Received Date': BASE_REVENUE_BY_PAYMENT_DATE,
+}
+
+/** Actual client revenue received (cash collected), month-wise. */
+const BASE_CLIENT_RECEIVED = [
   1_800_000, 2_100_000, 2_400_000, 2_050_000, 2_700_000, 2_900_000, 2_650_000, 3_200_000,
   3_500_000, 3_100_000, 3_600_000, 3_900_000,
 ]
 
-const BASE_PENDING = [
-  650_000, 720_000, 580_000, 900_000, 610_000, 750_000, 820_000, 540_000, 690_000, 780_000,
-  520_000, 480_000,
-]
-
+/** Actual vendor payments released, month-wise (same timeline as client received). */
 const BASE_VENDOR_PAID = [
   980_000, 1_150_000, 1_320_000, 1_050_000, 1_480_000, 1_600_000, 1_420_000, 1_750_000,
   1_900_000, 1_650_000, 1_820_000, 2_050_000,
@@ -168,20 +249,14 @@ const BASE_VENDOR_PAID = [
 /** Prefer getRevenueAnalytics */
 export const MONTHLY_REVENUE_TREND = FY_MONTHS.map((month, i) => ({
   month,
-  revenue: BASE_REVENUE_TREND[i],
+  revenue: BASE_REVENUE_BY_PO_DATE[i],
 }))
 
 /** Prefer getRevenueAnalytics */
-export const RECEIVED_VS_PENDING = FY_MONTHS.map((month, i) => ({
+export const CLIENT_RECEIVED_VS_VENDOR_PAYMENTS = FY_MONTHS.map((month, i) => ({
   month,
-  received: BASE_RECEIVED[i],
-  pending: BASE_PENDING[i],
-}))
-
-/** Prefer getRevenueAnalytics */
-export const VENDOR_PAYMENTS_MONTHLY = FY_MONTHS.map((month, i) => ({
-  month,
-  paid: BASE_VENDOR_PAID[i],
+  clientReceived: BASE_CLIENT_RECEIVED[i],
+  vendorPaid: BASE_VENDOR_PAID[i],
 }))
 
 export const CASH_POSITION_MONTHLY = [
@@ -205,18 +280,8 @@ function periodFactor(period: RevenueTimePeriod): number {
       return 0.12
     case 'Last Month':
       return 0.11
-    case 'This Quarter':
-      return 0.28
-    case 'Last Quarter':
-      return 0.26
     case 'This Financial Year':
       return 1
-    case 'Last Financial Year':
-      return 0.88
-    case 'Last 5 Years':
-      return 3.2
-    case 'Lifetime':
-      return 4.5
     case 'Custom Range':
       return 0.4
     default:
@@ -246,14 +311,8 @@ function getGranularity(
     case 'This Month':
     case 'Last Month':
       return 'daily'
-    case 'This Quarter':
-    case 'Last Quarter':
     case 'This Financial Year':
-    case 'Last Financial Year':
       return 'monthly'
-    case 'Last 5 Years':
-    case 'Lifetime':
-      return 'yearly'
     case 'Custom Range': {
       const [start, end] = customRange ?? [null, null]
       if (!start || !end) return 'monthly'
@@ -271,57 +330,64 @@ function wave(index: number, length: number, amplitude = 0.18): number {
   return 1 + Math.sin((index / Math.max(1, length - 1)) * Math.PI * 2) * amplitude
 }
 
-function buildDailySeries(factor: number, dayCount: number): {
+function revenueBaseForDateType(dateType: RevenueDateType): number[] {
+  return BASE_REVENUE_BY_DATE_TYPE[dateType]
+}
+
+function buildDailySeries(
+  factor: number,
+  dayCount: number,
+  dateType: RevenueDateType,
+): {
   revenueTrend: RevenueChartPoint[]
-  receivedVsPending: RevenueChartPoint[]
-  vendorPayments: RevenueChartPoint[]
+  clientReceivedVsVendorPayments: RevenueChartPoint[]
 } {
   const revenueTrend: RevenueChartPoint[] = []
-  const receivedVsPending: RevenueChartPoint[] = []
-  const vendorPayments: RevenueChartPoint[] = []
+  const clientReceivedVsVendorPayments: RevenueChartPoint[] = []
 
-  const dailyRevenueBase = (BASE_REVENUE_TREND[BASE_REVENUE_TREND.length - 1] / 30) * factor
-  const dailyReceivedBase = (BASE_RECEIVED[BASE_RECEIVED.length - 1] / 30) * factor
-  const dailyPendingBase = (BASE_PENDING[BASE_PENDING.length - 1] / 30) * factor
+  const revenueSeries = revenueBaseForDateType(dateType)
+  const dailyRevenueBase = (revenueSeries[revenueSeries.length - 1] / 30) * factor
+  const dailyClientReceivedBase =
+    (BASE_CLIENT_RECEIVED[BASE_CLIENT_RECEIVED.length - 1] / 30) * factor
   const dailyPaidBase = (BASE_VENDOR_PAID[BASE_VENDOR_PAID.length - 1] / 30) * factor
+
+  // Slight phase shift per date type so daily curves differ when switching.
+  const phase =
+    dateType === 'PO Date' ? 0 : dateType === 'Invoice Date' ? 0.35 : 0.7
 
   for (let i = 0; i < dayCount; i++) {
     const label = `${i + 1}`
-    const w = wave(i, dayCount, 0.22)
+    const w = wave(i + phase * dayCount, dayCount, 0.22)
     revenueTrend.push({ month: label, revenue: scale(dailyRevenueBase * w, 1) })
-    receivedVsPending.push({
+    clientReceivedVsVendorPayments.push({
       month: label,
-      received: scale(dailyReceivedBase * w, 1),
-      pending: scale(dailyPendingBase * (2 - w), 1),
+      clientReceived: scale(dailyClientReceivedBase * w, 1),
+      vendorPaid: scale(dailyPaidBase * w, 1),
     })
-    vendorPayments.push({ month: label, paid: scale(dailyPaidBase * w, 1) })
   }
 
-  return { revenueTrend, receivedVsPending, vendorPayments }
+  return { revenueTrend, clientReceivedVsVendorPayments }
 }
 
 function buildMonthlySeries(
   factor: number,
   months: readonly string[],
+  dateType: RevenueDateType,
   offset = 0,
 ): {
   revenueTrend: RevenueChartPoint[]
-  receivedVsPending: RevenueChartPoint[]
-  vendorPayments: RevenueChartPoint[]
+  clientReceivedVsVendorPayments: RevenueChartPoint[]
 } {
+  const revenueSeries = revenueBaseForDateType(dateType)
   return {
     revenueTrend: months.map((month, i) => ({
       month,
-      revenue: scale(BASE_REVENUE_TREND[(i + offset) % 12], factor),
+      revenue: scale(revenueSeries[(i + offset) % 12], factor),
     })),
-    receivedVsPending: months.map((month, i) => ({
+    clientReceivedVsVendorPayments: months.map((month, i) => ({
       month,
-      received: scale(BASE_RECEIVED[(i + offset) % 12], factor),
-      pending: scale(BASE_PENDING[(i + offset) % 12], factor),
-    })),
-    vendorPayments: months.map((month, i) => ({
-      month,
-      paid: scale(BASE_VENDOR_PAID[(i + offset) % 12], factor),
+      clientReceived: scale(BASE_CLIENT_RECEIVED[(i + offset) % 12], factor),
+      vendorPaid: scale(BASE_VENDOR_PAID[(i + offset) % 12], factor),
     })),
   }
 }
@@ -329,29 +395,30 @@ function buildMonthlySeries(
 function buildYearlySeries(
   factor: number,
   years: string[],
+  dateType: RevenueDateType,
 ): {
   revenueTrend: RevenueChartPoint[]
-  receivedVsPending: RevenueChartPoint[]
-  vendorPayments: RevenueChartPoint[]
+  clientReceivedVsVendorPayments: RevenueChartPoint[]
 } {
-  const yearBaseRevenue = BASE_REVENUE_TREND.reduce((a, b) => a + b, 0)
-  const yearBaseReceived = BASE_RECEIVED.reduce((a, b) => a + b, 0)
-  const yearBasePending = BASE_PENDING.reduce((a, b) => a + b, 0)
+  const revenueSeries = revenueBaseForDateType(dateType)
+  const yearBaseRevenue = revenueSeries.reduce((a, b) => a + b, 0)
+  const yearBaseClientReceived = BASE_CLIENT_RECEIVED.reduce((a, b) => a + b, 0)
   const yearBasePaid = BASE_VENDOR_PAID.reduce((a, b) => a + b, 0)
+  const dateTypeAmp =
+    dateType === 'PO Date' ? 0.12 : dateType === 'Invoice Date' ? 0.1 : 0.14
 
   return {
     revenueTrend: years.map((year, i) => ({
       month: year,
-      revenue: scale(yearBaseRevenue * wave(i, years.length, 0.12), factor / years.length),
+      revenue: scale(yearBaseRevenue * wave(i, years.length, dateTypeAmp), factor / years.length),
     })),
-    receivedVsPending: years.map((year, i) => ({
+    clientReceivedVsVendorPayments: years.map((year, i) => ({
       month: year,
-      received: scale(yearBaseReceived * wave(i, years.length, 0.12), factor / years.length),
-      pending: scale(yearBasePending * wave(i, years.length, 0.1), factor / years.length),
-    })),
-    vendorPayments: years.map((year, i) => ({
-      month: year,
-      paid: scale(yearBasePaid * wave(i, years.length, 0.12), factor / years.length),
+      clientReceived: scale(
+        yearBaseClientReceived * wave(i, years.length, 0.12),
+        factor / years.length,
+      ),
+      vendorPaid: scale(yearBasePaid * wave(i, years.length, 0.12), factor / years.length),
     })),
   }
 }
@@ -369,11 +436,11 @@ function buildSeriesForPeriod(
   period: RevenueTimePeriod,
   factor: number,
   granularity: RevenueChartGranularity,
+  dateType: RevenueDateType,
   customRange?: [Date | null, Date | null],
 ): {
   revenueTrend: RevenueChartPoint[]
-  receivedVsPending: RevenueChartPoint[]
-  vendorPayments: RevenueChartPoint[]
+  clientReceivedVsVendorPayments: RevenueChartPoint[]
 } {
   if (granularity === 'daily') {
     const days =
@@ -382,54 +449,34 @@ function buildSeriesForPeriod(
           ? 30
           : 28
         : customDayCount(customRange)
-    return buildDailySeries(factor, days)
+    return buildDailySeries(factor, days, dateType)
   }
 
   if (granularity === 'yearly') {
-    if (period === 'Last 5 Years') {
-      return buildYearlySeries(factor, ['FY21', 'FY22', 'FY23', 'FY24', 'FY25'])
-    }
-    if (period === 'Lifetime') {
-      return buildYearlySeries(factor, ['FY19', 'FY20', 'FY21', 'FY22', 'FY23', 'FY24', 'FY25'])
-    }
-    return buildYearlySeries(factor, ['FY23', 'FY24', 'FY25'])
+    return buildYearlySeries(factor, ['FY23', 'FY24', 'FY25'], dateType)
   }
 
-  if (period === 'This Quarter') {
-    return buildMonthlySeries(factor, ['Jan', 'Feb', 'Mar'], 9)
-  }
-  if (period === 'Last Quarter') {
-    return buildMonthlySeries(factor, ['Oct', 'Nov', 'Dec'], 6)
-  }
-  if (period === 'Last Financial Year') {
-    return buildMonthlySeries(factor, FY_MONTHS, 1)
-  }
   if (period === 'Custom Range') {
-    return buildMonthlySeries(factor, ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep'], 0)
+    return buildMonthlySeries(factor, ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep'], dateType, 0)
   }
 
-  return buildMonthlySeries(factor, FY_MONTHS, 0)
+  return buildMonthlySeries(factor, FY_MONTHS, dateType, 0)
 }
 
 export function getRevenueAnalytics(
   period: RevenueTimePeriod,
   customRange?: [Date | null, Date | null],
+  dateType: RevenueDateType = 'PO Date',
 ): RevenueAnalyticsBundle {
   const factor =
     period === 'Custom Range' ? customRangeFactor(customRange) : periodFactor(period)
   const granularity = getGranularity(period, customRange)
-  const series = buildSeriesForPeriod(period, factor, granularity, customRange)
-
-  const kpis = BASE_REVENUE_KPIS.map((kpi) => ({
-    ...kpi,
-    value: scale(kpi.value, factor),
-  }))
+  const series = buildSeriesForPeriod(period, factor, granularity, dateType, customRange)
 
   return {
-    kpis,
+    kpis: buildBaseRevenueKpis(factor),
     revenueTrend: series.revenueTrend,
-    receivedVsPending: series.receivedVsPending,
-    vendorPayments: series.vendorPayments,
+    clientReceivedVsVendorPayments: series.clientReceivedVsVendorPayments,
     granularity,
   }
 }

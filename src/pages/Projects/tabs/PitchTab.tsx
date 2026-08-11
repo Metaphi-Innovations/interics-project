@@ -911,8 +911,8 @@ export default function PitchTab({ project }: { project: Project }) {
             <Box sx={{ pt: 0.5 }}>
               <MuiButton
                 size="small"
-                variant="contained"
-                color="primary"
+                variant="outlined"
+                color="secondary"
                 startIcon={<Add fontSize="small" />}
                 sx={{ fontSize: 12 }}
                 disabled={!activeVersion}

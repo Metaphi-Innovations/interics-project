@@ -514,152 +514,192 @@ function Step2ProjectSetup({
     setFormData((prev) => ({ ...prev, [key]: value }))
   }
 
+  const panelSx = {
+    display: 'grid',
+    gridTemplateColumns: '1fr',
+    gap: '14px',
+    alignContent: 'start',
+    height: '100%',
+  } as const
+
   return (
-    <FullPageFormSection title="Project Setup" subtitle="Basic project information" columns={2}>
-      <Box sx={{ gridColumn: '1 / -1' }}>
-        <FormField label="Project Name" required error={errors.name}>
-          <Input
-            value={formData.name}
-            onChange={(v) => set('name', v)}
-            placeholder="e.g. Acme Corp - Head Office Redesign"
-            size="sm"
-            error={Boolean(errors.name)}
-          />
-        </FormField>
-      </Box>
-
-      <FormField label="Project Scope" required error={errors.projectTypes}>
-        <ProjectTypesField
-          value={formData.projectTypes}
-          onChange={(v) => setFormData((prev) => ({ ...prev, projectTypes: v }))}
-          error={Boolean(errors.projectTypes)}
-        />
-      </FormField>
-
-      <FormField label="Sector" required error={errors.sector}>
-        <FormControl fullWidth size="small" error={Boolean(errors.sector)}>
-          <MuiSelect
-            value={formData.sector}
-            onChange={(e) => setFormData((prev) => ({ ...prev, sector: e.target.value }))}
-            displayEmpty
-            sx={{ fontSize: 13, '& .MuiOutlinedInput-root': { minHeight: 40 } }}
+    <FullPageFormSection title="Project Setup" subtitle="Basic project information" columns={1}>
+      <Box
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
+          gap: 2,
+        }}
+      >
+        {/* Left — project identity & schedule */}
+        <Box sx={panelSx}>
+          <Typography
+            variant="overline"
+            sx={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.6, color: 'text.secondary', mb: -0.5 }}
           >
-            <MenuItem value="" disabled sx={{ fontSize: 13 }}>
-              Select sector…
-            </MenuItem>
-            {activeSectors.map((s) => (
-              <MenuItem key={s.id} value={s.name} sx={{ fontSize: 13 }}>
-                {s.name}
-              </MenuItem>
-            ))}
-            {formData.sector && !activeSectors.some((s) => s.name === formData.sector) ? (
-              <MenuItem value={formData.sector} sx={{ fontSize: 13 }}>
-                {formData.sector}
-              </MenuItem>
-            ) : null}
-          </MuiSelect>
-        </FormControl>
-      </FormField>
+            Project
+          </Typography>
 
-      <Box sx={{ gridColumn: '1 / -1' }}>
-        <FormField label="Address" error={errors.address}>
-          <Input
-            value={formData.address}
-            onChange={(v) => set('address', v)}
-            placeholder="Street, building, landmark"
-            size="sm"
-            error={Boolean(errors.address)}
-          />
-        </FormField>
+          <FormField label="Project Name" required error={errors.name}>
+            <Input
+              value={formData.name}
+              onChange={(v) => set('name', v)}
+              placeholder="e.g. Acme Corp - Head Office Redesign"
+              size="sm"
+              error={Boolean(errors.name)}
+            />
+          </FormField>
+
+          <FormField label="Project Scope" required error={errors.projectTypes}>
+            <ProjectTypesField
+              value={formData.projectTypes}
+              onChange={(v) => setFormData((prev) => ({ ...prev, projectTypes: v }))}
+              error={Boolean(errors.projectTypes)}
+            />
+          </FormField>
+
+          <FormField label="Sector" required error={errors.sector}>
+            <FormControl fullWidth size="small" error={Boolean(errors.sector)}>
+              <MuiSelect
+                value={formData.sector}
+                onChange={(e) => setFormData((prev) => ({ ...prev, sector: e.target.value }))}
+                displayEmpty
+                sx={{ fontSize: 13, '& .MuiOutlinedInput-root': { minHeight: 40 } }}
+              >
+                <MenuItem value="" disabled sx={{ fontSize: 13 }}>
+                  Select sector…
+                </MenuItem>
+                {activeSectors.map((s) => (
+                  <MenuItem key={s.id} value={s.name} sx={{ fontSize: 13 }}>
+                    {s.name}
+                  </MenuItem>
+                ))}
+                {formData.sector && !activeSectors.some((s) => s.name === formData.sector) ? (
+                  <MenuItem value={formData.sector} sx={{ fontSize: 13 }}>
+                    {formData.sector}
+                  </MenuItem>
+                ) : null}
+              </MuiSelect>
+            </FormControl>
+          </FormField>
+
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' },
+              gap: '14px',
+            }}
+          >
+            <FormField label="Carpet Area (sq ft)">
+              <Input
+                type="number"
+                value={formData.carpetArea}
+                onChange={(v) => set('carpetArea', v)}
+                placeholder="e.g. 4500"
+                size="sm"
+              />
+            </FormField>
+
+            <FormField label="Headcount">
+              <Input
+                type="number"
+                value={formData.headcount}
+                onChange={(v) => set('headcount', v)}
+                placeholder="e.g. 120"
+                size="sm"
+              />
+            </FormField>
+
+            <FormField label="Expected Start Date" error={errors.startDate}>
+              <DatePicker
+                value={dateFromIso(formData.startDate)}
+                onChange={(d) => set('startDate', isoFromDate(d))}
+                fullWidth
+                size="sm"
+              />
+            </FormField>
+
+            <FormField label="Expected End Date" error={errors.expectedEndDate}>
+              <DatePicker
+                value={dateFromIso(formData.expectedEndDate)}
+                onChange={(d) => set('expectedEndDate', isoFromDate(d))}
+                fullWidth
+                size="sm"
+                minDate={dateFromIso(formData.startDate) ?? undefined}
+              />
+            </FormField>
+          </Box>
+        </Box>
+
+        {/* Right — location */}
+        <Box sx={panelSx}>
+          <Typography
+            variant="overline"
+            sx={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.6, color: 'text.secondary', mb: -0.5 }}
+          >
+            Location
+          </Typography>
+
+          <FormField label="Address" error={errors.address}>
+            <Input
+              value={formData.address}
+              onChange={(v) => set('address', v)}
+              placeholder="Street, building, landmark"
+              size="sm"
+              error={Boolean(errors.address)}
+            />
+          </FormField>
+
+          <FormField label="City" error={errors.city}>
+            <AutocompleteField
+              options={[...INDIAN_CITIES]}
+              value={formData.city || null}
+              onChange={(v) => set('city', v ?? '')}
+              getOptionLabel={(o) => o}
+              isOptionEqualToValue={(a, b) => a === b}
+              placeholder="Search city…"
+              error={Boolean(errors.city)}
+              size="sm"
+            />
+          </FormField>
+
+          <FormField label="State" error={errors.state}>
+            <AutocompleteField
+              options={[...INDIAN_STATES]}
+              value={formData.state || null}
+              onChange={(v) => set('state', v ?? '')}
+              getOptionLabel={(o) => o}
+              isOptionEqualToValue={(a, b) => a === b}
+              placeholder="Search state…"
+              error={Boolean(errors.state)}
+              size="sm"
+            />
+          </FormField>
+
+          <FormField label="Country" error={errors.country}>
+            <AutocompleteField
+              options={[...COUNTRIES]}
+              value={formData.country || null}
+              onChange={(v) => set('country', v ?? '')}
+              getOptionLabel={(o) => o}
+              isOptionEqualToValue={(a, b) => a === b}
+              placeholder="Search country…"
+              error={Boolean(errors.country)}
+              size="sm"
+            />
+          </FormField>
+
+          <FormField label="PIN Code" error={errors.pincode}>
+            <Input
+              value={formData.pincode}
+              onChange={(v) => set('pincode', digitsOnly(v).slice(0, 10))}
+              placeholder="e.g. 110001"
+              size="sm"
+              error={Boolean(errors.pincode)}
+            />
+          </FormField>
+        </Box>
       </Box>
-
-      <FormField label="City" error={errors.city}>
-        <AutocompleteField
-          options={[...INDIAN_CITIES]}
-          value={formData.city || null}
-          onChange={(v) => set('city', v ?? '')}
-          getOptionLabel={(o) => o}
-          isOptionEqualToValue={(a, b) => a === b}
-          placeholder="Search city…"
-          error={Boolean(errors.city)}
-          size="sm"
-        />
-      </FormField>
-
-      <FormField label="State" error={errors.state}>
-        <AutocompleteField
-          options={[...INDIAN_STATES]}
-          value={formData.state || null}
-          onChange={(v) => set('state', v ?? '')}
-          getOptionLabel={(o) => o}
-          isOptionEqualToValue={(a, b) => a === b}
-          placeholder="Search state…"
-          error={Boolean(errors.state)}
-          size="sm"
-        />
-      </FormField>
-
-      <FormField label="Country" error={errors.country}>
-        <AutocompleteField
-          options={[...COUNTRIES]}
-          value={formData.country || null}
-          onChange={(v) => set('country', v ?? '')}
-          getOptionLabel={(o) => o}
-          isOptionEqualToValue={(a, b) => a === b}
-          placeholder="Search country…"
-          error={Boolean(errors.country)}
-          size="sm"
-        />
-      </FormField>
-
-      <FormField label="PIN Code" error={errors.pincode}>
-        <Input
-          value={formData.pincode}
-          onChange={(v) => set('pincode', digitsOnly(v).slice(0, 10))}
-          placeholder="e.g. 110001"
-          size="sm"
-          error={Boolean(errors.pincode)}
-        />
-      </FormField>
-
-      <FormField label="Carpet Area (sq ft)">
-        <Input
-          type="number"
-          value={formData.carpetArea}
-          onChange={(v) => set('carpetArea', v)}
-          placeholder="e.g. 4500"
-          size="sm"
-        />
-      </FormField>
-
-      <FormField label="Headcount">
-        <Input
-          type="number"
-          value={formData.headcount}
-          onChange={(v) => set('headcount', v)}
-          placeholder="e.g. 120"
-          size="sm"
-        />
-      </FormField>
-
-      <FormField label="Expected Start Date" error={errors.startDate}>
-        <DatePicker
-          value={dateFromIso(formData.startDate)}
-          onChange={(d) => set('startDate', isoFromDate(d))}
-          fullWidth
-          size="sm"
-        />
-      </FormField>
-
-      <FormField label="Expected End Date" error={errors.expectedEndDate}>
-        <DatePicker
-          value={dateFromIso(formData.expectedEndDate)}
-          onChange={(d) => set('expectedEndDate', isoFromDate(d))}
-          fullWidth
-          size="sm"
-          minDate={dateFromIso(formData.startDate) ?? undefined}
-        />
-      </FormField>
     </FullPageFormSection>
   )
 }

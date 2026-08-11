@@ -1,7 +1,13 @@
 /**
  * Sample data for Dashboard 1 — Vendors section.
+ * Plus Vendor Performance master graph from real vendors / invoices / projects.
  */
 
+import type { Project } from '@/slices/projects/reducer'
+import type { Vendor } from '@/slices/vendors/reducer'
+import type { VendorInvoice } from '@/slices/live/types'
+import { projectDurationDays } from '@/pages/Dashboard/dashboardMappings'
+import { CHART_COLORS } from '@/design-system/tokens'
 import type { MetaKpi, ProjectHighlight } from './largerMetaData'
 import { LARGER_META_KPIS, PROJECT_HIGHLIGHTS } from './largerMetaData'
 
@@ -31,6 +37,7 @@ export interface VendorBillingAcrossYearsPoint {
   craft: number
   aquaflow: number
   nova: number
+  [key: string]: string | number
 }
 
 /** Projects completed with each vendor — sorted highest → lowest. */
@@ -41,9 +48,7 @@ export interface ProjectsCompletedTogetherPoint {
 
 export const VENDOR_TIME_PERIOD_OPTIONS = [
   'This Financial Year',
-  'Last Financial Year',
   'Last 5 Years',
-  'Lifetime',
   'Custom Range',
 ] as const
 
@@ -166,12 +171,8 @@ function periodFactor(period: VendorTimePeriod): number {
   switch (period) {
     case 'This Financial Year':
       return 1
-    case 'Last Financial Year':
-      return 0.88
     case 'Last 5 Years':
       return 3.4
-    case 'Lifetime':
-      return 4.6
     case 'Custom Range':
       return 0.55
     default:
@@ -220,12 +221,8 @@ function billingTitle(period: VendorTimePeriod): string {
   switch (period) {
     case 'This Financial Year':
       return 'Total Vendor Billing (Current Year)'
-    case 'Last Financial Year':
-      return 'Total Vendor Billing (Last Year)'
     case 'Last 5 Years':
       return 'Total Vendor Billing (Last 5 Years)'
-    case 'Lifetime':
-      return 'Total Vendor Billing (Lifetime)'
     case 'Custom Range':
       return 'Total Vendor Billing (Custom Range)'
     default:
@@ -241,12 +238,8 @@ function billingSubtitle(period: VendorTimePeriod, vendorId: VendorFilterId): st
   switch (period) {
     case 'This Financial Year':
       return `Total vendor billing for ${scope} in the selected financial year.`
-    case 'Last Financial Year':
-      return `Total vendor billing for ${scope} in the previous financial year.`
     case 'Last 5 Years':
       return `Cumulative vendor billing for ${scope} over the last 5 years.`
-    case 'Lifetime':
-      return `Lifetime vendor billing for ${scope}.`
     case 'Custom Range':
       return `Vendor billing for ${scope} in the selected custom range.`
     default:
@@ -557,5 +550,530 @@ export function getVendorAnalytics(
     projectsCompleted,
     largerMetaKpis: meta.kpis,
     projectHighlights: meta.highlights,
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Vendor Performance master graph (real vendors / invoices / projects)       */
+/* -------------------------------------------------------------------------- */
+
+export const VENDOR_PERFORMANCE_METRIC_OPTIONS = [
+  'Projects',
+  'No. of Projects',
+  'Billing for the Projects',
+  'Duration',
+  'Total Billing for the Year',
+  'Billing Over the Years',
+] as const
+
+export type VendorPerformanceMetric = (typeof VENDOR_PERFORMANCE_METRIC_OPTIONS)[number]
+
+export const TOP5_VENDOR_OPTION_VALUE = 'top5'
+
+export interface VendorPerformanceOption {
+  value: string
+  label: string
+}
+
+export interface VendorPerformanceSeriesConfig {
+  key: string
+  label: string
+  color: string
+}
+
+export interface VendorPerformanceChartConfig {
+  title: string
+  subtitle: string
+  kind: 'horizontal-bar' | 'years-line'
+  /** Category key for bar charts (vendor | project). */
+  xKey: string
+  yAxisLabel: string
+  xAxisLabel: string
+  format: 'count' | 'currency' | 'days'
+  series: VendorPerformanceSeriesConfig[]
+  data: Array<Record<string, string | number>>
+  /** Project names / extras for tooltips (keyed by row id). */
+  tooltipDetails?: Record<string, { projects?: string[]; extra?: string }>
+}
+
+export interface VendorPerformanceBundle {
+  vendorOptions: VendorPerformanceOption[]
+  chart: VendorPerformanceChartConfig
+}
+
+interface DateBounds {
+  start: Date
+  end: Date
+}
+
+interface VendorProjectLink {
+  projectId: string
+  projectName: string
+  billing: number
+  durationDays: number | null
+}
+
+interface VendorAccumulator {
+  vendorId: string
+  vendorName: string
+  projects: Map<string, VendorProjectLink>
+  billingInPeriod: number
+  billingByYear: Map<string, number>
+}
+
+const PERFORMANCE_LINE_COLORS = [
+  CHART_COLORS.teal,
+  CHART_COLORS.blue,
+  CHART_COLORS.amber,
+  CHART_COLORS.purple,
+  CHART_COLORS.green,
+  CHART_COLORS.red,
+  CHART_COLORS.grey,
+]
+
+function startOfDay(d: Date): Date {
+  const next = new Date(d)
+  next.setHours(0, 0, 0, 0)
+  return next
+}
+
+function endOfDay(d: Date): Date {
+  const next = new Date(d)
+  next.setHours(23, 59, 59, 999)
+  return next
+}
+
+function parseDate(value: string | null | undefined): Date | null {
+  if (!value) return null
+  const d = new Date(value)
+  return Number.isNaN(d.getTime()) ? null : d
+}
+
+/** Indian FY (Apr–Mar) for "This Financial Year"; calendar span for Last 5 Years. */
+function getVendorPeriodBounds(
+  period: VendorTimePeriod,
+  customRange?: [Date | null, Date | null],
+  now = new Date(),
+): DateBounds {
+  if (period === 'Custom Range') {
+    const [start, end] = customRange ?? [null, null]
+    if (start && end) {
+      return { start: startOfDay(start), end: endOfDay(end) }
+    }
+  }
+  if (period === 'Last 5 Years') {
+    return {
+      start: startOfDay(new Date(now.getFullYear() - 4, 0, 1)),
+      end: endOfDay(now),
+    }
+  }
+  // This Financial Year (Apr 1 → today)
+  const year = now.getFullYear()
+  const fyStartYear = now.getMonth() >= 3 ? year : year - 1
+  return {
+    start: startOfDay(new Date(fyStartYear, 3, 1)),
+    end: endOfDay(now),
+  }
+}
+
+function inBounds(iso: string | null | undefined, bounds: DateBounds): boolean {
+  const d = parseDate(iso)
+  if (!d) return false
+  return d >= bounds.start && d <= bounds.end
+}
+
+function vendorSeriesKey(vendorId: string): string {
+  return `v_${vendorId.replace(/[^a-zA-Z0-9]/g, '_')}`
+}
+
+function projectDurationForVendor(project: Project | undefined, now = new Date()): number | null {
+  if (!project) return null
+  const planned = projectDurationDays(project)
+  if (planned != null) return planned
+  if (!project.startDate) return null
+  const start = parseDate(project.startDate)
+  if (!start) return null
+  const diff = Math.round((endOfDay(now).getTime() - startOfDay(start).getTime()) / 86_400_000)
+  return diff >= 0 ? diff : null
+}
+
+function ensureVendorAcc(
+  map: Map<string, VendorAccumulator>,
+  vendorId: string,
+  vendorName: string,
+): VendorAccumulator {
+  let acc = map.get(vendorId)
+  if (!acc) {
+    acc = {
+      vendorId,
+      vendorName,
+      projects: new Map(),
+      billingInPeriod: 0,
+      billingByYear: new Map(),
+    }
+    map.set(vendorId, acc)
+  } else if (vendorName && (!acc.vendorName || acc.vendorName === 'Unknown')) {
+    acc.vendorName = vendorName
+  }
+  return acc
+}
+
+function linkProject(
+  acc: VendorAccumulator,
+  projectId: string,
+  projectName: string,
+  billingAdd: number,
+  durationDays: number | null,
+): void {
+  const existing = acc.projects.get(projectId)
+  if (existing) {
+    existing.billing += billingAdd
+    if (existing.durationDays == null && durationDays != null) {
+      existing.durationDays = durationDays
+    }
+    if (projectName && existing.projectName === projectId) {
+      existing.projectName = projectName
+    }
+    return
+  }
+  acc.projects.set(projectId, {
+    projectId,
+    projectName: projectName || projectId,
+    billing: billingAdd,
+    durationDays,
+  })
+}
+
+function buildVendorAccumulators(
+  vendors: Vendor[],
+  projects: Project[],
+  vendorInvoices: VendorInvoice[],
+  periodBounds: DateBounds,
+): Map<string, VendorAccumulator> {
+  const projectById = new Map(projects.map((p) => [p.id, p]))
+  const map = new Map<string, VendorAccumulator>()
+
+  for (const vendor of vendors) {
+    if (vendor.profileStatus === 'pending') continue
+    ensureVendorAcc(map, vendor.id, vendor.name)
+  }
+
+  for (const inv of vendorInvoices) {
+    const vendorId = (inv.vendorId || '').trim()
+    if (!vendorId) continue
+    const vendorName = (inv.vendorName || '').trim() || 'Unknown'
+    const acc = ensureVendorAcc(map, vendorId, vendorName)
+    const amount = inv.baseAmount ?? 0
+    const project = projectById.get(inv.projectId)
+    const projectName =
+      inv.projectName?.trim() || project?.name?.trim() || inv.projectId
+    const duration = projectDurationForVendor(project)
+
+    linkProject(acc, inv.projectId, projectName, amount > 0 ? amount : 0, duration)
+
+    const invoiceDate = inv.invoiceDate
+    if (amount > 0 && invoiceDate) {
+      const d = parseDate(invoiceDate)
+      if (d) {
+        const yearKey = String(d.getFullYear())
+        acc.billingByYear.set(yearKey, (acc.billingByYear.get(yearKey) ?? 0) + amount)
+      }
+      if (inBounds(invoiceDate, periodBounds)) {
+        acc.billingInPeriod += amount
+      }
+    }
+  }
+
+  // Seed project counts from vendor financial details when invoices have no project links
+  for (const vendor of vendors) {
+    if (vendor.profileStatus === 'pending') continue
+    const acc = map.get(vendor.id)
+    if (!acc) continue
+    if (acc.projects.size > 0) continue
+    const fd = vendor.financialDetails
+    const count =
+      fd != null
+        ? fd.activeProjects + fd.completedProjects
+        : vendor.activeProjects
+    if (count <= 0) continue
+    // Placeholder project slots so "No. of Projects" reflects vendor record without inventing names
+    for (let i = 0; i < count; i++) {
+      const pid = `${vendor.id}__meta_${i}`
+      linkProject(acc, pid, `Project ${i + 1}`, 0, null)
+    }
+    if (acc.billingInPeriod <= 0) {
+      const paid = fd?.amountPaid ?? 0
+      const contract = fd?.totalContractValue ?? 0
+      const payables = vendor.totalPayables ?? 0
+      acc.billingInPeriod = paid > 0 ? paid : contract > 0 ? contract : payables
+    }
+  }
+
+  return map
+}
+
+function rankVendorsByBilling(accs: VendorAccumulator[]): VendorAccumulator[] {
+  return [...accs].sort(
+    (a, b) =>
+      b.billingInPeriod - a.billingInPeriod ||
+      b.projects.size - a.projects.size ||
+      a.vendorName.localeCompare(b.vendorName),
+  )
+}
+
+function averageDuration(acc: VendorAccumulator): number {
+  const durations = [...acc.projects.values()]
+    .map((p) => p.durationDays)
+    .filter((d): d is number => d != null)
+  if (durations.length === 0) return 0
+  return Math.round(durations.reduce((s, d) => s + d, 0) / durations.length)
+}
+
+function buildVendorOptions(ranked: VendorAccumulator[]): VendorPerformanceOption[] {
+  const options = ranked.map((v) => ({ value: v.vendorId, label: v.vendorName }))
+  return [{ value: TOP5_VENDOR_OPTION_VALUE, label: 'Top 5 Vendors' }, ...options]
+}
+
+function scopeVendors(
+  ranked: VendorAccumulator[],
+  performanceVendorId: string,
+): VendorAccumulator[] {
+  if (performanceVendorId === TOP5_VENDOR_OPTION_VALUE) {
+    return ranked.slice(0, 5)
+  }
+  const match = ranked.find((v) => v.vendorId === performanceVendorId)
+  return match ? [match] : []
+}
+
+function projectNames(acc: VendorAccumulator): string[] {
+  return [...acc.projects.values()]
+    .map((p) => p.projectName)
+    .filter((name) => !name.includes('__meta_') && !/^Project \d+$/.test(name))
+    .sort((a, b) => a.localeCompare(b))
+}
+
+function buildYearsLineChart(
+  scoped: VendorAccumulator[],
+  allYears: string[],
+): VendorPerformanceChartConfig {
+  const series = scoped.map((v, i) => ({
+    key: vendorSeriesKey(v.vendorId),
+    label: v.vendorName,
+    color: PERFORMANCE_LINE_COLORS[i % PERFORMANCE_LINE_COLORS.length],
+  }))
+
+  const data = allYears.map((year) => {
+    const row: Record<string, string | number> = { year }
+    for (const v of scoped) {
+      row[vendorSeriesKey(v.vendorId)] = v.billingByYear.get(year) ?? 0
+    }
+    return row
+  })
+
+  return {
+    title: 'Vendor Performance',
+    subtitle: 'Billing over the years',
+    kind: 'years-line',
+    xKey: 'year',
+    yAxisLabel: 'Billing',
+    xAxisLabel: 'Years',
+    format: 'currency',
+    series,
+    data,
+  }
+}
+
+function buildHorizontalChart(
+  metric: VendorPerformanceMetric,
+  scoped: VendorAccumulator[],
+  performanceVendorId: string,
+): VendorPerformanceChartConfig {
+  const tooltipDetails: Record<string, { projects?: string[]; extra?: string }> = {}
+
+  // Projects metric — single vendor: project-wise bars
+  if (metric === 'Projects' && performanceVendorId !== TOP5_VENDOR_OPTION_VALUE && scoped[0]) {
+    const vendor = scoped[0]
+    const rows = [...vendor.projects.values()]
+      .filter((p) => !p.projectId.includes('__meta_'))
+      .sort((a, b) => b.billing - a.billing || a.projectName.localeCompare(b.projectName))
+      .map((p) => {
+        tooltipDetails[p.projectId] = {
+          projects: [p.projectName],
+          extra:
+            p.durationDays != null
+              ? `Duration: ${p.durationDays} days`
+              : undefined,
+        }
+        return {
+          project: p.projectName,
+          projectId: p.projectId,
+          value: p.billing > 0 ? p.billing : 1,
+        }
+      })
+
+    const hasBilling = rows.some((r) => typeof r.value === 'number' && r.value > 1)
+    return {
+      title: 'Vendor Performance',
+      subtitle: `Projects associated with ${vendor.vendorName}`,
+      kind: 'horizontal-bar',
+      xKey: 'project',
+      yAxisLabel: 'Projects',
+      xAxisLabel: hasBilling ? 'Billing for Projects (₹)' : 'Projects',
+      format: hasBilling ? 'currency' : 'count',
+      series: [
+        {
+          key: 'value',
+          label: hasBilling ? 'Billing' : 'Associated',
+          color: CHART_COLORS.blue,
+        },
+      ],
+      data: rows,
+      tooltipDetails,
+    }
+  }
+
+  // Vendor-wise bars (Top 5 or single vendor non-project metrics / Projects for Top 5)
+  const data = scoped.map((v) => {
+    const names = projectNames(v)
+    let value = 0
+    let extra: string | undefined
+
+    switch (metric) {
+      case 'Projects':
+        value = v.projects.size
+        extra = names.length > 0 ? undefined : 'No named projects linked'
+        break
+      case 'No. of Projects':
+        value = v.projects.size
+        break
+      case 'Billing for the Projects':
+        value = Math.round(
+          [...v.projects.values()].reduce((s, p) => s + p.billing, 0),
+        )
+        break
+      case 'Duration':
+        value = averageDuration(v)
+        extra =
+          value > 0
+            ? `Avg across ${[...v.projects.values()].filter((p) => p.durationDays != null).length} project(s)`
+            : 'No duration data'
+        break
+      case 'Total Billing for the Year':
+        value = Math.round(v.billingInPeriod)
+        break
+      default:
+        value = v.projects.size
+    }
+
+    tooltipDetails[v.vendorId] = { projects: names, extra }
+
+    return {
+      vendor: v.vendorName,
+      vendorId: v.vendorId,
+      value,
+    }
+  })
+
+  const meta = (() => {
+    switch (metric) {
+      case 'Projects':
+        return {
+          subtitle: 'Projects associated with each vendor (see tooltip for names)',
+          xAxisLabel: 'No. of Projects',
+          color: CHART_COLORS.blue,
+        }
+      case 'No. of Projects':
+        return {
+          subtitle: 'Number of projects per vendor',
+          xAxisLabel: 'Number of Projects',
+          color: CHART_COLORS.blue,
+        }
+      case 'Billing for the Projects':
+        return {
+          subtitle: 'Billing associated with each vendor’s projects',
+          xAxisLabel: 'Billing for Projects (₹)',
+          color: CHART_COLORS.teal,
+        }
+      case 'Duration':
+        return {
+          subtitle: 'Average project duration per vendor',
+          xAxisLabel: 'Average Project Duration (days)',
+          color: CHART_COLORS.amber,
+        }
+      case 'Total Billing for the Year':
+        return {
+          subtitle: 'Total billing for the selected time period',
+          xAxisLabel: 'Total Billing for the Year (₹)',
+          color: CHART_COLORS.green,
+        }
+      default:
+        return {
+          subtitle: 'Vendor performance',
+          xAxisLabel: 'Value',
+          color: CHART_COLORS.teal,
+        }
+    }
+  })()
+
+  const format: 'count' | 'currency' | 'days' =
+    metric === 'Duration'
+      ? 'days'
+      : metric === 'Billing for the Projects' || metric === 'Total Billing for the Year'
+        ? 'currency'
+        : 'count'
+
+  return {
+    title: 'Vendor Performance',
+    subtitle: meta.subtitle,
+    kind: 'horizontal-bar',
+    xKey: 'vendor',
+    yAxisLabel: performanceVendorId === TOP5_VENDOR_OPTION_VALUE ? 'Top 5 Vendors' : 'Vendors',
+    xAxisLabel: meta.xAxisLabel,
+    format,
+    series: [{ key: 'value', label: meta.xAxisLabel, color: meta.color }],
+    data: data.sort((a, b) => Number(b.value) - Number(a.value)),
+    tooltipDetails,
+  }
+}
+
+/** Master Vendor Performance chart from real vendor / invoice / project data. */
+export function getVendorPerformanceAnalytics(
+  vendors: Vendor[],
+  projects: Project[],
+  vendorInvoices: VendorInvoice[],
+  timePeriod: VendorTimePeriod,
+  performanceVendorId: string,
+  metric: VendorPerformanceMetric,
+  customRange?: [Date | null, Date | null],
+): VendorPerformanceBundle {
+  const periodBounds = getVendorPeriodBounds(timePeriod, customRange)
+  const accMap = buildVendorAccumulators(vendors, projects, vendorInvoices, periodBounds)
+  const ranked = rankVendorsByBilling([...accMap.values()].filter((v) => v.vendorName))
+  const vendorOptions = buildVendorOptions(ranked)
+
+  const resolvedId = vendorOptions.some((o) => o.value === performanceVendorId)
+    ? performanceVendorId
+    : TOP5_VENDOR_OPTION_VALUE
+
+  const scoped = scopeVendors(ranked, resolvedId)
+
+  if (metric === 'Billing Over the Years') {
+    const yearSet = new Set<string>()
+    for (const v of ranked) {
+      for (const y of v.billingByYear.keys()) yearSet.add(y)
+    }
+    // Ensure a sensible span even if sparse
+    const nowYear = new Date().getFullYear()
+    for (let y = nowYear - 4; y <= nowYear; y++) yearSet.add(String(y))
+    const allYears = [...yearSet].sort()
+    return {
+      vendorOptions,
+      chart: buildYearsLineChart(scoped, allYears),
+    }
+  }
+
+  return {
+    vendorOptions,
+    chart: buildHorizontalChart(metric, scoped, resolvedId),
   }
 }

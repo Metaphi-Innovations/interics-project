@@ -4,7 +4,6 @@ import {
   Badge,
   Box,
   Card,
-  Chip as MuiChip,
   CircularProgress,
   IconButton,
   InputBase,
@@ -30,14 +29,12 @@ import { Eye } from 'lucide-react'
 import { Button, DatePicker, Modal, StatusBadge, useToast } from '@/design-system/components'
 import type { StatusType } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
-import { getStatusMasterChipColors } from '@/utils/masterChipStyles'
 import { FiltersPopover } from '@/components/templates'
 import type { FilterField } from '@/components/templates'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { fetchProjects } from '@/slices/projects/thunk'
 import { fetchRoles } from '@/slices/roles/thunk'
 import { fetchUsers, updateUser } from '@/slices/users/thunk'
-import { fetchStatuses } from '@/slices/settings/thunk'
 import type { Project } from '@/slices/projects/reducer'
 import { ProjectOverviewTab } from '@/pages/Projects/components/ProjectOverviewTab'
 import { formatBuildingFloor } from '@/pages/Projects/projectOverviewHelpers'
@@ -64,7 +61,6 @@ const ASSIGNED_PROJECT_COLUMNS: Array<{ key: SortField; label: string }> = [
   { key: 'projectLead', label: 'Project Lead' },
   { key: 'sites', label: 'Sites' },
   { key: 'status', label: 'Project Status' },
-  { key: 'progress', label: 'Status' },
   { key: 'startDate', label: 'Start Date' },
   { key: 'expectedEndDate', label: 'Expected End Date' },
   { key: 'revenue', label: 'Revenue' },
@@ -122,7 +118,6 @@ type SortField =
   | 'projectName'
   | 'projectLead'
   | 'status'
-  | 'progress'
   | 'startDate'
   | 'expectedEndDate'
   | 'sites'
@@ -135,7 +130,6 @@ interface AssignedProjectRow {
   projectName: string
   projectLead: string
   status: Project['status']
-  progress: string
   startDate: string | null
   expectedEndDate: string | null
   sites: string
@@ -143,29 +137,6 @@ interface AssignedProjectRow {
   profit: number
   profitPct: number | null
   project: Project
-}
-
-/** Same progress chip used on Projects listing Status column. */
-function ProgressBadge({ label }: { label: string }) {
-  const theme = useTheme()
-  const mode = theme.palette.mode === 'dark' ? 'dark' : 'light'
-  const colors = getStatusMasterChipColors(label, mode)
-  return (
-    <MuiChip
-      label={label}
-      size="small"
-      sx={{
-        height: 18,
-        fontSize: 10,
-        fontWeight: 600,
-        bgcolor: colors.bg,
-        color: colors.color,
-        borderRadius: '4px',
-        border: 'none',
-        '& .MuiChip-label': { px: '6px' },
-      }}
-    />
-  )
 }
 
 function startOfDay(d: Date): Date {
@@ -367,7 +338,6 @@ export default function TeamMemberDetailPage() {
     dispatch(fetchUsers({}))
     dispatch(fetchRoles())
     dispatch(fetchProjects({ page: 1, pageSize: 500 }))
-    dispatch(fetchStatuses())
   }, [dispatch])
 
   useEffect(() => {
@@ -391,7 +361,6 @@ export default function TeamMemberDetailPage() {
         projectName: project.name,
         projectLead: project.projectManager || '—',
         status: project.status,
-        progress: project.progress || '—',
         startDate: project.startDate,
         expectedEndDate: project.expectedEndDate,
         sites: formatBuildingFloor(project),
@@ -461,9 +430,6 @@ export default function TeamMemberDetailPage() {
           break
         case 'status':
           cmp = compareText(a.status, b.status)
-          break
-        case 'progress':
-          cmp = compareText(a.progress, b.progress)
           break
         case 'startDate':
           cmp = compareDate(a.startDate, b.startDate)
@@ -819,7 +785,7 @@ export default function TeamMemberDetailPage() {
             <TableBody>
               {pageRows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={11} sx={{ py: 5 }}>
+                  <TableCell colSpan={10} sx={{ py: 5 }}>
                     <Typography variant="body2" color="text.secondary" align="center">
                       {period === 'Custom Date Range' && (!customFrom || !customTo)
                         ? 'Select a custom start and end date to view assigned projects.'
@@ -848,9 +814,6 @@ export default function TeamMemberDetailPage() {
                             | 'archived'
                         }
                       />
-                    </TableCell>
-                    <TableCell sx={tableBodyCellSx}>
-                      <ProgressBadge label={row.progress} />
                     </TableCell>
                     <TableCell sx={tableBodyCellSx}>{formatDate(row.startDate)}</TableCell>
                     <TableCell sx={tableBodyCellSx}>{formatDate(row.expectedEndDate)}</TableCell>

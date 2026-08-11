@@ -1,6 +1,13 @@
 /**
  * Sample data for Dashboard 1 — Team section (employee-centric, filter by time).
+ * Plus Team Performance master graph from real project assignments.
  */
+
+import type { Project } from '@/slices/projects/reducer'
+import { projectDurationDays } from '@/pages/Dashboard/dashboardMappings'
+import { getProjectTypes } from '@/pages/Projects/projectTypes'
+import { getProjectAssignedMembers } from '@/utils/projectAssignedTeam'
+import { CHART_COLORS } from '@/design-system/tokens'
 
 export const TEAM_EMPLOYEE_OPTIONS = [
   { value: 'all', label: 'All Employees' },
@@ -345,5 +352,422 @@ export function getTeamAnalytics(
         profit,
       },
     ],
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Team Performance master graph (real project assignments)                   */
+/* -------------------------------------------------------------------------- */
+
+export const TEAM_METRIC_OPTIONS = [
+  'Number of Projects',
+  'Project Size',
+  'Project Duration',
+  'Average Revenue',
+  'Total Revenue',
+  'Design vs Build',
+  'Pitches vs Live Projects',
+  'Average Project Size',
+  'Average Project Duration',
+  'Previous Year Comparison',
+] as const
+
+export type TeamMetric = (typeof TEAM_METRIC_OPTIONS)[number]
+
+export interface TeamMemberOption {
+  value: string
+  label: string
+}
+
+export interface TeamChartSeriesConfig {
+  key: string
+  label: string
+  color: string
+}
+
+export interface TeamPerformanceChartConfig {
+  yAxisLabel: string
+  format: 'count' | 'sqft' | 'days' | 'currency'
+  series: TeamChartSeriesConfig[]
+  data: Array<Record<string, string | number>>
+}
+
+export interface TeamPerformanceBundle {
+  memberOptions: TeamMemberOption[]
+  performanceChart: TeamPerformanceChartConfig
+}
+
+interface DateBounds {
+  start: Date
+  end: Date
+}
+
+interface MemberAccumulator {
+  userId: string
+  name: string
+  projectIds: Set<string>
+  projects: Project[]
+}
+
+function startOfDay(d: Date): Date {
+  const next = new Date(d)
+  next.setHours(0, 0, 0, 0)
+  return next
+}
+
+function endOfDay(d: Date): Date {
+  const next = new Date(d)
+  next.setHours(23, 59, 59, 999)
+  return next
+}
+
+function parseDate(value: string | null | undefined): Date | null {
+  if (!value) return null
+  const d = new Date(value)
+  return Number.isNaN(d.getTime()) ? null : d
+}
+
+function projectAnchorDate(project: Project): Date | null {
+  return parseDate(project.startDate) ?? parseDate(project.createdAt)
+}
+
+function getPerformancePeriodBounds(period: TeamTimePeriod, now = new Date()): {
+  current: DateBounds
+  previous: DateBounds
+} {
+  const year = now.getFullYear()
+  if (period === 'Last Year') {
+    return {
+      current: {
+        start: startOfDay(new Date(year - 1, 0, 1)),
+        end: endOfDay(new Date(year - 1, 11, 31)),
+      },
+      previous: {
+        start: startOfDay(new Date(year - 2, 0, 1)),
+        end: endOfDay(new Date(year - 2, 11, 31)),
+      },
+    }
+  }
+  if (period === 'Last 5 Years') {
+    return {
+      current: {
+        start: startOfDay(new Date(year - 4, 0, 1)),
+        end: endOfDay(now),
+      },
+      previous: {
+        start: startOfDay(new Date(year - 9, 0, 1)),
+        end: endOfDay(new Date(year - 5, 11, 31)),
+      },
+    }
+  }
+  if (period === 'Lifetime') {
+    return {
+      current: {
+        start: startOfDay(new Date(2000, 0, 1)),
+        end: endOfDay(now),
+      },
+      previous: {
+        start: startOfDay(new Date(2000, 0, 1)),
+        end: endOfDay(new Date(year - 1, 11, 31)),
+      },
+    }
+  }
+  // This Year + Custom Range → YTD vs prior calendar year
+  return {
+    current: {
+      start: startOfDay(new Date(year, 0, 1)),
+      end: endOfDay(now),
+    },
+    previous: {
+      start: startOfDay(new Date(year - 1, 0, 1)),
+      end: endOfDay(new Date(year - 1, 11, 31)),
+    },
+  }
+}
+
+function projectInBounds(project: Project, bounds: DateBounds): boolean {
+  const anchor = projectAnchorDate(project)
+  if (!anchor) return false
+  return anchor >= bounds.start && anchor <= bounds.end
+}
+
+function projectRevenue(project: Project): number {
+  return project.totalClientPOValue || project.projectValue || 0
+}
+
+function projectSqft(project: Project): number | null {
+  const area = project.carpetArea ?? project.chargeableArea ?? null
+  if (area == null || area <= 0) return null
+  return area
+}
+
+function isDesignProject(project: Project): boolean {
+  const types = getProjectTypes(project)
+  return types.some((t) => t === 'ID' || t === 'Branding & Styling' || t === 'TDD' || t === 'LEED')
+}
+
+function isBuildProject(project: Project): boolean {
+  return getProjectTypes(project).includes('Build')
+}
+
+function uniqueAssignedMembers(project: Project): Array<{ userId: string; name: string }> {
+  const seen = new Set<string>()
+  const members: Array<{ userId: string; name: string }> = []
+  for (const m of getProjectAssignedMembers(project)) {
+    const id = m.userId.trim()
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    members.push({ userId: id, name: m.name.trim() || 'Unknown' })
+  }
+  return members
+}
+
+function accumulate(map: Map<string, MemberAccumulator>, projects: Project[]): void {
+  for (const project of projects) {
+    for (const member of uniqueAssignedMembers(project)) {
+      let acc = map.get(member.userId)
+      if (!acc) {
+        acc = {
+          userId: member.userId,
+          name: member.name,
+          projectIds: new Set(),
+          projects: [],
+        }
+        map.set(member.userId, acc)
+      } else if (member.name && (!acc.name || acc.name === 'Unknown')) {
+        acc.name = member.name
+      }
+      if (acc.projectIds.has(project.id)) continue
+      acc.projectIds.add(project.id)
+      acc.projects.push(project)
+    }
+  }
+}
+
+interface MemberMetrics {
+  userId: string
+  name: string
+  projectCount: number
+  totalSqft: number
+  avgSqft: number
+  totalDurationDays: number
+  avgDurationDays: number
+  totalRevenue: number
+  avgRevenue: number
+  designCount: number
+  buildCount: number
+  pitches: number
+  liveProjects: number
+  previousProjectCount: number
+  previousRevenue: number
+}
+
+function metricsForMember(
+  current: MemberAccumulator | undefined,
+  previous: MemberAccumulator | undefined,
+): MemberMetrics | null {
+  if (!current && !previous) return null
+  const userId = current?.userId ?? previous!.userId
+  const name = current?.name ?? previous!.name
+  const projects = current?.projects ?? []
+  const prevProjects = previous?.projects ?? []
+
+  const sqftValues = projects.map(projectSqft).filter((v): v is number => v != null)
+  const totalSqft = sqftValues.reduce((s, v) => s + v, 0)
+  const avgSqft = sqftValues.length > 0 ? Math.round(totalSqft / sqftValues.length) : 0
+
+  const durations = projects
+    .map(projectDurationDays)
+    .filter((v): v is number => v != null)
+  const totalDurationDays = durations.reduce((s, v) => s + v, 0)
+  const avgDurationDays =
+    durations.length > 0 ? Math.round(totalDurationDays / durations.length) : 0
+
+  const totalRevenue = projects.reduce((s, p) => s + projectRevenue(p), 0)
+  const avgRevenue = projects.length > 0 ? Math.round(totalRevenue / projects.length) : 0
+
+  let designCount = 0
+  let buildCount = 0
+  let pitches = 0
+  let liveProjects = 0
+  for (const p of projects) {
+    if (isDesignProject(p)) designCount += 1
+    if (isBuildProject(p)) buildCount += 1
+    if (p.status === 'Pitch') pitches += 1
+    if (p.status === 'Live') liveProjects += 1
+  }
+
+  return {
+    userId,
+    name,
+    projectCount: projects.length,
+    totalSqft: Math.round(totalSqft),
+    avgSqft,
+    totalDurationDays,
+    avgDurationDays,
+    totalRevenue,
+    avgRevenue,
+    designCount,
+    buildCount,
+    pitches,
+    liveProjects,
+    previousProjectCount: prevProjects.length,
+    previousRevenue: prevProjects.reduce((s, p) => s + projectRevenue(p), 0),
+  }
+}
+
+function buildPerformanceChart(
+  members: MemberMetrics[],
+  metric: TeamMetric,
+): TeamPerformanceChartConfig {
+  const dataBase = members.map((m) => ({ member: m.name, userId: m.userId }))
+
+  switch (metric) {
+    case 'Number of Projects':
+      return {
+        yAxisLabel: 'Number of Projects',
+        format: 'count',
+        series: [{ key: 'value', label: 'Projects', color: CHART_COLORS.teal }],
+        data: members.map((m, i) => ({ ...dataBase[i], value: m.projectCount })),
+      }
+    case 'Project Size':
+      return {
+        yAxisLabel: 'Project Size (sqft)',
+        format: 'sqft',
+        series: [{ key: 'value', label: 'Total Size', color: CHART_COLORS.amber }],
+        data: members.map((m, i) => ({ ...dataBase[i], value: m.totalSqft })),
+      }
+    case 'Project Duration':
+      return {
+        yAxisLabel: 'Project Duration (days)',
+        format: 'days',
+        series: [{ key: 'value', label: 'Total Duration', color: CHART_COLORS.blue }],
+        data: members.map((m, i) => ({ ...dataBase[i], value: m.totalDurationDays })),
+      }
+    case 'Average Revenue':
+      return {
+        yAxisLabel: 'Average Revenue',
+        format: 'currency',
+        series: [{ key: 'value', label: 'Avg Revenue', color: CHART_COLORS.teal }],
+        data: members.map((m, i) => ({ ...dataBase[i], value: m.avgRevenue })),
+      }
+    case 'Total Revenue':
+      return {
+        yAxisLabel: 'Total Revenue',
+        format: 'currency',
+        series: [{ key: 'value', label: 'Total Revenue', color: CHART_COLORS.green }],
+        data: members.map((m, i) => ({ ...dataBase[i], value: m.totalRevenue })),
+      }
+    case 'Design vs Build':
+      return {
+        yAxisLabel: 'Number of Projects',
+        format: 'count',
+        series: [
+          { key: 'design', label: 'Design', color: CHART_COLORS.blue },
+          { key: 'build', label: 'Build', color: CHART_COLORS.amber },
+        ],
+        data: members.map((m, i) => ({
+          ...dataBase[i],
+          design: m.designCount,
+          build: m.buildCount,
+        })),
+      }
+    case 'Pitches vs Live Projects':
+      return {
+        yAxisLabel: 'Number of Projects',
+        format: 'count',
+        series: [
+          { key: 'pitches', label: 'Pitches', color: CHART_COLORS.blue },
+          { key: 'live', label: 'Live Projects', color: CHART_COLORS.teal },
+        ],
+        data: members.map((m, i) => ({
+          ...dataBase[i],
+          pitches: m.pitches,
+          live: m.liveProjects,
+        })),
+      }
+    case 'Average Project Size':
+      return {
+        yAxisLabel: 'Average Project Size (sqft)',
+        format: 'sqft',
+        series: [{ key: 'value', label: 'Avg Size', color: CHART_COLORS.amber }],
+        data: members.map((m, i) => ({ ...dataBase[i], value: m.avgSqft })),
+      }
+    case 'Average Project Duration':
+      return {
+        yAxisLabel: 'Average Project Duration (days)',
+        format: 'days',
+        series: [{ key: 'value', label: 'Avg Duration', color: CHART_COLORS.blue }],
+        data: members.map((m, i) => ({ ...dataBase[i], value: m.avgDurationDays })),
+      }
+    case 'Previous Year Comparison':
+      return {
+        yAxisLabel: 'Total Revenue',
+        format: 'currency',
+        series: [
+          { key: 'current', label: 'Current Year', color: CHART_COLORS.teal },
+          { key: 'previous', label: 'Previous Year', color: CHART_COLORS.grey },
+        ],
+        data: members.map((m, i) => ({
+          ...dataBase[i],
+          current: m.totalRevenue,
+          previous: m.previousRevenue,
+        })),
+      }
+    default:
+      return {
+        yAxisLabel: 'Value',
+        format: 'count',
+        series: [{ key: 'value', label: 'Value', color: CHART_COLORS.teal }],
+        data: members.map((m, i) => ({ ...dataBase[i], value: m.projectCount })),
+      }
+  }
+}
+
+function buildMemberOptions(projects: Project[]): TeamMemberOption[] {
+  const byId = new Map<string, string>()
+  for (const project of projects) {
+    for (const member of uniqueAssignedMembers(project)) {
+      if (!byId.has(member.userId)) byId.set(member.userId, member.name)
+    }
+  }
+  const options = [...byId.entries()]
+    .map(([value, label]) => ({ value, label }))
+    .sort((a, b) => a.label.localeCompare(b.label))
+  return [{ value: 'all', label: 'All Team Members' }, ...options]
+}
+
+/** Master Team Performance chart from real project assignments. */
+export function getTeamPerformanceAnalytics(
+  projects: Project[],
+  timePeriod: TeamTimePeriod,
+  teamMemberId: string,
+  metric: TeamMetric,
+): TeamPerformanceBundle {
+  const memberOptions = buildMemberOptions(projects)
+  const { current: currentBounds, previous: previousBounds } =
+    getPerformancePeriodBounds(timePeriod)
+
+  const currentProjects = projects.filter((p) => projectInBounds(p, currentBounds))
+  const previousProjects = projects.filter((p) => projectInBounds(p, previousBounds))
+
+  const currentMap = new Map<string, MemberAccumulator>()
+  const previousMap = new Map<string, MemberAccumulator>()
+  accumulate(currentMap, currentProjects)
+  accumulate(previousMap, previousProjects)
+
+  const memberIds = new Set([...currentMap.keys(), ...previousMap.keys()])
+  let members = [...memberIds]
+    .map((id) => metricsForMember(currentMap.get(id), previousMap.get(id)))
+    .filter((m): m is MemberMetrics => m != null)
+    .sort((a, b) => b.totalRevenue - a.totalRevenue || a.name.localeCompare(b.name))
+
+  if (teamMemberId !== 'all') {
+    members = members.filter((m) => m.userId === teamMemberId)
+  }
+
+  return {
+    memberOptions,
+    performanceChart: buildPerformanceChart(members, metric),
   }
 }

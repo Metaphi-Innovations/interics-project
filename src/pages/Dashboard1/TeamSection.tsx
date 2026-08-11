@@ -1,8 +1,8 @@
 /**
  * Dashboard 1 — Team section
- * Employee + time filters, KPIs, and individual performance charts
+ * Employee + time filters, KPIs, Team Performance master graph, and existing charts
  */
-import { useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   Box,
   Grid,
@@ -28,12 +28,17 @@ import {
 } from '@/design-system/components'
 import { CHART_COLORS, tokens, TREND_COLORS } from '@/design-system/tokens'
 import { formatCurrency } from '@/utils/formatters'
+import { useAppDispatch, useAppSelector } from '@/store/hooks'
+import { fetchProjects } from '@/slices/projects/thunk'
 import { ChartSeriesLegend } from './ChartSeriesLegend'
 import {
   getTeamAnalytics,
+  getTeamPerformanceAnalytics,
   TEAM_EMPLOYEE_OPTIONS,
+  TEAM_METRIC_OPTIONS,
   TEAM_TIME_PERIOD_OPTIONS,
   type TeamKpi,
+  type TeamMetric,
   type TeamTimePeriod,
 } from './teamAnalyticsData'
 
@@ -65,7 +70,16 @@ const ICON_MAP: Record<TeamKpi['icon'], { node: ReactNode; color: string }> = {
 }
 
 const SELECT_SX = { minWidth: 160, fontSize: 12, height: 32 } as const
+const METRIC_SELECT_SX = { minWidth: 200, fontSize: 12, height: 32 } as const
 const MENU_ITEM_SX = { fontSize: 12 } as const
+
+const FILTER_LABEL_SX = {
+  display: 'block',
+  fontSize: 10,
+  letterSpacing: 0.5,
+  textTransform: 'uppercase',
+  mb: 0.5,
+} as const
 
 function formatAxisAmount(value: number | string): string {
   const n = typeof value === 'number' ? value : Number(value)
@@ -77,6 +91,18 @@ function formatSqft(value: number | string): string {
   const n = typeof value === 'number' ? value : Number(value)
   if (Number.isNaN(n)) return String(value)
   return n.toLocaleString('en-IN')
+}
+
+function formatDays(value: number | string): string {
+  const n = typeof value === 'number' ? value : Number(value)
+  if (Number.isNaN(n)) return String(value)
+  return `${Math.round(n)}d`
+}
+
+function formatCount(value: number | string): string {
+  const n = typeof value === 'number' ? value : Number(value)
+  if (Number.isNaN(n)) return String(value)
+  return String(Math.round(n))
 }
 
 function TeamKpiCard({ kpi }: { kpi: TeamKpi }) {
@@ -234,8 +260,18 @@ function TeamKpiCard({ kpi }: { kpi: TeamKpi }) {
 }
 
 export function TeamSection() {
+  const dispatch = useAppDispatch()
+  const projects = useAppSelector((s) => s.projects.items ?? [])
+  const projectsLoading = useAppSelector((s) => s.projects.loading)
+
   const [employeeId, setEmployeeId] = useState('all')
   const [timePeriod, setTimePeriod] = useState<TeamTimePeriod>('This Year')
+  const [teamMemberId, setTeamMemberId] = useState('all')
+  const [metric, setMetric] = useState<TeamMetric>('Number of Projects')
+
+  useEffect(() => {
+    void dispatch(fetchProjects({ page: 1, pageSize: 500 }))
+  }, [dispatch])
 
   const employeeLabel = useMemo(() => {
     const match = TEAM_EMPLOYEE_OPTIONS.find((o) => o.value === employeeId)
@@ -247,8 +283,32 @@ export function TeamSection() {
     [employeeId, timePeriod],
   )
 
+  const performance = useMemo(
+    () => getTeamPerformanceAnalytics(projects, timePeriod, teamMemberId, metric),
+    [projects, timePeriod, teamMemberId, metric],
+  )
+
+  useEffect(() => {
+    if (!performance.memberOptions.some((o) => o.value === teamMemberId)) {
+      setTeamMemberId('all')
+    }
+  }, [performance.memberOptions, teamMemberId])
+
   const scopeLabel = employeeId === 'all' ? 'team' : employeeLabel
   const { sqftSummary } = analytics
+
+  const chart = performance.performanceChart
+  const formatPerfY =
+    chart.format === 'currency'
+      ? formatAxisAmount
+      : chart.format === 'sqft'
+        ? formatSqft
+        : chart.format === 'days'
+          ? formatDays
+          : formatCount
+  const chartHeight = Math.max(300, Math.min(520, chart.data.length * 40 + 80))
+  const hasChartData = chart.data.length > 0
+  const dualSeries = chart.series.length > 1
 
   return (
     <Box sx={{ mb: 3 }}>
@@ -280,13 +340,7 @@ export function TeamSection() {
               variant="caption"
               color="text.secondary"
               fontWeight={600}
-              sx={{
-                display: 'block',
-                fontSize: 10,
-                letterSpacing: 0.5,
-                textTransform: 'uppercase',
-                mb: 0.5,
-              }}
+              sx={FILTER_LABEL_SX}
             >
               Employee
             </Typography>
@@ -309,13 +363,7 @@ export function TeamSection() {
               variant="caption"
               color="text.secondary"
               fontWeight={600}
-              sx={{
-                display: 'block',
-                fontSize: 10,
-                letterSpacing: 0.5,
-                textTransform: 'uppercase',
-                mb: 0.5,
-              }}
+              sx={FILTER_LABEL_SX}
             >
               Time Period
             </Typography>
@@ -342,6 +390,111 @@ export function TeamSection() {
           </Grid>
         ))}
       </Grid>
+
+      <Box sx={{ mb: 2 }}>
+        <ChartCard
+          title="Team Performance"
+          subtitle={`${chart.yAxisLabel} by team member`}
+          action={
+            <Box
+              sx={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 1.5,
+                alignItems: 'flex-end',
+                justifyContent: 'flex-end',
+              }}
+            >
+              <Box>
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  fontWeight={600}
+                  sx={FILTER_LABEL_SX}
+                >
+                  Team Member
+                </Typography>
+                <MuiSelect
+                  size="small"
+                  value={teamMemberId}
+                  onChange={(e) => setTeamMemberId(e.target.value)}
+                  sx={SELECT_SX}
+                >
+                  {performance.memberOptions.map((opt) => (
+                    <MenuItem key={opt.value} value={opt.value} sx={MENU_ITEM_SX}>
+                      {opt.label}
+                    </MenuItem>
+                  ))}
+                </MuiSelect>
+              </Box>
+
+              <Box>
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  fontWeight={600}
+                  sx={FILTER_LABEL_SX}
+                >
+                  Metric
+                </Typography>
+                <MuiSelect
+                  size="small"
+                  value={metric}
+                  onChange={(e) => setMetric(e.target.value as TeamMetric)}
+                  sx={METRIC_SELECT_SX}
+                >
+                  {TEAM_METRIC_OPTIONS.map((opt) => (
+                    <MenuItem key={opt} value={opt} sx={MENU_ITEM_SX}>
+                      {opt}
+                    </MenuItem>
+                  ))}
+                </MuiSelect>
+              </Box>
+
+              {dualSeries && (
+                <Box sx={{ alignSelf: 'center', ml: { xs: 0, sm: 0.5 } }}>
+                  <ChartSeriesLegend
+                    items={chart.series.map((s) => ({ label: s.label, color: s.color }))}
+                  />
+                </Box>
+              )}
+            </Box>
+          }
+        >
+          {projectsLoading && !hasChartData ? (
+            <Typography
+              variant="body2"
+              color="text.secondary"
+              sx={{ fontSize: 12, py: 6, textAlign: 'center' }}
+            >
+              Loading team performance…
+            </Typography>
+          ) : !hasChartData ? (
+            <Typography
+              variant="body2"
+              color="text.secondary"
+              sx={{ fontSize: 12, py: 6, textAlign: 'center' }}
+            >
+              No team member data for the selected filters.
+            </Typography>
+          ) : (
+            <BarChart
+              data={[...chart.data]}
+              xKey="member"
+              height={chartHeight}
+              orientation="horizontal"
+              showLegend={false}
+              barSize={dualSeries ? 12 : 18}
+              bars={chart.series.map((s) => ({
+                key: s.key,
+                label: s.label,
+                color: s.color,
+              }))}
+              formatX={formatPerfY}
+            />
+          )}
+        </ChartCard>
+      </Box>
 
       <Grid container spacing={2}>
         <Grid size={{ xs: 12, lg: 6 }}>

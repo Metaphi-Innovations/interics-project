@@ -11,6 +11,7 @@ import {
   IndianRupee,
   PlayCircle,
   Timer,
+  TrendingUp,
   Wallet,
 } from 'lucide-react'
 import { CHART_COLORS, tokens } from '@/design-system/tokens'
@@ -45,6 +46,10 @@ const ICON_MAP: Record<RevenueKpi['icon'], { node: ReactNode; color: string }> =
   cash: {
     node: <Wallet size={18} strokeWidth={1.75} />,
     color: tokens.color.primary[600],
+  },
+  profit: {
+    node: <TrendingUp size={18} strokeWidth={1.75} />,
+    color: CHART_COLORS.green,
   },
 }
 

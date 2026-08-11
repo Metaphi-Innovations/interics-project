@@ -58,7 +58,7 @@ import {
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-type DocumentFilter = 'all' | 'client' | 'vendor' | 'project' | string
+type DocumentFilter = 'all' | 'client' | 'vendor' | 'project' | 'others'
 
 type CategoryOption = { value: string; label: string }
 
@@ -544,7 +544,8 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
   const showProject = filter === 'all' || filter === 'project'
   const showClient = filter === 'all' || filter === 'client'
   const showVendor = filter === 'all' || filter === 'vendor'
-  const isCustomFilter = customCategories.some((c) => c.value === filter)
+  const showOthers = filter === 'all' || filter === 'others'
+  const isOthersOnly = filter === 'others'
 
   const projectRowCount = projectDocumentSections.reduce((sum, s) => sum + s.rows.length, 0)
   const clientRowCount = clientQuotations.length + clientPO.length + clientDocumentUploads.length
@@ -563,30 +564,29 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
     [customCategories, uploadsFiltered, search],
   )
 
-  const customRowCount = useMemo(() => {
-    if (filter === 'all') {
-      return customCategorySections.reduce((sum, s) => sum + s.rows.length, 0)
-    }
-    if (isCustomFilter) {
-      return customCategorySections.find((s) => s.value === filter)?.rows.length ?? 0
-    }
-    return 0
-  }, [customCategorySections, filter, isCustomFilter])
+  const customRowCount = useMemo(
+    () =>
+      showOthers
+        ? customCategorySections.reduce((sum, s) => sum + s.rows.length, 0)
+        : 0,
+    [customCategorySections, showOthers],
+  )
 
   const visibleRowCount = useMemo(() => {
     let n = 0
-    if (!isCustomFilter) {
+    if (!isOthersOnly) {
       if (showProject) n += projectRowCount
       if (showClient) n += clientRowCount
       if (showVendor) n += vendorRowCount
     }
-    n += customRowCount
+    if (showOthers) n += customRowCount
     return n
   }, [
     showProject,
     showClient,
     showVendor,
-    isCustomFilter,
+    showOthers,
+    isOthersOnly,
     projectRowCount,
     clientRowCount,
     vendorRowCount,
@@ -622,14 +622,11 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
     </>
   )
 
-  const showCustomCategory = (value: string) =>
-    filter === 'all' || filter === value
-
   const globalEmpty = totalCount === 0
   const hasActiveSearch = search.trim().length > 0
   const noMatches = !globalEmpty && visibleRowCount === 0 && hasActiveSearch
   const showProjectSections =
-    showProject && !isCustomFilter && (filter === 'project' || projectRowCount > 0)
+    showProject && !isOthersOnly && (filter === 'project' || projectRowCount > 0)
 
   const openDrawer = () => {
     setFormErrors({})
@@ -750,21 +747,9 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
           <ToggleButton value="client">Client Documents</ToggleButton>
           <ToggleButton value="vendor">Vendor Documents</ToggleButton>
           <ToggleButton value="project">Project Documents</ToggleButton>
-          {customCategories.map((cat) => (
-            <ToggleButton key={cat.value} value={cat.value}>
-              {cat.label}
-            </ToggleButton>
-          ))}
+          <ToggleButton value="others">Others</ToggleButton>
         </ToggleButtonGroup>
         <Stack direction="row" alignItems="center" gap={1} sx={{ minWidth: { md: 220 }, flex: 1 }}>
-          <IconButton
-            size="sm"
-            variant="outlined"
-            color="primary"
-            icon={<Plus size={16} strokeWidth={1.75} />}
-            tooltip="Add category"
-            onClick={openAddCategory}
-          />
           <Box sx={{ flex: 1, minWidth: 0 }}>
             <Input
               placeholder="Search documents…"
@@ -886,16 +871,16 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
           <DocumentGroup title="Project Documents">{projectDocumentContent}</DocumentGroup>
         )}
 
-        {showClient && !isCustomFilter && (
+        {showClient && !isOthersOnly && (
           <DocumentGroup title="Client Documents">{clientDocumentContent}</DocumentGroup>
         )}
 
-        {showVendor && !isCustomFilter && (
+        {showVendor && !isOthersOnly && (
           <DocumentGroup title="Vendor Documents">{vendorDocumentContent}</DocumentGroup>
         )}
 
         {customCategorySections.map((section) => {
-          if (!showCustomCategory(section.value)) return null
+          if (!showOthers) return null
           if (section.rows.length === 0 && filter === 'all') return null
           return (
             <DocumentGroup key={section.value} title={section.label}>
