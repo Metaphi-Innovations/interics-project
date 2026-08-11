@@ -470,42 +470,13 @@ export function AddClientPODrawer({ open, onClose, projectId }: AddClientPODrawe
         </Alert>
       ) : null}
       <Box sx={{ mb: 0 }}>
-        <Stack
-          direction="row"
-          alignItems="center"
-          justifyContent="space-between"
-          sx={{ mb: poFormData.file ? 0.5 : '12px' }}
+        <Typography
+          component="span"
+          variant="overline"
+          sx={{ ...PO_SECTION_TITLE_SX, display: 'block', mb: '12px' }}
         >
-          <Typography component="span" variant="overline" sx={PO_SECTION_TITLE_SX}>
-            PO Details
-          </Typography>
-          <MuiButton
-            variant="outlined"
-            component="label"
-            size="small"
-            startIcon={<Upload />}
-            sx={{ fontSize: 12 }}
-          >
-            Upload PO Document
-            <input
-              type="file"
-              hidden
-              accept=".pdf,.doc,.docx"
-              onChange={(e) =>
-                setPoFormData((prev) => ({ ...prev, file: e.target.files?.[0] ?? null }))
-              }
-            />
-          </MuiButton>
-        </Stack>
-        {poFormData.file ? (
-          <Typography
-            variant="caption"
-            color="text.secondary"
-            sx={{ display: 'block', mb: '12px', textAlign: 'right', fontSize: 11 }}
-          >
-            {poFormData.file.name}
-          </Typography>
-        ) : null}
+          PO Details
+        </Typography>
         <Box
           sx={{
             display: 'grid',
@@ -542,6 +513,42 @@ export function AddClientPODrawer({ open, onClose, projectId }: AddClientPODrawe
               placeholder="0"
             />
           </FormField>
+          <Box
+            sx={{
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'flex-end',
+              gap: 0.5,
+              minWidth: 0,
+            }}
+          >
+            <MuiButton
+              variant="outlined"
+              component="label"
+              size="small"
+              startIcon={<Upload />}
+              sx={{ fontSize: 12, alignSelf: 'flex-start' }}
+            >
+              Upload PO Document
+              <input
+                type="file"
+                hidden
+                accept=".pdf,.doc,.docx"
+                onChange={(e) =>
+                  setPoFormData((prev) => ({ ...prev, file: e.target.files?.[0] ?? null }))
+                }
+              />
+            </MuiButton>
+            {poFormData.file ? (
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ fontSize: 11, wordBreak: 'break-word' }}
+              >
+                {poFormData.file.name}
+              </Typography>
+            ) : null}
+          </Box>
         </Box>
       </Box>
 

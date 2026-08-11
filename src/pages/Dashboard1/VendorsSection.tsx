@@ -1,8 +1,9 @@
 /**
  * Dashboard 1 — Vendors section
  * Vendor summary KPIs + billing / projects charts (client dashboard document)
+ * + Master Vendor Performance interactive graph
  */
-import { useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   Autocomplete,
   Box,
@@ -23,18 +24,27 @@ import {
 } from '@/design-system/components'
 import { CHART_COLORS, tokens } from '@/design-system/tokens'
 import { formatCurrency } from '@/utils/formatters'
+import { useAppDispatch, useAppSelector } from '@/store/hooks'
+import { fetchProjects } from '@/slices/projects/thunk'
+import { fetchVendors } from '@/slices/vendors/thunk'
+import type { VendorInvoice } from '@/slices/live/types'
 import { ChartSeriesLegend } from './ChartSeriesLegend'
 import { LargerMetaDataSection } from './LargerMetaDataSection'
 import { VendorBillingAcrossYearsChart } from './VendorBillingAcrossYearsChart'
 import {
   getVendorAnalytics,
+  getVendorPerformanceAnalytics,
+  TOP5_VENDOR_OPTION_VALUE,
   VENDOR_FILTER_OPTIONS,
+  VENDOR_PERFORMANCE_METRIC_OPTIONS,
   VENDOR_TIME_PERIOD_OPTIONS,
   type ProjectsCompletedTogetherPoint,
   type VendorBillingCurrentYearPoint,
   type VendorFilterId,
   type VendorFilterOption,
   type VendorKpi,
+  type VendorPerformanceMetric,
+  type VendorPerformanceOption,
   type VendorTimePeriod,
 } from './vendorsAnalyticsData'
 
@@ -58,6 +68,7 @@ const YEAR_LINE_COLORS = [
 ]
 
 const SELECT_SX = { minWidth: 180, fontSize: 12, height: 32 } as const
+const METRIC_SELECT_SX = { minWidth: 200, fontSize: 12, height: 32 } as const
 const MENU_ITEM_SX = { fontSize: 12 } as const
 const AUTOCOMPLETE_SX = {
   minWidth: { xs: '100%', sm: 180 },
@@ -76,6 +87,12 @@ const AUTOCOMPLETE_SX = {
   },
 } as const
 
+const PERF_VENDOR_AUTOCOMPLETE_SX = {
+  ...AUTOCOMPLETE_SX,
+  minWidth: { xs: '100%', sm: 220 },
+  maxWidth: { xs: '100%', sm: 280 },
+} as const
+
 const FILTER_LABEL_SX = {
   display: 'block',
   fontSize: 10,
@@ -84,10 +101,46 @@ const FILTER_LABEL_SX = {
   mb: 0.5,
 } as const
 
+const TOP5_VENDOR_OPTION: VendorPerformanceOption = {
+  value: TOP5_VENDOR_OPTION_VALUE,
+  label: 'Top 5 Vendors',
+}
+
+async function fetchJsonArray(url: string): Promise<unknown[]> {
+  try {
+    const res = await fetch(url)
+    if (!res.ok) return []
+    const data: unknown = await res.json()
+    if (Array.isArray(data)) return data
+    if (
+      data &&
+      typeof data === 'object' &&
+      Array.isArray((data as { items?: unknown[] }).items)
+    ) {
+      return (data as { items: unknown[] }).items
+    }
+    return []
+  } catch {
+    return []
+  }
+}
+
 function formatAxisAmount(value: number | string): string {
   const n = typeof value === 'number' ? value : Number(value)
   if (Number.isNaN(n)) return String(value)
   return `₹${formatCurrency(n)}`
+}
+
+function formatAxisCount(value: number | string): string {
+  const n = typeof value === 'number' ? value : Number(value)
+  if (Number.isNaN(n)) return String(value)
+  return String(Math.round(n))
+}
+
+function formatAxisDays(value: number | string): string {
+  const n = typeof value === 'number' ? value : Number(value)
+  if (Number.isNaN(n)) return String(value)
+  return `${Math.round(n)}d`
 }
 
 function ChartTooltipShell({ children }: { children: ReactNode }) {
@@ -166,6 +219,72 @@ function ProjectsCompletedTogetherTooltip({ active, payload }: TooltipContentPro
   )
 }
 
+function VendorPerformanceBarTooltip({
+  active,
+  payload,
+  format,
+  tooltipDetails,
+}: TooltipContentProps & {
+  format: 'count' | 'currency' | 'days'
+  tooltipDetails?: Record<string, { projects?: string[]; extra?: string }>
+}) {
+  if (!active || !payload?.length) return null
+  const row = payload[0]?.payload as Record<string, string | number> | undefined
+  if (!row) return null
+
+  const title = String(row.vendor ?? row.project ?? '')
+  const id = String(row.vendorId ?? row.projectId ?? '')
+  const rawValue = row.value
+  const valueNum = typeof rawValue === 'number' ? rawValue : Number(rawValue)
+  const valueLabel =
+    format === 'currency'
+      ? formatAxisAmount(valueNum)
+      : format === 'days'
+        ? formatAxisDays(valueNum)
+        : formatAxisCount(valueNum)
+
+  const details = tooltipDetails?.[id]
+  const projects = details?.projects ?? []
+
+  return (
+    <ChartTooltipShell>
+      <TooltipTitle>{title}</TooltipTitle>
+      <TooltipRow label="Value" value={Number.isNaN(valueNum) ? '—' : valueLabel} />
+      {details?.extra ? <TooltipRow label="Note" value={details.extra} /> : null}
+      {projects.length > 0 ? (
+        <Box sx={{ mt: 0.75 }}>
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{ fontSize: 11, display: 'block', fontWeight: 600 }}
+          >
+            Projects
+          </Typography>
+          {projects.slice(0, 8).map((name) => (
+            <Typography
+              key={name}
+              variant="caption"
+              color="text.secondary"
+              sx={{ fontSize: 11, display: 'block', mt: 0.15 }}
+            >
+              • {name}
+            </Typography>
+          ))}
+          {projects.length > 8 ? (
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ fontSize: 11, display: 'block', mt: 0.15 }}
+            >
+              +{projects.length - 8} more
+            </Typography>
+          ) : null}
+        </Box>
+      ) : null}
+    </ChartTooltipShell>
+  )
+}
+
 function VendorKpiCard({ kpi }: { kpi: VendorKpi }) {
   const theme = useTheme()
   const iconMeta = ICON_MAP[kpi.icon]
@@ -234,23 +353,117 @@ function VendorKpiCard({ kpi }: { kpi: VendorKpi }) {
 }
 
 export function VendorsSection() {
+  const dispatch = useAppDispatch()
+  const vendors = useAppSelector((s) => s.vendors.items ?? [])
+  const projects = useAppSelector((s) => s.projects.items ?? [])
+  const vendorsLoading = useAppSelector((s) => s.vendors.loading)
+  const projectsLoading = useAppSelector((s) => s.projects.loading)
+
   const [timePeriod, setTimePeriod] = useState<VendorTimePeriod>('This Financial Year')
   const [vendorId, setVendorId] = useState<VendorFilterId>('all')
   const [customRange, setCustomRange] = useState<[Date | null, Date | null]>([null, null])
+
+  const [performanceVendorId, setPerformanceVendorId] = useState(TOP5_VENDOR_OPTION_VALUE)
+  const [performanceMetric, setPerformanceMetric] =
+    useState<VendorPerformanceMetric>('No. of Projects')
+  const [vendorInvoices, setVendorInvoices] = useState<VendorInvoice[]>([])
+  const [invoicesLoading, setInvoicesLoading] = useState(false)
 
   const analytics = useMemo(
     () => getVendorAnalytics(timePeriod, vendorId, customRange),
     [timePeriod, vendorId, customRange],
   )
 
+  const performance = useMemo(
+    () =>
+      getVendorPerformanceAnalytics(
+        vendors,
+        projects,
+        vendorInvoices,
+        timePeriod,
+        performanceVendorId,
+        performanceMetric,
+        customRange,
+      ),
+    [
+      vendors,
+      projects,
+      vendorInvoices,
+      timePeriod,
+      performanceVendorId,
+      performanceMetric,
+      customRange,
+    ],
+  )
+
   const selectedVendor =
     VENDOR_FILTER_OPTIONS.find((opt) => opt.value === vendorId) ?? VENDOR_FILTER_OPTIONS[0]
+
+  const selectedPerformanceVendor = useMemo(() => {
+    return (
+      performance.vendorOptions.find((o) => o.value === performanceVendorId) ??
+      TOP5_VENDOR_OPTION
+    )
+  }, [performance.vendorOptions, performanceVendorId])
 
   const yearLines = analytics.yearLines.map((line, i) => ({
     key: line.key,
     label: line.label,
     color: YEAR_LINE_COLORS[i % YEAR_LINE_COLORS.length],
   }))
+
+  const perfChart = performance.chart
+  const perfLoading = vendorsLoading || projectsLoading || invoicesLoading
+  const hasPerfData = perfChart.data.length > 0
+  const perfChartHeight = Math.max(
+    300,
+    Math.min(520, (perfChart.kind === 'years-line' ? 8 : perfChart.data.length) * 36 + 80),
+  )
+
+  const formatPerfAxis =
+    perfChart.format === 'currency'
+      ? formatAxisAmount
+      : perfChart.format === 'days'
+        ? formatAxisDays
+        : formatAxisCount
+
+  useEffect(() => {
+    void dispatch(fetchVendors({ page: 1, pageSize: 500 }))
+    void dispatch(fetchProjects({ page: 1, pageSize: 500 }))
+  }, [dispatch])
+
+  useEffect(() => {
+    if (!performance.vendorOptions.some((o) => o.value === performanceVendorId)) {
+      setPerformanceVendorId(TOP5_VENDOR_OPTION_VALUE)
+    }
+  }, [performance.vendorOptions, performanceVendorId])
+
+  useEffect(() => {
+    if (projects.length === 0) {
+      setVendorInvoices([])
+      return
+    }
+    let cancelled = false
+    setInvoicesLoading(true)
+    void (async () => {
+      const results = await Promise.all(
+        projects.map(async (p) => {
+          const rows = await fetchJsonArray(`/api/projects/${p.id}/vendor-invoices`)
+          return rows as VendorInvoice[]
+        }),
+      )
+      if (cancelled) return
+      const merged: VendorInvoice[] = []
+      for (const rows of results) {
+        if (Array.isArray(rows)) merged.push(...rows)
+      }
+      setVendorInvoices(merged)
+      setInvoicesLoading(false)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [projects])
 
   return (
     <Box sx={{ mb: 3 }}>
@@ -370,8 +583,162 @@ export function VendorsSection() {
         highlights={analytics.projectHighlights}
       />
 
+      {/* Master Vendor Performance — addition only; existing charts unchanged below */}
+      <Box sx={{ mb: 2 }}>
+        <ChartCard
+          title={perfChart.title}
+          subtitle={`${perfChart.xAxisLabel} · ${perfChart.subtitle}`}
+          action={
+            <Box
+              sx={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 1.5,
+                alignItems: 'flex-end',
+                justifyContent: 'flex-end',
+              }}
+            >
+              <Box sx={{ width: { xs: '100%', sm: 'auto' } }}>
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  fontWeight={600}
+                  sx={FILTER_LABEL_SX}
+                >
+                  Vendor
+                </Typography>
+                <Autocomplete
+                  size="small"
+                  disableClearable
+                  options={performance.vendorOptions}
+                  value={selectedPerformanceVendor}
+                  onChange={(_, option: VendorPerformanceOption) =>
+                    setPerformanceVendorId(option.value)
+                  }
+                  getOptionLabel={(option) => option.label}
+                  isOptionEqualToValue={(option, value) => option.value === value.value}
+                  filterOptions={(options, state) => {
+                    const query = state.inputValue.trim().toLowerCase()
+                    if (!query) return options
+                    return options.filter((opt) => opt.label.toLowerCase().includes(query))
+                  }}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      placeholder="Search vendors..."
+                      inputProps={{
+                        ...params.inputProps,
+                        'aria-label': 'Search and select vendor for performance graph',
+                      }}
+                    />
+                  )}
+                  slotProps={{
+                    paper: {
+                      sx: {
+                        fontSize: 12,
+                        '& .MuiAutocomplete-option': { fontSize: 12, minHeight: 36 },
+                      },
+                    },
+                  }}
+                  sx={PERF_VENDOR_AUTOCOMPLETE_SX}
+                />
+              </Box>
+
+              <Box>
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  fontWeight={600}
+                  sx={FILTER_LABEL_SX}
+                >
+                  Metric
+                </Typography>
+                <MuiSelect
+                  size="small"
+                  value={performanceMetric}
+                  onChange={(e) =>
+                    setPerformanceMetric(e.target.value as VendorPerformanceMetric)
+                  }
+                  sx={METRIC_SELECT_SX}
+                >
+                  {VENDOR_PERFORMANCE_METRIC_OPTIONS.map((opt) => (
+                    <MenuItem key={opt} value={opt} sx={MENU_ITEM_SX}>
+                      {opt}
+                    </MenuItem>
+                  ))}
+                </MuiSelect>
+              </Box>
+
+              {perfChart.kind === 'years-line' && perfChart.series.length > 0 ? (
+                <Box sx={{ alignSelf: 'center', ml: { xs: 0, sm: 0.5 } }}>
+                  <ChartSeriesLegend
+                    items={perfChart.series.map((s) => ({
+                      label: s.label,
+                      color: s.color,
+                    }))}
+                  />
+                </Box>
+              ) : null}
+            </Box>
+          }
+        >
+          {perfLoading && !hasPerfData ? (
+            <Typography
+              variant="body2"
+              color="text.secondary"
+              sx={{ fontSize: 12, py: 6, textAlign: 'center' }}
+            >
+              Loading vendor performance…
+            </Typography>
+          ) : !hasPerfData ? (
+            <Typography
+              variant="body2"
+              color="text.secondary"
+              sx={{ fontSize: 12, py: 6, textAlign: 'center' }}
+            >
+              No vendor data for the selected filters.
+            </Typography>
+          ) : perfChart.kind === 'years-line' ? (
+            <VendorBillingAcrossYearsChart
+              data={perfChart.data.map((row) => ({
+                year: String(row.year ?? ''),
+                ...row,
+              }))}
+              lines={perfChart.series.map((s) => ({
+                key: s.key,
+                label: s.label,
+                color: s.color,
+              }))}
+              height={perfChartHeight}
+            />
+          ) : (
+            <BarChart
+              data={[...perfChart.data]}
+              xKey={perfChart.xKey}
+              height={perfChartHeight}
+              orientation="horizontal"
+              showLegend={false}
+              barSize={18}
+              bars={perfChart.series.map((s) => ({
+                key: s.key,
+                label: s.label,
+                color: s.color,
+              }))}
+              formatX={formatPerfAxis}
+              tooltipContent={(props) => (
+                <VendorPerformanceBarTooltip
+                  {...props}
+                  format={perfChart.format}
+                  tooltipDetails={perfChart.tooltipDetails}
+                />
+              )}
+            />
+          )}
+        </ChartCard>
+      </Box>
+
       <Grid container spacing={2}>
-        <Grid size={{ xs: 12 }}>
+        <Grid size={{ xs: 12, md: 6 }}>
           <ChartCard
             title="Vendor Billing (Current Year)"
             subtitle="Compare vendor billing for the selected financial year"
@@ -390,7 +757,7 @@ export function VendorsSection() {
           </ChartCard>
         </Grid>
 
-        <Grid size={{ xs: 12 }}>
+        <Grid size={{ xs: 12, md: 6 }}>
           <ChartCard
             title="Vendor Billing Across Years"
             subtitle="How vendor billing has changed over the years"

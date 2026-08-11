@@ -2,7 +2,7 @@
  * Dashboard 1 — new Revenue-focused dashboard (sample data UI).
  * Existing `/dashboard` page is unchanged.
  */
-import { useCallback, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   Box,
   Grid,
@@ -13,7 +13,6 @@ import {
 } from '@mui/material'
 import {
   BarChart,
-  Button,
   ChartCard,
   DateRangePicker,
   LineChart,
@@ -22,9 +21,10 @@ import {
 import { CHART_COLORS } from '@/design-system/tokens'
 import { formatCurrency } from '@/utils/formatters'
 import {
-  DASHBOARD1_FILTER_OPTIONS,
   getRevenueAnalytics,
+  REVENUE_DATE_TYPE_OPTIONS,
   REVENUE_TIME_PERIOD_OPTIONS,
+  type RevenueDateType,
   type RevenueTimePeriod,
 } from './dashboard1Data'
 import { RevenueKpiCard } from './RevenueKpiCard'
@@ -36,14 +36,6 @@ import { ProjectDesignAnalyticsSection } from './ProjectDesignAnalyticsSection'
 import { TeamSection } from './TeamSection'
 import { VendorsSection } from './VendorsSection'
 
-type DateRangePreset = 'This Month' | 'This Quarter' | 'This Year' | 'All Time'
-type StatusFilter =
-  | 'All Status'
-  | 'Pitch'
-  | 'Live'
-  | 'Completed'
-  | 'On Hold'
-  | 'Cancelled'
 type DashboardTab = 'revenue' | 'projects' | 'team' | 'vendors'
 
 const DASHBOARD_TABS = [
@@ -53,25 +45,9 @@ const DASHBOARD_TABS = [
   { label: 'Vendors', value: 'vendors' },
 ] as const
 
-const DATE_RANGE_OPTIONS: DateRangePreset[] = [
-  'This Month',
-  'This Quarter',
-  'This Year',
-  'All Time',
-]
-
-const STATUS_OPTIONS: StatusFilter[] = [
-  'All Status',
-  'Pitch',
-  'Live',
-  'Completed',
-  'On Hold',
-  'Cancelled',
-]
-
-const SELECT_SX = { minWidth: 130, fontSize: 12, height: 32 } as const
 const MENU_ITEM_SX = { fontSize: 12 } as const
 const REVENUE_PERIOD_SELECT_SX = { minWidth: 180, fontSize: 12, height: 32 } as const
+const REVENUE_DATE_TYPE_SELECT_SX = { minWidth: 190, fontSize: 12, height: 32 } as const
 
 function formatAxisAmount(value: number | string): string {
   const n = typeof value === 'number' ? value : Number(value)
@@ -90,133 +66,26 @@ function chartSubtitle(granularity: 'daily' | 'monthly' | 'yearly', base: string
 }
 
 export default function Dashboard1Page() {
-  const [dateRange, setDateRange] = useState<DateRangePreset>('This Year')
-  const [clientFilter, setClientFilter] = useState('All Clients')
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('All Status')
-  const [pmFilter, setPmFilter] = useState('All Managers')
   const [activeTab, setActiveTab] = useState<DashboardTab>('revenue')
   const [revenuePeriod, setRevenuePeriod] = useState<RevenueTimePeriod>('This Financial Year')
   const [customRange, setCustomRange] = useState<[Date | null, Date | null]>([null, null])
+  const [revenueDateType, setRevenueDateType] = useState<RevenueDateType>('PO Date')
 
   const revenueAnalytics = useMemo(
-    () => getRevenueAnalytics(revenuePeriod, customRange),
-    [revenuePeriod, customRange],
+    () => getRevenueAnalytics(revenuePeriod, customRange, revenueDateType),
+    [revenuePeriod, customRange, revenueDateType],
   )
-
-  const handleReset = useCallback(() => {
-    setDateRange('This Year')
-    setClientFilter('All Clients')
-    setStatusFilter('All Status')
-    setPmFilter('All Managers')
-  }, [])
 
   return (
     <Box>
       <Box sx={{ mb: 2.5 }}>
         <Typography variant="h5" fontWeight={700}>
-          Dashboard 1
+          Dashboard
         </Typography>
         <Typography variant="body2" color="text.secondary">
           Revenue overview across purchase orders, collections, and vendor payments.
         </Typography>
       </Box>
-
-      <Paper
-        elevation={0}
-        sx={{
-          border: '1px solid',
-          borderColor: 'divider',
-          borderRadius: 2,
-          p: 1.5,
-          mb: 2.5,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 1.5,
-          flexWrap: 'wrap',
-        }}
-      >
-        <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center', flexWrap: 'wrap' }}>
-          <Typography
-            variant="caption"
-            color="text.secondary"
-            fontWeight={600}
-            sx={{ textTransform: 'uppercase', letterSpacing: 0.5, mr: 0.5 }}
-          >
-            Filters
-          </Typography>
-
-          <MuiSelect
-            size="small"
-            value={dateRange}
-            onChange={(e) => setDateRange(e.target.value as DateRangePreset)}
-            sx={SELECT_SX}
-          >
-            {DATE_RANGE_OPTIONS.map((v) => (
-              <MenuItem key={v} value={v} sx={MENU_ITEM_SX}>
-                {v}
-              </MenuItem>
-            ))}
-          </MuiSelect>
-
-          <MuiSelect
-            size="small"
-            value={clientFilter}
-            onChange={(e) => setClientFilter(e.target.value)}
-            sx={SELECT_SX}
-          >
-            <MenuItem value="All Clients" sx={MENU_ITEM_SX}>
-              All Clients
-            </MenuItem>
-            {DASHBOARD1_FILTER_OPTIONS.clients
-              .filter((c) => c.value !== 'all')
-              .map((c) => (
-                <MenuItem key={c.value} value={c.label} sx={MENU_ITEM_SX}>
-                  {c.label}
-                </MenuItem>
-              ))}
-          </MuiSelect>
-
-          <MuiSelect
-            size="small"
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
-            sx={{ ...SELECT_SX, minWidth: 110 }}
-          >
-            {STATUS_OPTIONS.map((v) => (
-              <MenuItem key={v} value={v} sx={MENU_ITEM_SX}>
-                {v}
-              </MenuItem>
-            ))}
-          </MuiSelect>
-
-          <MuiSelect
-            size="small"
-            value={pmFilter}
-            onChange={(e) => setPmFilter(e.target.value)}
-            sx={{ ...SELECT_SX, minWidth: 160 }}
-          >
-            <MenuItem value="All Managers" sx={MENU_ITEM_SX}>
-              All Project Leads
-            </MenuItem>
-            {DASHBOARD1_FILTER_OPTIONS.projectManagers
-              .filter((pm) => pm.value !== 'all')
-              .map((pm) => (
-                <MenuItem key={pm.value} value={pm.label} sx={MENU_ITEM_SX}>
-                  {pm.label}
-                </MenuItem>
-              ))}
-          </MuiSelect>
-
-          <Button
-            variant="text"
-            size="sm"
-            onClick={handleReset}
-            sx={{ fontSize: 12, color: 'text.secondary', height: 32, minWidth: 'auto' }}
-          >
-            Reset
-          </Button>
-        </Box>
-      </Paper>
 
       <Paper
         elevation={0}
@@ -332,13 +201,45 @@ export default function Dashboard1Page() {
               </Typography>
 
               <Grid container spacing={2} sx={{ mb: 3 }}>
-                <Grid size={{ xs: 12, lg: 6 }}>
+                <Grid size={{ xs: 12 }}>
                   <ChartCard
                     title="Monthly Revenue Trend"
                     subtitle={chartSubtitle(
                       revenueAnalytics.granularity,
                       'Revenue growth month-wise',
                     )}
+                    action={
+                      <Box>
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          fontWeight={600}
+                          sx={{
+                            display: 'block',
+                            fontSize: 10,
+                            letterSpacing: 0.5,
+                            textTransform: 'uppercase',
+                            mb: 0.5,
+                          }}
+                        >
+                          Date Type
+                        </Typography>
+                        <MuiSelect
+                          size="small"
+                          value={revenueDateType}
+                          onChange={(e) =>
+                            setRevenueDateType(e.target.value as RevenueDateType)
+                          }
+                          sx={REVENUE_DATE_TYPE_SELECT_SX}
+                        >
+                          {REVENUE_DATE_TYPE_OPTIONS.map((opt) => (
+                            <MenuItem key={opt} value={opt} sx={MENU_ITEM_SX}>
+                              {opt}
+                            </MenuItem>
+                          ))}
+                        </MuiSelect>
+                      </Box>
+                    }
                   >
                     <LineChart
                       data={[...revenueAnalytics.revenueTrend]}
@@ -354,58 +255,45 @@ export default function Dashboard1Page() {
                   </ChartCard>
                 </Grid>
 
-                <Grid size={{ xs: 12, lg: 6 }}>
+                <Grid size={{ xs: 12 }}>
                   <ChartCard
-                    title="Received vs Pending"
-                    subtitle="Collected payments vs pending receivables"
+                    title="Client Revenue Received vs Vendor Payments"
+                    subtitle={chartSubtitle(
+                      revenueAnalytics.granularity,
+                      'Client collections vs vendor payments month-wise',
+                    )}
                     action={
                       <ChartSeriesLegend
                         items={[
-                          { label: 'Amount Received', color: CHART_COLORS.green },
-                          { label: 'Amount Pending', color: CHART_COLORS.amber },
+                          {
+                            label: 'Client Revenue Received',
+                            color: CHART_COLORS.green,
+                          },
+                          {
+                            label: 'Vendor Payments',
+                            color: CHART_COLORS.blue,
+                          },
                         ]}
                       />
                     }
                   >
                     <BarChart
-                      data={[...revenueAnalytics.receivedVsPending]}
+                      data={[...revenueAnalytics.clientReceivedVsVendorPayments]}
                       xKey="month"
                       height={280}
-                      stacked
                       showLegend={false}
                       bars={[
                         {
-                          key: 'received',
-                          label: 'Amount Received',
+                          key: 'clientReceived',
+                          label: 'Client Revenue Received',
                           color: CHART_COLORS.green,
                         },
                         {
-                          key: 'pending',
-                          label: 'Amount Pending',
-                          color: CHART_COLORS.amber,
+                          key: 'vendorPaid',
+                          label: 'Vendor Payments',
+                          color: CHART_COLORS.blue,
                         },
                       ]}
-                      formatY={formatAxisAmount}
-                    />
-                  </ChartCard>
-                </Grid>
-
-                <Grid size={{ xs: 12 }}>
-                  <ChartCard
-                    title="Vendor Payments"
-                    subtitle={chartSubtitle(
-                      revenueAnalytics.granularity,
-                      'Monthly payments made to vendors',
-                    )}
-                  >
-                    <BarChart
-                      data={[...revenueAnalytics.vendorPayments]}
-                      xKey="month"
-                      height={280}
-                      bars={[
-                        { key: 'paid', label: 'Amount Paid', color: CHART_COLORS.blue },
-                      ]}
-                      showLegend={false}
                       formatY={formatAxisAmount}
                     />
                   </ChartCard>
@@ -416,12 +304,7 @@ export default function Dashboard1Page() {
 
           {activeTab === 'projects' && (
             <Box>
-              <ProjectsOverviewSection
-                dateRange={dateRange}
-                clientFilter={clientFilter}
-                statusFilter={statusFilter}
-                pmFilter={pmFilter}
-              />
+              <ProjectsOverviewSection />
 
               <ProjectAnalyticsSection />
 

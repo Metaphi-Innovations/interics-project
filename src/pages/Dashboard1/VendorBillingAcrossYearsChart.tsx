@@ -17,7 +17,6 @@ import type { TooltipContentProps } from 'recharts'
 import { useChartTheme } from '@/design-system/components/charts/utils/chartTheme'
 import { tokens } from '@/design-system/tokens'
 import { formatCurrency } from '@/utils/formatters'
-import type { VendorBillingAcrossYearsPoint } from './vendorsAnalyticsData'
 
 export interface VendorAcrossYearsLine {
   key: string
@@ -26,7 +25,7 @@ export interface VendorAcrossYearsLine {
 }
 
 interface VendorBillingAcrossYearsChartProps {
-  data: VendorBillingAcrossYearsPoint[]
+  data: Array<{ year: string } & Record<string, string | number>>
   lines: VendorAcrossYearsLine[]
   height?: number
 }

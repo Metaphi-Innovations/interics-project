@@ -5,9 +5,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Box, Stack, Typography } from '@mui/material'
 import dayjs from 'dayjs'
-import { FolderKanban, Plus } from 'lucide-react'
+import { FolderKanban } from 'lucide-react'
 import { WorkspaceSection } from '../../../components/templates'
-import { Button, Checkbox, Divider, useToast } from '@/design-system/components'
+import { Button, Checkbox, useToast } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { useAppDispatch, useAppSelector } from '../../../store/hooks'
 import { fetchProjectManagementCategories } from '../../../slices/settings/thunk'
@@ -69,19 +69,17 @@ function CategoryChecklistSection({
     <Box>
       <Typography
         variant="subtitle1"
-        sx={{ fontWeight: 600, fontSize: 15, lineHeight: 1.4, mb: 1 }}
+        sx={{ fontWeight: 600, fontSize: 15, lineHeight: 1.4, mb: 0.5 }}
       >
         {category.name}
       </Typography>
 
-      <Divider sx={{ mb: 1.5 }} />
-
       {checkpoints.length === 0 ? (
-        <Typography variant="body2" color="text.secondary" sx={{ fontSize: 13, py: 1 }}>
+        <Typography variant="body2" color="text.secondary" sx={{ fontSize: 13, py: 0.5 }}>
           No checkpoints selected. Use Add Category to add checkpoints for this category.
         </Typography>
       ) : (
-        <Stack gap={0.5}>
+        <Stack gap={0.25}>
           {checkpoints.map((cp) => {
             const checked = draft[cp.id] ?? false
             const savedCompleted = category.checkpointProgress[cp.id]?.completed ?? false
@@ -316,8 +314,7 @@ export default function ProjectManagementTab({ project }: ProjectManagementTabPr
             variant="contained"
             color="primary"
             size="sm"
-            label="Add Category"
-            startIcon={<Plus size={14} strokeWidth={2} />}
+            label="+ Add checklist"
             onClick={openAdd}
           />
         }
@@ -361,7 +358,7 @@ export default function ProjectManagementTab({ project }: ProjectManagementTabPr
                 pb: 1,
               }}
             >
-              <Stack spacing={2.5}>
+              <Stack spacing={1.5}>
                 {categories.map((category) => (
                   <CategoryChecklistSection
                     key={category.id}
