@@ -97,6 +97,8 @@ export default function BarChart({
         {showTooltip && (
           <Tooltip
             content={tooltipContent}
+            isAnimationActive={false}
+            animationDuration={0}
             contentStyle={tooltipContent ? undefined : ct.tooltipStyle}
             labelStyle={
               tooltipContent
@@ -108,7 +110,12 @@ export default function BarChart({
                 ? undefined
                 : { color: ct.theme.palette.text.primary, fontSize: 12 }
             }
-            cursor={{ fill: ct.theme.palette.action.hover }}
+            // Single translucent band only — avoids stacked cursor/activeBar ghosts in Recharts 3
+            cursor={{
+              fill: ct.theme.palette.action.hover,
+              stroke: 'none',
+              fillOpacity: 0.45,
+            }}
           />
         )}
         {showLegend && bars.length > 1 && <Legend {...ct.legendProps} />}
@@ -127,7 +134,9 @@ export default function BarChart({
               radius={radius}
               maxBarSize={barSize}
               stackId={stacked ? 'stack' : undefined}
-              animationDuration={800}
+              // Disable enter/exit layer animations — prevents stuck/ghost hover bars (Recharts 3)
+              isAnimationActive={false}
+              activeBar={false}
             />
           )
         })}

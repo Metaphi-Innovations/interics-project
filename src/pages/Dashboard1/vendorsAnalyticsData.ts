@@ -752,17 +752,34 @@ function buildVendorAccumulators(
 ): Map<string, VendorAccumulator> {
   const projectById = new Map(projects.map((p) => [p.id, p]))
   const map = new Map<string, VendorAccumulator>()
+  const idByNormalizedName = new Map<string, string>()
 
   for (const vendor of vendors) {
     if (vendor.profileStatus === 'pending') continue
     ensureVendorAcc(map, vendor.id, vendor.name)
+    const key = normalizeVendorKey(vendor.name)
+    if (key) idByNormalizedName.set(key, vendor.id)
   }
 
   for (const inv of vendorInvoices) {
-    const vendorId = (inv.vendorId || '').trim()
-    if (!vendorId) continue
+    const rawVendorId = (inv.vendorId || '').trim()
     const vendorName = (inv.vendorName || '').trim() || 'Unknown'
-    const acc = ensureVendorAcc(map, vendorId, vendorName)
+    if (!rawVendorId && !vendorName) continue
+
+    const nameKey = normalizeVendorKey(vendorName)
+    const resolvedId =
+      (rawVendorId && map.has(rawVendorId) ? rawVendorId : undefined) ??
+      (nameKey ? idByNormalizedName.get(nameKey) : undefined) ??
+      rawVendorId ??
+      `name:${nameKey}`
+
+    if (!resolvedId) continue
+
+    const acc = ensureVendorAcc(map, resolvedId, vendorName)
+    if (nameKey && !idByNormalizedName.has(nameKey)) {
+      idByNormalizedName.set(nameKey, resolvedId)
+    }
+
     const amount = inv.baseAmount ?? 0
     const project = projectById.get(inv.projectId)
     const projectName =
@@ -789,6 +806,7 @@ function buildVendorAccumulators(
     if (vendor.profileStatus === 'pending') continue
     const acc = map.get(vendor.id)
     if (!acc) continue
+    if (realProjects(acc).length > 0) continue
     if (acc.projects.size > 0) continue
     const fd = vendor.financialDetails
     const count =
@@ -821,8 +839,23 @@ function rankVendorsByBilling(accs: VendorAccumulator[]): VendorAccumulator[] {
   )
 }
 
+function normalizeVendorKey(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, ' ')
+}
+
+function realProjects(acc: VendorAccumulator): VendorProjectLink[] {
+  return [...acc.projects.values()].filter((p) => !p.projectId.includes('__meta_'))
+}
+
+function vendorProjectCount(acc: VendorAccumulator): number {
+  const named = realProjects(acc)
+  return named.length > 0 ? named.length : acc.projects.size
+}
+
 function averageDuration(acc: VendorAccumulator): number {
-  const durations = [...acc.projects.values()]
+  const source = realProjects(acc)
+  const pool = source.length > 0 ? source : [...acc.projects.values()]
+  const durations = pool
     .map((p) => p.durationDays)
     .filter((d): d is number => d != null)
   if (durations.length === 0) return 0
@@ -831,7 +864,21 @@ function averageDuration(acc: VendorAccumulator): number {
 
 function buildVendorOptions(ranked: VendorAccumulator[]): VendorPerformanceOption[] {
   const options = ranked.map((v) => ({ value: v.vendorId, label: v.vendorName }))
-  return [{ value: TOP5_VENDOR_OPTION_VALUE, label: 'Top 5 Vendors' }, ...options]
+  return [{ value: TOP5_VENDOR_OPTION_VALUE, label: 'All Vendors' }, ...options]
+}
+
+function findVendorAcc(
+  ranked: VendorAccumulator[],
+  performanceVendorId: string,
+): VendorAccumulator | undefined {
+  const byId = ranked.find((v) => v.vendorId === performanceVendorId)
+  if (byId) return byId
+  const needle = normalizeVendorKey(performanceVendorId)
+  return ranked.find(
+    (v) =>
+      normalizeVendorKey(v.vendorId) === needle ||
+      normalizeVendorKey(v.vendorName) === needle,
+  )
 }
 
 function scopeVendors(
@@ -841,14 +888,14 @@ function scopeVendors(
   if (performanceVendorId === TOP5_VENDOR_OPTION_VALUE) {
     return ranked.slice(0, 5)
   }
-  const match = ranked.find((v) => v.vendorId === performanceVendorId)
+  const match = findVendorAcc(ranked, performanceVendorId)
   return match ? [match] : []
 }
 
 function projectNames(acc: VendorAccumulator): string[] {
-  return [...acc.projects.values()]
+  return realProjects(acc)
     .map((p) => p.projectName)
-    .filter((name) => !name.includes('__meta_') && !/^Project \d+$/.test(name))
+    .filter((name) => !/^Project \d+$/.test(name))
     .sort((a, b) => a.localeCompare(b))
 }
 
@@ -890,11 +937,10 @@ function buildHorizontalChart(
 ): VendorPerformanceChartConfig {
   const tooltipDetails: Record<string, { projects?: string[]; extra?: string }> = {}
 
-  // Projects metric — single vendor: project-wise bars
+  // Projects metric — single vendor: project-wise bars when named projects exist
   if (metric === 'Projects' && performanceVendorId !== TOP5_VENDOR_OPTION_VALUE && scoped[0]) {
     const vendor = scoped[0]
-    const rows = [...vendor.projects.values()]
-      .filter((p) => !p.projectId.includes('__meta_'))
+    const rows = realProjects(vendor)
       .sort((a, b) => b.billing - a.billing || a.projectName.localeCompare(b.projectName))
       .map((p) => {
         tooltipDetails[p.projectId] = {
@@ -911,28 +957,31 @@ function buildHorizontalChart(
         }
       })
 
-    const hasBilling = rows.some((r) => typeof r.value === 'number' && r.value > 1)
-    return {
-      title: 'Vendor Performance',
-      subtitle: `Projects associated with ${vendor.vendorName}`,
-      kind: 'horizontal-bar',
-      xKey: 'project',
-      yAxisLabel: 'Projects',
-      xAxisLabel: hasBilling ? 'Billing for Projects (₹)' : 'Projects',
-      format: hasBilling ? 'currency' : 'count',
-      series: [
-        {
-          key: 'value',
-          label: hasBilling ? 'Billing' : 'Associated',
-          color: CHART_COLORS.blue,
-        },
-      ],
-      data: rows,
-      tooltipDetails,
+    if (rows.length > 0) {
+      const hasBilling = rows.some((r) => typeof r.value === 'number' && r.value > 1)
+      return {
+        title: 'Vendor Performance',
+        subtitle: `Projects associated with ${vendor.vendorName}`,
+        kind: 'horizontal-bar',
+        xKey: 'project',
+        yAxisLabel: 'Projects',
+        xAxisLabel: hasBilling ? 'Billing for Projects (₹)' : 'Projects',
+        format: hasBilling ? 'currency' : 'count',
+        series: [
+          {
+            key: 'value',
+            label: hasBilling ? 'Billing' : 'Associated',
+            color: CHART_COLORS.blue,
+          },
+        ],
+        data: rows,
+        tooltipDetails,
+      }
     }
+    // Fall through to vendor-level bar when only placeholder / count data exists
   }
 
-  // Vendor-wise bars (Top 5 or single vendor non-project metrics / Projects for Top 5)
+  // Vendor-wise bars (Top 5 / All, or single vendor aggregate metrics)
   const data = scoped.map((v) => {
     const names = projectNames(v)
     let value = 0
@@ -940,16 +989,19 @@ function buildHorizontalChart(
 
     switch (metric) {
       case 'Projects':
-        value = v.projects.size
+        value = vendorProjectCount(v)
         extra = names.length > 0 ? undefined : 'No named projects linked'
         break
       case 'No. of Projects':
-        value = v.projects.size
+        value = vendorProjectCount(v)
         break
       case 'Billing for the Projects':
         value = Math.round(
           [...v.projects.values()].reduce((s, p) => s + p.billing, 0),
         )
+        if (value <= 0 && v.billingInPeriod > 0) {
+          value = Math.round(v.billingInPeriod)
+        }
         break
       case 'Duration':
         value = averageDuration(v)
@@ -962,7 +1014,7 @@ function buildHorizontalChart(
         value = Math.round(v.billingInPeriod)
         break
       default:
-        value = v.projects.size
+        value = vendorProjectCount(v)
     }
 
     tooltipDetails[v.vendorId] = { projects: names, extra }
@@ -1027,7 +1079,7 @@ function buildHorizontalChart(
     subtitle: meta.subtitle,
     kind: 'horizontal-bar',
     xKey: 'vendor',
-    yAxisLabel: performanceVendorId === TOP5_VENDOR_OPTION_VALUE ? 'Top 5 Vendors' : 'Vendors',
+    yAxisLabel: performanceVendorId === TOP5_VENDOR_OPTION_VALUE ? 'All Vendors' : 'Vendors',
     xAxisLabel: meta.xAxisLabel,
     format,
     series: [{ key: 'value', label: meta.xAxisLabel, color: meta.color }],
@@ -1048,12 +1100,12 @@ export function getVendorPerformanceAnalytics(
 ): VendorPerformanceBundle {
   const periodBounds = getVendorPeriodBounds(timePeriod, customRange)
   const accMap = buildVendorAccumulators(vendors, projects, vendorInvoices, periodBounds)
-  const ranked = rankVendorsByBilling([...accMap.values()].filter((v) => v.vendorName))
+  const ranked = rankVendorsByBilling([...accMap.values()].filter((v) => Boolean(v.vendorName?.trim())))
   const vendorOptions = buildVendorOptions(ranked)
 
   const resolvedId = vendorOptions.some((o) => o.value === performanceVendorId)
     ? performanceVendorId
-    : TOP5_VENDOR_OPTION_VALUE
+    : findVendorAcc(ranked, performanceVendorId)?.vendorId ?? TOP5_VENDOR_OPTION_VALUE
 
   const scoped = scopeVendors(ranked, resolvedId)
 

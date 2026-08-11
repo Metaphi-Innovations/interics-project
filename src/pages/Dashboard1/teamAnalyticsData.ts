@@ -363,12 +363,9 @@ export const TEAM_METRIC_OPTIONS = [
   'Number of Projects',
   'Project Size',
   'Project Duration',
-  'Average Revenue',
-  'Total Revenue',
+  'Revenue',
   'Design vs Build',
   'Pitches vs Live Projects',
-  'Average Project Size',
-  'Average Project Duration',
   'Previous Year Comparison',
 ] as const
 
@@ -386,6 +383,9 @@ export interface TeamChartSeriesConfig {
 }
 
 export interface TeamPerformanceChartConfig {
+  /** Card subtitle — updates with the selected metric. */
+  subtitle: string
+  /** Numeric-axis label (X when horizontal). */
   yAxisLabel: string
   format: 'count' | 'sqft' | 'days' | 'currency'
   series: TeamChartSeriesConfig[]
@@ -625,42 +625,61 @@ function buildPerformanceChart(
   switch (metric) {
     case 'Number of Projects':
       return {
+        subtitle: 'Number of Projects by team member',
         yAxisLabel: 'Number of Projects',
         format: 'count',
-        series: [{ key: 'value', label: 'Projects', color: CHART_COLORS.teal }],
+        series: [{ key: 'value', label: 'Number of Projects', color: CHART_COLORS.teal }],
         data: members.map((m, i) => ({ ...dataBase[i], value: m.projectCount })),
       }
     case 'Project Size':
       return {
+        subtitle: 'Average & Total Project Size (sqft) by team member',
         yAxisLabel: 'Project Size (sqft)',
         format: 'sqft',
-        series: [{ key: 'value', label: 'Total Size', color: CHART_COLORS.amber }],
-        data: members.map((m, i) => ({ ...dataBase[i], value: m.totalSqft })),
+        series: [
+          { key: 'average', label: 'Average Project Size', color: CHART_COLORS.amber },
+          { key: 'total', label: 'Total Project Size', color: CHART_COLORS.green },
+        ],
+        data: members.map((m, i) => ({
+          ...dataBase[i],
+          average: m.avgSqft,
+          total: m.totalSqft,
+        })),
       }
     case 'Project Duration':
       return {
+        subtitle: 'Average & Total Project Duration (days) by team member',
         yAxisLabel: 'Project Duration (days)',
         format: 'days',
-        series: [{ key: 'value', label: 'Total Duration', color: CHART_COLORS.blue }],
-        data: members.map((m, i) => ({ ...dataBase[i], value: m.totalDurationDays })),
+        series: [
+          { key: 'average', label: 'Average Project Duration', color: CHART_COLORS.blue },
+          { key: 'total', label: 'Total Project Duration', color: CHART_COLORS.purple },
+        ],
+        data: members.map((m, i) => ({
+          ...dataBase[i],
+          average: m.avgDurationDays,
+          total: m.totalDurationDays,
+        })),
       }
-    case 'Average Revenue':
+    case 'Revenue':
       return {
-        yAxisLabel: 'Average Revenue',
+        subtitle: 'Average & Total Revenue (₹) by team member',
+        yAxisLabel: 'Revenue (₹)',
         format: 'currency',
-        series: [{ key: 'value', label: 'Avg Revenue', color: CHART_COLORS.teal }],
-        data: members.map((m, i) => ({ ...dataBase[i], value: m.avgRevenue })),
-      }
-    case 'Total Revenue':
-      return {
-        yAxisLabel: 'Total Revenue',
-        format: 'currency',
-        series: [{ key: 'value', label: 'Total Revenue', color: CHART_COLORS.green }],
-        data: members.map((m, i) => ({ ...dataBase[i], value: m.totalRevenue })),
+        series: [
+          { key: 'average', label: 'Average Revenue', color: CHART_COLORS.teal },
+          { key: 'total', label: 'Total Revenue', color: CHART_COLORS.green },
+        ],
+        data: members.map((m, i) => ({
+          ...dataBase[i],
+          average: m.avgRevenue,
+          total: m.totalRevenue,
+        })),
       }
     case 'Design vs Build':
       return {
-        yAxisLabel: 'Number of Projects',
+        subtitle: 'Design vs Build projects by team member',
+        yAxisLabel: 'Design vs Build',
         format: 'count',
         series: [
           { key: 'design', label: 'Design', color: CHART_COLORS.blue },
@@ -674,7 +693,8 @@ function buildPerformanceChart(
       }
     case 'Pitches vs Live Projects':
       return {
-        yAxisLabel: 'Number of Projects',
+        subtitle: 'Pitches vs Live Projects by team member',
+        yAxisLabel: 'Pitches vs Live Projects',
         format: 'count',
         series: [
           { key: 'pitches', label: 'Pitches', color: CHART_COLORS.blue },
@@ -686,23 +706,10 @@ function buildPerformanceChart(
           live: m.liveProjects,
         })),
       }
-    case 'Average Project Size':
-      return {
-        yAxisLabel: 'Average Project Size (sqft)',
-        format: 'sqft',
-        series: [{ key: 'value', label: 'Avg Size', color: CHART_COLORS.amber }],
-        data: members.map((m, i) => ({ ...dataBase[i], value: m.avgSqft })),
-      }
-    case 'Average Project Duration':
-      return {
-        yAxisLabel: 'Average Project Duration (days)',
-        format: 'days',
-        series: [{ key: 'value', label: 'Avg Duration', color: CHART_COLORS.blue }],
-        data: members.map((m, i) => ({ ...dataBase[i], value: m.avgDurationDays })),
-      }
     case 'Previous Year Comparison':
       return {
-        yAxisLabel: 'Total Revenue',
+        subtitle: 'Current vs Previous Year Revenue (₹) by team member',
+        yAxisLabel: 'Revenue (₹)',
         format: 'currency',
         series: [
           { key: 'current', label: 'Current Year', color: CHART_COLORS.teal },
@@ -716,11 +723,32 @@ function buildPerformanceChart(
       }
     default:
       return {
+        subtitle: 'Team performance by team member',
         yAxisLabel: 'Value',
         format: 'count',
         series: [{ key: 'value', label: 'Value', color: CHART_COLORS.teal }],
         data: members.map((m, i) => ({ ...dataBase[i], value: m.projectCount })),
       }
+  }
+}
+
+function emptyMemberMetrics(userId: string, name: string): MemberMetrics {
+  return {
+    userId,
+    name,
+    projectCount: 0,
+    totalSqft: 0,
+    avgSqft: 0,
+    totalDurationDays: 0,
+    avgDurationDays: 0,
+    totalRevenue: 0,
+    avgRevenue: 0,
+    designCount: 0,
+    buildCount: 0,
+    pitches: 0,
+    liveProjects: 0,
+    previousProjectCount: 0,
+    previousRevenue: 0,
   }
 }
 
@@ -763,7 +791,18 @@ export function getTeamPerformanceAnalytics(
     .sort((a, b) => b.totalRevenue - a.totalRevenue || a.name.localeCompare(b.name))
 
   if (teamMemberId !== 'all') {
-    members = members.filter((m) => m.userId === teamMemberId)
+    const selected = members.find((m) => m.userId === teamMemberId)
+    if (selected) {
+      members = [selected]
+    } else {
+      const opt = memberOptions.find((o) => o.value === teamMemberId)
+      members = opt
+        ? [emptyMemberMetrics(opt.value, opt.label)]
+        : []
+    }
+  } else if (members.length > 5) {
+    // All Team Members: Top 5 by Total Revenue (already sorted highest → lowest)
+    members = members.slice(0, 5)
   }
 
   return {

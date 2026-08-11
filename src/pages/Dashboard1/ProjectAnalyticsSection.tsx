@@ -249,7 +249,7 @@ function LiveDurationLineChart({
             tickMargin={4}
             tickFormatter={formatDaysAxis}
           />
-          <Tooltip content={LiveDurationTooltip} />
+          <Tooltip content={LiveDurationTooltip} isAnimationActive={false} animationDuration={0} />
           <Line
             type="monotone"
             dataKey="avgDurationDays"
@@ -259,7 +259,7 @@ function LiveDurationLineChart({
             connectNulls
             dot={{ r: 3, strokeWidth: 0, fill: CHART_COLORS.blue }}
             activeDot={{ r: 5, strokeWidth: 0, fill: CHART_COLORS.blue }}
-            animationDuration={800}
+            isAnimationActive={false}
           >
             <LabelList dataKey="liveProjects" content={LiveProjectCountLabel} />
           </Line>
@@ -334,44 +334,26 @@ function LiveProjectTimelineChart({
     <Box>
       <Box
         sx={{
-          display: 'grid',
-          gridTemplateColumns: { xs: '1fr 1fr', sm: 'repeat(3, 1fr)' },
-          gap: 1,
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: { xs: 1, sm: 2.5 },
           mb: 1.5,
         }}
       >
-        <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
-          Project:{' '}
-          <Box component="span" sx={{ fontWeight: 600, color: 'text.primary' }}>
-            {meta.name}
-          </Box>
-        </Typography>
-        <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
-          Status:{' '}
-          <Box component="span" sx={{ fontWeight: 600, color: 'text.primary' }}>
-            {meta.status.toUpperCase()}
-          </Box>
-        </Typography>
-        <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
-          Start:{' '}
-          <Box component="span" sx={{ fontWeight: 600, color: 'text.primary' }}>
-            {meta.startLabel}
-          </Box>
-        </Typography>
-        <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
-          {meta.endIsOngoing ? 'Today' : 'End'}:{' '}
-          <Box component="span" sx={{ fontWeight: 600, color: 'text.primary' }}>
-            {meta.endIsOngoing ? meta.todayLabel : meta.endLabel}
-          </Box>
-        </Typography>
-        <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
+        <Typography variant="caption" color="text.secondary" sx={{ fontSize: 12 }}>
           Running Duration:{' '}
           <Box component="span" sx={{ fontWeight: 600, color: 'text.primary' }}>
             {meta.runningDays} days
           </Box>
         </Typography>
-        <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
-          End Date:{' '}
+        <Typography variant="caption" color="text.secondary" sx={{ fontSize: 12 }}>
+          Start:{' '}
+          <Box component="span" sx={{ fontWeight: 600, color: 'text.primary' }}>
+            {meta.startLabel}
+          </Box>
+        </Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ fontSize: 12 }}>
+          End:{' '}
           <Box component="span" sx={{ fontWeight: 600, color: 'text.primary' }}>
             {meta.endLabel}
           </Box>
@@ -412,7 +394,7 @@ function LiveProjectTimelineChart({
             tickMargin={4}
             tickFormatter={formatDaysAxis}
           />
-          <Tooltip content={SingleProjectTimelineTooltip} />
+          <Tooltip content={SingleProjectTimelineTooltip} isAnimationActive={false} animationDuration={0} />
           <Line
             type="monotone"
             dataKey="durationDays"
@@ -421,7 +403,7 @@ function LiveProjectTimelineChart({
             strokeWidth={2.5}
             dot={{ r: 3, strokeWidth: 0, fill: CHART_COLORS.teal }}
             activeDot={{ r: 5, strokeWidth: 0, fill: CHART_COLORS.teal }}
-            animationDuration={800}
+            isAnimationActive={false}
           />
           {startPoint ? (
             <ReferenceDot

@@ -142,6 +142,8 @@ export function VendorBillingAcrossYearsChart({
         <Tooltip
           content={VendorBillingAcrossYearsTooltip}
           shared={false}
+          isAnimationActive={false}
+          animationDuration={0}
           cursor={{ stroke: tokens.color.neutral[300], strokeDasharray: '4 4' }}
         />
         {lines.map((line) => {
@@ -168,7 +170,7 @@ export function VendorBillingAcrossYearsChart({
                 strokeWidth: 0,
                 fill: line.color,
               }}
-              animationDuration={800}
+              isAnimationActive={false}
               connectNulls
             />
           )

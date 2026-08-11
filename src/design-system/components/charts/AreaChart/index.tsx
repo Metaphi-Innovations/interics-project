@@ -83,10 +83,17 @@ export default function AreaChart({
         />
         {showTooltip && (
           <Tooltip
+            isAnimationActive={false}
+            animationDuration={0}
             contentStyle={ct.tooltipStyle}
             labelStyle={{ color: ct.theme.palette.text.secondary, fontSize: 11, marginBottom: 4 }}
             itemStyle={{ color: ct.theme.palette.text.primary, fontSize: 12 }}
             formatter={formatTooltip as any}
+            cursor={{
+              stroke: ct.theme.palette.divider,
+              strokeWidth: 1,
+              strokeDasharray: '4 4',
+            }}
           />
         )}
         {showLegend && lines.length > 1 && <Legend {...ct.legendProps} />}
@@ -105,7 +112,7 @@ export default function AreaChart({
               dot={false}
               activeDot={{ r: 4, strokeWidth: 0 }}
               stackId={stacked ? 'stack' : undefined}
-              animationDuration={800}
+              isAnimationActive={false}
             />
           )
         })}

@@ -2,13 +2,15 @@
  * Dashboard 1 — Team section
  * Employee + time filters, KPIs, Team Performance master graph, and existing charts
  */
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode, type SyntheticEvent } from 'react'
 import {
+  Autocomplete,
   Box,
   Grid,
   MenuItem,
   Paper,
   Select as MuiSelect,
+  TextField,
   Typography,
 } from '@mui/material'
 import { alpha, useTheme } from '@mui/material/styles'
@@ -21,6 +23,7 @@ import {
   TrendingDown,
   TrendingUp,
 } from 'lucide-react'
+import type { TooltipContentProps } from 'recharts'
 import {
   BarChart,
   ChartCard,
@@ -38,7 +41,9 @@ import {
   TEAM_METRIC_OPTIONS,
   TEAM_TIME_PERIOD_OPTIONS,
   type TeamKpi,
+  type TeamMemberOption,
   type TeamMetric,
+  type TeamPerformanceChartConfig,
   type TeamTimePeriod,
 } from './teamAnalyticsData'
 
@@ -73,6 +78,23 @@ const SELECT_SX = { minWidth: 160, fontSize: 12, height: 32 } as const
 const METRIC_SELECT_SX = { minWidth: 200, fontSize: 12, height: 32 } as const
 const MENU_ITEM_SX = { fontSize: 12 } as const
 
+const MEMBER_AUTOCOMPLETE_SX = {
+  minWidth: { xs: '100%', sm: 200 },
+  maxWidth: { xs: '100%', sm: 240 },
+  '& .MuiOutlinedInput-root': {
+    height: 32,
+    fontSize: 12,
+    bgcolor: 'background.paper',
+    '& fieldset': {
+      borderColor: tokens.color.neutral[200],
+    },
+  },
+  '& .MuiInputBase-input': {
+    fontSize: 12,
+    py: 0,
+  },
+} as const
+
 const FILTER_LABEL_SX = {
   display: 'block',
   fontSize: 10,
@@ -103,6 +125,77 @@ function formatCount(value: number | string): string {
   const n = typeof value === 'number' ? value : Number(value)
   if (Number.isNaN(n)) return String(value)
   return String(Math.round(n))
+}
+
+function formatMetricValue(
+  value: number | string | null | undefined,
+  format: TeamPerformanceChartConfig['format'],
+): string {
+  if (value == null || value === '') return '—'
+  const n = typeof value === 'number' ? value : Number(value)
+  if (Number.isNaN(n)) return String(value)
+  if (format === 'currency') return `₹${formatCurrency(n)}`
+  if (format === 'sqft') return `${Math.round(n).toLocaleString('en-IN')} sqft`
+  if (format === 'days') return `${Math.round(n)} days`
+  return String(Math.round(n))
+}
+
+function ChartTooltipShell({ children }: { children: ReactNode }) {
+  const theme = useTheme()
+  return (
+    <Box
+      sx={{
+        bgcolor: theme.palette.background.paper,
+        border: `1px solid ${tokens.color.neutral[200]}`,
+        borderRadius: 1,
+        px: 1.5,
+        py: 1,
+        boxShadow: tokens.shadow.md,
+        maxWidth: 280,
+      }}
+    >
+      {children}
+    </Box>
+  )
+}
+
+function TeamPerformanceTooltip({
+  active,
+  payload,
+  format,
+}: TooltipContentProps & { format: TeamPerformanceChartConfig['format'] }) {
+  if (!active || !payload?.length) return null
+  const member = String(payload[0]?.payload?.member ?? '')
+
+  return (
+    <ChartTooltipShell>
+      {member ? (
+        <Typography variant="caption" fontWeight={600} sx={{ fontSize: 12, display: 'block', mb: 0.5 }}>
+          {member}
+        </Typography>
+      ) : null}
+      {payload.map((entry) => {
+        const key = String(entry.dataKey ?? entry.name ?? '')
+        const label = String(entry.name ?? key)
+        return (
+          <Typography
+            key={key}
+            variant="caption"
+            color="text.secondary"
+            sx={{ fontSize: 11, display: 'block', mt: 0.25 }}
+          >
+            <Box component="span" sx={{ color: String(entry.color ?? 'inherit') }}>
+              ●
+            </Box>{' '}
+            {label}:{' '}
+            <Box component="span" sx={{ fontWeight: 600, color: 'text.primary' }}>
+              {formatMetricValue(entry.value as number | string | undefined, format)}
+            </Box>
+          </Typography>
+        )
+      })}
+    </ChartTooltipShell>
+  )
 }
 
 function TeamKpiCard({ kpi }: { kpi: TeamKpi }) {
@@ -294,6 +387,23 @@ export function TeamSection() {
     }
   }, [performance.memberOptions, teamMemberId])
 
+  const selectedTeamMemberOption = useMemo((): TeamMemberOption => {
+    return (
+      performance.memberOptions.find((o) => o.value === teamMemberId) ?? {
+        value: 'all',
+        label: 'All Team Members',
+      }
+    )
+  }, [performance.memberOptions, teamMemberId])
+
+  const handleTeamMemberChange = (
+    _event: SyntheticEvent,
+    value: TeamMemberOption | null,
+  ) => {
+    if (value == null) return
+    setTeamMemberId(value.value)
+  }
+
   const scopeLabel = employeeId === 'all' ? 'team' : employeeLabel
   const { sqftSummary } = analytics
 
@@ -394,7 +504,7 @@ export function TeamSection() {
       <Box sx={{ mb: 2 }}>
         <ChartCard
           title="Team Performance"
-          subtitle={`${chart.yAxisLabel} by team member`}
+          subtitle={chart.subtitle}
           action={
             <Box
               sx={{
@@ -405,7 +515,7 @@ export function TeamSection() {
                 justifyContent: 'flex-end',
               }}
             >
-              <Box>
+              <Box sx={{ width: { xs: '100%', sm: 220 } }}>
                 <Typography
                   variant="caption"
                   color="text.secondary"
@@ -414,18 +524,39 @@ export function TeamSection() {
                 >
                   Team Member
                 </Typography>
-                <MuiSelect
+                <Autocomplete
                   size="small"
-                  value={teamMemberId}
-                  onChange={(e) => setTeamMemberId(e.target.value)}
-                  sx={SELECT_SX}
-                >
-                  {performance.memberOptions.map((opt) => (
-                    <MenuItem key={opt.value} value={opt.value} sx={MENU_ITEM_SX}>
-                      {opt.label}
-                    </MenuItem>
-                  ))}
-                </MuiSelect>
+                  disableClearable
+                  options={performance.memberOptions}
+                  value={selectedTeamMemberOption}
+                  onChange={handleTeamMemberChange}
+                  getOptionLabel={(option) => option.label}
+                  isOptionEqualToValue={(option, value) => option.value === value.value}
+                  filterOptions={(options, state) => {
+                    const query = state.inputValue.trim().toLowerCase()
+                    if (!query) return options
+                    return options.filter((opt) => opt.label.toLowerCase().includes(query))
+                  }}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      placeholder="Search team members..."
+                      inputProps={{
+                        ...params.inputProps,
+                        'aria-label': 'Search and select team member',
+                      }}
+                    />
+                  )}
+                  slotProps={{
+                    paper: {
+                      sx: {
+                        fontSize: 12,
+                        '& .MuiAutocomplete-option': { fontSize: 12, minHeight: 36 },
+                      },
+                    },
+                  }}
+                  sx={{ ...MEMBER_AUTOCOMPLETE_SX, maxWidth: '100%' }}
+                />
               </Box>
 
               <Box>
@@ -451,13 +582,6 @@ export function TeamSection() {
                 </MuiSelect>
               </Box>
 
-              {dualSeries && (
-                <Box sx={{ alignSelf: 'center', ml: { xs: 0, sm: 0.5 } }}>
-                  <ChartSeriesLegend
-                    items={chart.series.map((s) => ({ label: s.label, color: s.color }))}
-                  />
-                </Box>
-              )}
             </Box>
           }
         >
@@ -478,20 +602,33 @@ export function TeamSection() {
               No team member data for the selected filters.
             </Typography>
           ) : (
-            <BarChart
-              data={[...chart.data]}
-              xKey="member"
-              height={chartHeight}
-              orientation="horizontal"
-              showLegend={false}
-              barSize={dualSeries ? 12 : 18}
-              bars={chart.series.map((s) => ({
-                key: s.key,
-                label: s.label,
-                color: s.color,
-              }))}
-              formatX={formatPerfY}
-            />
+            <Box>
+              <BarChart
+                key={`${teamMemberId}-${metric}`}
+                data={[...chart.data]}
+                xKey="member"
+                height={chartHeight}
+                orientation="horizontal"
+                showLegend={false}
+                barSize={dualSeries ? 12 : 18}
+                bars={chart.series.map((s) => ({
+                  key: s.key,
+                  label: s.label,
+                  color: s.color,
+                }))}
+                formatX={formatPerfY}
+                tooltipContent={(props) => (
+                  <TeamPerformanceTooltip {...props} format={chart.format} />
+                )}
+              />
+              {dualSeries ? (
+                <Box sx={{ mt: 1, display: 'flex', justifyContent: 'center' }}>
+                  <ChartSeriesLegend
+                    items={chart.series.map((s) => ({ label: s.label, color: s.color }))}
+                  />
+                </Box>
+              ) : null}
+            </Box>
           )}
         </ChartCard>
       </Box>
