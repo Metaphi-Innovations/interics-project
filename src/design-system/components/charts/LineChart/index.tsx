@@ -92,6 +92,8 @@ export default function LineChart({
           <Tooltip
             content={tooltipContent}
             shared={tooltipShared}
+            isAnimationActive={false}
+            animationDuration={0}
             contentStyle={tooltipContent ? undefined : ct.tooltipStyle}
             labelStyle={
               tooltipContent
@@ -104,6 +106,11 @@ export default function LineChart({
                 : { color: ct.theme.palette.text.primary, fontSize: 12 }
             }
             formatter={tooltipContent ? undefined : (formatTooltip as any)}
+            cursor={{
+              stroke: ct.theme.palette.divider,
+              strokeWidth: 1,
+              strokeDasharray: '4 4',
+            }}
           />
         )}
         {showLegend && lines.length > 1 && <Legend {...ct.legendProps} />}
@@ -117,7 +124,7 @@ export default function LineChart({
             strokeWidth={2}
             dot={false}
             activeDot={{ r: 4, strokeWidth: 0 }}
-            animationDuration={800}
+            isAnimationActive={false}
           />
         ))}
       </RechartsLineChart>

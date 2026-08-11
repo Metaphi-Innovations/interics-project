@@ -103,7 +103,7 @@ const FILTER_LABEL_SX = {
 
 const TOP5_VENDOR_OPTION: VendorPerformanceOption = {
   value: TOP5_VENDOR_OPTION_VALUE,
-  label: 'Top 5 Vendors',
+  label: 'All Vendors',
 }
 
 async function fetchJsonArray(url: string): Promise<unknown[]> {
@@ -414,7 +414,10 @@ export function VendorsSection() {
 
   const perfChart = performance.chart
   const perfLoading = vendorsLoading || projectsLoading || invoicesLoading
-  const hasPerfData = perfChart.data.length > 0
+  const hasPerfData =
+    perfChart.kind === 'years-line'
+      ? perfChart.series.length > 0 && perfChart.data.length > 0
+      : perfChart.data.length > 0
   const perfChartHeight = Math.max(
     300,
     Math.min(520, (perfChart.kind === 'years-line' ? 8 : perfChart.data.length) * 36 + 80),
@@ -612,9 +615,10 @@ export function VendorsSection() {
                   disableClearable
                   options={performance.vendorOptions}
                   value={selectedPerformanceVendor}
-                  onChange={(_, option: VendorPerformanceOption) =>
+                  onChange={(_, option: VendorPerformanceOption | null) => {
+                    if (option == null) return
                     setPerformanceVendorId(option.value)
-                  }
+                  }}
                   getOptionLabel={(option) => option.label}
                   isOptionEqualToValue={(option, value) => option.value === value.value}
                   filterOptions={(options, state) => {
@@ -700,6 +704,7 @@ export function VendorsSection() {
             </Typography>
           ) : perfChart.kind === 'years-line' ? (
             <VendorBillingAcrossYearsChart
+              key={`years-${performanceVendorId}-${performanceMetric}`}
               data={perfChart.data.map((row) => ({
                 year: String(row.year ?? ''),
                 ...row,
@@ -713,6 +718,7 @@ export function VendorsSection() {
             />
           ) : (
             <BarChart
+              key={`bars-${performanceVendorId}-${performanceMetric}`}
               data={[...perfChart.data]}
               xKey={perfChart.xKey}
               height={perfChartHeight}
