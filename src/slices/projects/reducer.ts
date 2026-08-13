@@ -147,6 +147,7 @@ interface ProjectsState {
   loading: boolean
   saving: boolean
   error: string | null
+  listRequestId: string | null
   pagination: Pagination
   filters: Filters
   sortConfig: SortConfig
@@ -158,8 +159,9 @@ const initialState: ProjectsState = {
   loading: false,
   saving: false,
   error: null,
+  listRequestId: null,
   pagination: { page: 1, pageSize: 10, total: 0 },
-  filters: { search: '', status: '', type: '', projectManager: '' },
+  filters: { search: '', status: 'Live', type: '', projectManager: '' },
   sortConfig: { field: null, direction: 'asc' },
 }
 
@@ -194,16 +196,19 @@ const projectsSlice = createSlice({
   },
   extraReducers: (builder) => {
     builder
-      .addCase(fetchProjects.pending, (state) => {
-        state.loading = true
+      .addCase(fetchProjects.pending, (state, action) => {
+        state.listRequestId = action.meta.requestId
+        if (state.items.length === 0) state.loading = true
         state.error = null
       })
       .addCase(fetchProjects.fulfilled, (state, action) => {
+        if (state.listRequestId !== action.meta.requestId) return
         state.loading = false
         state.items = action.payload.items ?? []
         state.pagination.total = action.payload.total ?? 0
       })
       .addCase(fetchProjects.rejected, (state, action) => {
+        if (state.listRequestId !== action.meta.requestId) return
         state.loading = false
         state.error = action.payload as string
       })

@@ -52,6 +52,7 @@ import {
   type InvoiceLineRollups,
 } from './clientInvoiceUtils'
 import { downloadClientInvoiceDocument } from './downloadClientInvoice'
+import { findClientInvoiceForMilestone } from './milestonePaymentStatus'
 
 function milestoneRowKey(m: Pick<BillableMilestone, 'milestoneId' | 'serviceId'>): string {
   return `${m.milestoneId}:${m.serviceId}`
@@ -59,9 +60,14 @@ function milestoneRowKey(m: Pick<BillableMilestone, 'milestoneId' | 'serviceId'>
 
 function findInvoiceForMilestone(
   invoices: ClientInvoice[],
-  m: Pick<BillableMilestone, 'milestoneId' | 'serviceId'>,
+  m: Pick<BillableMilestone, 'milestoneId' | 'serviceId' | 'milestoneName'>,
 ): ClientInvoice | undefined {
-  return invoices.find((i) => i.milestoneId === m.milestoneId && i.serviceId === m.serviceId)
+  return findClientInvoiceForMilestone(
+    invoices,
+    m.milestoneId,
+    m.serviceId,
+    m.milestoneName,
+  )
 }
 
 function hasInvoiceForMilestone(invoices: ClientInvoice[], m: BillableMilestone): boolean {
@@ -80,12 +86,15 @@ function toIsoDate(d: Date | null): string {
   return `${y}-${mo}-${day}`
 }
 
-type MilestoneBillPhase = 'not_invoiced' | 'invoiced' | 'overdue' | 'paid'
+type MilestoneBillPhase = 'not_invoiced' | 'invoiced' | 'overdue' | 'paid' | 'partially_paid'
 
 function milestoneBillPhase(inv: ClientInvoice | undefined): MilestoneBillPhase {
   if (!inv) return 'not_invoiced'
-  if (inv.status === 'paid' || balancePending(inv) <= MONEY_EPS) return 'paid'
-  if (isDueDateOverdue(inv.dueDate) && balancePending(inv) > MONEY_EPS) return 'overdue'
+  const pending = balancePending(inv)
+  if (pending <= MONEY_EPS) return 'paid'
+  const settled = inv.grossAmount - pending
+  if (settled > MONEY_EPS || inv.status === 'partially_paid') return 'partially_paid'
+  if (isDueDateOverdue(inv.dueDate)) return 'overdue'
   return 'invoiced'
 }
 
@@ -97,6 +106,8 @@ function milestoneStatusBadge(phase: MilestoneBillPhase): { type: StatusType; la
       return { type: 'sent', label: 'Invoiced' }
     case 'paid':
       return { type: 'paid', label: 'Paid' }
+    case 'partially_paid':
+      return { type: 'partially_paid', label: 'Partially Paid' }
     case 'overdue':
       return { type: 'overdue', label: 'Overdue' }
   }
@@ -731,7 +742,7 @@ function ViewInvoiceDrawer({
               size="sm"
               variant="contained"
               color="primary"
-              label="Record Invoice"
+              label="Record Payment"
               onClick={onRecordPayment}
             />
           ) : null}
@@ -896,6 +907,11 @@ export default function BillingTab({ projectId, projectName, clientId, clientNam
     return projectInvoices.find((i) => i.id === viewInvoice.id) ?? viewInvoice
   }, [projectInvoices, viewInvoice])
 
+  const paymentInvoiceResolved = useMemo(() => {
+    if (!paymentInvoice) return null
+    return projectInvoices.find((i) => i.id === paymentInvoice.id) ?? paymentInvoice
+  }, [projectInvoices, paymentInvoice])
+
   return (
     <>
       <BillingPitchSummary projectId={projectId} />
@@ -1047,7 +1063,7 @@ export default function BillingTab({ projectId, projectName, clientId, clientNam
                           size="sm"
                           variant="contained"
                           color="primary"
-                          label="Draft invoice"
+                          label="Generate Invoice"
                           onClick={() => openGenerate(m)}
                           sx={RECEIVABLES_ACTION_BUTTON_SX}
                         />
@@ -1083,7 +1099,7 @@ export default function BillingTab({ projectId, projectName, clientId, clientNam
       <RecordClientInvoicePaymentModal
         open={!!paymentInvoice}
         projectId={projectId}
-        invoice={paymentInvoice}
+        invoice={paymentInvoiceResolved}
         onClose={() => setPaymentInvoice(null)}
       />
       <ViewInvoiceDrawer
@@ -1092,7 +1108,7 @@ export default function BillingTab({ projectId, projectName, clientId, clientNam
         projectName={projectName}
         onClose={() => setViewInvoice(null)}
         onRecordPayment={() => {
-          if (viewInvoice) openPayment(viewInvoice)
+          if (viewInvoiceResolved) openPayment(viewInvoiceResolved)
         }}
         onDownloadPdf={() => {
           if (!viewInvoiceResolved) return

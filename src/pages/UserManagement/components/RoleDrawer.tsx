@@ -61,6 +61,7 @@ export function RoleDrawer({ open, mode, roleId, onClose }: RoleDrawerProps) {
           level,
           description: description.trim() || undefined,
           isSystem: false,
+          status: 'active',
         } as Omit<Role, 'id' | 'userCount'>),
       )
         .unwrap()
@@ -149,16 +150,20 @@ export function RoleDrawer({ open, mode, roleId, onClose }: RoleDrawerProps) {
             ))}
           </TextField>
         </FormField>
-        <FormField label="Description">
+        <FormField
+          label="Description"
+          error={description.length > 500 ? 'Maximum 500 characters' : undefined}
+        >
           <TextField
             size="small"
             fullWidth
             multiline
             minRows={2}
             value={description}
-            onChange={(e) => setDescription(e.target.value)}
+            onChange={(e) => setDescription(e.target.value.slice(0, 500))}
             disabled={readOnly}
-            inputProps={{ style: { fontSize: 13 } }}
+            helperText={`${description.length}/500`}
+            inputProps={{ maxLength: 500, style: { fontSize: 13 } }}
           />
         </FormField>
       </FormSection>

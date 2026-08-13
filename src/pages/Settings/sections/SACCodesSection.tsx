@@ -5,15 +5,23 @@ import {
   MenuItem, IconButton,
   Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions,
 } from '@mui/material'
-import { Edit, ToggleOff, ToggleOn } from '@mui/icons-material'
+import { Edit } from '@mui/icons-material'
 import { Plus } from 'lucide-react'
-import { Button, Modal, StatusBadge, useToast } from '@/design-system/components'
+import { Button, Modal, useToast } from '@/design-system/components'
+import {
+  FilterableSortHeader,
+  SettingsSearchBar,
+  StatusColumnToggle,
+  useListingQuery,
+  type ColumnFilterOption,
+} from '@/components/listing'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import {
   fetchSACCodes, createSACCode, updateSACCode, toggleSACCodeStatus,
   fetchGSTRates,
 } from '@/slices/settings/thunk'
 import type { SACCode } from '@/slices/settings/reducer'
+import { sacCodesService } from '@/modules/system-settings/sac/sac-codes.service'
 import {
   SETTINGS_TABLE_CELL_ACTION_SX,
   SETTINGS_TABLE_CELL_SX,
@@ -38,30 +46,79 @@ const sacDataColWidth = settingsDataColWidth(SAC_DATA_COL_COUNT)
 type SACForm = Omit<SACCode, 'id' | 'gstRate'>
 
 const defaultForm: SACForm = { code: '', description: '', gstRateId: '', status: 'active' }
+type SacFilterOptions = {
+  sacCode: ColumnFilterOption[]
+  description: ColumnFilterOption[]
+  gstSlabId: ColumnFilterOption[]
+  status: ColumnFilterOption[]
+}
 
 export default function SACCodesSection() {
   const dispatch = useAppDispatch()
   const success = useToast((s) => s.success)
   const error = useToast((s) => s.error)
   const { sacCodes, gstRates, saving } = useAppSelector(s => s.settings)
-  const [search, setSearch] = useState('')
-  const [debouncedSearch, setDebouncedSearch] = useState('')
+  const listing = useListingQuery({ pageSize: 20 })
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [editingRow, setEditingRow] = useState<SACCode | null>(null)
   const [form, setForm] = useState<SACForm>(defaultForm)
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [toggleTarget, setToggleTarget] = useState<SACCode | null>(null)
   const [toggling, setToggling] = useState(false)
+  const [sortField, setSortField] = useState<string>()
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
+  const [filterOptions, setFilterOptions] = useState<SacFilterOptions>({
+    sacCode: [],
+    description: [],
+    gstSlabId: [],
+    status: [],
+  })
+  const search = listing.search.trim()
+  const isSearchPending = search.length > 0 && search !== listing.debouncedSearch
 
   useEffect(() => {
-    const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 300)
-    return () => window.clearTimeout(timer)
-  }, [search])
+    void sacCodesService.getFilters()
+      .then((data) => {
+        setFilterOptions({
+          sacCode: data.sacCode ?? [],
+          description: data.description ?? [],
+          gstSlabId: data.gstSlabId ?? [],
+          status: data.status ?? [],
+        })
+      })
+      .catch(() => undefined)
+    void dispatch(fetchGSTRates())
+  }, [dispatch])
 
   useEffect(() => {
-    dispatch(fetchSACCodes({ search: debouncedSearch || undefined, force: true }))
-    dispatch(fetchGSTRates())
-  }, [dispatch, debouncedSearch])
+    if (isSearchPending) return
+    void dispatch(fetchSACCodes({
+      force: true,
+      search: listing.debouncedSearch || undefined,
+      sacCode: listing.filters.sacCode,
+      description: listing.filters.description,
+      gstSlabId: listing.filters.gstSlabId,
+      status: listing.filters.status,
+      sortBy: sortField,
+      sortOrder: sortField ? sortDirection : undefined,
+    }))
+  }, [dispatch, isSearchPending, listing.debouncedSearch, listing.filters, search, sortDirection, sortField])
+
+  const applyColumnFilter = (key: string) => (value: string) => {
+    listing.setFilter(key, value)
+  }
+
+  const handleSort = (field: string, direction: 'asc' | 'desc') => {
+    setSortField(field)
+    setSortDirection(direction)
+  }
+
+  const handleReset = () => {
+    listing.setSearch('')
+    listing.setFilters({})
+    setSortField(undefined)
+    setSortDirection('asc')
+  }
 
   const activeGST = gstRates.filter(g => g.status === 'active')
 
@@ -121,6 +178,16 @@ export default function SACCodesSection() {
     setToggling(true)
     try {
       await dispatch(toggleSACCodeStatus(toggleTarget.id)).unwrap()
+      void dispatch(fetchSACCodes({
+        force: true,
+        search: listing.debouncedSearch || undefined,
+        sacCode: listing.filters.sacCode,
+        description: listing.filters.description,
+        gstSlabId: listing.filters.gstSlabId,
+        status: listing.filters.status,
+        sortBy: sortField,
+        sortOrder: sortField ? sortDirection : undefined,
+      }))
       success(
         toggleTarget.status === 'active'
           ? 'SAC code deactivated'
@@ -149,12 +216,11 @@ export default function SACCodesSection() {
         </Button>
       </Box>
 
-      <TextField
-        size="small"
+      <SettingsSearchBar
         placeholder="Search SAC codes..."
-        value={search}
-        onChange={e => setSearch(e.target.value)}
-        sx={{ width: 280, mb: 2 }}
+        value={listing.search}
+        onChange={listing.setSearch}
+        onReset={handleReset}
       />
 
       <TableContainer sx={{ width: '100%' }}>
@@ -168,10 +234,50 @@ export default function SACCodesSection() {
         </colgroup>
         <TableHead>
           <TableRow sx={{ bgcolor: '#F8FAFB' }}>
-            <TableCell sx={SETTINGS_TABLE_HEADER_CELL_SX}>SAC Code</TableCell>
-            <TableCell sx={SETTINGS_TABLE_HEADER_CELL_SX}>Description</TableCell>
-            <TableCell sx={SETTINGS_TABLE_HEADER_CELL_SX}>GST Rate (linked)</TableCell>
-            <TableCell sx={SETTINGS_TABLE_HEADER_CELL_SX}>Status</TableCell>
+            <FilterableSortHeader
+              label="SAC Code"
+              field="sacCode"
+              sortField={sortField}
+              sortDirection={sortDirection}
+              onSort={handleSort}
+              filterValue={listing.filters.sacCode ?? ''}
+              filterOptions={filterOptions.sacCode}
+              onFilter={applyColumnFilter('sacCode')}
+              sx={SETTINGS_TABLE_HEADER_CELL_SX}
+            />
+            <FilterableSortHeader
+              label="Description"
+              field="description"
+              sortField={sortField}
+              sortDirection={sortDirection}
+              onSort={handleSort}
+              filterValue={listing.filters.description ?? ''}
+              filterOptions={filterOptions.description}
+              onFilter={applyColumnFilter('description')}
+              sx={SETTINGS_TABLE_HEADER_CELL_SX}
+            />
+            <FilterableSortHeader
+              label="GST Rate (linked)"
+              field="gstSlabId"
+              sortField={sortField}
+              sortDirection={sortDirection}
+              onSort={handleSort}
+              filterValue={listing.filters.gstSlabId ?? ''}
+              filterOptions={filterOptions.gstSlabId}
+              onFilter={applyColumnFilter('gstSlabId')}
+              sx={SETTINGS_TABLE_HEADER_CELL_SX}
+            />
+            <FilterableSortHeader
+              label="Status"
+              field="status"
+              sortField={sortField}
+              sortDirection={sortDirection}
+              onSort={handleSort}
+              filterValue={listing.filters.status ?? ''}
+              filterOptions={filterOptions.status}
+              onFilter={applyColumnFilter('status')}
+              sx={SETTINGS_TABLE_HEADER_CELL_SX}
+            />
             <TableCell sx={SETTINGS_TABLE_HEADER_ACTION_SX}>Actions</TableCell>
           </TableRow>
         </TableHead>
@@ -195,16 +301,14 @@ export default function SACCodesSection() {
                   </Box>
                 </TableCell>
                 <TableCell sx={SETTINGS_TABLE_CELL_SX}>
-                  <StatusBadge status={row.status} />
+                  <StatusColumnToggle
+                    active={row.status === 'active'}
+                    onToggle={() => setToggleTarget(row)}
+                  />
                 </TableCell>
                 <TableCell sx={SETTINGS_TABLE_CELL_ACTION_SX}>
                   <IconButton size="small" onClick={() => openEdit(row)}>
                     <Edit sx={{ fontSize: 14 }} />
-                  </IconButton>
-                  <IconButton size="small" onClick={() => setToggleTarget(row)}>
-                    {row.status === 'active'
-                      ? <ToggleOn sx={{ fontSize: 14, color: 'success.main' }} />
-                      : <ToggleOff sx={{ fontSize: 14, color: 'error.main' }} />}
                   </IconButton>
                 </TableCell>
               </TableRow>

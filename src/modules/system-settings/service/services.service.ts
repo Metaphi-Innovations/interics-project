@@ -1,7 +1,8 @@
 import client from '@/api/client'
-import { toUiStatus, unwrapApiData, unwrapApiList } from '../shared/api'
+import { compactQueryParams, toUiStatus, unwrapApiData, unwrapApiList } from '../shared/api'
 import { withInflight } from '../shared/inflight'
 import type { Category, SACCode, Service } from '@/slices/settings/reducer'
+import type { ColumnFilterOption } from '@/components/listing'
 
 type ServiceApi = {
   id: string
@@ -54,8 +55,22 @@ function toPayload(data: Omit<Service, 'id'>, sacCodes: SACCode[]) {
 
 export type ServiceListParams = {
   search?: string
+  name?: string
   categoryId?: string
+  sacCode?: string
+  gstRate?: string
+  isActive?: string
+  sortBy?: string
+  sortOrder?: 'asc' | 'desc'
   limit?: number
+}
+
+type ServiceFilters = {
+  name?: ColumnFilterOption[]
+  categoryId?: ColumnFilterOption[]
+  sacCode?: ColumnFilterOption[]
+  gstRate?: ColumnFilterOption[]
+  isActive?: ColumnFilterOption[]
 }
 
 export const servicesService = {
@@ -64,21 +79,28 @@ export const servicesService = {
     sacCodes: SACCode[],
     params: ServiceListParams = {},
   ): Promise<Service[]> {
-    const search = params.search?.trim()
-    const categoryId = params.categoryId?.trim()
-    const key = `services:list:${search ?? ''}:${categoryId ?? ''}`
-    return withInflight(key, async () => {
-      const res = await client.get(BASE, {
-        params: {
-          limit: params.limit ?? 100,
-          ...(search ? { search } : {}),
-          ...(categoryId ? { categoryId } : {}),
-        },
-      })
+    const query = compactQueryParams({
+      limit: params.limit ?? 100,
+      search: params.search,
+      name: params.name,
+      categoryId: params.categoryId,
+      sacCode: params.sacCode,
+      gstRate: params.gstRate,
+      isActive: params.isActive,
+      sortBy: params.sortBy,
+      sortOrder: params.sortOrder,
+    })
+    return withInflight(`services:list:${JSON.stringify(query)}`, async () => {
+      const res = await client.get(BASE, { params: query })
       return unwrapApiList<ServiceApi>(res.data).map((item) =>
         toService(item, categories, sacCodes),
       )
     })
+  },
+
+  async getFilters(): Promise<ServiceFilters> {
+    const res = await client.get(`${BASE}/filters`)
+    return unwrapApiData<ServiceFilters>(res.data)
   },
 
   async create(

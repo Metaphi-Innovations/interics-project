@@ -37,6 +37,7 @@ function toClientLineItem(li: LineItem): ClientInvoiceLineItem {
     gstRate: li.gstRate,
     gstAmount: li.gstAmount,
     milestoneId: li.milestoneId,
+    baselineServiceId: li.baselineServiceId,
     lineSource: toClientLineSource(li),
   }
 }
@@ -65,25 +66,33 @@ function mapInvoiceStatusToClient(s: Invoice['status']): ClientInvoice['status']
 export function invoiceToClientInvoice(inv: Invoice): ClientInvoice {
   const primary =
     inv.lineItems.find((l) => l.milestoneId) ?? inv.lineItems[0]
-  const serviceKey = primary?.baselineServiceId ?? primary?.serviceId ?? ''
   const mappedLines = inv.lineItems.map(toClientLineItem)
   const roll = rollupsFromLineItems(mappedLines)
+  const milestoneId = inv.milestoneId?.trim() || primary?.milestoneId || '—'
+  const milestoneName =
+    inv.milestoneName?.trim() || milestoneNameFromLine(primary)
+  const serviceId =
+    inv.serviceId?.trim() ||
+    primary?.serviceId ||
+    primary?.baselineServiceId ||
+    ''
+  const serviceName = inv.serviceName?.trim() || primary?.serviceName || '—'
   return {
     id: inv.id,
     projectId: inv.projectId,
     projectName: inv.projectName,
     clientId: inv.clientId,
     clientName: inv.clientName,
-    milestoneId: primary?.milestoneId ?? '—',
-    milestoneName: milestoneNameFromLine(primary),
-    serviceId: serviceKey,
-    serviceName: primary?.serviceName ?? '—',
+    milestoneId,
+    milestoneName,
+    serviceId,
+    serviceName,
     lineItems: mappedLines,
-    baseAmount: roll.baseAmount,
-    labourCessAmount: roll.labourCessAmount,
-    taxableAmount: roll.taxableAmount,
-    gstAmount: roll.gstAmount,
-    grossAmount: roll.grossAmount,
+    baseAmount: inv.baseAmount || roll.baseAmount,
+    labourCessAmount: inv.labourCessAmount ?? roll.labourCessAmount,
+    taxableAmount: inv.taxableAmount ?? roll.taxableAmount,
+    gstAmount: inv.gstAmount ?? roll.gstAmount,
+    grossAmount: inv.totalAmount > 0 ? inv.totalAmount : roll.grossAmount,
     tdsAmount: inv.tdsDeducted,
     netReceivable: inv.balance,
     invoiceNumber: inv.invoiceNo,
@@ -120,6 +129,7 @@ export function clientInvoiceDraftToReceivablesPost(
     gstRate: li.gstRate,
     gstAmount: li.gstAmount,
     milestoneId: li.milestoneId,
+    baselineServiceId: li.baselineServiceId,
     lineSource: li.lineSource === 'manual' ? 'manual' : 'milestone',
   }))
   return {
@@ -135,6 +145,10 @@ export function clientInvoiceDraftToReceivablesPost(
     notes: data.notes,
     sendNow: options.sendNow,
     invoiceNo: data.invoiceNumber,
+    milestoneId: data.milestoneId,
+    milestoneName: data.milestoneName,
+    serviceId: data.serviceId,
+    serviceName: data.serviceName,
     ...(data.clientPoId ? { clientPoId: data.clientPoId } : {}),
   }
 }

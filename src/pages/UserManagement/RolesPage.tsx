@@ -25,9 +25,16 @@ import { useTheme, alpha } from '@mui/material/styles'
 import { Plus, ShieldCheck, MoreVertical } from 'lucide-react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
-import { fetchRoles, deleteRole } from '@/slices/roles/thunk'
-import { fetchUsers } from '@/slices/users/thunk'
+import { fetchRoles, deleteRole, toggleRoleStatus } from '@/slices/roles/thunk'
 import type { Role } from '@/types/permissions'
+import { rolesApi } from '@/api/rolesApi'
+import {
+  FilterableSortHeader,
+  SettingsSearchBar,
+  StatusColumnToggle,
+  useListingQuery,
+  type ColumnFilterOption,
+} from '@/components/listing'
 import { tokens } from '@/design-system/tokens'
 import { Button, useToast } from '@/design-system/components'
 import { usePermission } from '@/hooks/usePermission'
@@ -50,6 +57,20 @@ const LEVEL_CHIP_SX: Record<0 | 1 | 2 | 3, { bgcolor: string; color: string }> =
 
 const TYPE_SYSTEM_SX = { bgcolor: '#F3F4F6', color: '#6B7280' }
 const TYPE_CUSTOM_SX = { bgcolor: '#CCFBF1', color: '#0D9488' }
+
+type RoleColumnFilters = {
+  name: string
+  level: string
+  type: string
+  status: string
+}
+
+type RoleColumnFilterOptions = {
+  name: ColumnFilterOption[]
+  level: ColumnFilterOption[]
+  type: ColumnFilterOption[]
+  status: ColumnFilterOption[]
+}
 
 function DeleteRoleDialog({
   open,
@@ -78,6 +99,57 @@ function DeleteRoleDialog({
         </MuiButton>
         <MuiButton size="small" variant="contained" color="error" onClick={onConfirm} disabled={saving}>
           Delete
+        </MuiButton>
+      </DialogActions>
+    </Dialog>
+  )
+}
+
+function RoleStatusDialog({
+  open,
+  role,
+  onClose,
+  onConfirm,
+  saving,
+}: {
+  open: boolean
+  role: Role | null
+  onClose: () => void
+  onConfirm: () => void
+  saving: boolean
+}) {
+  const activating = role?.status !== 'active'
+
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
+      <DialogTitle sx={{ fontSize: 15, fontWeight: 600 }}>
+        {activating ? 'Activate Role' : 'Deactivate Role'}
+      </DialogTitle>
+      <DialogContent>
+        <Typography variant="body2">
+          {activating ? (
+            <>
+              Activate <strong>{role?.name}</strong>? Users assigned to this role can use it again.
+            </>
+          ) : (
+            <>
+              Deactivate <strong>{role?.name}</strong>? It will no longer be available for assignment.
+            </>
+          )}
+        </Typography>
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 2 }}>
+        <MuiButton size="small" onClick={onClose} disabled={saving}>
+          Cancel
+        </MuiButton>
+        <MuiButton
+          size="small"
+          variant="contained"
+          color={activating ? 'success' : 'warning'}
+          onClick={onConfirm}
+          disabled={saving}
+        >
+          {activating ? 'Activate' : 'Deactivate'}
         </MuiButton>
       </DialogActions>
     </Dialog>
@@ -196,12 +268,25 @@ export default function RolesPage() {
   const { showToast } = useToast()
   const theme = useTheme()
   const hoverBg = alpha(theme.palette.primary.main, 0.04)
+  const listing = useListingQuery({
+    pageSize: 100,
+    filters: { name: '', level: '', type: '', status: '' },
+  })
 
   const canEdit = usePermission('userManagement', 'edit')
   const canCreate = usePermission('userManagement', 'create')
   const canDelete = usePermission('userManagement', 'delete')
 
   const [deleteTarget, setDeleteTarget] = useState<Role | null>(null)
+  const [toggleTarget, setToggleTarget] = useState<Role | null>(null)
+  const [filterOptions, setFilterOptions] = useState<RoleColumnFilterOptions>({
+    name: [],
+    level: [],
+    type: [],
+    status: [],
+  })
+  const [sortField, setSortField] = useState<string>()
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
 
   const isCreate = /\/user-management\/roles\/create\/?$/.test(pathname)
   const editMatch = /\/user-management\/roles\/([^/]+)\/edit\/?$/.exec(pathname)
@@ -214,9 +299,39 @@ export default function RolesPage() {
   }
 
   useEffect(() => {
-    dispatch(fetchRoles())
-    dispatch(fetchUsers({}))
-  }, [dispatch])
+    void dispatch(
+      fetchRoles({
+        limit: listing.pageSize,
+        search: listing.debouncedSearch || undefined,
+        name: listing.filters.name || undefined,
+        type: listing.filters.type || undefined,
+        status: listing.filters.status || undefined,
+        sortBy: sortField,
+        sortOrder: sortField ? sortDirection : undefined,
+      }),
+    )
+  }, [
+    dispatch,
+    listing.pageSize,
+    listing.debouncedSearch,
+    listing.filters.name,
+    listing.filters.type,
+    listing.filters.status,
+    sortField,
+    sortDirection,
+  ])
+
+  useEffect(() => {
+    void rolesApi.getFilters().then((data) => {
+      if (!data) return
+      setFilterOptions({
+        name: data.name ?? [],
+        level: data.level ?? [],
+        type: data.type ?? [],
+        status: data.statuses ?? [],
+      })
+    }).catch(() => undefined)
+  }, [])
 
   function handleEdit(role: Role) {
     navigate(`/user-management/roles/${role.id}/edit`)
@@ -234,6 +349,18 @@ export default function RolesPage() {
     setDeleteTarget(role)
   }
 
+  function handleStatusToggleClick(role: Role) {
+    if (role.isSystem) {
+      showToast({ title: 'System roles cannot be updated', variant: 'error' })
+      return
+    }
+    if (role.status === 'active' && role.userCount > 0) {
+      showToast({ title: 'Reassign users before deactivating this role', variant: 'error' })
+      return
+    }
+    setToggleTarget(role)
+  }
+
   function handleConfirmDelete() {
     if (!deleteTarget) return
     dispatch(deleteRole(deleteTarget.id))
@@ -245,10 +372,42 @@ export default function RolesPage() {
       .catch(() => showToast({ title: 'Failed to delete role', variant: 'error' }))
   }
 
+  function handleConfirmToggle() {
+    if (!toggleTarget) return
+    const nextStatus = toggleTarget.status === 'active' ? 'INACTIVE' : 'ACTIVE'
+    dispatch(toggleRoleStatus({ id: toggleTarget.id, status: nextStatus }))
+      .unwrap()
+      .then(() => {
+        const activating = nextStatus === 'ACTIVE'
+        setToggleTarget(null)
+        showToast({ title: activating ? 'Role activated' : 'Role deactivated', variant: 'success' })
+      })
+      .catch((message: unknown) => {
+        showToast({ title: String(message) || 'Failed to update role status', variant: 'error' })
+      })
+  }
+
+  function handleColumnFilterChange(next: Partial<RoleColumnFilters>) {
+    listing.setFilters({ ...listing.filters, ...next })
+  }
+
+  function handleResetAll() {
+    listing.setSearch('')
+    listing.resetFilters()
+    setSortField(undefined)
+    setSortDirection('asc')
+  }
+
   return (
     <>
       <UserManagementLayout>
-        <Stack direction="row" alignItems="flex-start" justifyContent="space-between" sx={{ mb: 3 }}>
+        <Stack
+          direction={{ xs: 'column', md: 'row' }}
+          alignItems={{ xs: 'stretch', md: 'flex-start' }}
+          justifyContent="space-between"
+          gap={2}
+          sx={{ mb: 3 }}
+        >
           <Stack direction="row" alignItems="center" gap={1}>
             <Box sx={{ color: 'primary.main', display: 'flex' }}>
               <ShieldCheck size={22} strokeWidth={1.75} />
@@ -262,18 +421,27 @@ export default function RolesPage() {
               </Typography>
             </Box>
           </Stack>
-          {canCreate && (
-            <Button
-              variant="contained"
-              color="primary"
-              size="sm"
-              startIcon={<Plus size={14} strokeWidth={2} />}
-              onClick={() => navigate('/user-management/roles/create')}
-              sx={{ bgcolor: tokens.color.success[600], '&:hover': { bgcolor: tokens.color.success[700] } }}
-            >
-              Create Role
-            </Button>
-          )}
+          <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ xs: 'stretch', sm: 'center' }} gap={1.5}>
+            <SettingsSearchBar
+              placeholder="Search roles..."
+              value={listing.search}
+              onChange={listing.setSearch}
+              onReset={handleResetAll}
+              sx={{ mb: 0 }}
+            />
+            {canCreate && (
+              <Button
+                variant="contained"
+                color="primary"
+                size="sm"
+                startIcon={<Plus size={14} strokeWidth={2} />}
+                onClick={() => navigate('/user-management/roles/create')}
+                sx={{ bgcolor: tokens.color.success[600], '&:hover': { bgcolor: tokens.color.success[700] } }}
+              >
+                Create Role
+              </Button>
+            )}
+          </Stack>
         </Stack>
 
         <Box
@@ -289,10 +457,51 @@ export default function RolesPage() {
             <Table size="small">
               <TableHead>
                 <TableRow sx={{ bgcolor: alpha(theme.palette.text.primary, 0.02) }}>
-                  <TableCell sx={{ ...STATIC_CELL_SX, minWidth: 200 }}>Role Name</TableCell>
-                  <TableCell sx={{ ...STATIC_CELL_SX, width: 140 }}>Level</TableCell>
+                  <FilterableSortHeader
+                    label="Role Name"
+                    field="name"
+                    sortField={sortField}
+                    sortDirection={sortDirection}
+                    onSort={(field, direction) => {
+                      setSortField(field)
+                      setSortDirection(direction)
+                    }}
+                    filterValue={listing.filters.name}
+                    filterOptions={filterOptions.name}
+                    onFilter={(value) => handleColumnFilterChange({ name: value })}
+                    sx={{ ...STATIC_CELL_SX, minWidth: 200 }}
+                  />
+                  <FilterableSortHeader
+                    label="Level"
+                    filterValue={listing.filters.level}
+                    filterOptions={filterOptions.level}
+                    onFilter={(value) => handleColumnFilterChange({ level: value })}
+                    sortable={false}
+                    sx={{ ...STATIC_CELL_SX, width: 140 }}
+                  />
                   <TableCell sx={{ ...STATIC_CELL_SX, width: 90 }}>Users</TableCell>
-                  <TableCell sx={{ ...STATIC_CELL_SX, width: 100 }}>Type</TableCell>
+                  <FilterableSortHeader
+                    label="Type"
+                    filterValue={listing.filters.type}
+                    filterOptions={filterOptions.type}
+                    onFilter={(value) => handleColumnFilterChange({ type: value })}
+                    sortable={false}
+                    sx={{ ...STATIC_CELL_SX, width: 100 }}
+                  />
+                  <FilterableSortHeader
+                    label="Status"
+                    field="status"
+                    sortField={sortField}
+                    sortDirection={sortDirection}
+                    onSort={(field, direction) => {
+                      setSortField(field)
+                      setSortDirection(direction)
+                    }}
+                    filterValue={listing.filters.status}
+                    filterOptions={filterOptions.status}
+                    onFilter={(value) => handleColumnFilterChange({ status: value })}
+                    sx={{ ...STATIC_CELL_SX, width: 120, textAlign: 'center' as const }}
+                  />
                   <TableCell sx={TABLE_HEADER_ACTION_SX}>Action</TableCell>
                 </TableRow>
               </TableHead>
@@ -300,7 +509,7 @@ export default function RolesPage() {
                 {loading &&
                   [...Array(4)].map((_, i) => (
                     <TableRow key={i}>
-                      {[...Array(5)].map((__, j) => (
+                      {[...Array(6)].map((__, j) => (
                         <TableCell key={j} sx={{ py: 1.25, px: 1.75 }}>
                           <Skeleton variant="text" width="80%" height={20} />
                         </TableCell>
@@ -310,7 +519,7 @@ export default function RolesPage() {
 
                 {!loading && roles.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={5} sx={{ border: 0 }}>
+                    <TableCell colSpan={6} sx={{ border: 0 }}>
                       <Box sx={{ py: 6, textAlign: 'center' }}>
                         <ShieldCheck size={32} color={tokens.color.neutral[300]} strokeWidth={1.75} />
                         <Typography variant="body2" sx={{ mt: 1.5, fontWeight: 500 }}>
@@ -392,6 +601,16 @@ export default function RolesPage() {
                         )}
                       </TableCell>
 
+                      <TableCell sx={{ py: 1.25, px: 1.75, textAlign: 'center' }}>
+                        <Box sx={CENTER_CELL_CONTENT_SX}>
+                          <StatusColumnToggle
+                            active={role.status === 'active'}
+                            disabled={!canEdit || role.isSystem || saving}
+                            onToggle={() => handleStatusToggleClick(role)}
+                          />
+                        </Box>
+                      </TableCell>
+
                       <TableCell sx={TABLE_CELL_ACTION_SX}>
                         <Box sx={CENTER_CELL_CONTENT_SX}>
                           <RoleRowActions
@@ -418,6 +637,14 @@ export default function RolesPage() {
         role={deleteTarget}
         onClose={() => setDeleteTarget(null)}
         onConfirm={handleConfirmDelete}
+        saving={saving}
+      />
+
+      <RoleStatusDialog
+        open={Boolean(toggleTarget)}
+        role={toggleTarget}
+        onClose={() => setToggleTarget(null)}
+        onConfirm={handleConfirmToggle}
         saving={saving}
       />
     </>

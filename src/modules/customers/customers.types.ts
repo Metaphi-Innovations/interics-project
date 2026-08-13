@@ -159,6 +159,9 @@ export type CustomerFiltersApi = {
   status: Array<{ value: boolean; label: string }>
   gstStatuses: Array<{ value: string; label: string }>
   states: Array<{ value: string; label: string }>
+  customerName?: Array<{ value: string; label: string }>
+  contactPerson?: Array<{ value: string; label: string }>
+  sector?: Array<{ value: string; label: string }>
 }
 
 export type CustomerListParams = {
@@ -169,6 +172,8 @@ export type CustomerListParams = {
   gstStatus?: string
   state?: string
   sector?: string
+  customerName?: string
+  contactPerson?: string
   columns?: string[]
   sortBy?: string
   sortOrder?: 'asc' | 'desc'

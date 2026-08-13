@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   Box,
   Stack,
@@ -28,8 +28,6 @@ import {
   PersonOutline,
   CalendarToday,
   EventBusy,
-  ArrowUpward,
-  ArrowDownward,
   PlayCircle,
   CheckCircle,
   Visibility,
@@ -41,28 +39,22 @@ import {
 import { FolderKanban, Plus } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
-import { fetchProjects, changeProjectStatus, updateProject } from '../../slices/projects/thunk'
+import { fetchProjects, fetchProjectFilters, changeProjectStatus, updateProject } from '../../slices/projects/thunk'
+import { FilterableSortHeader, type ColumnFilterOption } from '@/components/listing'
+import { projectsService, type ProjectFiltersApi } from '@/modules/projects'
 import { fetchUsers } from '../../slices/users/thunk'
 import { fetchRoles } from '../../slices/roles/thunk'
-import { isProjectManagerRole } from './projectManagerRoles'
+import { isProjectLeadRole } from './projectManagerRoles'
 import {
   setFilters,
   resetFilters,
   setPage,
-  setPageSize,
   setSortConfig,
 } from '../../slices/projects/reducer'
 import type { Project } from '../../slices/projects/reducer'
 import { ListingTemplate } from '../../components/templates/ListingTemplate'
-import { DrawerForm, FormField, FormSection } from '../../components/templates/DrawerForm'
-import { useToast, Input, DatePicker, dateFromIso, isoFromDate, ConfirmDialog, AutocompleteField } from '@/design-system/components'
-import {
-  COUNTRIES,
-  INDIAN_CITIES,
-  INDIAN_STATES,
-  digitsOnly,
-  formatAddressLine,
-} from '@/constants/locations'
+import { useToast, ConfirmDialog } from '@/design-system/components'
+import { EditProjectDrawer } from './components/EditProjectDrawer'
 import { tokens } from '@/design-system/tokens'
 import { useTheme } from '@mui/material/styles'
 import {
@@ -75,14 +67,14 @@ import {
 import { formatProjectSite } from '../../utils/projectSite'
 import { getProjectTypes, PROJECT_TYPE_OPTIONS } from './projectTypes'
 import { ProjectTypeTags } from './components/ProjectTypeTags'
-import { ProjectTypesField } from './components/ProjectTypesField'
 import { fetchStatuses } from '../../slices/settings/thunk'
+import { financeApi } from '@/api/financeApi'
+import { unwrapApiData } from '@/modules/system-settings/shared/api'
 import {
   getStatusMasterChipColors,
   lifecycleStatusForMasterName,
 } from '../../utils/masterChipStyles'
 import type { StatusMaster } from '../../slices/settings/reducer'
-import { useSystemDefaultPageSize } from '@/hooks/useSystemDefaultPageSize'
 
 // ─── Column visibility state ──────────────────────────────────────────────────
 
@@ -140,45 +132,6 @@ function ProgressBadge({ label }: { label: string }) {
         '& .MuiChip-label': { px: '6px' },
       }}
     />
-  )
-}
-
-// ─── Sort header ──────────────────────────────────────────────────────────────
-
-interface SortHeaderProps {
-  field: string
-  label: string
-  currentField: string | null
-  direction: 'asc' | 'desc'
-  onSort: (field: string) => void
-}
-
-function SortHeader({ field, label, currentField, direction, onSort }: SortHeaderProps) {
-  const isActive = currentField === field
-  return (
-    <Box
-      onClick={() => onSort(field)}
-      sx={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: '2px',
-        cursor: 'pointer',
-        userSelect: 'none',
-        '&:hover': { color: 'primary.main' },
-        color: isActive ? 'primary.main' : 'inherit',
-      }}
-    >
-      {label}
-      {isActive ? (
-        direction === 'asc' ? (
-          <ArrowUpward sx={{ fontSize: 12 }} />
-        ) : (
-          <ArrowDownward sx={{ fontSize: 12 }} />
-        )
-      ) : (
-        <ArrowUpward sx={{ fontSize: 12, opacity: 0.2 }} />
-      )}
-    </Box>
   )
 }
 
@@ -263,7 +216,10 @@ interface ProjectsTableProps {
   columns: ColumnVisibility
   sortField: string | null
   sortDirection: 'asc' | 'desc'
-  onSort: (field: string) => void
+  onSort: (field: string, direction: 'asc' | 'desc') => void
+  colFilters: Record<string, string>
+  filterOptions: Record<string, ColumnFilterOption[]>
+  onColumnFilter: (field: string, value: string) => void
   onView: (project: Project) => void
   onEdit: (project: Project) => void
   onChangeStatus: (project: Project) => void
@@ -278,6 +234,9 @@ function ProjectsTable({
   sortField,
   sortDirection,
   onSort,
+  colFilters,
+  filterOptions,
+  onColumnFilter,
   onView,
   onEdit,
   onChangeStatus,
@@ -347,36 +306,59 @@ function ProjectsTable({
       <Table size="small" sx={{ minWidth: 640 }}>
         <TableHead>
           <TableRow>
-            <TableCell sx={headSx}>
-              <SortHeader
-                field="name"
-                label="Project"
-                currentField={sortField}
-                direction={sortDirection}
-                onSort={onSort}
+            <FilterableSortHeader
+              label="Project"
+              field="projectName"
+              sortField={sortField ?? undefined}
+              sortDirection={sortDirection}
+              onSort={onSort}
+              filterValue={colFilters.projectName ?? ''}
+              filterOptions={filterOptions.projectName ?? []}
+              onFilter={(v) => onColumnFilter('projectName', v)}
+              sx={headSx}
+            />
+            {columns.status && (
+              <FilterableSortHeader
+                label="Status"
+                sortable={false}
+                filterValue={colFilters.status ?? ''}
+                filterOptions={filterOptions.status ?? []}
+                onFilter={(v) => onColumnFilter('status', v)}
+                sx={headSx}
               />
-            </TableCell>
-            {columns.status && <TableCell sx={headSx}>Status</TableCell>}
+            )}
             {columns.type && (
-              <TableCell sx={{ ...headSx, display: { xs: 'none', lg: 'table-cell' } }}>
-                Scope
-              </TableCell>
+              <FilterableSortHeader
+                label="Scope"
+                sortable={false}
+                filterValue={colFilters.projectType ?? ''}
+                filterOptions={filterOptions.projectType ?? []}
+                onFilter={(v) => onColumnFilter('projectType', v)}
+                sx={{ ...headSx, display: { xs: 'none', lg: 'table-cell' } }}
+              />
             )}
             {columns.projectLead && (
-              <TableCell sx={{ ...headSx, display: { xs: 'none', lg: 'table-cell' } }}>
-                Project Lead
-              </TableCell>
+              <FilterableSortHeader
+                label="Project Lead"
+                sortable={false}
+                filterValue={colFilters.projectLeadId ?? ''}
+                filterOptions={filterOptions.projectLeadId ?? []}
+                onFilter={(v) => onColumnFilter('projectLeadId', v)}
+                sx={{ ...headSx, display: { xs: 'none', lg: 'table-cell' } }}
+              />
             )}
             {columns.dates && (
-              <TableCell sx={{ ...headSx, display: { xs: 'none', xl: 'table-cell' } }}>
-                <SortHeader
-                  field="startDate"
-                  label="Dates"
-                  currentField={sortField}
-                  direction={sortDirection}
-                  onSort={onSort}
-                />
-              </TableCell>
+              <FilterableSortHeader
+                label="Dates"
+                field="expectedStartDate"
+                sortField={sortField ?? undefined}
+                sortDirection={sortDirection}
+                onSort={onSort}
+                filterValue={colFilters.expectedStartDate ?? ''}
+                filterOptions={filterOptions.expectedStartDate ?? []}
+                onFilter={(v) => onColumnFilter('expectedStartDate', v)}
+                sx={{ ...headSx, display: { xs: 'none', xl: 'table-cell' } }}
+              />
             )}
             <TableCell sx={actionHeadSx}>Action</TableCell>
           </TableRow>
@@ -866,258 +848,6 @@ function ChangeStatusDialog({ project, statusOptions, onClose, onConfirm }: Chan
   )
 }
 
-// ─── Edit Project Drawer ──────────────────────────────────────────────────────
-
-interface EditProjectDrawerProps {
-  open: boolean
-  project: Project | null
-  onClose: () => void
-  onSave: (data: Partial<Project>) => void
-  saving: boolean
-  managerOptions: { value: string; label: string }[]
-}
-
-function EditProjectDrawer({
-  open,
-  project,
-  onClose,
-  onSave,
-  saving,
-  managerOptions,
-}: EditProjectDrawerProps) {
-  const [form, setForm] = useState<Partial<Project>>({})
-
-  useEffect(() => {
-    if (project) setForm({ ...project })
-  }, [project])
-
-  function set(key: keyof Project, value: unknown) {
-    setForm((prev) => ({ ...prev, [key]: value }))
-  }
-
-  return (
-    <DrawerForm
-      open={open}
-      onClose={onClose}
-      title="Edit Project"
-      subtitle="Update project information"
-      onSubmit={() =>
-        onSave({
-          ...form,
-          location: formatAddressLine({
-            address: form.address,
-            city: form.city,
-            state: form.state,
-            pincode: form.pincode,
-            country: form.country,
-          }),
-        })
-      }
-      submitLoading={saving}
-      submitLabel="Save"
-    >
-      <FormSection title="Project Details" columns={2}>
-        <Box sx={{ gridColumn: '1 / -1' }}>
-          <FormField label="Project Name" required>
-            <Input
-              value={form.name ?? ''}
-              onChange={(v) => set('name', v)}
-              placeholder="Project name"
-              size="sm"
-            />
-          </FormField>
-        </Box>
-
-        <Box sx={{ gridColumn: '1 / -1' }}>
-          <FormField label="Project Type" required>
-            <ProjectTypesField
-              value={form.projectTypes ?? []}
-              onChange={(v) => set('projectTypes', v)}
-            />
-          </FormField>
-        </Box>
-
-        <Box sx={{ gridColumn: '1 / -1' }}>
-          <FormField label="Address">
-            <Input
-              value={form.address ?? ''}
-              onChange={(v) => set('address', v || null)}
-              placeholder="Street, building, landmark"
-              size="sm"
-            />
-          </FormField>
-        </Box>
-
-        <FormField label="City">
-          <AutocompleteField
-            options={[...INDIAN_CITIES]}
-            value={form.city || null}
-            onChange={(v) => set('city', v)}
-            getOptionLabel={(o) => o}
-            isOptionEqualToValue={(a, b) => a === b}
-            placeholder="Search city…"
-            size="sm"
-          />
-        </FormField>
-
-        <FormField label="State">
-          <AutocompleteField
-            options={[...INDIAN_STATES]}
-            value={form.state || null}
-            onChange={(v) => set('state', v)}
-            getOptionLabel={(o) => o}
-            isOptionEqualToValue={(a, b) => a === b}
-            placeholder="Search state…"
-            size="sm"
-          />
-        </FormField>
-
-        <FormField label="Country">
-          <AutocompleteField
-            options={[...COUNTRIES]}
-            value={form.country || null}
-            onChange={(v) => set('country', v)}
-            getOptionLabel={(o) => o}
-            isOptionEqualToValue={(a, b) => a === b}
-            placeholder="Search country…"
-            size="sm"
-          />
-        </FormField>
-
-        <FormField label="PIN Code">
-          <Input
-            value={form.pincode ?? ''}
-            onChange={(v) => set('pincode', digitsOnly(v).slice(0, 10) || null)}
-            placeholder="e.g. 110001"
-            size="sm"
-          />
-        </FormField>
-
-        <FormField label="Carpet Area (sq ft)">
-          <Input
-            type="number"
-            value={form.carpetArea?.toString() ?? ''}
-            onChange={(v) =>
-              set('carpetArea', v ? Number(v) : null)
-            }
-            placeholder="e.g. 4500"
-            size="sm"
-          />
-        </FormField>
-
-        <FormField label="Headcount">
-          <Input
-            type="number"
-            value={form.headcount?.toString() ?? ''}
-            onChange={(v) =>
-              set('headcount', v ? Number(v) : null)
-            }
-            placeholder="e.g. 120"
-            size="sm"
-          />
-        </FormField>
-
-        <FormField label="Workstation Size">
-          <Input
-            value={form.workstationSize ?? ''}
-            onChange={(v) => set('workstationSize', v || null)}
-            placeholder="e.g. 1200 sq ft"
-            size="sm"
-          />
-        </FormField>
-
-        <FormField label="Meeting Room Count">
-          <Input
-            type="number"
-            value={form.meetingRoomCount?.toString() ?? ''}
-            onChange={(v) =>
-              set('meetingRoomCount', v ? Number(v) : null)
-            }
-            placeholder="e.g. 4"
-            size="sm"
-          />
-        </FormField>
-
-        <FormField label="Server Room Details">
-          <Input
-            value={form.serverRoomDetails ?? ''}
-            onChange={(v) => set('serverRoomDetails', v || null)}
-            placeholder="e.g. 200 sq ft, raised floor"
-            size="sm"
-          />
-        </FormField>
-
-        <FormField label="UPS Capacity">
-          <Input
-            value={form.upsCapacity ?? ''}
-            onChange={(v) => set('upsCapacity', v || null)}
-            placeholder="e.g. 20 KVA"
-            size="sm"
-          />
-        </FormField>
-
-        <FormField label="Reception Details">
-          <Input
-            value={form.receptionDetails ?? ''}
-            onChange={(v) => set('receptionDetails', v || null)}
-            placeholder="e.g. Open reception with waiting lounge"
-            size="sm"
-          />
-        </FormField>
-
-        <FormField label="Pantry Details">
-          <Input
-            value={form.pantryDetails ?? ''}
-            onChange={(v) => set('pantryDetails', v || null)}
-            placeholder="e.g. 2 pantries with wet and dry zones"
-            size="sm"
-          />
-        </FormField>
-
-        <FormField label="Project Manager" required>
-          <MuiSelect
-            value={form.projectManagerId ?? ''}
-            onChange={(e) => {
-              const opt = managerOptions.find((o) => o.value === e.target.value)
-              set('projectManagerId', e.target.value)
-              if (opt) set('projectManager', opt.label)
-            }}
-            size="small"
-            fullWidth
-            displayEmpty
-            sx={{ fontSize: 12 }}
-          >
-            <MenuItem value="" sx={{ fontSize: 12 }}>Select…</MenuItem>
-            {managerOptions.map((o) => (
-              <MenuItem key={o.value} value={o.value} sx={{ fontSize: 12 }}>
-                {o.label}
-              </MenuItem>
-            ))}
-          </MuiSelect>
-        </FormField>
-
-        <FormField label="Start Date">
-          <DatePicker
-            value={dateFromIso(form.startDate)}
-            onChange={(d) => set('startDate', isoFromDate(d) || null)}
-            fullWidth
-            size="sm"
-          />
-        </FormField>
-
-        <FormField label="Expected End Date">
-          <DatePicker
-            value={dateFromIso(form.expectedEndDate)}
-            onChange={(d) => set('expectedEndDate', isoFromDate(d) || null)}
-            fullWidth
-            size="sm"
-            minDate={dateFromIso(form.startDate) ?? undefined}
-          />
-        </FormField>
-      </FormSection>
-    </DrawerForm>
-  )
-}
 
 // ─── ProjectsPage ─────────────────────────────────────────────────────────────
 
@@ -1125,7 +855,6 @@ export default function ProjectsPage() {
   const dispatch = useAppDispatch()
   const navigate = useNavigate()
   const toast = useToast()
-  const defaultPageSize = useSystemDefaultPageSize()
 
   const { items: rawItems, loading, saving, filters, pagination, sortConfig } = useAppSelector(
     (s) => s.projects
@@ -1136,7 +865,6 @@ export default function ProjectsPage() {
   const statusMasters = useAppSelector((s) => s.settings.statuses)
 
   // Local state
-  const [activeTab, setActiveTab] = useState(() => filters.status || 'Live')
   const [columnVisibility, setColumnVisibility] = useState<ColumnVisibility>({
     projectName: true,
     status: false,
@@ -1146,6 +874,7 @@ export default function ProjectsPage() {
   })
   const [editDrawerOpen, setEditDrawerOpen] = useState(false)
   const [editingProject, setEditingProject] = useState<Project | null>(null)
+  const [editLoading, setEditLoading] = useState(false)
   const [statusDialogProject, setStatusDialogProject] = useState<Project | null>(null)
   const [lifecycleConfirm, setLifecycleConfirm] = useState<{
     project: Project
@@ -1153,6 +882,9 @@ export default function ProjectsPage() {
   } | null>(null)
   const [lifecycleSaving, setLifecycleSaving] = useState(false)
   const [viewMode, setViewMode] = useState<'table' | 'grid'>('table')
+  const [colFilters, setColFilters] = useState<Record<string, string>>({})
+  const [projectFilterOptions, setProjectFilterOptions] = useState<Record<string, ColumnFilterOption[]>>({})
+  const [searchInput, setSearchInput] = useState(filters.search)
 
   // Debounce timer
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -1162,33 +894,47 @@ export default function ProjectsPage() {
     dispatch(fetchUsers({}))
     dispatch(fetchRoles(undefined))
     dispatch(fetchStatuses())
+    void dispatch(fetchProjectFilters())
+      .unwrap()
+      .then((data: ProjectFiltersApi) => {
+        setProjectFilterOptions({
+          projectName: data.projectName ?? [],
+          status: data.status ?? [],
+          projectType: data.projectType ?? data.type ?? [],
+          projectLeadId: data.projectLeadId ?? [],
+          expectedStartDate: data.expectedStartDate ?? [],
+          expectedEndDate: data.expectedEndDate ?? [],
+        })
+      })
+      .catch(() => undefined)
   }, [dispatch])
 
-  useEffect(() => {
-    if (defaultPageSize == null) return
-    dispatch(setPageSize(defaultPageSize))
-  }, [dispatch, defaultPageSize])
 
-  // Default to Live tab/filter on entry unless a status already exists in current session state.
   useEffect(() => {
-    if (!filters.status) {
-      dispatch(setFilters({ status: 'Live' }))
-    }
-  }, [dispatch, filters.status])
+    setSearchInput(filters.search)
+  }, [filters.search])
 
   const refetch = useCallback(() => {
-    if (defaultPageSize == null) return
+    const statusParam = colFilters.status || filters.status || undefined
+    // #region agent log
+    fetch('http://127.0.0.1:7520/ingest/820d80bd-911d-41c2-805b-1434b6b6fe3d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'df06a2'},body:JSON.stringify({sessionId:'df06a2',runId:'post-fix',hypothesisId:'A',location:'ProjectsPage.tsx:refetch',message:'listing refetch dispatched',data:{statusParam,filtersStatus:filters.status,colStatus:colFilters.status,page:pagination.page,pageSize:pagination.pageSize},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     dispatch(
       fetchProjects({
         page: pagination.page,
-        pageSize: defaultPageSize,
+        pageSize: pagination.pageSize || 20,
         search: filters.search || undefined,
-        status: filters.status || undefined,
-        type: filters.type || undefined,
-        projectManager: filters.projectManager || undefined,
+        status: statusParam,
+        type: colFilters.projectType || filters.type || undefined,
+        projectManager: colFilters.projectLeadId || filters.projectManager || undefined,
+        projectName: colFilters.projectName || undefined,
+        expectedStartDate: colFilters.expectedStartDate || undefined,
+        expectedEndDate: colFilters.expectedEndDate || undefined,
+        sortBy: sortConfig.field || undefined,
+        sortOrder: sortConfig.field ? sortConfig.direction : undefined,
       })
     )
-  }, [dispatch, pagination.page, defaultPageSize, filters])
+  }, [dispatch, pagination.page, pagination.pageSize, filters, colFilters, sortConfig.field, sortConfig.direction])
 
   useEffect(() => {
     refetch()
@@ -1196,46 +942,40 @@ export default function ProjectsPage() {
 
   // ── Computed ─────────────────────────────────────────────────────────────
 
-  const filteredItems = useMemo(
-    () => (activeTab === 'all' ? items : items.filter((p) => p.status === activeTab)),
-    [items, activeTab]
-  )
+  const [projectSummary, setProjectSummary] = useState({ total: 0, live: 0, completed: 0 })
 
-  // Client-side sort
-  const tabFilteredItems = useMemo(() => {
-    if (!sortConfig.field) return filteredItems
-    return [...filteredItems].sort((a, b) => {
-      const field = sortConfig.field as keyof Project
-      const rawA = a[field]
-      const rawB = b[field]
-      let cmp = 0
-      if (typeof rawA === 'number' && typeof rawB === 'number') {
-        cmp = rawA - rawB
-      } else {
-        const aStr = String(rawA ?? '').toLowerCase()
-        const bStr = String(rawB ?? '').toLowerCase()
-        cmp = aStr.localeCompare(bStr)
-      }
-      return sortConfig.direction === 'asc' ? cmp : -cmp
-    })
-  }, [filteredItems, sortConfig])
+  useEffect(() => {
+    void financeApi
+      .getProjectsSummary()
+      .then((res) => {
+        const data = unwrapApiData<{ total?: number; live?: number; completed?: number }>(res.data)
+        if (data) {
+          setProjectSummary({
+            total: data.total ?? 0,
+            live: data.live ?? 0,
+            completed: data.completed ?? 0,
+          })
+        }
+      })
+      .catch(() => undefined)
+  }, [])
 
   const statCards = [
     {
       label: 'TOTAL PROJECTS',
-      value: pagination.total,
+      value: projectSummary.total || pagination.total,
       variant: 'default' as const,
       icon: <FolderKanban size={24} strokeWidth={1.75} />,
     },
     {
       label: 'LIVE PROJECTS',
-      value: items.filter((p) => p.status === 'Live').length,
+      value: projectSummary.live,
       variant: 'success' as const,
       icon: <PlayCircle sx={{ fontSize: 24 }} />,
     },
     {
       label: 'COMPLETED',
-      value: items.filter((p) => p.status === 'Completed').length,
+      value: projectSummary.completed,
       variant: 'info' as const,
       icon: <CheckCircle sx={{ fontSize: 24 }} />,
     },
@@ -1262,8 +1002,15 @@ export default function ProjectsPage() {
     },
   ]
 
+  const activeTab = filters.status || 'all'
+  const TARGET_PROJECT_ID = 'a7b37aca-bfba-454e-80c5-241c43ad2f19'
+  const targetInList = items.some((p) => p.id === TARGET_PROJECT_ID || p.name.includes('1786442761297'))
+  // #region agent log
+  fetch('http://127.0.0.1:7520/ingest/820d80bd-911d-41c2-805b-1434b6b6fe3d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'df06a2'},body:JSON.stringify({sessionId:'df06a2',runId:'post-fix',hypothesisId:'E',location:'ProjectsPage.tsx:render',message:'listing render visibility',data:{targetInList,loading,activeTab,filtersStatus:filters.status,itemCount:items.length,itemIds:items.map((p)=>p.id),itemNames:items.map((p)=>p.name),itemStatuses:items.map((p)=>p.status)},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
+
   const managerOptions = users
-    .filter((u) => isProjectManagerRole(u.role, roles))
+    .filter((u) => isProjectLeadRole(u.role, roles))
     .map((u) => ({ value: u.id, label: u.name }))
 
   const filterConfig = [
@@ -1313,6 +1060,7 @@ export default function ProjectsPage() {
   // ── Handlers ─────────────────────────────────────────────────────────────
 
   function handleSearch(value: string) {
+    setSearchInput(value)
     if (searchTimer.current) clearTimeout(searchTimer.current)
     searchTimer.current = setTimeout(() => {
       dispatch(setFilters({ search: value }))
@@ -1334,7 +1082,6 @@ export default function ProjectsPage() {
   }
 
   function handleTabChange(tab: string) {
-    setActiveTab(tab)
     if (tab !== 'all') {
       dispatch(setFilters({ status: tab }))
     } else {
@@ -1342,10 +1089,9 @@ export default function ProjectsPage() {
     }
   }
 
-  function handleSort(field: string) {
-    const newDirection =
-      sortConfig.field === field && sortConfig.direction === 'asc' ? 'desc' : 'asc'
-    dispatch(setSortConfig({ field, direction: newDirection }))
+  function handleSort(field: string, direction: 'asc' | 'desc') {
+    dispatch(setSortConfig({ field, direction }))
+    dispatch(setPage(1))
   }
 
   function handleColumnToggle(field: string, visible: boolean) {
@@ -1356,13 +1102,33 @@ export default function ProjectsPage() {
     dispatch(setPage(newPage))
   }
 
+  function handleResetAll() {
+    if (searchTimer.current) clearTimeout(searchTimer.current)
+    setSearchInput('')
+    dispatch(resetFilters())
+    setColFilters({})
+    dispatch(setSortConfig({ field: null, direction: 'asc' }))
+    dispatch(setPage(1))
+  }
+
   function handleView(project: Project) {
     navigate(`/projects/${project.id}`)
   }
 
-  function handleEdit(project: Project) {
+  async function handleEdit(project: Project) {
+    setEditLoading(true)
     setEditingProject(project)
     setEditDrawerOpen(true)
+    try {
+      const full = await projectsService.getById(project.id)
+      setEditingProject(full)
+    } catch {
+      toast.error('Failed to load project')
+      setEditDrawerOpen(false)
+      setEditingProject(null)
+    } finally {
+      setEditLoading(false)
+    }
   }
 
   async function handleEditSave(data: Partial<Project>) {
@@ -1440,6 +1206,7 @@ export default function ProjectsPage() {
         activeTab={activeTab}
         onTabChange={handleTabChange}
         searchPlaceholder="Search projects…"
+        searchValue={searchInput}
         onSearchChange={handleSearch}
         filterConfig={filterConfig}
         activeFilters={{
@@ -1449,6 +1216,7 @@ export default function ProjectsPage() {
         }}
         onFilterChange={handleFilterChange}
         onFilterReset={handleFilterReset}
+        onResetAll={handleResetAll}
         filterCount={activeFilterCount}
         columns={columnItems}
         onColumnVisibilityChange={handleColumnToggle}
@@ -1457,7 +1225,7 @@ export default function ProjectsPage() {
       >
         {viewMode === 'grid' ? (
           <ProjectsGrid
-            items={tabFilteredItems}
+            items={items}
             loading={loading}
             onView={handleView}
             onEdit={handleEdit}
@@ -1467,12 +1235,18 @@ export default function ProjectsPage() {
           />
         ) : (
           <ProjectsTable
-            items={tabFilteredItems}
+            items={items}
             loading={loading}
             columns={columnVisibility}
             sortField={sortConfig.field}
             sortDirection={sortConfig.direction}
             onSort={handleSort}
+            colFilters={colFilters}
+            filterOptions={projectFilterOptions}
+            onColumnFilter={(field, value) => {
+              setColFilters((prev) => ({ ...prev, [field]: value }))
+              dispatch(setPage(1))
+            }}
             onView={handleView}
             onEdit={handleEdit}
             onChangeStatus={(p) => setStatusDialogProject(p)}
@@ -1492,10 +1266,14 @@ export default function ProjectsPage() {
       <EditProjectDrawer
         open={editDrawerOpen}
         project={editingProject}
-        onClose={() => { setEditDrawerOpen(false); setEditingProject(null) }}
+        onClose={() => {
+          setEditDrawerOpen(false)
+          setEditingProject(null)
+          setEditLoading(false)
+        }}
         onSave={handleEditSave}
         saving={saving}
-        managerOptions={managerOptions}
+        loading={editLoading}
       />
 
       {/* Change Status Dialog */}

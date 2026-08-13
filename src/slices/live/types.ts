@@ -13,6 +13,8 @@ export interface ClientInvoiceLineItem {
   gstRate: number
   gstAmount: number
   milestoneId?: string
+  /** Pitch/baseline service row id when it differs from settings `serviceId`. */
+  baselineServiceId?: string
   lineSource?: ClientInvoiceLineSource
 }
 

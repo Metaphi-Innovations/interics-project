@@ -14,6 +14,17 @@ type ApiRole = {
   status?: string
 }
 
+export interface FetchRolesParams {
+  page?: number
+  limit?: number
+  search?: string
+  name?: string
+  type?: string
+  status?: string
+  sortBy?: string
+  sortOrder?: 'asc' | 'desc'
+}
+
 const SYSTEM_ROLE_LEVEL: Record<string, 0 | 1 | 2 | 3> = {
   SUPER_ADMIN: 0,
   ADMIN: 0,
@@ -29,6 +40,7 @@ const SYSTEM_ROLE_LEVEL: Record<string, 0 | 1 | 2 | 3> = {
 }
 
 function toUiRole(api: ApiRole): Role {
+  const inactive = api.status === 'INACTIVE' || api.status === 'inactive'
   return {
     id: api.id,
     name: api.name,
@@ -36,19 +48,33 @@ function toUiRole(api: ApiRole): Role {
     description: api.description ?? undefined,
     userCount: api.userCount ?? 0,
     isSystem: api.isSystem ?? ['SUPER_ADMIN', 'ADMIN'].includes(api.name),
+    status: inactive ? 'inactive' : 'active',
   }
 }
 
 export const fetchRoles = createAsyncThunk(
   'roles/fetchAll',
-  async (_: void | undefined, { rejectWithValue }) => {
+  async (params: FetchRolesParams | void | undefined, { rejectWithValue }) => {
     try {
-      const response = await rolesApi.getAll()
+      const response = await rolesApi.getAll((params ?? { limit: 100 }) as Record<string, unknown>)
       const raw = normalizeArrayResponse<ApiRole>(unwrapApiData(response.data) ?? response.data)
       return raw.map(toUiRole)
     } catch (err: unknown) {
       const error = err as { response?: { data?: { message?: string } } }
       return rejectWithValue(error.response?.data?.message ?? 'Failed to fetch roles')
+    }
+  },
+)
+
+export const toggleRoleStatus = createAsyncThunk(
+  'roles/toggleStatus',
+  async ({ id, status }: { id: string; status: 'ACTIVE' | 'INACTIVE' }, { rejectWithValue }) => {
+    try {
+      const response = await rolesApi.toggleStatus(id, status)
+      return toUiRole(unwrapApiData<ApiRole>(response.data))
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { message?: string } } }
+      return rejectWithValue(error.response?.data?.message ?? 'Failed to toggle role status')
     }
   },
 )

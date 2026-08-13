@@ -12,7 +12,7 @@ import {
   Typography,
 } from '@mui/material'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
-import { Button, useToast } from '@/design-system/components'
+import { Button } from '@/design-system/components'
 import { WorkspaceSection } from '@/components/templates'
 import { tokens } from '@/design-system/tokens'
 import type { Baseline, VendorPO } from '@/slices/baseline/reducer'
@@ -67,13 +67,9 @@ const VENDOR_OFFER_COLUMNS = [
 function OfferRowActions({
   canView,
   onView,
-  onDownloadTemplate1,
-  onDownloadTemplate2,
 }: {
   canView: boolean
   onView: () => void
-  onDownloadTemplate1: () => void
-  onDownloadTemplate2: () => void
 }) {
   const [anchor, setAnchor] = useState<null | HTMLElement>(null)
 
@@ -109,26 +105,6 @@ function OfferRowActions({
         >
           View
         </MenuItem>
-        <MenuItem
-          dense
-          sx={MENU_ITEM_SX}
-          onClick={() => {
-            onDownloadTemplate1()
-            close()
-          }}
-        >
-          Download template 1
-        </MenuItem>
-        <MenuItem
-          dense
-          sx={MENU_ITEM_SX}
-          onClick={() => {
-            onDownloadTemplate2()
-            close()
-          }}
-        >
-          Download Template 2
-        </MenuItem>
       </Menu>
     </>
   )
@@ -149,7 +125,6 @@ export function VendorOffersSection({
   vendorPOs,
   baseline,
 }: VendorOffersSectionProps) {
-  const { showToast } = useToast()
   const vendorRows = useMemo(
     () => buildLiveVendorOfferRows(vendorPOs, projectId, baseline),
     [vendorPOs, projectId, baseline],
@@ -241,18 +216,6 @@ export function VendorOffersSection({
                           <OfferRowActions
                             canView
                             onView={() => setViewVendorPO(row.po)}
-                            onDownloadTemplate1={() =>
-                              showToast({
-                                title: 'Download template 1 (placeholder)',
-                                variant: 'success',
-                              })
-                            }
-                            onDownloadTemplate2={() =>
-                              showToast({
-                                title: 'Download Template 2 (placeholder)',
-                                variant: 'success',
-                              })
-                            }
                           />
                         </Box>
                       </TableCell>

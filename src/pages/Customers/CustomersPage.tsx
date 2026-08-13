@@ -23,18 +23,20 @@ import {
   VerifiedUser,
   LocationOn,
 } from '@mui/icons-material'
-import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore'
-import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp'
-import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'
 import { useTheme, alpha } from '@mui/material/styles'
 import { Building2, Plus, MoreVertical, Eye, Pencil, FolderPlus, Receipt, Archive, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { fetchCustomers, setCustomerActive, fetchCustomerFilters } from '../../slices/customers/thunk'
-import { setFilters, resetFilters, setPage, setPageSize, setSortConfig } from '../../slices/customers/reducer'
+import { setFilters, resetFilters, setPage, setSortConfig } from '../../slices/customers/reducer'
 import type { Customer } from '../../slices/customers/reducer'
 import { ListingTemplate } from '../../components/templates'
 import type { FilterField, ColumnItem } from '../../components/templates/ListingTemplate'
+import {
+  FilterableHeaderCell,
+  FilterableSortHeader,
+  type ColumnFilterOption,
+} from '@/components/listing'
 import { CustomerDrawer } from './CustomerDrawer'
 import { useToast, Modal, Button } from '@/design-system/components'
 import { getInitials, getAvatarColor } from '../../utils/formatters'
@@ -42,7 +44,6 @@ import { getPrimaryContact } from '../../utils/customerContacts'
 import { tokens } from '@/design-system/tokens'
 import { getSectorTagSx } from '../../utils/sectorTagStyles'
 import { fetchSectors } from '../../slices/settings/thunk'
-import { useSystemDefaultPageSize } from '@/hooks/useSystemDefaultPageSize'
 
 const TABLE_CELL_SX = {
   py: '8px',
@@ -74,6 +75,22 @@ type CustomerTableVisibleColumns = {
   projects: boolean
 }
 
+type CustomerColumnFilters = {
+  customerName: string
+  contactPerson: string
+  sector: string
+  projectCount: string
+}
+
+function toColumnFilterOptions(
+  options?: Array<{ value: string | number | boolean; label: string }>,
+): ColumnFilterOption[] {
+  return (options ?? []).map((option) => ({
+    value: String(option.value),
+    label: option.label,
+  }))
+}
+
 function customerTableColCount(visible: CustomerTableVisibleColumns): number {
   return (
     1 +
@@ -82,6 +99,11 @@ function customerTableColCount(visible: CustomerTableVisibleColumns): number {
     (visible.projects ? 1 : 0) +
     1
   )
+}
+
+function mapCustomerSortField(field: string | null): string | undefined {
+  if (field === 'customerName' || field === 'sector') return field
+  return undefined
 }
 
 // ─── Avatar Cell ──────────────────────────────────────────────────────────────
@@ -227,55 +249,6 @@ function SectorCell({ customer }: { customer: Customer }) {
   )
 }
 
-// ─── Sort Header Cell ──────────────────────────────────────────────────────────
-
-interface SortHeaderProps {
-  label: string
-  field: string
-  sortField: string | null
-  sortDirection: 'asc' | 'desc'
-  onSort: (field: string, direction: 'asc' | 'desc') => void
-  sx?: object
-}
-
-function SortHeader({ label, field, sortField, sortDirection, onSort, sx }: SortHeaderProps) {
-  const isActive = sortField === field
-  function handleClick() {
-    if (isActive) {
-      onSort(field, sortDirection === 'asc' ? 'desc' : 'asc')
-    } else {
-      onSort(field, 'asc')
-    }
-  }
-  return (
-    <TableCell
-      sx={{
-        fontSize: 11,
-        fontWeight: isActive ? 700 : 600,
-        color: isActive ? 'primary.main' : 'text.secondary',
-        py: '8px',
-        px: '14px',
-        borderBottom: `2px solid ${tokens.color.neutral[100]}`,
-        cursor: 'pointer',
-        userSelect: 'none',
-        '&:hover': { color: 'primary.main' },
-        ...sx,
-      }}
-      onClick={handleClick}
-    >
-      <Stack direction="row" alignItems="center" gap="2px">
-        {label}
-        {isActive
-          ? sortDirection === 'asc'
-            ? <KeyboardArrowUpIcon sx={{ fontSize: 14, color: 'primary.main' }} />
-            : <KeyboardArrowDownIcon sx={{ fontSize: 14, color: 'primary.main' }} />
-          : <UnfoldMoreIcon sx={{ fontSize: 14, color: tokens.color.neutral[300] }} />
-        }
-      </Stack>
-    </TableCell>
-  )
-}
-
 // ─── Customer Table ───────────────────────────────────────────────────────────
 
 interface CustomerTableProps {
@@ -285,6 +258,12 @@ interface CustomerTableProps {
   sortField: string | null
   sortDirection: 'asc' | 'desc'
   onSort: (field: string, direction: 'asc' | 'desc') => void
+  columnFilters: CustomerColumnFilters
+  customerNameOptions: ColumnFilterOption[]
+  contactPersonOptions: ColumnFilterOption[]
+  sectorOptions: ColumnFilterOption[]
+  projectCountOptions: ColumnFilterOption[]
+  onColumnFilter: (field: keyof CustomerColumnFilters, value: string) => void
   onView: (id: string) => void
   onEdit: (customer: Customer) => void
   onProjects: (customer: Customer) => void
@@ -300,6 +279,12 @@ function CustomerTable({
   sortField,
   sortDirection,
   onSort,
+  columnFilters,
+  customerNameOptions,
+  contactPersonOptions,
+  sectorOptions,
+  projectCountOptions,
+  onColumnFilter,
   onView,
   onEdit,
   onProjects,
@@ -316,35 +301,51 @@ function CustomerTable({
       <Table size="small">
         <TableHead>
           <TableRow sx={{ bgcolor: alpha(theme.palette.text.primary, 0.02) }}>
-            <SortHeader
+            <FilterableSortHeader
               label="Client Name"
-              field="name"
-              sortField={sortField}
+              field="customerName"
+              sortField={sortField ?? undefined}
               sortDirection={sortDirection}
               onSort={onSort}
+              filterValue={columnFilters.customerName}
+              filterOptions={customerNameOptions}
+              onFilter={(value) => onColumnFilter('customerName', value)}
+              sx={{
+                fontSize: 11,
+                py: '8px',
+                px: '14px',
+                borderBottom: `2px solid ${tokens.color.neutral[100]}`,
+              }}
             />
             {visibleColumns.contactPerson && (
-              <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', py: '8px', px: '14px', borderBottom: `2px solid ${tokens.color.neutral[100]}` }}>
-                Contact Person
-              </TableCell>
+              <FilterableHeaderCell
+                label="Contact Person"
+                filterValue={columnFilters.contactPerson}
+                filterOptions={contactPersonOptions}
+                onFilter={(value) => onColumnFilter('contactPerson', value)}
+                sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', py: '8px', px: '14px', borderBottom: `2px solid ${tokens.color.neutral[100]}` }}
+              />
             )}
             {visibleColumns.sector && (
-              <SortHeader
+              <FilterableSortHeader
                 label="Sector"
                 field="sector"
-                sortField={sortField}
+                sortField={sortField ?? undefined}
                 sortDirection={sortDirection}
                 onSort={onSort}
+                filterValue={columnFilters.sector}
+                filterOptions={sectorOptions}
+                onFilter={(value) => onColumnFilter('sector', value)}
                 sx={{ display: { xs: 'none', md: 'table-cell' } }}
               />
             )}
             {visibleColumns.projects && (
-              <SortHeader
+              <FilterableSortHeader
                 label="Projects"
-                field="activeProjects"
-                sortField={sortField}
-                sortDirection={sortDirection}
-                onSort={onSort}
+                filterValue={columnFilters.projectCount}
+                filterOptions={projectCountOptions}
+                onFilter={(value) => onColumnFilter('projectCount', value)}
+                sortable={false}
                 sx={{ display: { xs: 'none', lg: 'table-cell' } }}
               />
             )}
@@ -652,7 +653,6 @@ function ConfirmArchiveDialog({ customer, onConfirm, onClose }: ConfirmArchivePr
 
 export default function CustomersPage() {
   const dispatch = useAppDispatch()
-  const defaultPageSize = useSystemDefaultPageSize()
   const { items: rawItems, loading, pagination, filters, sortConfig, filterOptions } = useAppSelector((s) => s.customers)
   const items = rawItems ?? []
   const sectors = useAppSelector((s) => s.settings.sectors)
@@ -665,6 +665,12 @@ export default function CustomersPage() {
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null)
   const [archiveTarget, setArchiveTarget] = useState<Customer | null>(null)
   const [activeFilters, setActiveFilters] = useState<Record<string, unknown>>({})
+  const [columnFilters, setColumnFilters] = useState<CustomerColumnFilters>({
+    customerName: '',
+    contactPerson: '',
+    sector: '',
+    projectCount: '',
+  })
   const [visibleColumns, setVisibleColumns] = useState<CustomerTableVisibleColumns>({
     contactPerson: true,
     sector: true,
@@ -706,6 +712,18 @@ export default function CustomersPage() {
     const sectorRaw = pickFilter('sector')
     const searchRaw = pickFilter('search')
     const search = searchRaw?.trim() || undefined
+    const customerNameRaw =
+      (Object.prototype.hasOwnProperty.call(overrides, 'customerName')
+        ? overrides.customerName
+        : columnFilters.customerName) as string | undefined
+    const contactPersonRaw =
+      (Object.prototype.hasOwnProperty.call(overrides, 'contactPerson')
+        ? overrides.contactPerson
+        : columnFilters.contactPerson) as string | undefined
+    const columnSectorRaw =
+      (Object.prototype.hasOwnProperty.call(overrides, 'sector')
+        ? overrides.sector
+        : columnFilters.sector) as string | undefined
 
     return {
       page: (overrides.page as number | undefined) ?? pagination.page,
@@ -713,24 +731,25 @@ export default function CustomersPage() {
       search,
       gstStatus: gstRaw || undefined,
       state: stateRaw || undefined,
-      sector: sectorRaw || undefined,
+      sector: columnSectorRaw || sectorRaw || undefined,
+      customerName: customerNameRaw?.trim() || undefined,
+      contactPerson: contactPersonRaw?.trim() || undefined,
       columns,
+      sortBy:
+        (overrides.sortBy as string | undefined) ??
+        mapCustomerSortField(sortConfig.field),
+      sortOrder:
+        (overrides.sortOrder as 'asc' | 'desc' | undefined) ??
+        (mapCustomerSortField(sortConfig.field) ? sortConfig.direction : undefined),
     }
   }
 
   useEffect(() => {
-    if (defaultPageSize == null) return
-    dispatch(setPageSize(defaultPageSize))
-  }, [dispatch, defaultPageSize])
-
-  // ── Initial fetch ──────────────────────────────────────────────────
-  useEffect(() => {
-    if (defaultPageSize == null) return
     void dispatch(fetchCustomerFilters())
     void dispatch(fetchSectors())
-    void dispatch(fetchCustomers(buildListParams({ page: 1, pageSize: defaultPageSize })))
+    void dispatch(fetchCustomers(buildListParams({ page: 1, pageSize: pagination.pageSize || 20 })))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [defaultPageSize])
+  }, [])
 
   useEffect(() => {
     return () => {
@@ -749,33 +768,15 @@ export default function CustomersPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visibleColumns.contactPerson, visibleColumns.sector, visibleColumns.projects])
 
-  // Sort items client-side
-  const sortedItems = [...items].sort((a, b) => {
-    if (!sortConfig.field) return 0
-    if (sortConfig.field === 'sector') {
-      const aStr = getSectorLabel(a).toLowerCase()
-      const bStr = getSectorLabel(b).toLowerCase()
-      const cmp = aStr < bStr ? -1 : 1
-      return sortConfig.direction === 'asc' ? cmp : -cmp
-    }
-    const field = sortConfig.field as keyof Customer
-    const aVal = a[field]
-    const bVal = b[field]
-    if (aVal === bVal) return 0
-    if (typeof aVal === 'number' && typeof bVal === 'number') {
-      return sortConfig.direction === 'asc' ? aVal - bVal : bVal - aVal
-    }
-    const aStr = String(aVal ?? '').toLowerCase()
-    const bStr = String(bVal ?? '').toLowerCase()
-    const cmp = aStr < bStr ? -1 : 1
-    return sortConfig.direction === 'asc' ? cmp : -cmp
-  })
-
   const columnsConfig: ColumnItem[] = [
     { field: 'contactPerson', label: 'Contact Person', visible: visibleColumns.contactPerson },
     { field: 'sector', label: 'Sector', visible: visibleColumns.sector },
     { field: 'projects', label: 'Projects', visible: visibleColumns.projects },
   ]
+  const customerNameOptions = toColumnFilterOptions(filterOptions?.customerName)
+  const contactPersonOptions = toColumnFilterOptions(filterOptions?.contactPerson)
+  const sectorOptions = toColumnFilterOptions(filterOptions?.sector)
+  const projectCountOptions: ColumnFilterOption[] = []
 
   const filterConfig: FilterField[] = [
     {
@@ -834,6 +835,7 @@ export default function CustomersPage() {
 
   function handleFilterChange(newFilters: Record<string, unknown>) {
     setActiveFilters(newFilters)
+    setColumnFilters((prev) => ({ ...prev, sector: String(newFilters.sector ?? '') }))
     const params: Record<string, string | undefined> = {}
     for (const [k, v] of Object.entries(newFilters)) {
       params[k] = (v as string) || undefined
@@ -845,6 +847,7 @@ export default function CustomersPage() {
 
   function handleFilterReset() {
     setActiveFilters({})
+    setColumnFilters((prev) => ({ ...prev, sector: '' }))
     dispatch(resetFilters())
     dispatch(setPage(1))
     void dispatch(fetchCustomers(buildListParams({
@@ -858,6 +861,26 @@ export default function CustomersPage() {
 
   function handleSortChange(field: string, direction: 'asc' | 'desc') {
     dispatch(setSortConfig({ field, direction }))
+    dispatch(setPage(1))
+    void dispatch(
+      fetchCustomers(
+        buildListParams({
+          page: 1,
+          sortBy: mapCustomerSortField(field),
+          sortOrder: direction,
+        }),
+      ),
+    )
+  }
+
+  function handleColumnFilter(field: keyof CustomerColumnFilters, value: string) {
+    setColumnFilters((prev) => ({ ...prev, [field]: value }))
+    if (field === 'sector') {
+      setActiveFilters((prev) => ({ ...prev, sector: value }))
+      dispatch(setFilters({ sector: value }))
+    }
+    dispatch(setPage(1))
+    void dispatch(fetchCustomers(buildListParams({ page: 1, [field]: value })))
   }
 
   function handlePageChange(page: number) {
@@ -867,6 +890,35 @@ export default function CustomersPage() {
 
   function handleColumnVisibilityChange(field: string, visible: boolean) {
     setVisibleColumns((prev) => ({ ...prev, [field]: visible } as CustomerTableVisibleColumns))
+  }
+
+  function handleResetAll() {
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
+    setActiveFilters({})
+    setColumnFilters({
+      customerName: '',
+      contactPerson: '',
+      sector: '',
+      projectCount: '',
+    })
+    dispatch(setFilters({ search: '', status: '', gstStatus: '', state: '', sector: '' }))
+    dispatch(setSortConfig({ field: null, direction: 'asc' }))
+    dispatch(setPage(1))
+    void dispatch(
+      fetchCustomers(
+        buildListParams({
+          page: 1,
+          search: '',
+          gstStatus: '',
+          state: '',
+          sector: '',
+          customerName: '',
+          contactPerson: '',
+          sortBy: undefined,
+          sortOrder: undefined,
+        }),
+      ),
+    )
   }
 
   function openAddDrawer() {
@@ -947,6 +999,7 @@ export default function CustomersPage() {
         activeFilters={activeFilters}
         onFilterChange={handleFilterChange}
         onFilterReset={handleFilterReset}
+        onResetAll={handleResetAll}
         columns={columnsConfig}
         onColumnVisibilityChange={handleColumnVisibilityChange}
         onViewModeChange={setViewMode}
@@ -964,7 +1017,7 @@ export default function CustomersPage() {
               [...Array(6)].map((_, i) => (
                 <Skeleton key={i} variant="rectangular" height={200} sx={{ borderRadius: 2 }} />
               ))
-            ) : sortedItems.length === 0 ? (
+            ) : items.length === 0 ? (
               <Box sx={{ gridColumn: '1 / -1', py: 6, textAlign: 'center' }}>
                 <Building2 size={32} color={tokens.color.neutral[300]} />
                 <Typography variant="body2" sx={{ mt: 1.5, fontWeight: 500 }}>
@@ -975,7 +1028,7 @@ export default function CustomersPage() {
                 </Typography>
               </Box>
             ) : (
-              sortedItems.map((customer) => (
+              items.map((customer) => (
                 <CustomerGridCard
                   key={customer.id}
                   customer={customer}
@@ -991,12 +1044,18 @@ export default function CustomersPage() {
           </Box>
         ) : (
           <CustomerTable
-            items={sortedItems}
+            items={items}
             loading={loading}
             visibleColumns={visibleColumns}
             sortField={sortConfig.field}
             sortDirection={sortConfig.direction}
             onSort={handleSortChange}
+            columnFilters={columnFilters}
+            customerNameOptions={customerNameOptions}
+            contactPersonOptions={contactPersonOptions}
+            sectorOptions={sectorOptions}
+            projectCountOptions={projectCountOptions}
+            onColumnFilter={handleColumnFilter}
             onView={handleNavigateToCustomer}
             onEdit={openEditDrawer}
             onProjects={handleProjectsClick}

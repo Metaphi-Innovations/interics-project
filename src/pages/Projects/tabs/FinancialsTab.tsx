@@ -264,8 +264,8 @@ export default function FinancialsTab({ project }: FinancialsTabProps) {
 
   const revenue = overview?.summary.revenue ?? 0
   const cost = overview?.summary.cost ?? 0
-  const grossProfit = overview?.summary.grossProfit ?? 0
-  const marginPct = overview?.summary.marginPct ?? 0
+  const grossProfit = revenue - cost
+  const marginPct = revenue === 0 ? 0 : (grossProfit / revenue) * 100
 
   const summaryMetrics: Array<{
     label: string

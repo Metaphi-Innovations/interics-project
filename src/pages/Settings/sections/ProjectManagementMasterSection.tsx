@@ -21,10 +21,17 @@ import {
   DialogContentText,
   DialogActions,
 } from '@mui/material'
-import { Add, Delete as DeleteIcon, Edit, ToggleOff, ToggleOn } from '@mui/icons-material'
+import { Add, Delete as DeleteIcon, Edit } from '@mui/icons-material'
 import { Plus } from 'lucide-react'
-import { Button, StatusBadge, useToast } from '@/design-system/components'
+import { Button, useToast } from '@/design-system/components'
 import { DrawerForm, FormField } from '@/components/templates/DrawerForm'
+import {
+  FilterableSortHeader,
+  SettingsSearchBar,
+  StatusColumnToggle,
+  useListingQuery,
+  type ColumnFilterOption,
+} from '@/components/listing'
 import { tokens } from '@/design-system/tokens'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import {
@@ -37,6 +44,7 @@ import type {
   ProjectManagementCheckpoint,
   ProjectManagementMasterCategory,
 } from '@/slices/settings/reducer'
+import { projectManagementService } from '@/modules/project-management'
 import {
   validateProjectManagementForm,
 } from '@/modules/project-management'
@@ -69,6 +77,12 @@ const defaultForm = (): CategoryForm => ({
   checkpoints: [newCheckpointDraft()],
 })
 
+type ProjectManagementFilterOptions = {
+  category: ColumnFilterOption[]
+  totalCheckpoints: ColumnFilterOption[]
+  status: ColumnFilterOption[]
+}
+
 export default function ProjectManagementMasterSection() {
   const dispatch = useAppDispatch()
   const success = useToast((s) => s.success)
@@ -83,10 +97,57 @@ export default function ProjectManagementMasterSection() {
   const [checkpointErrors, setCheckpointErrors] = useState<Array<{ name?: string }>>([])
   const [toggleTarget, setToggleTarget] = useState<ProjectManagementMasterCategory | null>(null)
   const [toggling, setToggling] = useState(false)
+  const listing = useListingQuery({ pageSize: 100 })
+  const [sortField, setSortField] = useState<string>()
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
+  const [filterOptions, setFilterOptions] = useState<ProjectManagementFilterOptions>({
+    category: [],
+    totalCheckpoints: [],
+    status: [],
+  })
+  const search = listing.search.trim()
+  const isSearchPending = search.length > 0 && search !== listing.debouncedSearch
 
   useEffect(() => {
-    void dispatch(fetchProjectManagementCategories())
+    void projectManagementService.getFilters()
+      .then((data) => {
+        setFilterOptions({
+          category: data.category ?? [],
+          totalCheckpoints: data.totalCheckpoints ?? [],
+          status: data.status ?? [],
+        })
+      })
+      .catch(() => undefined)
   }, [dispatch])
+
+  useEffect(() => {
+    if (isSearchPending) return
+    void dispatch(fetchProjectManagementCategories({
+      force: true,
+      search: listing.debouncedSearch || undefined,
+      category: listing.filters.category,
+      totalCheckpoints: listing.filters.totalCheckpoints,
+      status: listing.filters.status,
+      sortBy: sortField,
+      sortOrder: sortField ? sortDirection : undefined,
+    }))
+  }, [dispatch, isSearchPending, listing.debouncedSearch, listing.filters, search, sortDirection, sortField])
+
+  const applyColumnFilter = (key: string) => (value: string) => {
+    listing.setFilter(key, value)
+  }
+
+  const handleSort = (field: string, direction: 'asc' | 'desc') => {
+    setSortField(field)
+    setSortDirection(direction)
+  }
+
+  const handleReset = () => {
+    listing.setSearch('')
+    listing.setFilters({})
+    setSortField(undefined)
+    setSortDirection('asc')
+  }
 
   function openAdd() {
     setEditingRow(null)
@@ -200,6 +261,15 @@ export default function ProjectManagementMasterSection() {
       await dispatch(
         toggleProjectManagementCategoryStatus({ id: toggleTarget.id, status: nextStatus }),
       ).unwrap()
+      void dispatch(fetchProjectManagementCategories({
+        force: true,
+        search: listing.debouncedSearch || undefined,
+        category: listing.filters.category,
+        totalCheckpoints: listing.filters.totalCheckpoints,
+        status: listing.filters.status,
+        sortBy: sortField,
+        sortOrder: sortField ? sortDirection : undefined,
+      }))
       success(nextStatus === 'active' ? 'Category activated' : 'Category deactivated')
       setToggleTarget(null)
     } catch (err) {
@@ -241,6 +311,13 @@ export default function ProjectManagementMasterSection() {
         </Button>
       </Box>
 
+      <SettingsSearchBar
+        placeholder="Search project management categories..."
+        value={listing.search}
+        onChange={listing.setSearch}
+        onReset={handleReset}
+      />
+
       <TableContainer sx={{ width: '100%' }}>
         <Table size="small" sx={SETTINGS_TABLE_SX}>
           <colgroup>
@@ -251,9 +328,39 @@ export default function ProjectManagementMasterSection() {
           </colgroup>
           <TableHead>
             <TableRow sx={{ bgcolor: '#F8FAFB' }}>
-              <TableCell sx={SETTINGS_TABLE_HEADER_CELL_SX}>Category</TableCell>
-              <TableCell sx={SETTINGS_TABLE_HEADER_CELL_SX}>Total Checkpoints</TableCell>
-              <TableCell sx={SETTINGS_TABLE_HEADER_CELL_SX}>Status</TableCell>
+              <FilterableSortHeader
+                label="Category"
+                field="category"
+                sortField={sortField}
+                sortDirection={sortDirection}
+                onSort={handleSort}
+                filterValue={listing.filters.category ?? ''}
+                filterOptions={filterOptions.category}
+                onFilter={applyColumnFilter('category')}
+                sx={SETTINGS_TABLE_HEADER_CELL_SX}
+              />
+              <FilterableSortHeader
+                label="Total Checkpoints"
+                field="totalCheckpoints"
+                sortField={sortField}
+                sortDirection={sortDirection}
+                onSort={handleSort}
+                filterValue={listing.filters.totalCheckpoints ?? ''}
+                filterOptions={filterOptions.totalCheckpoints}
+                onFilter={applyColumnFilter('totalCheckpoints')}
+                sx={SETTINGS_TABLE_HEADER_CELL_SX}
+              />
+              <FilterableSortHeader
+                label="Status"
+                field="status"
+                sortField={sortField}
+                sortDirection={sortDirection}
+                onSort={handleSort}
+                filterValue={listing.filters.status ?? ''}
+                filterOptions={filterOptions.status}
+                onFilter={applyColumnFilter('status')}
+                sx={SETTINGS_TABLE_HEADER_CELL_SX}
+              />
               <TableCell sx={SETTINGS_TABLE_HEADER_ACTION_SX}>Actions</TableCell>
             </TableRow>
           </TableHead>
@@ -265,22 +372,14 @@ export default function ProjectManagementMasterSection() {
                   {row.totalCheckpoints ?? row.checkpoints.length}
                 </TableCell>
                 <TableCell sx={SETTINGS_TABLE_CELL_SX}>
-                  <StatusBadge status={row.status} />
+                  <StatusColumnToggle
+                    active={row.status === 'active'}
+                    onToggle={() => setToggleTarget(row)}
+                  />
                 </TableCell>
                 <TableCell sx={SETTINGS_TABLE_CELL_ACTION_SX}>
                   <IconButton size="small" onClick={() => openEdit(row)} aria-label="Edit">
                     <Edit sx={{ fontSize: 14 }} />
-                  </IconButton>
-                  <IconButton
-                    size="small"
-                    onClick={() => setToggleTarget(row)}
-                    aria-label="Toggle status"
-                  >
-                    {row.status === 'active' ? (
-                      <ToggleOn sx={{ fontSize: 14, color: 'success.main' }} />
-                    ) : (
-                      <ToggleOff sx={{ fontSize: 14, color: 'error.main' }} />
-                    )}
                   </IconButton>
                 </TableCell>
               </TableRow>

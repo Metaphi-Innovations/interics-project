@@ -1,6 +1,7 @@
 import { http, HttpResponse } from 'msw'
 import { getClientPoValue } from '../data/clientPOValidation'
 import { computeLineItemTaxBreakdown } from '@/pages/Projects/tabs/live/clientInvoiceUtils'
+import { mapInvoiceStatus } from '@/pages/Finance/invoiceStatus'
 
 export type InvoiceStatus =
   | 'draft'
@@ -522,7 +523,9 @@ function parseListUrl(url: URL): Record<string, string> {
 
 function filterInvoices(list: Invoice[], q: Record<string, string>): Invoice[] {
   let out = [...list]
-  if (q.status) out = out.filter((i) => i.status === q.status)
+  if (q.status && q.status !== 'all') {
+    out = out.filter((i) => mapInvoiceStatus(i) === q.status)
+  }
   if (q.clientId) out = out.filter((i) => i.clientId === q.clientId)
   if (q.projectId) out = out.filter((i) => i.projectId === q.projectId)
   if (q.search) {

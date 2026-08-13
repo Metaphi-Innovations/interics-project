@@ -27,6 +27,7 @@ import { useNavigate } from 'react-router-dom'
 import { Button, Select, StatusBadge, Tag } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { financeApi } from '@/api/financeApi'
+import { unwrapApiData } from '@/modules/system-settings/shared/api'
 import type {
   GlobalGstEntry,
   GlobalGstResponse,
@@ -38,7 +39,7 @@ import type { ClientInvoice } from '@/slices/live/types'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { fetchProjects } from '@/slices/projects/thunk'
 import { formatCurrency, formatDate, formatInr } from '@/utils/formatters'
-import { invoiceStatusToBadgeType } from '@/pages/Finance/components/InvoiceDetailDrawer'
+import { invoiceStatusToBadgeType } from '@/pages/Finance/invoiceStatus'
 
 const CHART_GST = '#1D9E75'
 const CHART_TDS = '#EF9F27'
@@ -197,8 +198,8 @@ export default function FilingSummaryPage() {
         financeApi.getGstData(params),
         financeApi.getTdsData({ ...params, type: 'all' }),
       ])
-      setGstData(g.data)
-      setTdsData(t.data)
+      setGstData(unwrapApiData<GlobalGstResponse>(g.data))
+      setTdsData(unwrapApiData<GlobalTdsResponse>(t.data))
     } catch {
       setError('Could not load compliance data.')
       setGstData(null)

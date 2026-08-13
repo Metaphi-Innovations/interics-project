@@ -1,7 +1,8 @@
 import client from '@/api/client'
-import { toUiStatus, unwrapApiData, unwrapApiList } from '../shared/api'
+import { compactQueryParams, toUiStatus, unwrapApiData, unwrapApiList } from '../shared/api'
 import { withInflight } from '../shared/inflight'
 import type { RatingMaster } from '@/slices/settings/reducer'
+import type { ColumnFilterOption } from '@/components/listing'
 
 type RatingApi = {
   id: string
@@ -21,22 +22,37 @@ function toRating(api: RatingApi): RatingMaster {
 
 export type RatingListParams = {
   search?: string
+  name?: string
+  isActive?: string
+  sortBy?: string
+  sortOrder?: 'asc' | 'desc'
   limit?: number
+}
+
+type RatingFilters = {
+  name?: ColumnFilterOption[]
+  isActive?: ColumnFilterOption[]
 }
 
 export const ratingsService = {
   async getAll(params: RatingListParams = {}): Promise<RatingMaster[]> {
-    const search = params.search?.trim()
-    const key = `ratings:list:${search ?? ''}`
-    return withInflight(key, async () => {
-      const res = await client.get(BASE, {
-        params: {
-          limit: params.limit ?? 100,
-          ...(search ? { search } : {}),
-        },
-      })
+    const query = compactQueryParams({
+      limit: params.limit ?? 100,
+      search: params.search,
+      name: params.name,
+      isActive: params.isActive,
+      sortBy: params.sortBy,
+      sortOrder: params.sortOrder,
+    })
+    return withInflight(`ratings:list:${JSON.stringify(query)}`, async () => {
+      const res = await client.get(BASE, { params: query })
       return unwrapApiList<RatingApi>(res.data).map(toRating)
     })
+  },
+
+  async getFilters(): Promise<RatingFilters> {
+    const res = await client.get(`${BASE}/filters`)
+    return unwrapApiData<RatingFilters>(res.data)
   },
 
   async create(data: Omit<RatingMaster, 'id'>): Promise<RatingMaster> {

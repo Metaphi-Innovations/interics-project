@@ -1,10 +1,15 @@
 import client from '@/api/client'
-import { unwrapApiData, unwrapApiList } from '@/modules/system-settings/shared/api'
+import {
+  compactQueryParams,
+  unwrapApiData,
+  unwrapApiList,
+} from '@/modules/system-settings/shared/api'
 import { withInflight } from '@/modules/system-settings/shared/inflight'
 import type {
   ProjectManagementCheckpoint,
   ProjectManagementMasterCategory,
 } from '@/slices/settings/reducer'
+import type { ColumnFilterOption } from '@/components/listing'
 
 type ApiStatus = 'ACTIVE' | 'INACTIVE'
 
@@ -47,6 +52,23 @@ export type ProjectManagementFormInput = {
   status: 'active' | 'inactive'
 }
 
+export type ProjectManagementListParams = {
+  page?: number
+  limit?: number
+  search?: string
+  category?: string
+  totalCheckpoints?: string
+  status?: string
+  sortBy?: string
+  sortOrder?: 'asc' | 'desc'
+}
+
+type ProjectManagementFilters = {
+  category?: ColumnFilterOption[]
+  totalCheckpoints?: ColumnFilterOption[]
+  status?: ColumnFilterOption[]
+}
+
 function toCreatePayload(data: ProjectManagementFormInput) {
   const checkpoints = data.checkpoints.map((cp) => ({
     name: cp.name.trim(),
@@ -60,11 +82,26 @@ function toCreatePayload(data: ProjectManagementFormInput) {
 }
 
 export const projectManagementService = {
-  async getAll(): Promise<ProjectManagementMasterCategory[]> {
-    return withInflight('project-management:list', async () => {
-      const res = await client.get(BASE, { params: { limit: 100 } })
+  async getAll(params: ProjectManagementListParams = {}): Promise<ProjectManagementMasterCategory[]> {
+    const query = compactQueryParams({
+      page: params.page ?? 1,
+      limit: params.limit ?? 100,
+      search: params.search,
+      category: params.category,
+      totalCheckpoints: params.totalCheckpoints,
+      status: params.status,
+      sortBy: params.sortBy,
+      sortOrder: params.sortOrder,
+    })
+    return withInflight(`project-management:list:${JSON.stringify(query)}`, async () => {
+      const res = await client.get(BASE, { params: query })
       return unwrapApiList<ProjectManagementApi>(res.data).map(toProjectManagementMaster)
     })
+  },
+
+  async getFilters(): Promise<ProjectManagementFilters> {
+    const res = await client.get(`${BASE}/filters`)
+    return unwrapApiData<ProjectManagementFilters>(res.data)
   },
 
   async getById(id: string): Promise<ProjectManagementMasterCategory> {

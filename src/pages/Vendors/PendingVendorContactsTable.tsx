@@ -19,6 +19,7 @@ import { useTheme, alpha } from '@mui/material/styles'
 import type { Vendor } from '@/slices/vendors/reducer'
 import { tokens } from '@/design-system/tokens'
 import { formatDate } from '@/utils/formatters'
+import { FilterableHeaderCell, type ColumnFilterOption } from '@/components/listing'
 
 const ACTION_WIDTH_PX = 60
 const CELL_PAD_X = '14px'
@@ -130,6 +131,22 @@ function PendingRowActions({ onView, onUpdate }: PendingRowActionsProps) {
 export interface PendingVendorContactsTableProps {
   items: Vendor[]
   loading: boolean
+  columnFilters: {
+    contactPerson: string
+    mobile: string
+    email: string
+    designation: string
+    createdOn: string
+  }
+  contactPersonOptions: ColumnFilterOption[]
+  mobileOptions: ColumnFilterOption[]
+  emailOptions: ColumnFilterOption[]
+  designationOptions: ColumnFilterOption[]
+  createdOnOptions: ColumnFilterOption[]
+  onColumnFilter: (
+    field: 'contactPerson' | 'mobile' | 'email' | 'designation' | 'createdOn',
+    value: string,
+  ) => void
   onView: (vendor: Vendor) => void
   onUpdate: (vendor: Vendor) => void
 }
@@ -137,6 +154,13 @@ export interface PendingVendorContactsTableProps {
 export function PendingVendorContactsTable({
   items,
   loading,
+  columnFilters,
+  contactPersonOptions,
+  mobileOptions,
+  emailOptions,
+  designationOptions,
+  createdOnOptions,
+  onColumnFilter,
   onView,
   onUpdate,
 }: PendingVendorContactsTableProps) {
@@ -177,11 +201,41 @@ export function PendingVendorContactsTable({
         </colgroup>
         <TableHead>
           <TableRow sx={{ bgcolor: alpha(theme.palette.text.primary, 0.02) }}>
-            <TableCell sx={headSx}>Contact Person Name</TableCell>
-            <TableCell sx={headSx}>Mobile Number</TableCell>
-            <TableCell sx={headSx}>Email Address</TableCell>
-            <TableCell sx={headSx}>Designation</TableCell>
-            <TableCell sx={headSx}>Created On</TableCell>
+            <FilterableHeaderCell
+              label="Contact Person Name"
+              filterValue={columnFilters.contactPerson}
+              filterOptions={contactPersonOptions}
+              onFilter={(value) => onColumnFilter('contactPerson', value)}
+              sx={headSx}
+            />
+            <FilterableHeaderCell
+              label="Mobile Number"
+              filterValue={columnFilters.mobile}
+              filterOptions={mobileOptions}
+              onFilter={(value) => onColumnFilter('mobile', value)}
+              sx={headSx}
+            />
+            <FilterableHeaderCell
+              label="Email Address"
+              filterValue={columnFilters.email}
+              filterOptions={emailOptions}
+              onFilter={(value) => onColumnFilter('email', value)}
+              sx={headSx}
+            />
+            <FilterableHeaderCell
+              label="Designation"
+              filterValue={columnFilters.designation}
+              filterOptions={designationOptions}
+              onFilter={(value) => onColumnFilter('designation', value)}
+              sx={headSx}
+            />
+            <FilterableHeaderCell
+              label="Created On"
+              filterValue={columnFilters.createdOn}
+              filterOptions={createdOnOptions}
+              onFilter={(value) => onColumnFilter('createdOn', value)}
+              sx={headSx}
+            />
             <TableCell sx={HEADER_ACTION_SX}>
               <Box sx={CENTER_CELL_CONTENT_SX}>Action</Box>
             </TableCell>

@@ -35,6 +35,7 @@ export interface Role {
   description?: string
   userCount: number
   isSystem: boolean
+  status: 'active' | 'inactive'
 }
 
 function emptyModule(): ModuleCrudPermissions {

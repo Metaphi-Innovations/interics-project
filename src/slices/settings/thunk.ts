@@ -32,13 +32,94 @@ function rejectSettings(err: unknown, fallback: string) {
 
 type FetchOpts = { force?: boolean } | undefined
 
-type SacFetchOpts = { force?: boolean; search?: string } | undefined
-
-type ServiceFetchOpts =
-  | { force?: boolean; search?: string; categoryId?: string }
+type GSTFetchOpts =
+  | {
+      force?: boolean
+      search?: string
+      slabName?: string
+      ratePercent?: string
+      description?: string
+      status?: string
+      sortBy?: string
+      sortOrder?: 'asc' | 'desc'
+    }
   | undefined
 
-type MasterFetchOpts = { force?: boolean; search?: string } | undefined
+type TDSFetchOpts =
+  | {
+      force?: boolean
+      search?: string
+      sectionCode?: string
+      description?: string
+      defaultRatePercent?: string
+      appliesTo?: string
+      status?: string
+      sortBy?: string
+      sortOrder?: 'asc' | 'desc'
+    }
+  | undefined
+
+type SacFetchOpts =
+  | {
+      force?: boolean
+      search?: string
+      sacCode?: string
+      description?: string
+      gstSlabId?: string
+      status?: string
+      sortBy?: string
+      sortOrder?: 'asc' | 'desc'
+    }
+  | undefined
+
+type CategoryFetchOpts =
+  | {
+      force?: boolean
+      search?: string
+      name?: string
+      description?: string
+      isActive?: string
+      sortBy?: string
+      sortOrder?: 'asc' | 'desc'
+    }
+  | undefined
+
+type ServiceFetchOpts =
+  | {
+      force?: boolean
+      search?: string
+      name?: string
+      categoryId?: string
+      sacCode?: string
+      gstRate?: string
+      isActive?: string
+      sortBy?: string
+      sortOrder?: 'asc' | 'desc'
+    }
+  | undefined
+
+type MasterFetchOpts =
+  | {
+      force?: boolean
+      search?: string
+      name?: string
+      isActive?: string
+      sortBy?: string
+      sortOrder?: 'asc' | 'desc'
+    }
+  | undefined
+
+type ProjectManagementFetchOpts =
+  | {
+      force?: boolean
+      search?: string
+      category?: string
+      totalCheckpoints?: string
+      status?: string
+      sortBy?: string
+      sortOrder?: 'asc' | 'desc'
+    }
+  | undefined
 
 function shouldFetchList(force: boolean | undefined, alreadyLoaded: boolean): boolean {
   return Boolean(force) || !alreadyLoaded
@@ -50,6 +131,20 @@ function shouldFetchFilteredList(
   alreadyLoaded: boolean,
 ): boolean {
   return Boolean(force) || hasFilter || !alreadyLoaded
+}
+
+function hasActiveQueryParams(
+  params: Record<string, unknown> | undefined,
+  ignoredKeys: string[] = ['force'],
+): boolean {
+  if (!params) return false
+
+  return Object.entries(params).some(([key, value]) => {
+    if (ignoredKeys.includes(key)) return false
+    if (value === undefined || value === null) return false
+    if (typeof value === 'string') return value.trim().length > 0
+    return true
+  })
 }
 
 export const fetchCompanyProfile = createAsyncThunk(
@@ -76,16 +171,20 @@ export const updateCompanyProfile = createAsyncThunk(
 
 export const fetchGSTRates = createAsyncThunk(
   'settings/fetchGSTRates',
-  async (_: FetchOpts, { rejectWithValue }) => {
+  async (opts: GSTFetchOpts, { rejectWithValue }) => {
     try {
-      return await taxConfigurationService.getGstRates()
+      return await taxConfigurationService.getGstRates(opts)
     } catch (err: unknown) {
       return rejectWithValue(rejectSettings(err, 'Failed to fetch GST rates'))
     }
   },
   {
     condition: (arg, { getState }) =>
-      shouldFetchList(arg?.force, (getState() as RootState).settings.gstRates.length > 0),
+      shouldFetchFilteredList(
+        arg?.force,
+        hasActiveQueryParams(arg),
+        (getState() as RootState).settings.gstRates.length > 0,
+      ),
   },
 )
 
@@ -125,16 +224,20 @@ export const toggleGSTRateStatus = createAsyncThunk(
 
 export const fetchTDSSections = createAsyncThunk(
   'settings/fetchTDSSections',
-  async (_: FetchOpts, { rejectWithValue }) => {
+  async (opts: TDSFetchOpts, { rejectWithValue }) => {
     try {
-      return await taxConfigurationService.getTdsSections()
+      return await taxConfigurationService.getTdsSections(opts)
     } catch (err: unknown) {
       return rejectWithValue(rejectSettings(err, 'Failed to fetch TDS sections'))
     }
   },
   {
     condition: (arg, { getState }) =>
-      shouldFetchList(arg?.force, (getState() as RootState).settings.tdsSections.length > 0),
+      shouldFetchFilteredList(
+        arg?.force,
+        hasActiveQueryParams(arg),
+        (getState() as RootState).settings.tdsSections.length > 0,
+      ),
   },
 )
 
@@ -176,7 +279,7 @@ export const fetchSACCodes = createAsyncThunk(
   'settings/fetchSACCodes',
   async (opts: SacFetchOpts, { rejectWithValue }) => {
     try {
-      return await sacCodesService.getAll({ search: opts?.search })
+      return await sacCodesService.getAll(opts)
     } catch (err: unknown) {
       return rejectWithValue(rejectSettings(err, 'Failed to fetch SAC codes'))
     }
@@ -185,7 +288,7 @@ export const fetchSACCodes = createAsyncThunk(
     condition: (arg, { getState }) =>
       shouldFetchFilteredList(
         arg?.force,
-        Boolean(arg?.search?.trim()),
+        hasActiveQueryParams(arg),
         (getState() as RootState).settings.sacCodes.length > 0,
       ),
   },
@@ -228,16 +331,20 @@ export const toggleSACCodeStatus = createAsyncThunk(
 
 export const fetchCategories = createAsyncThunk(
   'settings/fetchCategories',
-  async (_: FetchOpts, { rejectWithValue }) => {
+  async (opts: CategoryFetchOpts, { rejectWithValue }) => {
     try {
-      return await categoriesService.getAll()
+      return await categoriesService.getAll(opts)
     } catch (err: unknown) {
       return rejectWithValue(rejectSettings(err, 'Failed to fetch categories'))
     }
   },
   {
     condition: (arg, { getState }) =>
-      shouldFetchList(arg?.force, (getState() as RootState).settings.categories.length > 0),
+      shouldFetchFilteredList(
+        arg?.force,
+        hasActiveQueryParams(arg),
+        (getState() as RootState).settings.categories.length > 0,
+      ),
   },
 )
 
@@ -285,8 +392,7 @@ export const fetchServices = createAsyncThunk(
       if (!cats.length) cats = await categoriesService.getAll()
       if (!sacs.length) sacs = await sacCodesService.getAll()
       return await servicesService.getAll(cats, sacs, {
-        search: opts?.search,
-        categoryId: opts?.categoryId,
+        ...opts,
       })
     } catch (err: unknown) {
       return rejectWithValue(rejectSettings(err, 'Failed to fetch services'))
@@ -296,7 +402,7 @@ export const fetchServices = createAsyncThunk(
     condition: (arg, { getState }) =>
       shouldFetchFilteredList(
         arg?.force,
-        Boolean(arg?.search?.trim() || arg?.categoryId),
+        hasActiveQueryParams(arg),
         (getState() as RootState).settings.services.length > 0,
       ),
   },
@@ -400,7 +506,7 @@ export const fetchSectors = createAsyncThunk(
   'settings/fetchSectors',
   async (opts: MasterFetchOpts, { rejectWithValue }) => {
     try {
-      return await sectorsService.getAll({ search: opts?.search })
+      return await sectorsService.getAll(opts)
     } catch (err: unknown) {
       return rejectWithValue(rejectSettings(err, 'Failed to fetch sectors'))
     }
@@ -409,7 +515,7 @@ export const fetchSectors = createAsyncThunk(
     condition: (arg, { getState }) =>
       shouldFetchFilteredList(
         arg?.force,
-        Boolean(arg?.search?.trim()),
+        hasActiveQueryParams(arg),
         (getState() as RootState).settings.sectors.length > 0,
       ),
   },
@@ -453,7 +559,7 @@ export const fetchRatings = createAsyncThunk(
   'settings/fetchRatings',
   async (opts: MasterFetchOpts, { rejectWithValue }) => {
     try {
-      return await ratingsService.getAll({ search: opts?.search })
+      return await ratingsService.getAll(opts)
     } catch (err: unknown) {
       return rejectWithValue(rejectSettings(err, 'Failed to fetch ratings'))
     }
@@ -462,7 +568,7 @@ export const fetchRatings = createAsyncThunk(
     condition: (arg, { getState }) =>
       shouldFetchFilteredList(
         arg?.force,
-        Boolean(arg?.search?.trim()),
+        hasActiveQueryParams(arg),
         (getState() as RootState).settings.ratings.length > 0,
       ),
   },
@@ -504,12 +610,20 @@ export const toggleRatingStatus = createAsyncThunk(
 
 export const fetchProjectManagementCategories = createAsyncThunk(
   'settings/fetchProjectManagementCategories',
-  async (_, { rejectWithValue }) => {
+  async (opts: ProjectManagementFetchOpts, { rejectWithValue }) => {
     try {
-      return await projectManagementService.getAll()
+      return await projectManagementService.getAll(opts)
     } catch (err: unknown) {
       return rejectWithValue(rejectSettings(err, 'Failed to fetch project management categories'))
     }
+  },
+  {
+    condition: (arg, { getState }) =>
+      shouldFetchFilteredList(
+        arg?.force,
+        hasActiveQueryParams(arg),
+        (getState() as RootState).settings.projectManagementCategories.length > 0,
+      ),
   },
 )
 

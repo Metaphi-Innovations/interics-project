@@ -123,6 +123,13 @@ let mockUsers: MockUser[] = [
 
 let idCounter = 7
 
+const ROLE_LABEL_BY_ID: Record<string, string> = {
+  'r-001': 'Admin',
+  'r-002': 'Power User',
+  'r-003': 'Project User',
+  'r-004': 'Viewer',
+}
+
 function syncRoleCounts() {
   recalculateRoleUserCountsFromUsers(mockUsers)
 }
@@ -133,11 +140,50 @@ export const usersHandlers = [
   /** Lightweight options for user form (full `/api/v1/projects` is paginated in projectsHandlers). */
   http.get('/api/v1/projects-list', () => HttpResponse.json(mockProjects)),
 
+  http.get('/api/v1/users/filters', () => {
+    const roleIds = Array.from(new Set(mockUsers.map((user) => user.role)))
+    const projectAccessCounts = Array.from(
+      new Set(
+        mockUsers.map((user) =>
+          user.projectAccess === 'all' ? mockProjects.length : user.assignedProjects.length,
+        ),
+      ),
+    )
+    const lastLoginValues = Array.from(
+      new Set(
+        mockUsers
+          .map((user) => user.lastLogin?.slice(0, 10))
+          .filter((value): value is string => Boolean(value)),
+      ),
+    )
+
+    return HttpResponse.json({
+      name: mockUsers.map((user) => ({ value: user.name, label: user.name })),
+      phone: mockUsers
+        .filter((user) => Boolean(user.phone))
+        .map((user) => ({ value: user.phone!, label: user.phone! })),
+      projectAccess: projectAccessCounts.map((count) => ({
+        value: String(count),
+        label: count === mockProjects.length ? 'All Projects' : `${count} Project${count === 1 ? '' : 's'}`,
+      })),
+      lastLogin: lastLoginValues.map((value) => ({ value, label: value })),
+      roles: roleIds.map((roleId) => ({ value: roleId, label: ROLE_LABEL_BY_ID[roleId] ?? roleId })),
+      statuses: [
+        { value: 'ACTIVE', label: 'Active' },
+        { value: 'INACTIVE', label: 'Inactive' },
+      ],
+    })
+  }),
+
   http.get('/api/v1/users', ({ request }) => {
     const url = new URL(request.url)
     const search = url.searchParams.get('search')?.toLowerCase() ?? ''
     const role = url.searchParams.get('role') ?? ''
     const status = url.searchParams.get('status') ?? ''
+    const name = url.searchParams.get('name')?.toLowerCase() ?? ''
+    const phone = url.searchParams.get('phone')?.toLowerCase() ?? ''
+    const projectAccess = url.searchParams.get('projectAccess')
+    const lastLogin = url.searchParams.get('lastLogin') ?? ''
 
     let filtered = mockUsers
 
@@ -153,6 +199,21 @@ export const usersHandlers = [
     }
     if (status) {
       filtered = filtered.filter((u) => u.status === status)
+    }
+    if (name) {
+      filtered = filtered.filter((u) => u.name.toLowerCase() === name)
+    }
+    if (phone) {
+      filtered = filtered.filter((u) => (u.phone ?? '').toLowerCase() === phone)
+    }
+    if (projectAccess != null && projectAccess !== '') {
+      filtered = filtered.filter((u) => {
+        const count = u.projectAccess === 'all' ? mockProjects.length : u.assignedProjects.length
+        return String(count) === projectAccess
+      })
+    }
+    if (lastLogin) {
+      filtered = filtered.filter((u) => (u.lastLogin ?? '').slice(0, 10) === lastLogin)
     }
 
     return HttpResponse.json(filtered)
@@ -191,16 +252,17 @@ export const usersHandlers = [
     return HttpResponse.json(mockUsers[idx])
   }),
 
-  http.patch('/api/v1/users/:id/status', ({ params }) => {
+  http.patch('/api/v1/users/:id/status', async ({ params, request }) => {
     const idx = mockUsers.findIndex((u) => u.id === params.id)
     if (idx === -1) {
       return HttpResponse.json({ message: 'User not found' }, { status: 404 })
     }
-    const wasActive = mockUsers[idx].status === 'active'
+    const body = (await request.json().catch(() => ({}))) as { isActive?: boolean }
+    const nextActive = typeof body.isActive === 'boolean' ? body.isActive : mockUsers[idx].status !== 'active'
     mockUsers[idx] = {
       ...mockUsers[idx],
-      status: wasActive ? 'inactive' : 'active',
-      lastLogin: wasActive ? mockUsers[idx].lastLogin : new Date().toISOString(),
+      status: nextActive ? 'active' : 'inactive',
+      lastLogin: nextActive ? new Date().toISOString() : mockUsers[idx].lastLogin,
     }
     return HttpResponse.json(mockUsers[idx])
   }),

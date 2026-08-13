@@ -21,14 +21,17 @@ import MoreVertIcon from '@mui/icons-material/MoreVert'
 import { Banknote, ChevronLeft, ChevronRight, Upload } from 'lucide-react'
 import { ListingTemplate } from '@/components/templates'
 import type { FilterField, TabItem } from '@/components/templates/ListingTemplate'
+import { FilterableSortHeader, type ColumnFilterOption } from '@/components/listing'
 import { Avatar, Badge, useToast } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { formatDate, formatInr } from '@/utils/formatters'
+import { downloadCsv } from '@/api/downloadCsv'
 import { fetchProjects } from '@/slices/projects/thunk'
 import {
   payablesService,
   toPayableSummaryKpis,
+  type PayablesListItem,
 } from '@/modules/finance/payables.service'
 import type { PayableSummaryKpis } from '@/pages/Finance/utils/payableSummary'
 import {
@@ -216,6 +219,15 @@ const PAY_PAGE_SIZE = 10
 const menuItemSx = { fontSize: 12, minHeight: 32, py: 0.5 }
 
 type PayableStatusTab = 'pending' | 'completed'
+type PayablesSortField =
+  | 'vendorName'
+  | 'projectName'
+  | 'milestone'
+  | 'invoiceNo'
+  | 'invoiceDate'
+  | 'invoiceAmount'
+  | 'tdsAmount'
+  | 'paymentStatus'
 
 function isPayableCompleted(status: PayablePaymentStatus): boolean {
   return status === 'settled'
@@ -282,6 +294,15 @@ export default function PaymentsPage() {
   })
 
   const [page, setPage] = useState(1)
+  const [colFilters, setColFilters] = useState<Record<string, string>>({})
+  const [sortConfig, setSortConfig] = useState<{
+    field: PayablesSortField | null
+    direction: 'asc' | 'desc'
+  }>({ field: null, direction: 'asc' })
+  const [payableFilterOptions, setPayableFilterOptions] = useState<Record<string, ColumnFilterOption[]>>({})
+  const [listItems, setListItems] = useState<PayablesListItem[]>([])
+  const [listTotal, setListTotal] = useState(0)
+  const [listLoading, setListLoading] = useState(false)
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null)
   const [menuContext, setMenuContext] = useState<PaymentTableRow | null>(null)
   const [workflowDrawer, setWorkflowDrawer] = useState<{
@@ -295,6 +316,18 @@ export default function PaymentsPage() {
 
   useEffect(() => {
     void dispatch(fetchProjects({ pageSize: 100 }))
+    void payablesService.getFilters().then((data) => {
+      setPayableFilterOptions({
+        vendorId: data.vendors ?? [],
+        projectId: data.projects ?? [],
+        milestone: data.milestones ?? [],
+        invoiceNo: data.invoiceNos ?? [],
+        invoiceDate: data.invoiceDates ?? [],
+        invoiceAmount: data.invoiceAmounts ?? [],
+        tdsAmount: data.tdsAmounts ?? [],
+        paymentStatus: data.paymentStatuses ?? [],
+      })
+    }).catch(() => undefined)
   }, [dispatch])
 
   // One workspace call replaces N× baseline + vendor-PO + invoice + payments + expenses…
@@ -463,13 +496,88 @@ export default function PaymentsPage() {
     return { pending, completed }
   }, [searchedRows])
 
-  const listingRows = useMemo(() => {
-    return searchedRows.filter((row) =>
-      statusTab === 'completed'
-        ? isPayableCompleted(row.payableSt)
-        : !isPayableCompleted(row.payableSt),
-    )
-  }, [searchedRows, statusTab])
+  useEffect(() => {
+    let cancelled = false
+    setListLoading(true)
+    void payablesService
+      .getList({
+        page,
+        limit: PAY_PAGE_SIZE,
+        search: search.trim() || undefined,
+        vendorId: colFilters.vendorId || filterVendorId || undefined,
+        projectId: colFilters.projectId || filterProjectId || undefined,
+        milestone: colFilters.milestone || undefined,
+        invoiceNo: colFilters.invoiceNo || undefined,
+        invoiceDate: colFilters.invoiceDate || undefined,
+        invoiceAmount: colFilters.invoiceAmount ? Number(colFilters.invoiceAmount) : undefined,
+        tdsAmount: colFilters.tdsAmount ? Number(colFilters.tdsAmount) : undefined,
+        paymentStatus: colFilters.paymentStatus || statusTab,
+        sortBy: sortConfig.field || undefined,
+        sortOrder: sortConfig.field ? sortConfig.direction : undefined,
+      })
+      .then((result) => {
+        if (cancelled) return
+        setListItems(result.items)
+        setListTotal(result.total)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setListItems([])
+        setListTotal(0)
+      })
+      .finally(() => {
+        if (!cancelled) setListLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [page, search, colFilters, filterVendorId, filterProjectId, statusTab, sortConfig.field, sortConfig.direction])
+
+  const listingRows = useMemo((): PaymentTableRow[] => {
+    return listItems.map((item) => {
+      const match = allMilestones.find(
+        (m) =>
+          m.projectId === item.projectId &&
+          m.row.vendorId === item.vendorId &&
+          (m.milestone.id === item.milestoneId || m.milestone.name === item.milestone),
+      )
+      const payableSt = (item.paymentStatus === 'settled' || item.paymentStatus === 'partial_payment' || item.paymentStatus === 'not_paid'
+        ? item.paymentStatus
+        : 'not_paid') as PayablePaymentStatus
+      if (match) {
+        return {
+          key: item.id,
+          vendorKey: globalVendorContextKey(item.projectId, match.row),
+          entry: match,
+          payableSt,
+          invoiceNumber: item.invoiceNo,
+          invoiceDate: item.invoiceDate,
+          invoiceAmount: item.invoiceAmount,
+          tdsAmount: item.tdsAmount,
+        }
+      }
+      return {
+        key: item.id,
+        vendorKey: `${item.projectId}::${item.vendorId}`,
+        entry: {
+          projectId: item.projectId,
+          projectName: item.projectName,
+          milestone: { id: item.milestoneId ?? item.id, name: item.milestone, status: 'Pending', value: 0 },
+          row: {
+            vendorId: item.vendorId,
+            vendorName: item.vendorName,
+            serviceId: item.service ?? '',
+            serviceName: item.service ?? '',
+          },
+        } as VendorMilestoneEntry,
+        payableSt,
+        invoiceNumber: item.invoiceNo,
+        invoiceDate: item.invoiceDate,
+        invoiceAmount: item.invoiceAmount,
+        tdsAmount: item.tdsAmount,
+      }
+    })
+  }, [listItems, allMilestones])
 
   const statusTabs: TabItem[] = useMemo(
     () => [
@@ -479,21 +587,13 @@ export default function PaymentsPage() {
     [tabCounts],
   )
 
-  const isDataLoading = projectsLoading || !financeLoaded
+  const isDataLoading = projectsLoading || !financeLoaded || listLoading
 
-  const paginatedRows = useMemo(() => {
-    const start = (page - 1) * PAY_PAGE_SIZE
-    return listingRows.slice(start, start + PAY_PAGE_SIZE)
-  }, [listingRows, page])
+  const paginatedRows = listingRows
 
   useEffect(() => {
     setPage(1)
-  }, [filterProjectId, filterVendorId, search, statusTab])
-
-  useEffect(() => {
-    const maxPage = Math.max(1, Math.ceil(listingRows.length / PAY_PAGE_SIZE))
-    if (page > maxPage) setPage(maxPage)
-  }, [listingRows.length, page])
+  }, [filterProjectId, filterVendorId, search, statusTab, colFilters, sortConfig.field, sortConfig.direction])
 
   const vendorOptions = useMemo(() => {
     const labels: Record<string, string> = {}
@@ -571,11 +671,30 @@ export default function PaymentsPage() {
   async function handleInvoiceUploaded(projectId: string) {
     try {
       await dispatch(fetchVendorInvoices(projectId)).unwrap()
-      const summary = await payablesService.getSummary({
-        projectId: filterProjectId || undefined,
-        vendorId: filterVendorId || undefined,
-      })
+      const [summary, list] = await Promise.all([
+        payablesService.getSummary({
+          projectId: filterProjectId || undefined,
+          vendorId: filterVendorId || undefined,
+        }),
+        payablesService.getList({
+          page,
+          limit: PAY_PAGE_SIZE,
+          search: search.trim() || undefined,
+          vendorId: colFilters.vendorId || filterVendorId || undefined,
+          projectId: colFilters.projectId || filterProjectId || undefined,
+          milestone: colFilters.milestone || undefined,
+          invoiceNo: colFilters.invoiceNo || undefined,
+          invoiceDate: colFilters.invoiceDate || undefined,
+          invoiceAmount: colFilters.invoiceAmount ? Number(colFilters.invoiceAmount) : undefined,
+          tdsAmount: colFilters.tdsAmount ? Number(colFilters.tdsAmount) : undefined,
+          paymentStatus: colFilters.paymentStatus || statusTab,
+          sortBy: sortConfig.field || undefined,
+          sortOrder: sortConfig.field ? sortConfig.direction : undefined,
+        }),
+      ])
       setSummaryKpis(toPayableSummaryKpis(summary))
+      setListItems(list.items)
+      setListTotal(list.total)
     } catch {
       // list already refreshed by drawer; summary can stay stale until next filter change
     }
@@ -653,7 +772,47 @@ export default function PaymentsPage() {
     setSearch(v)
   }, [])
 
+  function handleSort(field: string, direction: 'asc' | 'desc') {
+    setSortConfig({ field: field as PayablesSortField, direction })
+    setPage(1)
+  }
+
+  function handleResetAll() {
+    setSearch('')
+    setActiveFilters({ dateFrom: '', dateTo: '' })
+    setFilterProjectId('')
+    setFilterVendorId('')
+    setColFilters({})
+    setSortConfig({ field: null, direction: 'asc' })
+    setPage(1)
+  }
+
   const hoverBg = alpha(theme.palette.primary.main, 0.04)
+
+  async function handleExport() {
+    try {
+      await downloadCsv(
+        '/finance/payables/export',
+        {
+          search: search.trim() || undefined,
+          vendorId: colFilters.vendorId || filterVendorId || undefined,
+          projectId: colFilters.projectId || filterProjectId || undefined,
+          milestone: colFilters.milestone || undefined,
+          invoiceNo: colFilters.invoiceNo || undefined,
+          invoiceDate: colFilters.invoiceDate || undefined,
+          invoiceAmount: colFilters.invoiceAmount ? Number(colFilters.invoiceAmount) : undefined,
+          tdsAmount: colFilters.tdsAmount ? Number(colFilters.tdsAmount) : undefined,
+          paymentStatus: colFilters.paymentStatus || statusTab,
+          sortBy: sortConfig.field || undefined,
+          sortOrder: sortConfig.field ? sortConfig.direction : undefined,
+        },
+        `payables-${new Date().toISOString().slice(0, 10)}.csv`,
+      )
+      showToast({ title: 'Export started', variant: 'success' })
+    } catch {
+      showToast({ title: 'Failed to export payables', variant: 'error' })
+    }
+  }
 
   return (
     <>
@@ -677,8 +836,9 @@ export default function PaymentsPage() {
           activeFilters={activeFilters}
           onFilterChange={setActiveFilters}
           onFilterReset={() => setActiveFilters({ dateFrom: '', dateTo: '' })}
+          onResetAll={handleResetAll}
           showExport
-          onExport={() => showToast({ title: 'Export started (placeholder)', variant: 'success' })}
+          onExport={handleExport}
           clipCardContent={false}
         >
           <>
@@ -692,14 +852,14 @@ export default function PaymentsPage() {
                   </colgroup>
                   <TableHead>
                     <TableRow sx={{ bgcolor: alpha(theme.palette.text.primary, 0.02) }}>
-                      <TableCell sx={PAY_HEADER_SX}>Vendor</TableCell>
-                      <TableCell sx={PAY_HEADER_SX}>Project</TableCell>
-                      <TableCell sx={PAY_HEADER_SX}>Milestone</TableCell>
-                      <TableCell sx={PAY_HEADER_SX}>Invoice No.</TableCell>
-                      <TableCell sx={PAY_HEADER_SX}>Invoice date</TableCell>
-                      <TableCell sx={PAY_HEADER_SX}>Invoice Amount</TableCell>
-                      <TableCell sx={PAY_HEADER_SX}>TDS Amount</TableCell>
-                      <TableCell sx={PAY_HEADER_STATUS_SX}>Payment Status</TableCell>
+                      <FilterableSortHeader label="Vendor" field="vendorName" sortField={sortConfig.field ?? undefined} sortDirection={sortConfig.direction} onSort={handleSort} filterValue={colFilters.vendorId ?? ''} filterOptions={payableFilterOptions.vendorId ?? []} onFilter={(v) => setColFilters((p) => ({ ...p, vendorId: v }))} sx={PAY_HEADER_SX} />
+                      <FilterableSortHeader label="Project" field="projectName" sortField={sortConfig.field ?? undefined} sortDirection={sortConfig.direction} onSort={handleSort} filterValue={colFilters.projectId ?? ''} filterOptions={payableFilterOptions.projectId ?? []} onFilter={(v) => setColFilters((p) => ({ ...p, projectId: v }))} sx={PAY_HEADER_SX} />
+                      <FilterableSortHeader label="Milestone" field="milestone" sortField={sortConfig.field ?? undefined} sortDirection={sortConfig.direction} onSort={handleSort} filterValue={colFilters.milestone ?? ''} filterOptions={payableFilterOptions.milestone ?? []} onFilter={(v) => setColFilters((p) => ({ ...p, milestone: v }))} sx={PAY_HEADER_SX} />
+                      <FilterableSortHeader label="Invoice No." field="invoiceNo" sortField={sortConfig.field ?? undefined} sortDirection={sortConfig.direction} onSort={handleSort} filterValue={colFilters.invoiceNo ?? ''} filterOptions={payableFilterOptions.invoiceNo ?? []} onFilter={(v) => setColFilters((p) => ({ ...p, invoiceNo: v }))} sx={PAY_HEADER_SX} />
+                      <FilterableSortHeader label="Invoice date" field="invoiceDate" sortField={sortConfig.field ?? undefined} sortDirection={sortConfig.direction} onSort={handleSort} filterValue={colFilters.invoiceDate ?? ''} filterOptions={payableFilterOptions.invoiceDate ?? []} onFilter={(v) => setColFilters((p) => ({ ...p, invoiceDate: v }))} sx={PAY_HEADER_SX} />
+                      <FilterableSortHeader label="Invoice Amount" field="invoiceAmount" sortField={sortConfig.field ?? undefined} sortDirection={sortConfig.direction} onSort={handleSort} filterValue={colFilters.invoiceAmount ?? ''} filterOptions={payableFilterOptions.invoiceAmount ?? []} onFilter={(v) => setColFilters((p) => ({ ...p, invoiceAmount: v }))} sx={PAY_HEADER_SX} />
+                      <FilterableSortHeader label="TDS Amount" field="tdsAmount" sortField={sortConfig.field ?? undefined} sortDirection={sortConfig.direction} onSort={handleSort} filterValue={colFilters.tdsAmount ?? ''} filterOptions={payableFilterOptions.tdsAmount ?? []} onFilter={(v) => setColFilters((p) => ({ ...p, tdsAmount: v }))} sx={PAY_HEADER_SX} />
+                      <FilterableSortHeader label="Payment Status" field="paymentStatus" sortField={sortConfig.field ?? undefined} sortDirection={sortConfig.direction} onSort={handleSort} filterValue={colFilters.paymentStatus ?? ''} filterOptions={payableFilterOptions.paymentStatus ?? []} onFilter={(v) => setColFilters((p) => ({ ...p, paymentStatus: v }))} sx={PAY_HEADER_STATUS_SX} />
                       <TableCell sx={PAY_HEADER_ACTION_SX}>Actions</TableCell>
                     </TableRow>
                   </TableHead>
@@ -718,7 +878,7 @@ export default function PaymentsPage() {
                     ) : listingRows.length === 0 ? (
                       <TableRow>
                         <TableCell colSpan={PAY_TABLE_COL_SPAN} sx={{ ...PAY_CELL_SX, color: 'text.secondary', py: 4 }}>
-                          {searchedRows.length === 0
+                          {listTotal === 0
                             ? 'No vendor invoices yet. Upload an invoice to get started.'
                             : statusTab === 'completed'
                               ? 'No completed payments for this filter.'
@@ -807,11 +967,11 @@ export default function PaymentsPage() {
                   </TableBody>
                 </Table>
               </TableContainer>
-              {listingRows.length > 0 && (
+              {listTotal > 0 && (
                 <SimplePagination
                   page={page}
                   pageSize={PAY_PAGE_SIZE}
-                  total={listingRows.length}
+                  total={listTotal}
                   onPage={setPage}
                 />
               )}

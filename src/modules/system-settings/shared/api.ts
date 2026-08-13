@@ -20,6 +20,21 @@ export function unwrapApiList<T>(payload: unknown): T[] {
   return []
 }
 
+export function compactQueryParams(
+  params: Record<string, unknown>,
+): Record<string, string | number | boolean> {
+  return Object.fromEntries(
+    Object.entries(params).flatMap(([key, value]) => {
+      if (value === undefined || value === null) return []
+      if (typeof value === 'string') {
+        const trimmed = value.trim()
+        return trimmed ? [[key, trimmed]] : []
+      }
+      return [[key, value as string | number | boolean]]
+    }),
+  )
+}
+
 export type UiStatus = 'active' | 'inactive'
 
 export function toUiStatus(value: boolean | string | null | undefined): UiStatus {

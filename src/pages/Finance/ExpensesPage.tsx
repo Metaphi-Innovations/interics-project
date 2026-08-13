@@ -23,15 +23,19 @@ import { useTheme, alpha } from '@mui/material/styles'
 import { Receipt, Plus, Wallet, Layers, Link2, Users, Building2 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { ListingTemplate } from '@/components/templates'
+import { financeApi } from '@/api/financeApi'
+import { unwrapApiData } from '@/modules/system-settings/shared/api'
 import type { FilterField, ColumnItem } from '@/components/templates/ListingTemplate'
+import { FilterableSortHeader, type ColumnFilterOption } from '@/components/listing'
 import { StatusBadge, Modal, Button, useToast } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { fetchProjects } from '@/slices/projects/thunk'
-import { fetchExpenses, deleteExpense } from '@/slices/live/thunk'
+import { deleteExpense } from '@/slices/live/thunk'
 import type { Expense, ExpenseType } from '@/slices/live/types'
 import { formatCurrency, formatDate, toSlug } from '@/utils/formatters'
 import { GlobalExpenseDrawer } from '@/components/expenses/GlobalExpenseDrawer'
+import { downloadCsv } from '@/api/downloadCsv'
 import {
   ExpenseTypeBadge,
   ViewExpenseModal,
@@ -42,6 +46,15 @@ import {
 
 type StatusFilter = 'all' | 'pending' | 'included_in_payment'
 type TypeTab = 'all' | ExpenseType
+type ExpensesSortField =
+  | 'type'
+  | 'description'
+  | 'projectName'
+  | 'vendorName'
+  | 'service'
+  | 'amount'
+  | 'date'
+  | 'status'
 
 type VisibleCols = {
   type: boolean
@@ -52,6 +65,23 @@ type VisibleCols = {
   amount: boolean
   date: boolean
   status: boolean
+}
+
+type ExpenseColumnFilters = {
+  description: string
+  vendorId: string
+  service: string
+  amount: string
+  date: string
+}
+
+function toColumnFilterOptions(
+  options?: Array<{ value: string | number | boolean; label: string }>,
+): ColumnFilterOption[] {
+  return (options ?? []).map((option) => ({
+    value: String(option.value),
+    label: option.label,
+  }))
 }
 
 /** Mirrors VendorsPage TABLE_HEADER_CELL_SX / TABLE_CELL_SX. */
@@ -134,16 +164,6 @@ const CELL_ACTION_SX = {
 
 const menuItemSx = { fontSize: 12, minHeight: 32, py: 0.5 }
 
-function expenseSearchHaystack(e: Expense, projectLabel: string): string {
-  const vendorStr = expenseVendorCell(e)
-  const parts = [e.description, projectLabel, vendorStr, expenseServiceCell(e)]
-  if (e.vendorName) parts.push(e.vendorName)
-  if (e.vendorAllocations?.length) {
-    for (const a of e.vendorAllocations) parts.push(a.vendorName)
-  }
-  return parts.join(' ').toLowerCase()
-}
-
 function visibleColCount(v: VisibleCols): number {
   return Object.values(v).filter(Boolean).length + 1
 }
@@ -156,8 +176,11 @@ export default function ExpensesPage() {
   const hoverBg = alpha(theme.palette.primary.main, 0.04)
 
   const projects = useAppSelector((s) => s.projects.items ?? [])
-  const expenses = useAppSelector((s) => s.live.expenses ?? [])
   const saving = useAppSelector((s) => s.live.saving)
+  const [items, setItems] = useState<Expense[]>([])
+  const [totalCount, setTotalCount] = useState(0)
+  const [listLoading, setListLoading] = useState(false)
+  const [filterOptions, setFilterOptions] = useState<Record<string, Array<{ value: string; label: string }>> | null>(null)
 
   const [financeLoaded, setFinanceLoaded] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -172,6 +195,13 @@ export default function ExpensesPage() {
     dateFrom: '',
     dateTo: '',
   })
+  const [columnFilters, setColumnFilters] = useState<ExpenseColumnFilters>({
+    description: '',
+    vendorId: '',
+    service: '',
+    amount: '',
+    date: '',
+  })
   const [visibleColumns, setVisibleColumns] = useState<VisibleCols>({
     type: true,
     description: true,
@@ -185,44 +215,59 @@ export default function ExpensesPage() {
 
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(10)
+  const [sortConfig, setSortConfig] = useState<{
+    field: ExpensesSortField | null
+    direction: 'asc' | 'desc'
+  }>({ field: null, direction: 'asc' })
 
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null)
   const [menuExpense, setMenuExpense] = useState<Expense | null>(null)
-
-  const projectIdsKey = useMemo(
-    () => projects.map((p) => p.id).sort().join(','),
-    [projects],
-  )
 
   useEffect(() => {
     void dispatch(fetchProjects({ pageSize: 100 }))
   }, [dispatch])
 
-  const refetchAllExpenses = useCallback(async () => {
-    if (projects.length === 0) return
-    await Promise.all(projects.map((p) => dispatch(fetchExpenses({ projectId: p.id })).unwrap()))
-  }, [dispatch, projects])
+  const reloadExpenses = useCallback(async () => {
+    setListLoading(true)
+    try {
+      const res = await financeApi.getExpenses({
+        page: String(page + 1),
+        limit: String(pageSize),
+        search: search.trim() || undefined,
+        type: typeTab === 'all' ? undefined : typeTab,
+        projectId: filterProjectId || undefined,
+        status: filterStatus === 'all' ? undefined : filterStatus,
+        dateFrom: columnFilters.date || String(activeFilters.dateFrom ?? '') || undefined,
+        dateTo: columnFilters.date || String(activeFilters.dateTo ?? '') || undefined,
+        description: columnFilters.description || undefined,
+        vendorId: columnFilters.vendorId || undefined,
+        service: columnFilters.service || undefined,
+        amount: columnFilters.amount || undefined,
+        sortBy: sortConfig.field || undefined,
+        sortOrder: sortConfig.field ? sortConfig.direction : undefined,
+      })
+      const data = unwrapApiData<Expense[]>(res.data)
+      const meta =
+        res.data && typeof res.data === 'object' && 'meta' in res.data
+          ? (res.data.meta as Record<string, unknown>)
+          : {}
+      setItems(Array.isArray(data) ? data : [])
+      setTotalCount(typeof meta.total === 'number' ? meta.total : Array.isArray(data) ? data.length : 0)
+    } finally {
+      setListLoading(false)
+      setFinanceLoaded(true)
+    }
+  }, [activeFilters, columnFilters, filterProjectId, filterStatus, page, pageSize, search, sortConfig.field, sortConfig.direction, typeTab])
 
   useEffect(() => {
-    if (projects.length === 0) {
-      setFinanceLoaded(true)
-      return
-    }
-    const hadStoreData = expenses.length > 0
-    let cancelled = false
-    if (!hadStoreData) setFinanceLoaded(false)
+    void financeApi.getExpenseFilters().then((res) => {
+      setFilterOptions(unwrapApiData<Record<string, Array<{ value: string; label: string }>>>(res.data) ?? null)
+    }).catch(() => setFilterOptions(null))
+  }, [])
 
-    void (async () => {
-      try {
-        await Promise.all(projects.map((p) => dispatch(fetchExpenses({ projectId: p.id })).unwrap()))
-      } finally {
-        if (!cancelled) setFinanceLoaded(true)
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [dispatch, projectIdsKey, projects])
+  useEffect(() => {
+    void reloadExpenses()
+  }, [reloadExpenses])
 
   const projectNameById = useMemo(() => {
     const m: Record<string, string> = {}
@@ -243,54 +288,41 @@ export default function ExpensesPage() {
     [],
   )
 
-  const baseFiltered = useMemo(() => {
-    const dateFrom = String(activeFilters.dateFrom ?? '')
-    const dateTo = String(activeFilters.dateTo ?? '')
-    const q = search.trim().toLowerCase()
-    let rows = [...expenses]
+  const [kpis, setKpis] = useState({
+    total: 0,
+    additional: 0,
+    vendorLinked: 0,
+    common: 0,
+    officeExpenses: 0,
+  })
 
-    if (filterProjectId) rows = rows.filter((e) => e.projectId === filterProjectId)
-    if (filterStatus !== 'all') rows = rows.filter((e) => e.status === filterStatus)
-    if (dateFrom) rows = rows.filter((e) => e.date >= dateFrom)
-    if (dateTo) rows = rows.filter((e) => e.date <= dateTo)
-    if (q) {
-      rows = rows.filter((e) => {
-        const pl = e.projectName ?? projectNameById[e.projectId] ?? e.projectId
-        return expenseSearchHaystack(e, pl).includes(q)
+  useEffect(() => {
+    let cancelled = false
+    void financeApi
+      .getExpensesSummary({ type: typeTab === 'all' ? undefined : typeTab })
+      .then((res) => {
+        const data = unwrapApiData<{
+          total?: number
+          additional?: number
+          vendorLinked?: number
+          common?: number
+          office?: number
+        }>(res.data)
+        if (!cancelled && data) {
+          setKpis({
+            total: data.total ?? 0,
+            additional: data.additional ?? 0,
+            vendorLinked: data.vendorLinked ?? 0,
+            common: data.common ?? 0,
+            officeExpenses: data.office ?? 0,
+          })
+        }
       })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
     }
-    rows.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-    return rows
-  }, [expenses, search, filterProjectId, filterStatus, activeFilters, projectNameById])
-
-  const tabFiltered = useMemo(() => {
-    if (typeTab === 'all') return baseFiltered
-    return baseFiltered.filter((e) => e.type === typeTab)
-  }, [baseFiltered, typeTab])
-
-  const tabCounts = useMemo(() => {
-    return {
-      all: baseFiltered.length,
-      additional: baseFiltered.filter((e) => e.type === 'additional').length,
-      vendor_linked: baseFiltered.filter((e) => e.type === 'vendor_linked').length,
-      common: baseFiltered.filter((e) => e.type === 'common').length,
-      office_expenses: baseFiltered.filter((e) => e.type === 'office_expenses').length,
-    }
-  }, [baseFiltered])
-
-  const kpis = useMemo(() => {
-    const list = tabFiltered
-    const total = list.reduce((s, e) => s + e.amount, 0)
-    const additional = list.filter((e) => e.type === 'additional').reduce((s, e) => s + e.amount, 0)
-    const vendorLinked = list
-      .filter((e) => e.type === 'vendor_linked')
-      .reduce((s, e) => s + e.amount, 0)
-    const common = list.filter((e) => e.type === 'common').reduce((s, e) => s + e.amount, 0)
-    const officeExpenses = list
-      .filter((e) => e.type === 'office_expenses')
-      .reduce((s, e) => s + e.amount, 0)
-    return { total, additional, vendorLinked, common, officeExpenses }
-  }, [tabFiltered])
+  }, [typeTab])
 
   const statCards = [
     {
@@ -326,11 +358,11 @@ export default function ExpensesPage() {
   ]
 
   const tabs = [
-    { label: 'All', value: 'all', count: tabCounts.all },
-    { label: 'Additional', value: 'additional', count: tabCounts.additional },
-    { label: 'Vendor Linked', value: 'vendor_linked', count: tabCounts.vendor_linked },
-    { label: 'Common', value: 'common', count: tabCounts.common },
-    { label: 'Office Expenses', value: 'office_expenses', count: tabCounts.office_expenses },
+    { label: 'All', value: 'all' },
+    { label: 'Additional', value: 'additional' },
+    { label: 'Vendor Linked', value: 'vendor_linked' },
+    { label: 'Common', value: 'common' },
+    { label: 'Office Expenses', value: 'office_expenses' },
   ]
 
   const columnsConfig: ColumnItem[] = useMemo(
@@ -352,11 +384,6 @@ export default function ExpensesPage() {
     if (k in visibleColumns) setVisibleColumns((prev) => ({ ...prev, [k]: visible }))
   }
 
-  const pagedRows = useMemo(() => {
-    const start = page * pageSize
-    return tabFiltered.slice(start, start + pageSize)
-  }, [tabFiltered, page, pageSize])
-
   const mainColCount = useMemo(() => visibleColCount(visibleColumns), [visibleColumns])
 
   const visibleDataColCount = useMemo(
@@ -369,7 +396,33 @@ export default function ExpensesPage() {
     [visibleDataColCount],
   )
 
-  const loading = !financeLoaded && projects.length > 0 && expenses.length === 0
+  const loading = listLoading || (!financeLoaded && items.length === 0)
+
+  async function handleExport() {
+    try {
+      await downloadCsv(
+        '/finance/expenses/export',
+        {
+          search: search.trim() || undefined,
+          type: typeTab === 'all' ? undefined : typeTab,
+          projectId: filterProjectId || undefined,
+          status: filterStatus === 'all' ? undefined : filterStatus,
+          dateFrom: columnFilters.date || String(activeFilters.dateFrom ?? '') || undefined,
+          dateTo: columnFilters.date || String(activeFilters.dateTo ?? '') || undefined,
+          description: columnFilters.description || undefined,
+          vendorId: columnFilters.vendorId || undefined,
+          service: columnFilters.service || undefined,
+          amount: columnFilters.amount ? Number(columnFilters.amount) : undefined,
+          sortBy: sortConfig.field || undefined,
+          sortOrder: sortConfig.field ? sortConfig.direction : undefined,
+        },
+        `expenses-${new Date().toISOString().slice(0, 10)}.csv`,
+      )
+      showToast({ title: 'Export started', variant: 'success' })
+    } catch {
+      showToast({ title: 'Failed to export expenses', variant: 'error' })
+    }
+  }
 
   function handleTabChange(v: string) {
     setTypeTab(v as TypeTab)
@@ -383,6 +436,11 @@ export default function ExpensesPage() {
 
   function handleFilterReset() {
     setActiveFilters({ dateFrom: '', dateTo: '' })
+    setPage(0)
+  }
+
+  function handleSort(field: string, direction: 'asc' | 'desc') {
+    setSortConfig({ field: field as ExpensesSortField, direction })
     setPage(0)
   }
 
@@ -413,11 +471,64 @@ export default function ExpensesPage() {
         deleteExpense({ projectId: deleteTarget.projectId, expenseId: deleteTarget.id }),
       ).unwrap()
       showToast({ title: 'Expense deleted', variant: 'success' })
-      await refetchAllExpenses()
+      await reloadExpenses()
     } catch (err) {
       showToast({ title: String(err), variant: 'error' })
     }
     setDeleteTarget(null)
+  }
+
+  const typeOptions = toColumnFilterOptions(filterOptions?.types)
+  const descriptionOptions = toColumnFilterOptions(filterOptions?.descriptions)
+  const projectOptions = toColumnFilterOptions(filterOptions?.projects)
+  const vendorOptions = toColumnFilterOptions(filterOptions?.vendors)
+  const serviceOptions = toColumnFilterOptions(filterOptions?.services)
+  const amountOptions = toColumnFilterOptions(filterOptions?.amounts)
+  const dateOptions: ColumnFilterOption[] = []
+  const statusOptions = toColumnFilterOptions(filterOptions?.statuses)
+
+  function handleColumnFilter(
+    field:
+      | 'type'
+      | 'description'
+      | 'projectId'
+      | 'vendorId'
+      | 'service'
+      | 'amount'
+      | 'date'
+      | 'status',
+    value: string,
+  ) {
+    setPage(0)
+    if (field === 'type') {
+      setTypeTab((value || 'all') as TypeTab)
+      return
+    }
+    if (field === 'projectId') {
+      setFilterProjectId(value)
+      return
+    }
+    if (field === 'status') {
+      setFilterStatus((value || 'all') as StatusFilter)
+      return
+    }
+    setColumnFilters((prev) => ({ ...prev, [field]: value }))
+  }
+
+  function handleResetAll() {
+    setSearch('')
+    setFilterProjectId('')
+    setFilterStatus('all')
+    setActiveFilters({ dateFrom: '', dateTo: '' })
+    setColumnFilters({
+      description: '',
+      vendorId: '',
+      service: '',
+      amount: '',
+      date: '',
+    })
+    setSortConfig({ field: null, direction: 'asc' })
+    setPage(0)
   }
 
   const viewModalProjectName =
@@ -440,9 +551,9 @@ export default function ExpensesPage() {
           <MenuItem value="" sx={{ fontSize: 12 }}>
             All projects
           </MenuItem>
-          {projects.map((p) => (
-            <MenuItem key={p.id} value={p.id} sx={{ fontSize: 12 }}>
-              {p.name}
+          {projectOptions.map((p) => (
+            <MenuItem key={p.value} value={p.value} sx={{ fontSize: 12 }}>
+              {p.label}
             </MenuItem>
           ))}
         </Select>
@@ -493,12 +604,13 @@ export default function ExpensesPage() {
         activeFilters={activeFilters}
         onFilterChange={handleFilterChange}
         onFilterReset={handleFilterReset}
+        onResetAll={handleResetAll}
         columns={columnsConfig}
         onColumnVisibilityChange={handleColumnVisibilityChange}
         showExport
-        onExport={() => showToast({ title: 'Export started (placeholder)', variant: 'success' })}
+        onExport={handleExport}
         pageSize={pageSize}
-        totalCount={tabFiltered.length}
+        totalCount={totalCount}
         page={page}
         onPageChange={setPage}
         onPageSizeChange={(s) => {
@@ -521,14 +633,110 @@ export default function ExpensesPage() {
             </colgroup>
             <TableHead>
               <TableRow sx={{ bgcolor: alpha(theme.palette.text.primary, 0.02) }}>
-                {visibleColumns.type && <TableCell sx={HEADER_SX}>Type</TableCell>}
-                {visibleColumns.description && <TableCell sx={HEADER_SX}>Description</TableCell>}
-                {visibleColumns.project && <TableCell sx={HEADER_SX}>Project</TableCell>}
-                {visibleColumns.vendor && <TableCell sx={HEADER_SX}>Vendor</TableCell>}
-                {visibleColumns.service && <TableCell sx={HEADER_SX}>Service</TableCell>}
-                {visibleColumns.amount && <TableCell sx={HEADER_SX}>Amount</TableCell>}
-                {visibleColumns.date && <TableCell sx={HEADER_SX}>Date</TableCell>}
-                {visibleColumns.status && <TableCell sx={HEADER_STATUS_SX}>Status</TableCell>}
+                {visibleColumns.type && (
+                  <FilterableSortHeader
+                    label="Type"
+                    field="type"
+                    sortField={sortConfig.field ?? undefined}
+                    sortDirection={sortConfig.direction}
+                    onSort={handleSort}
+                    filterValue={typeTab === 'all' ? '' : typeTab}
+                    filterOptions={typeOptions}
+                    onFilter={(value) => handleColumnFilter('type', value)}
+                    sx={HEADER_SX}
+                  />
+                )}
+                {visibleColumns.description && (
+                  <FilterableSortHeader
+                    label="Description"
+                    field="description"
+                    sortField={sortConfig.field ?? undefined}
+                    sortDirection={sortConfig.direction}
+                    onSort={handleSort}
+                    filterValue={columnFilters.description}
+                    filterOptions={descriptionOptions}
+                    onFilter={(value) => handleColumnFilter('description', value)}
+                    sx={HEADER_SX}
+                  />
+                )}
+                {visibleColumns.project && (
+                  <FilterableSortHeader
+                    label="Project"
+                    field="projectName"
+                    sortField={sortConfig.field ?? undefined}
+                    sortDirection={sortConfig.direction}
+                    onSort={handleSort}
+                    filterValue={filterProjectId}
+                    filterOptions={projectOptions}
+                    onFilter={(value) => handleColumnFilter('projectId', value)}
+                    sx={HEADER_SX}
+                  />
+                )}
+                {visibleColumns.vendor && (
+                  <FilterableSortHeader
+                    label="Vendor"
+                    field="vendorName"
+                    sortField={sortConfig.field ?? undefined}
+                    sortDirection={sortConfig.direction}
+                    onSort={handleSort}
+                    filterValue={columnFilters.vendorId}
+                    filterOptions={vendorOptions}
+                    onFilter={(value) => handleColumnFilter('vendorId', value)}
+                    sx={HEADER_SX}
+                  />
+                )}
+                {visibleColumns.service && (
+                  <FilterableSortHeader
+                    label="Service"
+                    field="service"
+                    sortField={sortConfig.field ?? undefined}
+                    sortDirection={sortConfig.direction}
+                    onSort={handleSort}
+                    filterValue={columnFilters.service}
+                    filterOptions={serviceOptions}
+                    onFilter={(value) => handleColumnFilter('service', value)}
+                    sx={HEADER_SX}
+                  />
+                )}
+                {visibleColumns.amount && (
+                  <FilterableSortHeader
+                    label="Amount"
+                    field="amount"
+                    sortField={sortConfig.field ?? undefined}
+                    sortDirection={sortConfig.direction}
+                    onSort={handleSort}
+                    filterValue={columnFilters.amount}
+                    filterOptions={amountOptions}
+                    onFilter={(value) => handleColumnFilter('amount', value)}
+                    sx={HEADER_SX}
+                  />
+                )}
+                {visibleColumns.date && (
+                  <FilterableSortHeader
+                    label="Date"
+                    field="date"
+                    sortField={sortConfig.field ?? undefined}
+                    sortDirection={sortConfig.direction}
+                    onSort={handleSort}
+                    filterValue={columnFilters.date}
+                    filterOptions={dateOptions}
+                    onFilter={(value) => handleColumnFilter('date', value)}
+                    sx={HEADER_SX}
+                  />
+                )}
+                {visibleColumns.status && (
+                  <FilterableSortHeader
+                    label="Status"
+                    field="status"
+                    sortField={sortConfig.field ?? undefined}
+                    sortDirection={sortConfig.direction}
+                    onSort={handleSort}
+                    filterValue={filterStatus === 'all' ? '' : filterStatus}
+                    filterOptions={statusOptions}
+                    onFilter={(value) => handleColumnFilter('status', value)}
+                    sx={HEADER_STATUS_SX}
+                  />
+                )}
                 <TableCell sx={HEADER_ACTION_SX}>
                   <Box sx={CENTER_CELL_CONTENT_SX}>Action</Box>
                 </TableCell>
@@ -556,18 +764,18 @@ export default function ExpensesPage() {
                 </TableRow>
               )}
 
-              {!loading && projects.length > 0 && tabFiltered.length === 0 && (
+              {!loading && projects.length > 0 && items.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={mainColCount + 1} sx={{ ...CELL_SX, textAlign: 'center', py: 4 }}>
                     <Typography variant="body2" color="text.secondary">
-                      {expenses.length === 0 ? 'No expenses yet' : 'No expenses match the filters'}
+                      No expenses match the filters
                     </Typography>
                   </TableCell>
                 </TableRow>
               )}
 
               {!loading &&
-                pagedRows.map((exp) => {
+                items.map((exp) => {
                   const st = expenseStatusDisplay(exp.status)
                   const projectLabel = exp.projectName ?? projectNameById[exp.projectId] ?? exp.projectId
                   return (
@@ -676,7 +884,7 @@ export default function ExpensesPage() {
       <GlobalExpenseDrawer
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
-        onSuccess={() => void refetchAllExpenses()}
+        onSuccess={() => void reloadExpenses()}
       />
 
       <ViewExpenseModal

@@ -12,6 +12,7 @@ import {
   roundMoney,
   totalReceivedBank,
   totalSettledFromPayments,
+  totalTdsFromPayments,
 } from '@/pages/Projects/tabs/live/clientInvoiceUtils'
 
 const PAYMENT_MODES: { label: string; value: ClientInvoicePaymentMode }[] = [
@@ -57,12 +58,12 @@ export function RecordClientInvoicePaymentModal({
   const tdsRaw = tdsDeducted.trim()
   const tdsLive = tdsRaw === '' ? 0 : Number(tdsDeducted)
 
+  const priorBank = invoice ? totalReceivedBank(invoice.payments) : 0
+  const priorTds = invoice ? totalTdsFromPayments(invoice.payments) : 0
   const thisSettlement =
     (Number.isFinite(amtLive) ? amtLive : 0) + (Number.isFinite(tdsLive) ? tdsLive : 0)
   const totalSettledProjected = roundMoney(priorSettled + thisSettlement)
-  const remainingProjected = invoice
-    ? roundMoney(invoice.grossAmount - priorSettled - thisSettlement)
-    : 0
+  const remainingProjected = invoice ? roundMoney(bal - thisSettlement) : 0
 
   const exceedsInvoice =
     invoice &&
@@ -82,15 +83,6 @@ export function RecordClientInvoicePaymentModal({
     }
   }, [open, invoice])
 
-  useEffect(() => {
-    if (!open || !invoice) return
-    const pending = balancePending(invoice)
-    const tds = tdsRaw === '' ? 0 : Number(tdsDeducted)
-    if (!Number.isFinite(tds) || tds < 0) return
-    const bank = Math.max(0, roundMoney(pending - tds))
-    setAmountReceived(String(bank))
-  }, [open, invoice, tdsDeducted])
-
   async function handleSubmit() {
     if (!invoice) return
 
@@ -107,13 +99,6 @@ export function RecordClientInvoicePaymentModal({
     }
     if (tdsParsed < 0) {
       setError('TDS cannot be negative')
-      return
-    }
-
-    if (Math.abs(a + tdsParsed - bal) > MONEY_EPS) {
-      setError(
-        `Full payment required: amount received plus TDS must equal outstanding (₹${formatInr(bal)})`,
-      )
       return
     }
 
@@ -216,10 +201,18 @@ export function RecordClientInvoicePaymentModal({
           </Stack>
           <Stack direction="row" justifyContent="space-between">
             <Typography variant="body2" color="text.secondary">
-              Already Received
+              Amount Received
             </Typography>
             <Typography variant="body2" fontWeight={600} sx={{ color: tokens.color.success[600] }}>
-              ₹{formatInr(totalReceivedBank(invoice.payments))}
+              ₹{formatInr(priorBank)}
+            </Typography>
+          </Stack>
+          <Stack direction="row" justifyContent="space-between">
+            <Typography variant="body2" color="text.secondary">
+              TDS Deducted
+            </Typography>
+            <Typography variant="body2" fontWeight={600}>
+              ₹{formatInr(priorTds)}
             </Typography>
           </Stack>
           <Stack direction="row" justifyContent="space-between">
@@ -240,7 +233,7 @@ export function RecordClientInvoicePaymentModal({
           size="sm"
           value={amountReceived}
           onChange={setAmountReceived}
-          helperText="Bank credit only. With TDS, amounts auto-adjust to settle the full outstanding balance."
+          helperText="Bank credit only. Partial payments are allowed up to the outstanding balance."
         />
 
         <Input

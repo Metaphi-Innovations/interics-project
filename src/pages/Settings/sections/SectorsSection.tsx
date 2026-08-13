@@ -5,14 +5,22 @@ import {
   IconButton,
   Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions,
 } from '@mui/material'
-import { Edit, ToggleOff, ToggleOn } from '@mui/icons-material'
+import { Edit } from '@mui/icons-material'
 import { Plus } from 'lucide-react'
-import { Button, Modal, StatusBadge, useToast } from '@/design-system/components'
+import { Button, Modal, useToast } from '@/design-system/components'
+import {
+  FilterableSortHeader,
+  SettingsSearchBar,
+  StatusColumnToggle,
+  useListingQuery,
+  type ColumnFilterOption,
+} from '@/components/listing'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import {
   fetchSectors, createSector, updateSector, toggleSectorStatus,
 } from '@/slices/settings/thunk'
 import type { SectorMaster } from '@/slices/settings/reducer'
+import { sectorsService } from '@/modules/system-settings/sector/sector.service'
 import {
   SETTINGS_TABLE_CELL_ACTION_SX,
   SETTINGS_TABLE_CELL_SX,
@@ -34,29 +42,70 @@ const dataColWidth = settingsDataColWidth(DATA_COL_COUNT)
 
 type SectorForm = { name: string; status: 'active' | 'inactive' }
 const defaultForm: SectorForm = { name: '', status: 'active' }
+type SectorFilterOptions = {
+  name: ColumnFilterOption[]
+  isActive: ColumnFilterOption[]
+}
 
 export default function SectorsSection() {
   const dispatch = useAppDispatch()
   const success = useToast((s) => s.success)
   const error = useToast((s) => s.error)
   const { sectors, saving } = useAppSelector(s => s.settings)
-  const [search, setSearch] = useState('')
-  const [debouncedSearch, setDebouncedSearch] = useState('')
+  const listing = useListingQuery({ pageSize: 100 })
+  const [sortField, setSortField] = useState<string>()
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [editingRow, setEditingRow] = useState<SectorMaster | null>(null)
   const [form, setForm] = useState<SectorForm>(defaultForm)
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [toggleTarget, setToggleTarget] = useState<SectorMaster | null>(null)
   const [toggling, setToggling] = useState(false)
+  const [filterOptions, setFilterOptions] = useState<SectorFilterOptions>({
+    name: [],
+    isActive: [],
+  })
+  const search = listing.search.trim()
+  const isSearchPending = search.length > 0 && search !== listing.debouncedSearch
 
   useEffect(() => {
-    const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 300)
-    return () => window.clearTimeout(timer)
-  }, [search])
+    void sectorsService.getFilters()
+      .then((data) => {
+        setFilterOptions({
+          name: data.name ?? [],
+          isActive: data.isActive ?? [],
+        })
+      })
+      .catch(() => undefined)
+  }, [])
 
   useEffect(() => {
-    dispatch(fetchSectors({ search: debouncedSearch || undefined, force: true }))
-  }, [dispatch, debouncedSearch])
+    if (isSearchPending) return
+    void dispatch(fetchSectors({
+      search: listing.debouncedSearch || undefined,
+      name: listing.filters.name,
+      isActive: listing.filters.isActive,
+      sortBy: sortField,
+      sortOrder: sortField ? sortDirection : undefined,
+      force: true,
+    }))
+  }, [dispatch, isSearchPending, listing.debouncedSearch, listing.filters, search, sortDirection, sortField])
+
+  const applyColumnFilter = (key: string) => (value: string) => {
+    listing.setFilter(key, value)
+  }
+
+  const handleSort = (field: string, direction: 'asc' | 'desc') => {
+    setSortField(field)
+    setSortDirection(direction)
+  }
+
+  const handleReset = () => {
+    listing.setSearch('')
+    listing.setFilters({})
+    setSortField(undefined)
+    setSortDirection('asc')
+  }
 
   const openAdd = () => {
     setEditingRow(null)
@@ -101,6 +150,14 @@ export default function SectorsSection() {
     setToggling(true)
     try {
       await dispatch(toggleSectorStatus(toggleTarget.id)).unwrap()
+      void dispatch(fetchSectors({
+        search: listing.debouncedSearch || undefined,
+        name: listing.filters.name,
+        isActive: listing.filters.isActive,
+        sortBy: sortField,
+        sortOrder: sortField ? sortDirection : undefined,
+        force: true,
+      }))
       success(
         toggleTarget.status === 'active'
           ? 'Sector deactivated'
@@ -131,12 +188,11 @@ export default function SectorsSection() {
         </Button>
       </Box>
 
-      <TextField
-        size="small"
+      <SettingsSearchBar
         placeholder="Search sectors..."
-        value={search}
-        onChange={e => setSearch(e.target.value)}
-        sx={{ width: 280, mb: 2 }}
+        value={listing.search}
+        onChange={listing.setSearch}
+        onReset={handleReset}
       />
 
       <TableContainer sx={{ width: '100%' }}>
@@ -148,8 +204,28 @@ export default function SectorsSection() {
           </colgroup>
           <TableHead>
             <TableRow sx={{ bgcolor: '#F8FAFB' }}>
-              <TableCell sx={SETTINGS_TABLE_HEADER_CELL_SX}>Sector Name</TableCell>
-              <TableCell sx={SETTINGS_TABLE_HEADER_CELL_SX}>Status</TableCell>
+              <FilterableSortHeader
+                label="Sector Name"
+                field="name"
+                sortField={sortField}
+                sortDirection={sortDirection}
+                onSort={handleSort}
+                filterValue={listing.filters.name ?? ''}
+                filterOptions={filterOptions.name}
+                onFilter={applyColumnFilter('name')}
+                sx={SETTINGS_TABLE_HEADER_CELL_SX}
+              />
+              <FilterableSortHeader
+                label="Status"
+                field="isActive"
+                sortField={sortField}
+                sortDirection={sortDirection}
+                onSort={handleSort}
+                filterValue={listing.filters.isActive ?? ''}
+                filterOptions={filterOptions.isActive}
+                onFilter={applyColumnFilter('isActive')}
+                sx={SETTINGS_TABLE_HEADER_CELL_SX}
+              />
               <TableCell sx={SETTINGS_TABLE_HEADER_ACTION_SX}>Actions</TableCell>
             </TableRow>
           </TableHead>
@@ -158,16 +234,14 @@ export default function SectorsSection() {
               <TableRow key={row.id} sx={{ height: 44 }}>
                 <TableCell sx={{ ...SETTINGS_TABLE_CELL_SX, fontWeight: 500 }}>{row.name}</TableCell>
                 <TableCell sx={SETTINGS_TABLE_CELL_SX}>
-                  <StatusBadge status={row.status} />
+                  <StatusColumnToggle
+                    active={row.status === 'active'}
+                    onToggle={() => setToggleTarget(row)}
+                  />
                 </TableCell>
                 <TableCell sx={SETTINGS_TABLE_CELL_ACTION_SX}>
                   <IconButton size="small" onClick={() => openEdit(row)}>
                     <Edit sx={{ fontSize: 14 }} />
-                  </IconButton>
-                  <IconButton size="small" onClick={() => setToggleTarget(row)}>
-                    {row.status === 'active'
-                      ? <ToggleOn sx={{ fontSize: 14, color: 'success.main' }} />
-                      : <ToggleOff sx={{ fontSize: 14, color: 'error.main' }} />}
                   </IconButton>
                 </TableCell>
               </TableRow>

@@ -1,13 +1,20 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import {
   Box, Typography, Chip,
   Table, TableHead, TableRow, TableCell, TableBody, TableContainer,
   TextField, MenuItem, IconButton, Tooltip,
   Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions,
 } from '@mui/material'
-import { Edit, ToggleOff, ToggleOn, DeleteOutline } from '@mui/icons-material'
+import { Edit, DeleteOutline } from '@mui/icons-material'
 import { Plus } from 'lucide-react'
-import { Button, Modal, StatusBadge, useToast } from '@/design-system/components'
+import { Button, Modal, useToast } from '@/design-system/components'
+import {
+  FilterableSortHeader,
+  SettingsSearchBar,
+  StatusColumnToggle,
+  useListingQuery,
+  type ColumnFilterOption,
+} from '@/components/listing'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import {
   fetchCategories, createCategory, updateCategory, toggleCategoryStatus,
@@ -36,6 +43,11 @@ const categoryDataColWidth = settingsDataColWidth(CATEGORY_DATA_COL_COUNT)
 
 type CategoryForm = { name: string; description: string; status: 'active' | 'inactive' }
 const defaultForm: CategoryForm = { name: '', description: '', status: 'active' }
+type CategoryFilterOptions = {
+  name: ColumnFilterOption[]
+  description: ColumnFilterOption[]
+  isActive: ColumnFilterOption[]
+}
 
 export default function CategoriesSection() {
   const dispatch = useAppDispatch()
@@ -49,10 +61,57 @@ export default function CategoriesSection() {
   const [deleteTarget, setDeleteTarget] = useState<Category | null>(null)
   const [toggleTarget, setToggleTarget] = useState<Category | null>(null)
   const [toggling, setToggling] = useState(false)
+  const listing = useListingQuery({ pageSize: 100 })
+  const [sortField, setSortField] = useState<string>()
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
+  const [filterOptions, setFilterOptions] = useState<CategoryFilterOptions>({
+    name: [],
+    description: [],
+    isActive: [],
+  })
+  const search = listing.search.trim()
+  const isSearchPending = search.length > 0 && search !== listing.debouncedSearch
 
   useEffect(() => {
-    dispatch(fetchCategories())
+    void categoriesService.getFilters()
+      .then((data) => {
+        setFilterOptions({
+          name: data.name ?? [],
+          description: data.description ?? [],
+          isActive: data.isActive ?? [],
+        })
+      })
+      .catch(() => undefined)
   }, [dispatch])
+
+  useEffect(() => {
+    if (isSearchPending) return
+    void dispatch(fetchCategories({
+      force: true,
+      search: listing.debouncedSearch || undefined,
+      name: listing.filters.name,
+      description: listing.filters.description,
+      isActive: listing.filters.isActive,
+      sortBy: sortField,
+      sortOrder: sortField ? sortDirection : undefined,
+    }))
+  }, [dispatch, isSearchPending, listing.debouncedSearch, listing.filters, search, sortDirection, sortField])
+
+  const applyColumnFilter = (key: string) => (value: string) => {
+    listing.setFilter(key, value)
+  }
+
+  const handleSort = (field: string, direction: 'asc' | 'desc') => {
+    setSortField(field)
+    setSortDirection(direction)
+  }
+
+  const handleReset = () => {
+    listing.setSearch('')
+    listing.setFilters({})
+    setSortField(undefined)
+    setSortDirection('asc')
+  }
 
   const openAdd = () => {
     setEditingRow(null)
@@ -97,7 +156,15 @@ export default function CategoriesSection() {
     if (!deleteTarget) return
     try {
       await categoriesService.remove(deleteTarget.id)
-      dispatch(fetchCategories({ force: true }))
+      void dispatch(fetchCategories({
+        force: true,
+        search: listing.debouncedSearch || undefined,
+        name: listing.filters.name,
+        description: listing.filters.description,
+        isActive: listing.filters.isActive,
+        sortBy: sortField,
+        sortOrder: sortField ? sortDirection : undefined,
+      }))
       success('Category deleted')
     } catch (err) {
       const parsed = parseSettingsApiError(err, 'Failed to delete category')
@@ -112,6 +179,15 @@ export default function CategoriesSection() {
     setToggling(true)
     try {
       await dispatch(toggleCategoryStatus(toggleTarget.id)).unwrap()
+      void dispatch(fetchCategories({
+        force: true,
+        search: listing.debouncedSearch || undefined,
+        name: listing.filters.name,
+        description: listing.filters.description,
+        isActive: listing.filters.isActive,
+        sortBy: sortField,
+        sortOrder: sortField ? sortDirection : undefined,
+      }))
       success(
         toggleTarget.status === 'active'
           ? 'Category deactivated'
@@ -140,6 +216,13 @@ export default function CategoriesSection() {
         </Button>
       </Box>
 
+      <SettingsSearchBar
+        placeholder="Search categories..."
+        value={listing.search}
+        onChange={listing.setSearch}
+        onReset={handleReset}
+      />
+
       <TableContainer sx={{ width: '100%' }}>
       <Table size="small" sx={SETTINGS_TABLE_SX}>
         <colgroup>
@@ -151,10 +234,47 @@ export default function CategoriesSection() {
         </colgroup>
         <TableHead>
           <TableRow sx={{ bgcolor: '#F8FAFB' }}>
-            <TableCell sx={SETTINGS_TABLE_HEADER_CELL_SX}>Category Name</TableCell>
-            <TableCell sx={SETTINGS_TABLE_HEADER_CELL_SX}>Description</TableCell>
-            <TableCell sx={SETTINGS_TABLE_HEADER_CELL_SX}>Services</TableCell>
-            <TableCell sx={SETTINGS_TABLE_HEADER_CELL_SX}>Status</TableCell>
+            <FilterableSortHeader
+              label="Category Name"
+              field="name"
+              sortField={sortField}
+              sortDirection={sortDirection}
+              onSort={handleSort}
+              filterValue={listing.filters.name ?? ''}
+              filterOptions={filterOptions.name}
+              onFilter={applyColumnFilter('name')}
+              sx={SETTINGS_TABLE_HEADER_CELL_SX}
+            />
+            <FilterableSortHeader
+              label="Description"
+              field="description"
+              sortField={sortField}
+              sortDirection={sortDirection}
+              onSort={handleSort}
+              filterValue={listing.filters.description ?? ''}
+              filterOptions={filterOptions.description}
+              onFilter={applyColumnFilter('description')}
+              sx={SETTINGS_TABLE_HEADER_CELL_SX}
+            />
+            <FilterableSortHeader
+              label="Services"
+              sortable={false}
+              filterValue=""
+              filterOptions={[]}
+              onFilter={() => undefined}
+              sx={SETTINGS_TABLE_HEADER_CELL_SX}
+            />
+            <FilterableSortHeader
+              label="Status"
+              field="isActive"
+              sortField={sortField}
+              sortDirection={sortDirection}
+              onSort={handleSort}
+              filterValue={listing.filters.isActive ?? ''}
+              filterOptions={filterOptions.isActive}
+              onFilter={applyColumnFilter('isActive')}
+              sx={SETTINGS_TABLE_HEADER_CELL_SX}
+            />
             <TableCell sx={SETTINGS_TABLE_HEADER_ACTION_SX}>Actions</TableCell>
           </TableRow>
         </TableHead>
@@ -176,16 +296,14 @@ export default function CategoriesSection() {
                 />
               </TableCell>
               <TableCell sx={SETTINGS_TABLE_CELL_SX}>
-                <StatusBadge status={row.status} />
+                <StatusColumnToggle
+                  active={row.status === 'active'}
+                  onToggle={() => setToggleTarget(row)}
+                />
               </TableCell>
               <TableCell sx={SETTINGS_TABLE_CELL_ACTION_SX}>
                 <IconButton size="small" onClick={() => openEdit(row)}>
                   <Edit sx={{ fontSize: 14 }} />
-                </IconButton>
-                <IconButton size="small" onClick={() => setToggleTarget(row)}>
-                  {row.status === 'active'
-                    ? <ToggleOn sx={{ fontSize: 14, color: 'success.main' }} />
-                    : <ToggleOff sx={{ fontSize: 14, color: 'error.main' }} />}
                 </IconButton>
                 <Tooltip title={row.servicesCount > 0 ? 'Cannot delete — has services linked' : 'Delete'}>
                   <span>

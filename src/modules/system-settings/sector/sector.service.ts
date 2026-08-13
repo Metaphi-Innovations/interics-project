@@ -1,7 +1,8 @@
 import client from '@/api/client'
-import { toUiStatus, unwrapApiData, unwrapApiList } from '../shared/api'
+import { compactQueryParams, toUiStatus, unwrapApiData, unwrapApiList } from '../shared/api'
 import { withInflight } from '../shared/inflight'
 import type { SectorMaster } from '@/slices/settings/reducer'
+import type { ColumnFilterOption } from '@/components/listing'
 
 type SectorApi = {
   id: string
@@ -22,22 +23,37 @@ function toSector(api: SectorApi): SectorMaster {
 
 export type SectorListParams = {
   search?: string
+  name?: string
+  isActive?: string
+  sortBy?: string
+  sortOrder?: 'asc' | 'desc'
   limit?: number
+}
+
+type SectorFilters = {
+  name?: ColumnFilterOption[]
+  isActive?: ColumnFilterOption[]
 }
 
 export const sectorsService = {
   async getAll(params: SectorListParams = {}): Promise<SectorMaster[]> {
-    const search = params.search?.trim()
-    const key = `sectors:list:${search ?? ''}`
-    return withInflight(key, async () => {
-      const res = await client.get(BASE, {
-        params: {
-          limit: params.limit ?? 100,
-          ...(search ? { search } : {}),
-        },
-      })
+    const query = compactQueryParams({
+      limit: params.limit ?? 100,
+      search: params.search,
+      name: params.name,
+      isActive: params.isActive,
+      sortBy: params.sortBy,
+      sortOrder: params.sortOrder,
+    })
+    return withInflight(`sectors:list:${JSON.stringify(query)}`, async () => {
+      const res = await client.get(BASE, { params: query })
       return unwrapApiList<SectorApi>(res.data).map(toSector)
     })
+  },
+
+  async getFilters(): Promise<SectorFilters> {
+    const res = await client.get(`${BASE}/filters`)
+    return unwrapApiData<SectorFilters>(res.data)
   },
 
   async create(data: Omit<SectorMaster, 'id'>): Promise<SectorMaster> {

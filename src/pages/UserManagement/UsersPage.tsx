@@ -28,9 +28,6 @@ import {
   Add,
   Group,
 } from '@mui/icons-material'
-import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore'
-import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp'
-import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'
 import { useTheme, alpha } from '@mui/material/styles'
 import { Users, MoreVertical } from 'lucide-react'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
@@ -40,11 +37,15 @@ import { setFilters, resetFilters, setSortConfig } from '@/slices/users/reducer'
 import type { User } from '@/slices/users/reducer'
 import { ListingTemplate } from '@/components/templates'
 import type { StatCardItem, TabItem, FilterField } from '@/components/templates'
-import { StatusBadge, useToast } from '@/design-system/components'
+import { useToast } from '@/design-system/components'
+import { FilterableSortHeader, StatusColumnToggle, useListingQuery, type ColumnFilterOption } from '@/components/listing'
+import { usersApi } from '@/api/usersApi'
+import { unwrapApiData } from '@/modules/system-settings/shared/api'
 import { getInitials, getAvatarColor, formatDate } from '@/utils/formatters'
 import { tokens } from '@/design-system/tokens'
 import { usePermission } from '@/hooks/usePermission'
 import { getRoleChip } from './userRoleChips'
+import { downloadCsv } from '@/api/downloadCsv'
 
 const LISTING_EDGE_PAD = '14px'
 const USER_CELL_PAD_X = LISTING_EDGE_PAD
@@ -161,46 +162,6 @@ function UserAvatar({ name }: { name: string }) {
   )
 }
 
-interface SortHeaderProps {
-  label: string
-  field: string
-  sortField: string
-  sortDirection: 'asc' | 'desc'
-  onSort: (field: string, direction: 'asc' | 'desc') => void
-  sx?: object
-}
-
-function SortHeader({ label, field, sortField, sortDirection, onSort, sx }: SortHeaderProps) {
-  const isActive = sortField === field
-  return (
-    <TableCell
-      onClick={() => onSort(field, isActive && sortDirection === 'asc' ? 'desc' : 'asc')}
-      sx={{
-        ...TABLE_HEADER_CELL_SX,
-        fontWeight: isActive ? 700 : 600,
-        color: isActive ? 'primary.main' : 'text.secondary',
-        cursor: 'pointer',
-        userSelect: 'none',
-        '&:hover': { color: 'primary.main' },
-        ...sx,
-      }}
-    >
-      <Stack direction="row" alignItems="center" gap={0.25}>
-        {label}
-        {isActive ? (
-          sortDirection === 'asc' ? (
-            <KeyboardArrowUpIcon sx={{ fontSize: 14, color: 'primary.main' }} />
-          ) : (
-            <KeyboardArrowDownIcon sx={{ fontSize: 14, color: 'primary.main' }} />
-          )
-        ) : (
-          <UnfoldMoreIcon sx={{ fontSize: 14, color: tokens.color.neutral[300] }} />
-        )}
-      </Stack>
-    </TableCell>
-  )
-}
-
 interface UserRowActionsProps {
   user: User
   canView: boolean
@@ -299,12 +260,34 @@ function UserRowActions({
   )
 }
 
+type UsersColumnFilters = {
+  name: string
+  role: string
+  phone: string
+  projectAccess: string
+  lastLogin: string
+  status: string
+}
+
+type UsersColumnFilterOptions = {
+  name: ColumnFilterOption[]
+  role: ColumnFilterOption[]
+  phone: ColumnFilterOption[]
+  projectAccess: ColumnFilterOption[]
+  lastLogin: ColumnFilterOption[]
+  status: ColumnFilterOption[]
+}
+
 interface UsersTableProps {
   items: User[]
+  roles: Array<{ id: string; name: string }>
   loading: boolean
   sortField: string
   sortDirection: 'asc' | 'desc'
+  filters: UsersColumnFilters
+  filterOptions: UsersColumnFilterOptions
   onSort: (field: string, direction: 'asc' | 'desc') => void
+  onFilterChange: (next: Partial<UsersColumnFilters>) => void
   onRowClick: (user: User) => void
   onViewClick: (user: User) => void
   onEditClick: (user: User) => void
@@ -317,10 +300,14 @@ interface UsersTableProps {
 
 function UsersTable({
   items,
+  roles,
   loading,
   sortField,
   sortDirection,
+  filters,
+  filterOptions,
   onSort,
+  onFilterChange,
   onRowClick,
   onViewClick,
   onEditClick,
@@ -355,12 +342,66 @@ function UsersTable({
         </colgroup>
         <TableHead>
           <TableRow sx={{ bgcolor: alpha(theme.palette.text.primary, 0.02) }}>
-            <SortHeader label="Name" field="name" sortField={sortField} sortDirection={sortDirection} onSort={onSort} sx={headNameSx} />
-            <SortHeader label="Role" field="role" sortField={sortField} sortDirection={sortDirection} onSort={onSort} sx={headMiddleSx} />
-            <TableCell sx={headMiddleSx}>Phone</TableCell>
-            <TableCell sx={headMiddleSx}>Project Access</TableCell>
-            <SortHeader label="Last Login" field="lastLogin" sortField={sortField} sortDirection={sortDirection} onSort={onSort} sx={headMiddleSx} />
-            <TableCell sx={headStatusSx}>Status</TableCell>
+            <FilterableSortHeader
+              label="Name"
+              field="name"
+              sortField={sortField}
+              sortDirection={sortDirection}
+              onSort={onSort}
+              filterValue={filters.name}
+              filterOptions={filterOptions.name}
+              onFilter={(value) => onFilterChange({ name: value })}
+              sx={headNameSx}
+            />
+            <FilterableSortHeader
+              label="Role"
+              field="role"
+              sortField={sortField}
+              sortDirection={sortDirection}
+              onSort={onSort}
+              filterValue={filters.role}
+              filterOptions={filterOptions.role}
+              onFilter={(value) => onFilterChange({ role: value })}
+              sx={headMiddleSx}
+            />
+            <FilterableSortHeader
+              label="Phone"
+              filterValue={filters.phone}
+              filterOptions={filterOptions.phone}
+              onFilter={(value) => onFilterChange({ phone: value })}
+              sortable={false}
+              sx={headMiddleSx}
+            />
+            <FilterableSortHeader
+              label="Project Access"
+              filterValue={filters.projectAccess}
+              filterOptions={filterOptions.projectAccess}
+              onFilter={(value) => onFilterChange({ projectAccess: value })}
+              sortable={false}
+              sx={headMiddleSx}
+            />
+            <FilterableSortHeader
+              label="Last Login"
+              field="lastLogin"
+              sortField={sortField}
+              sortDirection={sortDirection}
+              onSort={onSort}
+              filterValue={filters.lastLogin}
+              filterOptions={filterOptions.lastLogin}
+              onFilter={(value) => onFilterChange({ lastLogin: value })}
+              sx={headMiddleSx}
+            />
+            <FilterableSortHeader
+              label="Status"
+              field="status"
+              sortField={sortField}
+              sortDirection={sortDirection}
+              onSort={onSort}
+              filterValue={filters.status}
+              filterOptions={filterOptions.status}
+              onFilter={(value) => onFilterChange({ status: value })}
+              sx={headStatusSx}
+            />
             <TableCell sx={TABLE_HEADER_ACTION_SX}>Action</TableCell>
           </TableRow>
         </TableHead>
@@ -394,7 +435,11 @@ function UsersTable({
 
           {!loading &&
             items.map((user) => {
-              const chip = getRoleChip(user.role)
+              const baseChip = getRoleChip(user.role)
+              const chip = {
+                ...baseChip,
+                label: roles.find((r) => r.id === user.role)?.name ?? baseChip.label,
+              }
               const projectCount = user.assignedProjects.length
               return (
                 <TableRow
@@ -476,7 +521,11 @@ function UsersTable({
 
                   <TableCell sx={cellStatusSx}>
                     <Box sx={CENTER_CELL_CONTENT_SX}>
-                      <StatusBadge status={user.status} />
+                      <StatusColumnToggle
+                        active={user.status === 'active'}
+                        disabled={!canEdit}
+                        onToggle={() => onToggleStatus(user)}
+                      />
                     </Box>
                   </TableCell>
 
@@ -602,45 +651,10 @@ function DeleteDialog({
   )
 }
 
-function exportUsersCsv(users: User[], roleLabel: (id: string) => string) {
-  const headers = ['Name', 'Email', 'Role', 'Phone', 'Project Access', 'Assigned Project IDs', 'Last Login', 'Status']
-  const rows = users.map((u) => [
-    escapeCsv(u.name),
-    escapeCsv(u.email),
-    escapeCsv(roleLabel(u.role)),
-    escapeCsv(u.phone ?? ''),
-    u.projectAccess,
-    u.assignedProjects.join(';'),
-    u.lastLogin ?? '',
-    u.status,
-  ])
-  const body = [headers.join(','), ...rows.map((r) => r.join(','))].join('\r\n')
-  const blob = new Blob([body], { type: 'text/csv;charset=utf-8;' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `users-export-${new Date().toISOString().slice(0, 10)}.csv`
-  a.click()
-  URL.revokeObjectURL(url)
-}
-
-function escapeCsv(s: string) {
-  if (/[",\r\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`
-  return s
-}
-
-const ROLE_FILTER_OPTIONS = [
-  { label: 'All Roles', value: '' },
-  { label: 'Admin', value: 'r-001' },
-  { label: 'Power User', value: 'r-002' },
-  { label: 'Project User', value: 'r-003' },
-  { label: 'Viewer', value: 'r-004' },
-]
-
 export default function UsersPage() {
   const navigate = useNavigate()
   const dispatch = useAppDispatch()
-  const { items: rawItems, loading, filters, sortConfig } = useAppSelector((s) => s.users)
+  const { items: rawItems, loading, filters, sortConfig, pagination } = useAppSelector((s) => s.users)
   const items = rawItems ?? []
   const roles = useAppSelector((s) => s.roles.items ?? [])
   const { showToast } = useToast()
@@ -652,64 +666,99 @@ export default function UsersPage() {
   const [toggleTarget, setToggleTarget] = useState<User | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<User | null>(null)
   const [actionSaving, setActionSaving] = useState(false)
-  const [listPage, setListPage] = useState(0)
-  const [listPageSize, setListPageSize] = useState(10)
+  const listing = useListingQuery({ pageSize: 20 })
+  const [columnFilterOptions, setColumnFilterOptions] = useState<{
+    name: ColumnFilterOption[]
+    phone: ColumnFilterOption[]
+    projectAccess: ColumnFilterOption[]
+    lastLogin: ColumnFilterOption[]
+    role: ColumnFilterOption[]
+    status: ColumnFilterOption[]
+  }>({
+    name: [],
+    phone: [],
+    projectAccess: [],
+    lastLogin: [],
+    role: [],
+    status: [],
+  })
+  const [userStats, setUserStats] = useState({
+    totalUsers: 0,
+    activeUsers: 0,
+    privilegedUsers: 0,
+    inactiveUsers: 0,
+  })
 
   useEffect(() => {
-    dispatch(fetchUsers({}))
     dispatch(fetchRoles())
+    void usersApi.getFilters().then((data) => {
+      if (!data) return
+      setColumnFilterOptions({
+        name: data.name ?? [],
+        phone: data.phone ?? [],
+        projectAccess: data.projectAccess ?? [],
+        lastLogin: data.lastLogin ?? [],
+        role: data.roles ?? [],
+        status: (data.statuses ?? []).map((option) => ({
+          ...option,
+          value: option.value.toLowerCase(),
+        })),
+      })
+    }).catch(() => undefined)
+    void usersApi.getStats().then((res) => {
+      const data = unwrapApiData<{
+        totalUsers?: number
+        activeUsers?: number
+        privilegedUsers?: number
+        inactiveUsers?: number
+      }>(res.data)
+      if (data) {
+        setUserStats({
+          totalUsers: data.totalUsers ?? 0,
+          activeUsers: data.activeUsers ?? 0,
+          privilegedUsers: data.privilegedUsers ?? 0,
+          inactiveUsers: data.inactiveUsers ?? 0,
+        })
+      }
+    }).catch(() => undefined)
   }, [dispatch])
 
   useEffect(() => {
-    setListPage(0)
-  }, [filters.search, filters.role, filters.status])
+    void dispatch(
+      fetchUsers({
+        page: listing.apiPage,
+        limit: listing.pageSize,
+        search: listing.debouncedSearch || undefined,
+        status: filters.status || undefined,
+        role: filters.role || undefined,
+        name: filters.name || undefined,
+        phone: filters.phone || undefined,
+        projectAccess: filters.projectAccess || undefined,
+        lastLogin: filters.lastLogin || undefined,
+        sortBy: sortConfig.field || undefined,
+        sortOrder: sortConfig.direction,
+      }),
+    )
+  }, [
+    dispatch,
+    listing.apiPage,
+    listing.pageSize,
+    listing.debouncedSearch,
+    filters.status,
+    filters.role,
+    filters.name,
+    filters.phone,
+    filters.projectAccess,
+    filters.lastLogin,
+    sortConfig.field,
+    sortConfig.direction,
+  ])
 
-  const filteredItems = useMemo(() => {
-    let result = [...items]
-    if (filters.search) {
-      const q = filters.search.toLowerCase()
-      result = result.filter((u) => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q))
-    }
-    if (filters.role) result = result.filter((u) => u.role === filters.role)
-    if (filters.status) result = result.filter((u) => u.status === filters.status)
-
-    const { field, direction } = sortConfig
-    result.sort((a, b) => {
-      let aVal: string | number = ''
-      let bVal: string | number = ''
-      if (field === 'name') {
-        aVal = a.name
-        bVal = b.name
-      } else if (field === 'role') {
-        aVal = a.role
-        bVal = b.role
-      } else if (field === 'lastLogin') {
-        aVal = a.lastLogin ?? ''
-        bVal = b.lastLogin ?? ''
-      }
-      if (aVal < bVal) return direction === 'asc' ? -1 : 1
-      if (aVal > bVal) return direction === 'asc' ? 1 : -1
-      return 0
-    })
-    return result
-  }, [items, filters, sortConfig])
-
-  const pagedItems = useMemo(
-    () => filteredItems.slice(listPage * listPageSize, listPage * listPageSize + listPageSize),
-    [filteredItems, listPage, listPageSize],
-  )
-
-  const totalUsers = items.length
-  const activeUsers = items.filter((u) => u.status === 'active').length
-  const privileged = useMemo(
-    () =>
-      items.filter((u) => {
-        const r = roles.find((x) => x.id === u.role)
-        return r !== undefined && (r.level === 0 || r.level === 1)
-      }).length,
-    [items, roles],
-  )
-  const inactiveUsers = items.filter((u) => u.status === 'inactive').length
+  const pagedItems = items
+  const totalUsers = userStats.totalUsers
+  const activeUsers = userStats.activeUsers
+  const privileged = userStats.privilegedUsers
+  const inactiveUsers = userStats.inactiveUsers
 
   const statCards: StatCardItem[] = useMemo(
     () => [
@@ -733,18 +782,31 @@ export default function UsersPage() {
   const activeListTab = filters.status === '' ? 'all' : filters.status === 'active' ? 'active' : 'inactive'
 
   const filterConfig: FilterField[] = useMemo(
-    () => [{ field: 'role', label: 'Role', type: 'select', options: ROLE_FILTER_OPTIONS }],
-    [],
+    () => [{ field: 'role', label: 'Role', type: 'select', options: [{ label: 'All Roles', value: '' }, ...columnFilterOptions.role] }],
+    [columnFilterOptions.role],
   )
 
   const activeFilters = useMemo(() => ({ role: filters.role ?? '' }), [filters.role])
 
-  function roleLabel(roleId: string) {
-    return roles.find((r) => r.id === roleId)?.name ?? getRoleChip(roleId).label
-  }
-
   function handleSort(field: string, direction: 'asc' | 'desc') {
     dispatch(setSortConfig({ field, direction }))
+  }
+
+  function handleColumnFilterChange(next: Partial<Pick<typeof filters, 'name' | 'role' | 'phone' | 'projectAccess' | 'lastLogin' | 'status'>>) {
+    dispatch(setFilters(next))
+  }
+
+  function handleResetAll() {
+    listing.setSearch('')
+    listing.setPage(0)
+    dispatch(resetFilters())
+    dispatch(setSortConfig({ field: '', direction: 'asc' }))
+    void dispatch(
+      fetchUsers({
+        page: 1,
+        limit: listing.pageSize,
+      }),
+    )
   }
 
   function handleRowClick(user: User) {
@@ -763,7 +825,7 @@ export default function UsersPage() {
   function handleConfirmToggle() {
     if (!toggleTarget) return
     setActionSaving(true)
-    dispatch(toggleUserStatus(toggleTarget.id))
+    dispatch(toggleUserStatus({ id: toggleTarget.id, isActive: toggleTarget.status !== 'active' }))
       .unwrap()
       .then(() => {
         const wasActive = toggleTarget.status === 'active'
@@ -795,9 +857,27 @@ export default function UsersPage() {
     setDeleteTarget(user)
   }
 
-  function handleExport() {
-    exportUsersCsv(filteredItems, roleLabel)
-    showToast({ title: 'Export started', variant: 'success' })
+  async function handleExport() {
+    try {
+      await downloadCsv(
+        '/users/export',
+        {
+          search: listing.debouncedSearch || undefined,
+          status: filters.status || undefined,
+          role: filters.role || undefined,
+          name: filters.name || undefined,
+          phone: filters.phone || undefined,
+          projectAccess: filters.projectAccess || undefined,
+          lastLogin: filters.lastLogin || undefined,
+          sortBy: sortConfig.field || undefined,
+          sortOrder: sortConfig.direction || undefined,
+        },
+        `users-${new Date().toISOString().slice(0, 10)}.csv`,
+      )
+      showToast({ title: 'Export started', variant: 'success' })
+    } catch {
+      showToast({ title: 'Failed to export users', variant: 'error' })
+    }
   }
 
   return (
@@ -812,11 +892,15 @@ export default function UsersPage() {
         onTabChange={(v) => dispatch(setFilters({ status: v === 'all' ? '' : v }))}
         searchPlaceholder="Search by name or email..."
         searchValue={filters.search}
-        onSearchChange={(v) => dispatch(setFilters({ search: v }))}
+        onSearchChange={(v) => {
+          listing.setSearch(v)
+          dispatch(setFilters({ search: v }))
+        }}
         filterConfig={filterConfig}
         activeFilters={activeFilters}
         onFilterChange={(next) => dispatch(setFilters({ role: (next.role as string) ?? '' }))}
         onFilterReset={() => dispatch(resetFilters())}
+        onResetAll={handleResetAll}
         showExport
         onExport={handleExport}
         clipCardContent={false}
@@ -829,21 +913,29 @@ export default function UsersPage() {
               }
             : undefined
         }
-        pageSize={listPageSize}
-        onPageSizeChange={(size) => {
-          setListPageSize(size)
-          setListPage(0)
-        }}
-        page={listPage}
-        totalCount={filteredItems.length}
-        onPageChange={setListPage}
+        pageSize={listing.pageSize}
+        onPageSizeChange={listing.setPageSize}
+        page={listing.page}
+        totalCount={pagination.total}
+        onPageChange={listing.setPage}
       >
         <UsersTable
           items={pagedItems}
+          roles={roles}
           loading={loading}
           sortField={sortConfig.field}
           sortDirection={sortConfig.direction}
+          filters={{
+            name: filters.name,
+            role: filters.role,
+            phone: filters.phone,
+            projectAccess: filters.projectAccess,
+            lastLogin: filters.lastLogin,
+            status: filters.status,
+          }}
+          filterOptions={columnFilterOptions}
           onSort={handleSort}
+          onFilterChange={handleColumnFilterChange}
           onRowClick={handleRowClick}
           onViewClick={handleViewClick}
           onEditClick={handleEditClick}

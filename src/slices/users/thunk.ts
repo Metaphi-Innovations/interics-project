@@ -26,6 +26,20 @@ type ApiUser = {
   createdAt?: string
 }
 
+export interface FetchUsersParams {
+  page?: number
+  limit?: number
+  search?: string
+  status?: string
+  role?: string
+  name?: string
+  phone?: string
+  projectAccess?: string
+  lastLogin?: string
+  sortBy?: string
+  sortOrder?: 'asc' | 'desc'
+}
+
 function toUiUser(api: ApiUser): User {
   const name =
     api.name?.trim() ||
@@ -60,11 +74,15 @@ function toUiUser(api: ApiUser): User {
 
 export const fetchUsers = createAsyncThunk(
   'users/fetchAll',
-  async (params: Record<string, unknown> = {}, { rejectWithValue }) => {
+  async (params: FetchUsersParams = {}, { rejectWithValue }) => {
     try {
-      const response = await usersApi.getAll(params)
-      const raw = normalizeArrayResponse<ApiUser>(unwrapApiData(response.data) ?? response.data)
-      return raw.map(toUiUser)
+      const response = await usersApi.getAll(params as Record<string, unknown>)
+      const envelope = response.data as { data?: unknown; meta?: { total?: number } }
+      const raw = normalizeArrayResponse<ApiUser>(unwrapApiData(envelope) ?? envelope)
+      return {
+        items: raw.map(toUiUser),
+        total: envelope.meta?.total ?? raw.length,
+      }
     } catch (err: unknown) {
       const error = err as { response?: { data?: { message?: string } } }
       return rejectWithValue(error.response?.data?.message ?? 'Failed to fetch users')
@@ -100,9 +118,9 @@ export const updateUser = createAsyncThunk(
 
 export const toggleUserStatus = createAsyncThunk(
   'users/toggleStatus',
-  async (id: string, { rejectWithValue }) => {
+  async ({ id, isActive }: { id: string; isActive: boolean }, { rejectWithValue }) => {
     try {
-      const response = await usersApi.toggleStatus(id)
+      const response = await usersApi.toggleStatus(id, isActive)
       return toUiUser(unwrapApiData<ApiUser>(response.data))
     } catch (err: unknown) {
       const error = err as { response?: { data?: { message?: string } } }

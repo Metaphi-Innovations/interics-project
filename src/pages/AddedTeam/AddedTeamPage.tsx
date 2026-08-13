@@ -435,24 +435,61 @@ export default function AddedTeamPage() {
   const [error, setError] = useState<string | null>(null)
 
   const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [projectFilter, setProjectFilter] = useState('')
   const [sortField, setSortField] = useState<string | null>('memberName')
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
+  const [page, setPage] = useState(0)
+  const [pageSize, setPageSize] = useState(20)
+  const [total, setTotal] = useState(0)
+  const [summary, setSummary] = useState({ assignments: 0, teamMembers: 0, projectsWithTeam: 0 })
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 300)
+    return () => window.clearTimeout(timer)
+  }, [search])
+
+  useEffect(() => {
+    void teamsApi.getSummary().then((s) => {
+      if (s) setSummary(s)
+    }).catch(() => undefined)
+  }, [])
 
   useEffect(() => {
     let cancelled = false
     setLoading(true)
     void (async () => {
       try {
-        const res = await teamsApi.getMembers({ page: 1, limit: 500 })
+        const res = await teamsApi.getMembers({
+          page: page + 1,
+          limit: pageSize,
+          search: debouncedSearch || undefined,
+          status: statusFilter || undefined,
+          projectId: projectFilter || undefined,
+          sortBy:
+            sortField === 'memberName'
+              ? 'teamMember'
+              : sortField === 'roleLabel'
+                ? 'role'
+                : sortField === 'projectName'
+                  ? 'project'
+                  : sortField === 'projectCount'
+                    ? 'projectCount'
+                    : undefined,
+          sortOrder: sortDirection,
+        })
         if (cancelled) return
-        const rawItems = Array.isArray(res?.items) ? res.items : []
+        const payload = res && typeof res === 'object' && 'items' in (res as object)
+          ? res
+          : { items: Array.isArray(res) ? res : [], meta: { total: 0 } }
+        const rawItems = Array.isArray(payload?.items) ? payload.items : []
         const rows = rawItems
           .map((item) => mapApiTeamRow(item as TeamMemberApiRow))
           .filter((row): row is TeamAssignmentRow => row != null)
         setItems(rows)
+        setTotal(payload?.meta?.total ?? rows.length)
         setError(null)
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load team members')
@@ -463,76 +500,38 @@ export default function AddedTeamPage() {
     return () => {
       cancelled = true
     }
+  }, [page, pageSize, debouncedSearch, statusFilter, projectFilter, sortField, sortDirection])
+
+  const [filterOptions, setFilterOptions] = useState<{
+    projects: { value: string; label: string }[]
+    statuses: { value: string; label: string }[]
+  }>({ projects: [], statuses: [] })
+
+  useEffect(() => {
+    void teamsApi.getFilters().then((f) => {
+      if (f) setFilterOptions({ projects: f.projects ?? [], statuses: f.statuses ?? [] })
+    }).catch(() => undefined)
   }, [])
 
-  const allRows = useMemo(() => items, [items])
-
-  const projectOptions = useMemo(() => {
-    const seen = new Map<string, string>()
-    for (const p of items) {
-      seen.set(p.projectId, p.projectName)
-    }
-    return Array.from(seen.entries()).map(([value, label]) => ({ value, label }))
-  }, [items])
-
-  const filteredRows = useMemo(() => {
-    let rows = allRows
-    const q = search.trim().toLowerCase()
-    if (q) {
-      rows = rows.filter(
-        (r) =>
-          r.memberName.toLowerCase().includes(q) ||
-          r.projectName.toLowerCase().includes(q) ||
-          r.projectCode.toLowerCase().includes(q) ||
-          r.roleLabel.toLowerCase().includes(q)
-      )
-    }
-    if (statusFilter) {
-      const wanted = statusFilter.toUpperCase()
-      rows = rows.filter((r) => String(r.projectStatus).toUpperCase() === wanted)
-    }
-    if (projectFilter) {
-      rows = rows.filter((r) => r.projectId === projectFilter)
-    }
-    return rows
-  }, [allRows, search, statusFilter, projectFilter])
-
-  const sortedRows = useMemo(() => {
-    if (!sortField) return filteredRows
-    return [...filteredRows].sort((a, b) => {
-      if (sortField === 'projectCount') {
-        const cmp = a.projectCount - b.projectCount
-        return sortDirection === 'asc' ? cmp : -cmp
-      }
-      const field = sortField as keyof TeamAssignmentRow
-      const aStr = String(a[field] ?? '').toLowerCase()
-      const bStr = String(b[field] ?? '').toLowerCase()
-      const cmp = aStr.localeCompare(bStr)
-      return sortDirection === 'asc' ? cmp : -cmp
-    })
-  }, [filteredRows, sortField, sortDirection])
-
-  const uniqueMembers = useMemo(() => {
-    const set = new Set(allRows.map((r) => r.userId))
-    return set.size
-  }, [allRows])
+  const projectOptions = filterOptions.projects
+  const sortedRows = items
 
   const statCards = [
     {
       label: 'ASSIGNMENTS',
-      value: allRows.length,
+      value: summary.assignments,
       variant: 'default' as const,
       icon: <UserPlus size={24} strokeWidth={1.75} />,
     },
     {
       label: 'TEAM MEMBERS',
-      value: uniqueMembers,
+      value: summary.teamMembers,
       variant: 'info' as const,
       icon: <PersonOutline sx={{ fontSize: 24 }} />,
     },
     {
       label: 'PROJECTS WITH TEAM',
-      value: new Set(items.map((p) => p.projectId)).size,
+      value: summary.projectsWithTeam,
       variant: 'success' as const,
       icon: <FolderKanban size={24} strokeWidth={1.75} />,
     },
@@ -558,13 +557,14 @@ export default function AddedTeamPage() {
   ]
 
   const handleSearch = useCallback((value: string) => {
-    if (searchTimer.current) clearTimeout(searchTimer.current)
-    searchTimer.current = setTimeout(() => setSearch(value), 300)
+    setSearch(value)
+    setPage(0)
   }, [])
 
   function handleFilterChange(vals: Record<string, unknown>) {
     setStatusFilter((vals.status as string) ?? '')
     setProjectFilter((vals.projectId as string) ?? '')
+    setPage(0)
   }
 
   function handleFilterReset() {
@@ -601,6 +601,14 @@ export default function AddedTeamPage() {
       filterCount={activeFilterCount}
       showViewToggle={false}
       clipCardContent={false}
+      pageSize={pageSize}
+      onPageSizeChange={(s) => {
+        setPageSize(s)
+        setPage(0)
+      }}
+      page={page}
+      totalCount={total}
+      onPageChange={setPage}
     >
       <AddedTeamTable
         rows={sortedRows}

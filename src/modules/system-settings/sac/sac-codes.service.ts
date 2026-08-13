@@ -1,7 +1,8 @@
 import client from '@/api/client'
-import { toUiStatus, unwrapApiData, unwrapApiList } from '../shared/api'
+import { compactQueryParams, toUiStatus, unwrapApiData, unwrapApiList } from '../shared/api'
 import { withInflight } from '../shared/inflight'
 import type { SACCode } from '@/slices/settings/reducer'
+import type { ColumnFilterOption } from '@/components/listing'
 
 type SacApi = {
   id: string
@@ -44,21 +45,49 @@ function toPayload(data: Omit<SACCode, 'id'> | Partial<SACCode>) {
 export type SacListParams = {
   search?: string
   limit?: number
+  page?: number
+  sacCode?: string
+  description?: string
+  gstSlabId?: string
+  status?: string
+  sortBy?: string
+  sortOrder?: 'asc' | 'desc'
+}
+
+type SacFilters = {
+  sacCode?: ColumnFilterOption[]
+  description?: ColumnFilterOption[]
+  gstSlabId?: ColumnFilterOption[]
+  status?: ColumnFilterOption[]
 }
 
 export const sacCodesService = {
   async getAll(params: SacListParams = {}): Promise<SACCode[]> {
-    const search = params.search?.trim()
-    const key = `sac-codes:list:${search ?? ''}`
-    return withInflight(key, async () => {
-      const res = await client.get(BASE, {
-        params: {
-          limit: params.limit ?? 100,
-          ...(search ? { search } : {}),
-        },
-      })
+    const query = compactQueryParams({
+      page: params.page ?? 1,
+      limit: params.limit ?? 20,
+      search: params.search,
+      sacCode: params.sacCode,
+      description: params.description,
+      gstSlabId: params.gstSlabId,
+      status:
+        params.status === 'active'
+          ? 'ACTIVE'
+          : params.status === 'inactive'
+            ? 'INACTIVE'
+            : params.status,
+      sortBy: params.sortBy,
+      sortOrder: params.sortOrder,
+    })
+    return withInflight(`sac-codes:list:${JSON.stringify(query)}`, async () => {
+      const res = await client.get(BASE, { params: query })
       return unwrapApiList<SacApi>(res.data).map(toSacCode)
     })
+  },
+
+  async getFilters(): Promise<SacFilters> {
+    const res = await client.get(`${BASE}/filters`)
+    return unwrapApiData<SacFilters>(res.data)
   },
 
   async create(data: Omit<SACCode, 'id'>): Promise<SACCode> {

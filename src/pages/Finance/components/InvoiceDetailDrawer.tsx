@@ -15,7 +15,6 @@ import dayjs from 'dayjs'
 import { Plus } from 'lucide-react'
 import { DrawerForm, FormSection } from '@/components/templates'
 import { StatusBadge, Button, useToast } from '@/design-system/components'
-import type { StatusType } from '@/design-system/components'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { fetchInvoiceById } from '@/slices/receivables/thunk'
 import type { Invoice } from '@/slices/receivables/reducer'
@@ -23,12 +22,7 @@ import { InvoiceLineItems } from './InvoiceLineItems'
 import { tokens } from '@/design-system/tokens'
 import { formatInr } from '@/utils/formatters'
 import { rollupsFromLineItems } from '@/pages/Projects/tabs/live/clientInvoiceUtils'
-import { mapInvoiceStatus } from '../BillingsPage'
-
-export function invoiceStatusToBadgeType(status: Invoice['status']): StatusType {
-  if (status === 'draft') return 'invoice_draft'
-  return status as StatusType
-}
+import { invoiceStatusToBadgeType, mapInvoiceStatus, showPartialPaidAlongsideTabStatus } from '../invoiceStatus'
 
 export interface InvoiceDetailDrawerProps {
   open: boolean
@@ -52,7 +46,13 @@ export function InvoiceDetailDrawer({
   const dispatch = useAppDispatch()
   const { showToast } = useToast()
   const rawInvoice = useAppSelector((s) => s.receivables.selectedItem)
-  const invoice = rawInvoice ? { ...rawInvoice, status: mapInvoiceStatus(rawInvoice) as Invoice['status'] } : null
+  const invoice = rawInvoice
+    ? {
+        ...rawInvoice,
+        status: mapInvoiceStatus(rawInvoice) as Invoice['status'],
+        showPartialPaid: showPartialPaidAlongsideTabStatus(rawInvoice),
+      }
+    : null
   const detailLoading = useAppSelector((s) => s.receivables.detailLoading)
   const { services, sacCodes } = useAppSelector((s) => s.settings)
 
@@ -135,6 +135,7 @@ export function InvoiceDetailDrawer({
                 {inv.invoiceNo}
               </Typography>
               <StatusBadge status={invoiceStatusToBadgeType(inv.status)} />
+              {inv.showPartialPaid ? <StatusBadge status="partially_paid" /> : null}
             </Stack>
             <Button variant="outlined" size="sm" onClick={() => onDownloadPdf(inv)}>
               Download Invoice

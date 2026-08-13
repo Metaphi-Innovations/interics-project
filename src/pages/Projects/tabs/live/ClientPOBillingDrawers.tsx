@@ -266,7 +266,7 @@ function ClientPOMilestonesTable({
           {milestones.map((m) => {
             const status =
               m.status ??
-              clientMilestonePaymentStatus(projectInvoices, m.id, m.serviceId)
+              clientMilestonePaymentStatus(projectInvoices, m.id, m.serviceId, m.name)
             return (
             <Fragment key={m.id}>
               <TableRow hover>
@@ -313,6 +313,7 @@ function ClientPOMilestonesTable({
                           projectInvoices,
                           `${m.id}-retention`,
                           m.serviceId,
+                          `${m.name} — Retention`,
                         )
                       }
                     />

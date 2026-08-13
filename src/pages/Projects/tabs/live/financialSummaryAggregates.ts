@@ -87,7 +87,10 @@ function pendingClientMilestoneGross(
   settingsServices: Service[] = [],
 ): number {
   let pending = 0
-  if (clientMilestonePaymentStatus(invoices, milestone.id, milestone.serviceId) !== 'Paid') {
+  if (
+    clientMilestonePaymentStatus(invoices, milestone.id, milestone.serviceId, milestone.name) !==
+    'Paid'
+  ) {
     pending += clientMilestoneBaseGross(
       milestone.value,
       milestone.serviceId,
@@ -101,6 +104,7 @@ function pendingClientMilestoneGross(
         invoices,
         `${milestone.id}-retention`,
         milestone.serviceId,
+        `${milestone.name} — Retention`,
       ) !== 'Paid'
     ) {
       pending += clientMilestoneBaseGross(
@@ -127,7 +131,10 @@ function paidMilestoneAmount(
   invoices: ClientInvoice[],
 ): number {
   let paid = 0
-  if (clientMilestonePaymentStatus(invoices, milestone.id, milestone.serviceId) === 'Paid') {
+  if (
+    clientMilestonePaymentStatus(invoices, milestone.id, milestone.serviceId, milestone.name) ===
+    'Paid'
+  ) {
     paid += milestone.value
   }
   if (milestone.retention) {
@@ -136,6 +143,7 @@ function paidMilestoneAmount(
         invoices,
         `${milestone.id}-retention`,
         milestone.serviceId,
+        `${milestone.name} — Retention`,
       ) === 'Paid'
     ) {
       paid += milestone.retention.value
@@ -291,7 +299,7 @@ function categoriesCompatible(a: string, b: string): boolean {
 }
 
 function isClientInvoicePaid(inv: ClientInvoice): boolean {
-  return inv.status === 'paid' || isInvoiceFullyPaid(inv)
+  return isInvoiceFullyPaid(inv)
 }
 
 /** Bank amount received for a client invoice (aligns with Billing “Received”). */

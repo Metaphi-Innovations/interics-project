@@ -5,15 +5,23 @@ import {
   IconButton, Divider,
   Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions,
 } from '@mui/material'
-import { Edit, ToggleOff, ToggleOn } from '@mui/icons-material'
+import { Edit } from '@mui/icons-material'
 import { Plus } from 'lucide-react'
-import { Button, Modal, StatusBadge, useToast } from '@/design-system/components'
+import { Button, Modal, useToast } from '@/design-system/components'
+import {
+  FilterableSortHeader,
+  SettingsSearchBar,
+  StatusColumnToggle,
+  useListingQuery,
+  type ColumnFilterOption,
+} from '@/components/listing'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import {
   fetchServices, createService, updateService, toggleServiceStatus,
   fetchCategories, fetchSACCodes, fetchGSTRates,
 } from '@/slices/settings/thunk'
 import type { Service } from '@/slices/settings/reducer'
+import { servicesService } from '@/modules/system-settings/service/services.service'
 import {
   SETTINGS_TABLE_CELL_ACTION_SX,
   SETTINGS_TABLE_CELL_SX,
@@ -36,6 +44,13 @@ const SERVICE_DATA_COL_COUNT = 5
 const serviceDataColWidth = settingsDataColWidth(SERVICE_DATA_COL_COUNT)
 
 type ServiceForm = Omit<Service, 'id'>
+type ServiceFilterOptions = {
+  name: ColumnFilterOption[]
+  categoryId: ColumnFilterOption[]
+  sacCode: ColumnFilterOption[]
+  gstRate: ColumnFilterOption[]
+  isActive: ColumnFilterOption[]
+}
 
 const defaultForm: ServiceForm = {
   name: '',
@@ -67,9 +82,9 @@ export default function ServicesSection() {
   const success = useToast((s) => s.success)
   const error = useToast((s) => s.error)
   const { services, categories, sacCodes, gstRates, saving } = useAppSelector(s => s.settings)
-  const [search, setSearch] = useState('')
-  const [debouncedSearch, setDebouncedSearch] = useState('')
-  const [categoryFilter, setCategoryFilter] = useState('all')
+  const listing = useListingQuery({ pageSize: 100 })
+  const [sortField, setSortField] = useState<string>()
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [editingRow, setEditingRow] = useState<Service | null>(null)
   const [form, setForm] = useState<ServiceForm>(defaultForm)
@@ -77,11 +92,15 @@ export default function ServicesSection() {
   const [resolvedGSTRate, setResolvedGSTRate] = useState(0)
   const [toggleTarget, setToggleTarget] = useState<Service | null>(null)
   const [toggling, setToggling] = useState(false)
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 300)
-    return () => window.clearTimeout(timer)
-  }, [search])
+  const [filterOptions, setFilterOptions] = useState<ServiceFilterOptions>({
+    name: [],
+    categoryId: [],
+    sacCode: [],
+    gstRate: [],
+    isActive: [],
+  })
+  const search = listing.search.trim()
+  const isSearchPending = search.length > 0 && search !== listing.debouncedSearch
 
   useEffect(() => {
     void Promise.all([
@@ -89,20 +108,54 @@ export default function ServicesSection() {
       dispatch(fetchSACCodes()),
       dispatch(fetchGSTRates()),
     ])
+    void servicesService.getFilters()
+      .then((data) => {
+        setFilterOptions({
+          name: data.name ?? [],
+          categoryId: data.categoryId ?? [],
+          sacCode: data.sacCode ?? [],
+          gstRate: data.gstRate ?? [],
+          isActive: data.isActive ?? [],
+        })
+      })
+      .catch(() => undefined)
   }, [dispatch])
 
   useEffect(() => {
+    if (isSearchPending) return
     void dispatch(
       fetchServices({
-        search: debouncedSearch || undefined,
-        categoryId: categoryFilter === 'all' ? undefined : categoryFilter,
+        search: listing.debouncedSearch || undefined,
+        name: listing.filters.name,
+        categoryId: listing.filters.categoryId,
+        sacCode: listing.filters.sacCode,
+        gstRate: listing.filters.gstRate,
+        isActive: listing.filters.isActive,
+        sortBy: sortField,
+        sortOrder: sortField ? sortDirection : undefined,
         force: true,
       }),
     )
-  }, [dispatch, debouncedSearch, categoryFilter])
+  }, [dispatch, isSearchPending, listing.debouncedSearch, listing.filters, search, sortDirection, sortField])
 
   const activeCategories = categories.filter(c => c.status === 'active')
   const activeSACCodes = sacCodes.filter(s => s.status === 'active')
+
+  const applyColumnFilter = (key: string) => (value: string) => {
+    listing.setFilter(key, value)
+  }
+
+  const handleSort = (field: string, direction: 'asc' | 'desc') => {
+    setSortField(field)
+    setSortDirection(direction)
+  }
+
+  const handleReset = () => {
+    listing.setSearch('')
+    listing.setFilters({})
+    setSortField(undefined)
+    setSortDirection('asc')
+  }
 
   const openAdd = () => {
     setEditingRow(null)
@@ -190,6 +243,17 @@ export default function ServicesSection() {
     setToggling(true)
     try {
       await dispatch(toggleServiceStatus(toggleTarget.id)).unwrap()
+      void dispatch(fetchServices({
+        search: listing.debouncedSearch || undefined,
+        name: listing.filters.name,
+        categoryId: listing.filters.categoryId,
+        sacCode: listing.filters.sacCode,
+        gstRate: listing.filters.gstRate,
+        isActive: listing.filters.isActive,
+        sortBy: sortField,
+        sortOrder: sortField ? sortDirection : undefined,
+        force: true,
+      }))
       success(
         toggleTarget.status === 'active'
           ? 'Service deactivated'
@@ -218,28 +282,12 @@ export default function ServicesSection() {
         </Button>
       </Box>
 
-      {/* Toolbar */}
-      <Box sx={{ display: 'flex', gap: 1.5, mb: 2 }}>
-        <TextField
-          size="small"
-          placeholder="Search services..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          sx={{ width: 240 }}
-        />
-        <TextField
-          select
-          size="small"
-          value={categoryFilter}
-          onChange={e => setCategoryFilter(e.target.value)}
-          sx={{ width: 200 }}
-        >
-          <MenuItem value="all">All Categories</MenuItem>
-          {activeCategories.map(c => (
-            <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>
-          ))}
-        </TextField>
-      </Box>
+      <SettingsSearchBar
+        placeholder="Search services..."
+        value={listing.search}
+        onChange={listing.setSearch}
+        onReset={handleReset}
+      />
 
       <TableContainer sx={{ width: '100%' }}>
       <Table size="small" sx={SETTINGS_TABLE_SX}>
@@ -253,11 +301,61 @@ export default function ServicesSection() {
         </colgroup>
         <TableHead>
           <TableRow sx={{ bgcolor: '#F8FAFB' }}>
-            <TableCell sx={SETTINGS_TABLE_HEADER_CELL_SX}>Service Name</TableCell>
-            <TableCell sx={SETTINGS_TABLE_HEADER_CELL_SX}>Category</TableCell>
-            <TableCell sx={SETTINGS_TABLE_HEADER_CELL_SX}>SAC Code</TableCell>
-            <TableCell sx={SETTINGS_TABLE_HEADER_CELL_SX}>GST Rate</TableCell>
-            <TableCell sx={SETTINGS_TABLE_HEADER_CELL_SX}>Status</TableCell>
+            <FilterableSortHeader
+              label="Service Name"
+              field="name"
+              sortField={sortField}
+              sortDirection={sortDirection}
+              onSort={handleSort}
+              filterValue={listing.filters.name ?? ''}
+              filterOptions={filterOptions.name}
+              onFilter={applyColumnFilter('name')}
+              sx={SETTINGS_TABLE_HEADER_CELL_SX}
+            />
+            <FilterableSortHeader
+              label="Category"
+              field="categoryId"
+              sortField={sortField}
+              sortDirection={sortDirection}
+              onSort={handleSort}
+              filterValue={listing.filters.categoryId ?? ''}
+              filterOptions={filterOptions.categoryId}
+              onFilter={applyColumnFilter('categoryId')}
+              sx={SETTINGS_TABLE_HEADER_CELL_SX}
+            />
+            <FilterableSortHeader
+              label="SAC Code"
+              field="sacCode"
+              sortField={sortField}
+              sortDirection={sortDirection}
+              onSort={handleSort}
+              filterValue={listing.filters.sacCode ?? ''}
+              filterOptions={filterOptions.sacCode}
+              onFilter={applyColumnFilter('sacCode')}
+              sx={SETTINGS_TABLE_HEADER_CELL_SX}
+            />
+            <FilterableSortHeader
+              label="GST Rate"
+              field="gstRate"
+              sortField={sortField}
+              sortDirection={sortDirection}
+              onSort={handleSort}
+              filterValue={listing.filters.gstRate ?? ''}
+              filterOptions={filterOptions.gstRate}
+              onFilter={applyColumnFilter('gstRate')}
+              sx={SETTINGS_TABLE_HEADER_CELL_SX}
+            />
+            <FilterableSortHeader
+              label="Status"
+              field="isActive"
+              sortField={sortField}
+              sortDirection={sortDirection}
+              onSort={handleSort}
+              filterValue={listing.filters.isActive ?? ''}
+              filterOptions={filterOptions.isActive}
+              onFilter={applyColumnFilter('isActive')}
+              sx={SETTINGS_TABLE_HEADER_CELL_SX}
+            />
             <TableCell sx={SETTINGS_TABLE_HEADER_ACTION_SX}>Actions</TableCell>
           </TableRow>
         </TableHead>
@@ -276,16 +374,14 @@ export default function ServicesSection() {
                   <Chip size="small" label={`${row.gstRate}%`} sx={{ fontSize: 11, height: 20, bgcolor: '#E8F5F2', color: '#107E68' }} />
                 </TableCell>
                 <TableCell sx={SETTINGS_TABLE_CELL_SX}>
-                  <StatusBadge status={row.status} />
+                  <StatusColumnToggle
+                    active={row.status === 'active'}
+                    onToggle={() => setToggleTarget(row)}
+                  />
                 </TableCell>
                 <TableCell sx={SETTINGS_TABLE_CELL_ACTION_SX}>
                   <IconButton size="small" onClick={() => openEdit(row)}>
                     <Edit sx={{ fontSize: 14 }} />
-                  </IconButton>
-                  <IconButton size="small" onClick={() => setToggleTarget(row)}>
-                    {row.status === 'active'
-                      ? <ToggleOn sx={{ fontSize: 14, color: 'success.main' }} />
-                      : <ToggleOff sx={{ fontSize: 14, color: 'error.main' }} />}
                   </IconButton>
                 </TableCell>
               </TableRow>

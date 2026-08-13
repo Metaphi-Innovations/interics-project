@@ -1,27 +1,23 @@
 /**
- * Roles that may act as project lead in create/edit flows.
- * Supports mock role ids (MSW) and real backend role names/codes.
+ * Project lead dropdown: only users whose role name is "Project Lead".
  */
-export const PROJECT_MANAGER_ROLE_IDS = new Set(['r-001', 'r-002', 'r-003'])
+export const PROJECT_LEAD_ROLE_NAME = 'Project Lead'
 
-export const PROJECT_MANAGER_ROLE_NAMES = new Set([
-  'Admin',
-  'Power User',
-  'Project User',
-  'SUPER_ADMIN',
-  'ADMIN',
-  'MANAGER',
-  'OPERATIONS',
-])
-
-export function isProjectManagerRole(
+export function isProjectLeadRole(
   roleIdOrName: string,
   roles?: Array<{ id: string; name: string }>,
 ): boolean {
   const value = roleIdOrName?.trim()
   if (!value) return false
-  if (PROJECT_MANAGER_ROLE_IDS.has(value)) return true
-  if (PROJECT_MANAGER_ROLE_NAMES.has(value)) return true
+  if (value.toLowerCase() === PROJECT_LEAD_ROLE_NAME.toLowerCase()) return true
   const matched = roles?.find((role) => role.id === value)
-  return Boolean(matched && PROJECT_MANAGER_ROLE_NAMES.has(matched.name))
+  return Boolean(matched && matched.name.trim().toLowerCase() === PROJECT_LEAD_ROLE_NAME.toLowerCase())
+}
+
+/** @deprecated use isProjectLeadRole */
+export function isProjectManagerRole(
+  roleIdOrName: string,
+  roles?: Array<{ id: string; name: string }>,
+): boolean {
+  return isProjectLeadRole(roleIdOrName, roles)
 }

@@ -236,14 +236,19 @@ function DocumentsTable({
                   fontWeight: 500,
                 }}
               >
-                {row.href ? (
+                {row.onView ? (
                   <Typography
-                    component="a"
-                    href={row.href}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                    component="button"
+                    type="button"
+                    onClick={row.onView}
                     variant="body2"
                     sx={{
+                      p: 0,
+                      border: 0,
+                      bgcolor: 'transparent',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      fontFamily: 'inherit',
                       fontWeight: 500,
                       color: 'primary.main',
                       textDecoration: 'none',
@@ -433,7 +438,6 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
             dateStr: formatDate(doc.uploadedAt),
             sizeStr: doc.sizeBytes != null ? formatBytes(doc.sizeBytes) : '—',
             isUpload: false,
-            href: doc.viewUrl ?? undefined,
             canDelete: false,
             onView: () => {
               if (doc.viewUrl) void openAuthenticatedDocument(doc.viewUrl)
@@ -531,7 +535,6 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
           dateStr: formatDate(doc.uploadedAt),
           sizeStr: doc.sizeBytes != null ? formatBytes(doc.sizeBytes) : null,
           isUpload: false,
-          href: doc.viewUrl ?? undefined,
           canDelete: false,
           onView: () => {
             if (doc.viewUrl) void openAuthenticatedDocument(doc.viewUrl)
@@ -574,7 +577,6 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
           dateStr: formatDate(doc.uploadedAt),
           sizeStr: doc.sizeBytes != null ? formatBytes(doc.sizeBytes) : null,
           isUpload: false,
-          href: doc.viewUrl ?? undefined,
           canDelete: false,
           onView: () => {
             if (doc.viewUrl) void openAuthenticatedDocument(doc.viewUrl)

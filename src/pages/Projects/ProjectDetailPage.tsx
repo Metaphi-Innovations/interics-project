@@ -38,13 +38,13 @@ import ProjectManagementTab from './tabs/ProjectManagementTab'
 import { store } from '@/store'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { fetchProjects, fetchProjectById, updateProject, changeProjectStatus } from '../../slices/projects/thunk'
-import { fetchStatuses, fetchSectors } from '../../slices/settings/thunk'
+import { fetchStatuses } from '../../slices/settings/thunk'
 import {
   getStatusMasterChipColors,
   lifecycleStatusForMasterName,
 } from '../../utils/masterChipStyles'
 import type { StatusMaster } from '../../slices/settings/reducer'
-import { ProjectTypesField } from './components/ProjectTypesField'
+import { EditProjectDrawer } from './components/EditProjectDrawer'
 import { ProjectOverviewTab } from './components/ProjectOverviewTab'
 import { clearSelected } from '../../slices/projects/reducer'
 import type { Project } from '../../slices/projects/reducer'
@@ -52,33 +52,18 @@ import {
   WorkspaceDetail,
   WorkspaceSection,
 } from '../../components/templates'
-import { DrawerForm, FormField, FormSection } from '../../components/templates/DrawerForm'
 import {
   StatusBadge,
   useToast,
-  Input,
   Toggle,
-  DatePicker,
-  dateFromIso,
-  isoFromDate,
-  RichTextEditor,
-  AutocompleteField,
 } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
-import {
-  COUNTRIES,
-  INDIAN_CITIES,
-  INDIAN_STATES,
-  digitsOnly,
-  formatAddressLine,
-} from '@/constants/locations'
 import { useTheme, alpha } from '@mui/material/styles'
 import {
   getInitials,
   getAvatarColor,
   fromSlug,
 } from '../../utils/formatters'
-import { formatExpectedDuration } from './projectOverviewHelpers'
 
 // ─── Loading skeleton ─────────────────────────────────────────────────────────
 
@@ -210,285 +195,6 @@ function EmptyState({
 
 // ─── Tab content ──────────────────────────────────────────────────────────────
 // Overview UI lives in ./components/ProjectOverviewTab (shared with Team module).
-
-// ─── Edit Project Drawer ──────────────────────────────────────────────────────
-
-const PROJECT_DETAIL_TOOLBAR = [
-  'bold', 'italic', 'underline',
-  'divider',
-  'bulletList', 'orderedList',
-  'divider',
-  'undo', 'redo',
-] as const
-
-interface EditDrawerProps {
-  open: boolean
-  project: Project
-  onClose: () => void
-  onSave: (data: Partial<Project>) => void
-  saving: boolean
-}
-
-function EditProjectDrawer({
-  open,
-  project,
-  onClose,
-  onSave,
-  saving,
-}: EditDrawerProps) {
-  const dispatch = useAppDispatch()
-  const sectors = useAppSelector((s) => s.settings.sectors)
-  const activeSectors = sectors.filter((s) => s.status === 'active')
-  const [form, setForm] = useState<Partial<Project>>({})
-
-  useEffect(() => {
-    setForm({ ...project })
-  }, [project])
-
-  useEffect(() => {
-    if (open) {
-      void dispatch(fetchSectors())
-    }
-  }, [open, dispatch])
-
-  function set(key: keyof Project, value: unknown) {
-    setForm((prev) => ({ ...prev, [key]: value }))
-  }
-
-  return (
-    <DrawerForm
-      open={open}
-      onClose={onClose}
-      title="Edit Project"
-      subtitle="Update project information"
-      onSubmit={() =>
-        onSave({
-          ...form,
-          location: formatAddressLine({
-            address: form.address,
-            city: form.city,
-            state: form.state,
-            pincode: form.pincode,
-            country: form.country,
-          }),
-        })
-      }
-      submitLoading={saving}
-    >
-      <FormSection title="Project Profile" columns={2} divider={false}>
-        <Box sx={{ gridColumn: '1 / -1' }}>
-          <FormField label="Project Name" required>
-            <Input
-              value={form.name ?? ''}
-              onChange={(v) => set('name', v)}
-              size="sm"
-            />
-          </FormField>
-        </Box>
-        <FormField label="Project Code">
-          <Input
-            value={form.projectCode ?? ''}
-            onChange={() => undefined}
-            size="sm"
-            disabled
-          />
-        </FormField>
-        <Box sx={{ gridColumn: '1 / -1' }}>
-          <FormField label="Address">
-            <Input
-              value={form.address ?? ''}
-              onChange={(v) => set('address', v || null)}
-              placeholder="Street, building, landmark"
-              size="sm"
-            />
-          </FormField>
-        </Box>
-        <FormField label="City">
-          <AutocompleteField
-            options={[...INDIAN_CITIES]}
-            value={form.city || null}
-            onChange={(v) => set('city', v)}
-            getOptionLabel={(o) => o}
-            isOptionEqualToValue={(a, b) => a === b}
-            placeholder="Search city…"
-            size="sm"
-          />
-        </FormField>
-        <FormField label="State">
-          <AutocompleteField
-            options={[...INDIAN_STATES]}
-            value={form.state || null}
-            onChange={(v) => set('state', v)}
-            getOptionLabel={(o) => o}
-            isOptionEqualToValue={(a, b) => a === b}
-            placeholder="Search state…"
-            size="sm"
-          />
-        </FormField>
-        <FormField label="Country">
-          <AutocompleteField
-            options={[...COUNTRIES]}
-            value={form.country || null}
-            onChange={(v) => set('country', v)}
-            getOptionLabel={(o) => o}
-            isOptionEqualToValue={(a, b) => a === b}
-            placeholder="Search country…"
-            size="sm"
-          />
-        </FormField>
-        <FormField label="PIN Code">
-          <Input
-            value={form.pincode ?? ''}
-            onChange={(v) => set('pincode', digitsOnly(v).slice(0, 10) || null)}
-            placeholder="e.g. 110001"
-            size="sm"
-          />
-        </FormField>
-        <FormField label="Building">
-          <Input
-            value={form.building ?? ''}
-            onChange={(v) => set('building', v || undefined)}
-            placeholder="e.g. Connaught Place Tower"
-            size="sm"
-          />
-        </FormField>
-        <FormField label="Floor">
-          <Input
-            value={form.floor ?? ''}
-            onChange={(v) => set('floor', v || undefined)}
-            placeholder="e.g. 12th Floor"
-            size="sm"
-          />
-        </FormField>
-        <FormField label="Start Date">
-          <DatePicker
-            value={dateFromIso(form.startDate)}
-            onChange={(d) => set('startDate', isoFromDate(d) || null)}
-            fullWidth
-            size="sm"
-          />
-        </FormField>
-        <FormField label="Expected End Date">
-          <DatePicker
-            value={dateFromIso(form.expectedEndDate)}
-            onChange={(d) => set('expectedEndDate', isoFromDate(d) || null)}
-            fullWidth
-            size="sm"
-            minDate={dateFromIso(form.startDate) ?? undefined}
-          />
-        </FormField>
-        <FormField label="Sector">
-          <FormControl fullWidth size="small">
-            <MuiSelect
-              value={form.sector ?? ''}
-              onChange={(e) => set('sector', e.target.value || undefined)}
-              displayEmpty
-              sx={{ fontSize: 13 }}
-            >
-              <MenuItem value="" sx={{ fontSize: 13 }}>
-                Select sector…
-              </MenuItem>
-              {activeSectors.map((s) => (
-                <MenuItem key={s.id} value={s.name} sx={{ fontSize: 13 }}>
-                  {s.name}
-                </MenuItem>
-              ))}
-              {form.sector && !activeSectors.some((s) => s.name === form.sector) ? (
-                <MenuItem value={form.sector} sx={{ fontSize: 13 }}>
-                  {form.sector}
-                </MenuItem>
-              ) : null}
-            </MuiSelect>
-          </FormControl>
-        </FormField>
-        <Box sx={{ gridColumn: '1 / -1' }}>
-          <FormField label="Project Scope">
-            <ProjectTypesField
-              value={form.projectTypes ?? []}
-              onChange={(v) => {
-                set('projectTypes', v)
-                set('projectScope', v.join(', ') || undefined)
-              }}
-              placeholder="Select project scope…"
-            />
-          </FormField>
-        </Box>
-        <FormField label="Carpet Area (sq ft)">
-          <Input
-            type="number"
-            value={form.carpetArea?.toString() ?? ''}
-            onChange={(v) => set('carpetArea', v ? Number(v) : null)}
-            placeholder="e.g. 4500"
-            size="sm"
-          />
-        </FormField>
-        <FormField label="Headcount">
-          <Input
-            type="number"
-            value={form.headcount?.toString() ?? ''}
-            onChange={(v) => set('headcount', v ? Number(v) : null)}
-            placeholder="e.g. 120"
-            size="sm"
-          />
-        </FormField>
-      </FormSection>
-
-      <FormSection title="Area & Planning" columns={1} divider={false}>
-        <RichTextEditor
-          label="Workstations"
-          value={form.workstations ?? ''}
-          onChange={(html) => set('workstations', html || null)}
-          placeholder="Describe workstation requirements…"
-          minHeight={100}
-          toolbar={[...PROJECT_DETAIL_TOOLBAR]}
-        />
-        <RichTextEditor
-          label="Cabins"
-          value={form.cabins ?? ''}
-          onChange={(html) => set('cabins', html || null)}
-          placeholder="Describe cabin requirements…"
-          minHeight={100}
-          toolbar={[...PROJECT_DETAIL_TOOLBAR]}
-        />
-        <RichTextEditor
-          label="Meeting Rooms"
-          value={form.meetingRooms ?? ''}
-          onChange={(html) => set('meetingRooms', html || null)}
-          placeholder="Describe meeting room requirements…"
-          minHeight={100}
-          toolbar={[...PROJECT_DETAIL_TOOLBAR]}
-        />
-        <RichTextEditor
-          label="Services"
-          value={form.services ?? ''}
-          onChange={(html) => set('services', html || null)}
-          placeholder="Describe services requirements…"
-          minHeight={100}
-          toolbar={[...PROJECT_DETAIL_TOOLBAR]}
-        />
-        <RichTextEditor
-          label="Support Function"
-          value={form.supportFunction ?? ''}
-          onChange={(html) => set('supportFunction', html || null)}
-          placeholder="Describe support function requirements…"
-          minHeight={100}
-          toolbar={[...PROJECT_DETAIL_TOOLBAR]}
-        />
-        <FormField label="Expected Duration">
-          <Input
-            value={formatExpectedDuration(
-              form.startDate ?? null,
-              form.expectedEndDate ?? null,
-            )}
-            onChange={() => undefined}
-            size="sm"
-            disabled
-          />
-        </FormField>
-      </FormSection>
-    </DrawerForm>
-  )
-}
 
 // ─── Change Status Dialog ─────────────────────────────────────────────────────
 

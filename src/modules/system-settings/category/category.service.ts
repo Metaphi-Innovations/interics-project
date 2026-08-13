@@ -1,7 +1,8 @@
 import client from '@/api/client'
-import { toUiStatus, unwrapApiData, unwrapApiList } from '../shared/api'
+import { compactQueryParams, toUiStatus, unwrapApiData, unwrapApiList } from '../shared/api'
 import { withInflight } from '../shared/inflight'
 import type { Category } from '@/slices/settings/reducer'
+import type { ColumnFilterOption } from '@/components/listing'
 
 type CategoryApi = {
   id: string
@@ -12,6 +13,23 @@ type CategoryApi = {
 }
 
 const BASE = '/system-settings/categories'
+
+export type CategoryListParams = {
+  page?: number
+  limit?: number
+  search?: string
+  name?: string
+  description?: string
+  isActive?: string
+  sortBy?: string
+  sortOrder?: 'asc' | 'desc'
+}
+
+type CategoryFilters = {
+  name?: ColumnFilterOption[]
+  description?: ColumnFilterOption[]
+  isActive?: ColumnFilterOption[]
+}
 
 function toCategory(api: CategoryApi): Category {
   return {
@@ -24,11 +42,26 @@ function toCategory(api: CategoryApi): Category {
 }
 
 export const categoriesService = {
-  async getAll(): Promise<Category[]> {
-    return withInflight('categories:list', async () => {
-      const res = await client.get(BASE, { params: { limit: 100 } })
+  async getAll(params: CategoryListParams = {}): Promise<Category[]> {
+    const query = compactQueryParams({
+      page: params.page ?? 1,
+      limit: params.limit ?? 100,
+      search: params.search,
+      name: params.name,
+      description: params.description,
+      isActive: params.isActive,
+      sortBy: params.sortBy,
+      sortOrder: params.sortOrder,
+    })
+    return withInflight(`categories:list:${JSON.stringify(query)}`, async () => {
+      const res = await client.get(BASE, { params: query })
       return unwrapApiList<CategoryApi>(res.data).map(toCategory)
     })
+  },
+
+  async getFilters(): Promise<CategoryFilters> {
+    const res = await client.get(`${BASE}/filters`)
+    return unwrapApiData<CategoryFilters>(res.data)
   },
 
   async create(data: Omit<Category, 'id' | 'servicesCount'>): Promise<Category> {

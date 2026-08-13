@@ -44,6 +44,8 @@ function toListParams(params: FetchCustomersParams = {}): CustomerListParams {
     gstStatus,
     state: params.state,
     sector: params.sector,
+    customerName: params.customerName,
+    contactPerson: params.contactPerson,
     columns: params.columns,
     sortBy: params.sortBy,
     sortOrder: params.sortOrder,

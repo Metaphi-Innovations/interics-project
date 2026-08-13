@@ -30,7 +30,15 @@ interface UsersState {
   loading: boolean
   saving: boolean
   pagination: { page: number; pageSize: number; total: number }
-  filters: { search: string; role: string; status: string }
+  filters: {
+    search: string
+    role: string
+    status: string
+    name: string
+    phone: string
+    projectAccess: string
+    lastLogin: string
+  }
   sortConfig: { field: string; direction: 'asc' | 'desc' }
   error: string | null
 }
@@ -41,7 +49,15 @@ const initialState: UsersState = {
   loading: false,
   saving: false,
   pagination: { page: 1, pageSize: 20, total: 0 },
-  filters: { search: '', role: '', status: '' },
+  filters: {
+    search: '',
+    role: '',
+    status: '',
+    name: '',
+    phone: '',
+    projectAccess: '',
+    lastLogin: '',
+  },
   sortConfig: { field: 'name', direction: 'asc' },
   error: null,
 }
@@ -55,7 +71,15 @@ const usersSlice = createSlice({
       state.pagination.page = 1
     },
     resetFilters(state) {
-      state.filters = { search: '', role: '', status: '' }
+      state.filters = {
+        search: '',
+        role: '',
+        status: '',
+        name: '',
+        phone: '',
+        projectAccess: '',
+        lastLogin: '',
+      }
       state.pagination.page = 1
     },
     setPage(state, action: PayloadAction<number>) {
@@ -79,8 +103,8 @@ const usersSlice = createSlice({
       })
       .addCase(fetchUsers.fulfilled, (state, action) => {
         state.loading = false
-        state.items = action.payload ?? []
-        state.pagination.total = action.payload?.length ?? 0
+        state.items = action.payload.items ?? []
+        state.pagination.total = action.payload.total ?? action.payload.items?.length ?? 0
       })
       .addCase(fetchUsers.rejected, (state, action) => {
         state.loading = false

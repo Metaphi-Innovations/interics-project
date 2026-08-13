@@ -27,6 +27,7 @@ import { Button, Drawer, Select, StatusBadge } from '@/design-system/components'
 import type { StatusType } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { financeApi } from '@/api/financeApi'
+import { unwrapApiData } from '@/modules/system-settings/shared/api'
 import type {
   GlobalTdsClientEntry,
   GlobalTdsResponse,
@@ -197,7 +198,7 @@ export default function TDSPage() {
     setError(null)
     try {
       const res = await financeApi.getTdsData(params)
-      setTdsData(res.data)
+      setTdsData(unwrapApiData<GlobalTdsResponse>(res.data))
     } catch {
       setError('Could not load TDS data.')
       setTdsData(null)

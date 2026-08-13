@@ -20,15 +20,16 @@ import ReceiptLongIcon from '@mui/icons-material/ReceiptLong'
 import WarningAmberIcon from '@mui/icons-material/WarningAmber'
 import RequestQuoteIcon from '@mui/icons-material/RequestQuote'
 import DraftsIcon from '@mui/icons-material/Drafts'
-import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore'
-import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp'
-import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'
 import { useTheme, alpha } from '@mui/material/styles'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import { TrendingUp, Plus } from 'lucide-react'
 import dayjs from 'dayjs'
 import { ListingTemplate, KpiStatCard } from '@/components/templates'
 import type { FilterField, ColumnItem } from '@/components/templates/ListingTemplate'
+import {
+  FilterableSortHeader,
+  type ColumnFilterOption,
+} from '@/components/listing'
 import { StatusBadge, Modal, Button, DatePicker, Select, useToast } from '@/design-system/components'
 import type { StatusType } from '@/design-system/components'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
@@ -46,12 +47,14 @@ import type { Invoice } from '@/slices/receivables/reducer'
 import { formatCurrency } from '@/utils/formatters'
 import { tokens } from '@/design-system/tokens'
 import { CreateInvoiceDrawer } from './components/CreateInvoiceDrawer'
-import { InvoiceDetailDrawer, invoiceStatusToBadgeType } from './components/InvoiceDetailDrawer'
+import { InvoiceDetailDrawer } from './components/InvoiceDetailDrawer'
 import { RecordPaymentModal } from './components/RecordPaymentModal'
-import {
-  computeReceivableSummaryKpis,
-  type ReceivableKpiDateBounds,
-} from './utils/receivableSummary'
+import type { ReceivableSummaryKpis } from './utils/receivableSummary'
+import { financeApi } from '@/api/financeApi'
+import { receivablesApi } from '@/api/receivablesApi'
+import { unwrapApiData } from '@/modules/system-settings/shared/api'
+import { downloadCsv } from '@/api/downloadCsv'
+import { invoiceStatusToBadgeType, mapInvoiceStatus, showPartialPaidAlongsideTabStatus } from './invoiceStatus'
 
 type ReceivableKpiPeriod =
   | 'Today'
@@ -68,54 +71,8 @@ const KPI_PERIOD_OPTIONS: { label: string; value: ReceivableKpiPeriod }[] = [
   { label: 'Custom Date Range', value: 'Custom Date Range' },
 ]
 
-function startOfDay(d: Date): Date {
-  const next = new Date(d)
-  next.setHours(0, 0, 0, 0)
-  return next
-}
-
-function endOfDay(d: Date): Date {
-  const next = new Date(d)
-  next.setHours(23, 59, 59, 999)
-  return next
-}
-
-function getReceivableKpiPeriodBounds(
-  period: ReceivableKpiPeriod,
-  customFrom: Date | null,
-  customTo: Date | null,
-): ReceivableKpiDateBounds | null {
-  if (period === 'Custom Date Range') {
-    if (!customFrom || !customTo) return null
-    const start = startOfDay(customFrom)
-    const end = endOfDay(customTo)
-    return start <= end ? { start, end } : { start: endOfDay(customTo), end: endOfDay(customFrom) }
-  }
-
-  const end = endOfDay(new Date())
-  const start = startOfDay(new Date())
-
-  if (period === 'Today') return { start, end }
-
-  if (period === 'This Week') {
-    const day = start.getDay()
-    const mondayOffset = day === 0 ? -6 : 1 - day
-    start.setDate(start.getDate() + mondayOffset)
-    return { start, end }
-  }
-
-  if (period === 'This Month') {
-    start.setDate(1)
-    return { start, end }
-  }
-
-  // This Year
-  start.setMonth(0, 1)
-  return { start, end }
-}
-
 function isDueOverdue(inv: Invoice): boolean {
-  if (inv.status === 'paid' || inv.balance <= 0) return false
+  if (inv.balance <= 0) return false
   return dayjs(inv.dueDate).isBefore(dayjs(), 'day')
 }
 
@@ -133,58 +90,38 @@ type ReceivablesVisibleColumns = {
   status: boolean
 }
 
+type ReceivablesColumnFilters = {
+  invoiceNo: string
+  clientId: string
+  projectId: string
+  invoiceDate: string
+  dueDate: string
+  baseAmount: string
+  gstAmount: string
+  totalAmount: string
+  received: string
+  netReceivable: string
+  status: string
+}
+
+function toColumnFilterOptions(
+  options?: Array<{ value: string | number | boolean; label: string }>,
+): ColumnFilterOption[] {
+  return (options ?? []).map((option) => ({
+    value: String(option.value),
+    label: option.label,
+  }))
+}
+
+function toExactNumber(value: string): number | undefined {
+  if (!value.trim()) return undefined
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : undefined
+}
+
 function mainInvoiceTableColumnCount(v: ReceivablesVisibleColumns): number {
   const toggles = Object.values(v).filter(Boolean).length
   return 1 + toggles + 1
-}
-
-function SortHeader({
-  label,
-  field,
-  sortField,
-  sortDirection,
-  onSort,
-  sx,
-}: {
-  label: string
-  field: string
-  sortField: string | null
-  sortDirection: 'asc' | 'desc'
-  onSort: (f: string, d: 'asc' | 'desc') => void
-  sx?: object
-}) {
-  const isActive = sortField === field
-  function handleClick() {
-    if (isActive) onSort(field, sortDirection === 'asc' ? 'desc' : 'asc')
-    else onSort(field, 'asc')
-  }
-  return (
-    <TableCell
-      sx={{
-        fontSize: 11,
-        fontWeight: isActive ? 700 : 600,
-        color: isActive ? 'primary.main' : 'text.secondary',
-        py: 1,
-        px: 1.75,
-        borderBottom: `2px solid ${tokens.color.neutral[100]}`,
-        cursor: 'pointer',
-        userSelect: 'none',
-        whiteSpace: 'nowrap',
-        '&:hover': { color: 'primary.main' },
-        ...sx,
-      }}
-      onClick={handleClick}
-    >
-      <Stack direction="row" alignItems="center" gap={0.25}>
-        {label}
-        {isActive
-          ? sortDirection === 'asc'
-            ? <KeyboardArrowUpIcon sx={{ fontSize: 14, color: 'primary.main' }} />
-            : <KeyboardArrowDownIcon sx={{ fontSize: 14, color: 'primary.main' }} />
-          : <UnfoldMoreIcon sx={{ fontSize: 14, color: tokens.color.neutral[300] }} />}
-      </Stack>
-    </TableCell>
-  )
 }
 
 const menuItemSx = { fontSize: 12, minHeight: 32, py: 0.5 }
@@ -340,18 +277,6 @@ function RowActions({
   )
 }
 
-export function mapInvoiceStatus(inv: Invoice): string {
-  if (inv.status === 'uploaded') return 'draft'
-  if (inv.status === 'paid') return 'paid'
-  if (inv.status === 'overdue') return 'overdue'
-  if (inv.status === 'draft') return 'draft'
-  
-  const isOverdue = inv.balance > 0 && dayjs(inv.dueDate).isBefore(dayjs(), 'day')
-  if (isOverdue) return 'overdue'
-  
-  return 'tax'
-}
-
 export default function BillingsPage() {
   const dispatch = useAppDispatch()
   const { showToast } = useToast()
@@ -360,11 +285,17 @@ export default function BillingsPage() {
 
   const { items: rawItems, loading, filters, sortConfig, pagination, saving } = useAppSelector((s) => s.receivables)
   const items = useMemo(
-    () => (rawItems ?? []).map((inv) => ({ ...inv, status: mapInvoiceStatus(inv) as Invoice['status'] })),
+    () =>
+      (rawItems ?? []).map((inv) => ({
+        ...inv,
+        status: mapInvoiceStatus(inv) as Invoice['status'],
+        showPartialPaid: showPartialPaidAlongsideTabStatus(inv),
+      })),
     [rawItems],
   )
   const customers = useAppSelector((s) => s.customers.items ?? [])
   const projects = useAppSelector((s) => s.projects.items ?? [])
+  const [filterOptions, setFilterOptions] = useState<Record<string, Array<{ value: string; label: string }>> | null>(null)
 
   const [drawerCreate, setDrawerCreate] = useState(false)
   const [drawerEdit, setDrawerEdit] = useState<Invoice | null>(null)
@@ -373,9 +304,30 @@ export default function BillingsPage() {
   const [sendTarget, setSendTarget] = useState<Invoice | null>(null)
   const [convertTaxTarget, setConvertTaxTarget] = useState<Invoice | null>(null)
   const [activeFilters, setActiveFilters] = useState<Record<string, unknown>>({})
+  const [searchInput, setSearchInput] = useState(filters.search)
+  const [columnFilters, setColumnFilters] = useState<ReceivablesColumnFilters>({
+    invoiceNo: '',
+    clientId: '',
+    projectId: '',
+    invoiceDate: '',
+    dueDate: '',
+    baseAmount: '',
+    gstAmount: '',
+    totalAmount: '',
+    received: '',
+    netReceivable: '',
+    status: '',
+  })
   const [kpiPeriod, setKpiPeriod] = useState<ReceivableKpiPeriod>('This Month')
   const [kpiCustomFrom, setKpiCustomFrom] = useState<Date | null>(null)
   const [kpiCustomTo, setKpiCustomTo] = useState<Date | null>(null)
+  const [kpis, setKpis] = useState<ReceivableSummaryKpis>({
+    totalPoValue: 0,
+    receivedTillDate: 0,
+    pending: 0,
+    taxInvoiceRaised: 0,
+    draftInvoiceSent: 0,
+  })
   const [visibleColumns, setVisibleColumns] = useState<ReceivablesVisibleColumns>({
     clientName: true,
     projectName: true,
@@ -414,13 +366,36 @@ export default function BillingsPage() {
   const mainColCount = useMemo(() => mainInvoiceTableColumnCount(visibleColumns), [visibleColumns])
 
   function reload() {
-    dispatch(fetchInvoices({ page: 1, pageSize: 200 }))
+    dispatch(
+      fetchInvoices({
+        page: pagination.page,
+        pageSize: pagination.pageSize,
+        status: columnFilters.status || (filters.statusTab === 'all' ? undefined : filters.statusTab),
+        search: filters.search || undefined,
+        clientId: columnFilters.clientId || filters.clientId || undefined,
+        projectId: columnFilters.projectId || filters.projectId || undefined,
+        dateFrom: filters.dateFrom || undefined,
+        dateTo: filters.dateTo || undefined,
+        amountMin: filters.amountMin || undefined,
+        amountMax: filters.amountMax || undefined,
+        invoiceNo: columnFilters.invoiceNo || undefined,
+        invoiceDate: columnFilters.invoiceDate || undefined,
+        dueDate: columnFilters.dueDate || undefined,
+        baseAmount: toExactNumber(columnFilters.baseAmount),
+        gstAmount: toExactNumber(columnFilters.gstAmount),
+        totalAmount: toExactNumber(columnFilters.totalAmount),
+        received: toExactNumber(columnFilters.received),
+        netReceivable: toExactNumber(columnFilters.netReceivable),
+        sortBy: sortConfig.field || undefined,
+        sortOrder: sortConfig.field ? sortConfig.direction : undefined,
+      }),
+    )
   }
 
   useEffect(() => {
     dispatch(fetchCustomers({}))
     dispatch(fetchProjects({}))
-    reload()
+    void receivablesApi.getFilters().then(setFilterOptions).catch(() => setFilterOptions(null))
     setActiveFilters({
       clientId: '',
       projectId: '',
@@ -433,10 +408,57 @@ export default function BillingsPage() {
   }, [])
 
   useEffect(() => {
+    reload()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    pagination.page,
+    pagination.pageSize,
+    filters.statusTab,
+    filters.search,
+    filters.clientId,
+    filters.projectId,
+    filters.dateFrom,
+    filters.dateTo,
+    filters.amountMin,
+    filters.amountMax,
+    columnFilters.invoiceNo,
+    columnFilters.clientId,
+    columnFilters.projectId,
+    columnFilters.invoiceDate,
+    columnFilters.dueDate,
+    columnFilters.baseAmount,
+    columnFilters.gstAmount,
+    columnFilters.totalAmount,
+    columnFilters.received,
+    columnFilters.netReceivable,
+    columnFilters.status,
+    sortConfig.field,
+    sortConfig.direction,
+  ])
+
+  useEffect(() => {
+    let cancelled = false
+    void financeApi
+      .getReceivablesSummary({ period: kpiPeriod })
+      .then((res) => {
+        const data = unwrapApiData<ReceivableSummaryKpis>(res.data)
+        if (!cancelled && data) setKpis(data)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [kpiPeriod])
+
+  useEffect(() => {
     return () => {
       if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
     }
   }, [])
+
+  useEffect(() => {
+    setSearchInput(filters.search)
+  }, [filters.search])
 
   const clientOpts = useMemo(
     () => [{ label: 'All clients', value: '' }, ...customers.map((c) => ({ label: c.name, value: c.id }))],
@@ -461,98 +483,6 @@ export default function BillingsPage() {
     ],
     [clientOpts, projectOpts],
   )
-
-  const baseFiltered = useMemo(() => {
-    let list = [...items]
-    const q = filters.search.trim().toLowerCase()
-    if (q) {
-      list = list.filter(
-        (i) =>
-          i.invoiceNo.toLowerCase().includes(q) ||
-          i.clientName.toLowerCase().includes(q) ||
-          i.projectName.toLowerCase().includes(q),
-      )
-    }
-    if (filters.clientId) list = list.filter((i) => i.clientId === filters.clientId)
-    if (filters.projectId) list = list.filter((i) => i.projectId === filters.projectId)
-    if (filters.dateFrom) list = list.filter((i) => i.invoiceDate >= filters.dateFrom)
-    if (filters.dateTo) list = list.filter((i) => i.invoiceDate <= filters.dateTo)
-    const amin = Number(filters.amountMin)
-    if (filters.amountMin !== '' && !Number.isNaN(amin)) list = list.filter((i) => i.totalAmount >= amin)
-    const amax = Number(filters.amountMax)
-    if (filters.amountMax !== '' && !Number.isNaN(amax)) list = list.filter((i) => i.totalAmount <= amax)
-    return list
-  }, [items, filters])
-
-  const tabFiltered = useMemo(() => {
-    if (filters.statusTab === 'all') return baseFiltered
-    return baseFiltered.filter((i) => i.status === filters.statusTab)
-  }, [baseFiltered, filters.statusTab])
-
-  const sortedRows = useMemo(() => {
-    const f = sortConfig.field
-    const dir = sortConfig.direction === 'asc' ? 1 : -1
-    const list = [...tabFiltered]
-    if (!f) return list
-    list.sort((a, b) => {
-      let av: string | number = ''
-      let bv: string | number = ''
-      if (f === 'invoiceNo') {
-        av = a.invoiceNo.toLowerCase()
-        bv = b.invoiceNo.toLowerCase()
-      } else if (f === 'invoiceDate') {
-        av = a.invoiceDate
-        bv = b.invoiceDate
-      } else if (f === 'dueDate') {
-        av = a.dueDate
-        bv = b.dueDate
-      } else if (f === 'totalAmount') {
-        av = a.totalAmount
-        bv = b.totalAmount
-      } else if (f === 'clientName') {
-        av = a.clientName.toLowerCase()
-        bv = b.clientName.toLowerCase()
-      }
-      if (typeof av === 'number' && typeof bv === 'number') return av === bv ? 0 : av > bv ? dir : -dir
-      return String(av).localeCompare(String(bv)) * dir
-    })
-    return list
-  }, [tabFiltered, sortConfig])
-
-  const pageSize = pagination.pageSize
-  const pageIdx = pagination.page - 1
-  const pagedRows = useMemo(
-    () => sortedRows.slice(pageIdx * pageSize, pageIdx * pageSize + pageSize),
-    [sortedRows, pageIdx, pageSize],
-  )
-
-  const tabCounts = useMemo(() => {
-    return {
-      all: baseFiltered.length,
-      draft: baseFiltered.filter((i) => i.status === 'draft').length,
-      tax: baseFiltered.filter((i) => i.status === 'tax').length,
-      overdue: baseFiltered.filter((i) => i.status === 'overdue').length,
-      paid: baseFiltered.filter((i) => i.status === 'paid').length,
-    }
-  }, [baseFiltered])
-
-  const kpiBounds = useMemo(
-    () => getReceivableKpiPeriodBounds(kpiPeriod, kpiCustomFrom, kpiCustomTo),
-    [kpiPeriod, kpiCustomFrom, kpiCustomTo],
-  )
-
-  const kpis = useMemo(() => {
-    if (kpiPeriod === 'Custom Date Range' && !kpiBounds) {
-      return {
-        totalPoValue: 0,
-        receivedTillDate: 0,
-        pending: 0,
-        taxInvoiceRaised: 0,
-        draftInvoiceSent: 0,
-      }
-    }
-    return computeReceivableSummaryKpis(rawItems ?? [], projects, kpiBounds)
-  }, [rawItems, projects, kpiPeriod, kpiBounds])
 
   const statCards = [
     {
@@ -655,7 +585,7 @@ export default function BillingsPage() {
       </Stack>
 
       <Box sx={{ p: 2 }}>
-        {kpiPeriod === 'Custom Date Range' && !kpiBounds ? (
+        {kpiPeriod === 'Custom Date Range' && (!kpiCustomFrom || !kpiCustomTo) ? (
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
             Select a start and end date to update KPI values.
           </Typography>
@@ -685,14 +615,15 @@ export default function BillingsPage() {
   )
 
   const tabs = [
-    { label: 'All', value: 'all', count: tabCounts.all },
-    { label: 'Draft', value: 'draft', count: tabCounts.draft },
-    { label: 'Tax', value: 'tax', count: tabCounts.tax },
-    { label: 'Overdue', value: 'overdue', count: tabCounts.overdue },
-    { label: 'Paid', value: 'paid', count: tabCounts.paid },
+    { label: 'All', value: 'all' },
+    { label: 'Draft', value: 'draft' },
+    { label: 'Tax', value: 'tax' },
+    { label: 'Overdue', value: 'overdue' },
+    { label: 'Paid', value: 'paid' },
   ]
 
   function handleSearchChange(v: string) {
+    setSearchInput(v)
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
     searchTimeoutRef.current = setTimeout(() => {
       dispatch(setFilters({ search: v }))
@@ -701,6 +632,11 @@ export default function BillingsPage() {
 
   function handleFilterChange(next: Record<string, unknown>) {
     setActiveFilters(next)
+    setColumnFilters((prev) => ({
+      ...prev,
+      clientId: String(next.clientId ?? ''),
+      projectId: String(next.projectId ?? ''),
+    }))
     dispatch(
       setFilters({
         clientId: String(next.clientId ?? ''),
@@ -715,6 +651,7 @@ export default function BillingsPage() {
 
   function handleFilterReset() {
     setActiveFilters({})
+    setColumnFilters((prev) => ({ ...prev, clientId: '', projectId: '' }))
     dispatch(
       setFilters({
         clientId: '',
@@ -734,6 +671,63 @@ export default function BillingsPage() {
 
   function handleSort(field: string, direction: 'asc' | 'desc') {
     dispatch(setSortConfig({ field, direction }))
+    dispatch(setPage(1))
+  }
+
+  const invoiceNoOptions = toColumnFilterOptions(filterOptions?.invoiceNos)
+  const clientOptions = toColumnFilterOptions(filterOptions?.clients)
+  const projectOptions = toColumnFilterOptions(filterOptions?.projects)
+  const invoiceDateOptions = toColumnFilterOptions(filterOptions?.invoiceDates)
+  const dueDateOptions = toColumnFilterOptions(filterOptions?.dueDates)
+  const baseAmountOptions = toColumnFilterOptions(filterOptions?.baseAmounts)
+  const gstAmountOptions = toColumnFilterOptions(filterOptions?.gstAmounts)
+  const totalAmountOptions = toColumnFilterOptions(filterOptions?.totalAmounts)
+  const receivedOptions = toColumnFilterOptions(filterOptions?.receivedAmounts)
+  const netReceivableOptions = toColumnFilterOptions(filterOptions?.netReceivables)
+  const statusOptions = toColumnFilterOptions(filterOptions?.statuses)
+
+  function handleColumnFilter(field: keyof ReceivablesColumnFilters, value: string) {
+    setColumnFilters((prev) => ({ ...prev, [field]: value }))
+    dispatch(setPage(1))
+    if (field === 'clientId' || field === 'projectId') {
+      setActiveFilters((prev) => ({ ...prev, [field]: value }))
+      dispatch(setFilters({ [field]: value }))
+    }
+    if (field === 'status') {
+      dispatch(setFilters({ statusTab: value || 'all' }))
+    }
+  }
+
+  function handleResetAll() {
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
+    setSearchInput('')
+    setActiveFilters({})
+    setColumnFilters({
+      invoiceNo: '',
+      clientId: '',
+      projectId: '',
+      invoiceDate: '',
+      dueDate: '',
+      baseAmount: '',
+      gstAmount: '',
+      totalAmount: '',
+      received: '',
+      netReceivable: '',
+      status: '',
+    })
+    dispatch(
+      setFilters({
+        search: '',
+        clientId: '',
+        projectId: '',
+        dateFrom: '',
+        dateTo: '',
+        amountMin: '',
+        amountMax: '',
+      }),
+    )
+    dispatch(setSortConfig({ field: null, direction: 'asc' }))
+    dispatch(setPage(1))
   }
 
   async function confirmSend() {
@@ -762,6 +756,34 @@ export default function BillingsPage() {
 
   const detailOpen = Boolean(detailId)
 
+  async function handleExport() {
+    try {
+      await downloadCsv(
+        '/invoices/export',
+        {
+          status: columnFilters.status || (filters.statusTab === 'all' ? undefined : filters.statusTab),
+          search: filters.search || undefined,
+          clientId: columnFilters.clientId || filters.clientId || undefined,
+          projectId: columnFilters.projectId || filters.projectId || undefined,
+          invoiceNo: columnFilters.invoiceNo || undefined,
+          invoiceDate: columnFilters.invoiceDate || undefined,
+          dueDate: columnFilters.dueDate || undefined,
+          baseAmount: toExactNumber(columnFilters.baseAmount),
+          gstAmount: toExactNumber(columnFilters.gstAmount),
+          totalAmount: toExactNumber(columnFilters.totalAmount),
+          received: toExactNumber(columnFilters.received),
+          netReceivable: toExactNumber(columnFilters.netReceivable),
+          sortBy: sortConfig.field || undefined,
+          sortOrder: sortConfig.direction || undefined,
+        },
+        `invoices-${new Date().toISOString().slice(0, 10)}.csv`,
+      )
+      showToast({ title: 'Export started', variant: 'success' })
+    } catch {
+      showToast({ title: 'Failed to export invoices', variant: 'error' })
+    }
+  }
+
   return (
     <>
       <ListingTemplate
@@ -774,16 +796,17 @@ export default function BillingsPage() {
         activeTab={filters.statusTab}
         onTabChange={handleTabChange}
         searchPlaceholder="Invoice no. / client / project…"
-        searchValue={filters.search}
+        searchValue={searchInput}
         onSearchChange={handleSearchChange}
         filterConfig={filterConfig}
         activeFilters={activeFilters}
         onFilterChange={handleFilterChange}
         onFilterReset={handleFilterReset}
+        onResetAll={handleResetAll}
         showExport
-        onExport={() => showToast({ title: 'Export started (placeholder)', variant: 'success' })}
+        onExport={handleExport}
         pageSize={pagination.pageSize}
-        totalCount={sortedRows.length}
+        totalCount={pagination.total}
         page={pagination.page - 1}
         onPageChange={(p) => dispatch(setPage(p + 1))}
         onPageSizeChange={(s) => dispatch(setPageSize(s))}
@@ -794,36 +817,146 @@ export default function BillingsPage() {
             <Table size="small">
               <TableHead>
                 <TableRow sx={{ bgcolor: alpha(theme.palette.text.primary, 0.02) }}>
-                  <SortHeader label="Invoice no." field="invoiceNo" sortField={sortConfig.field} sortDirection={sortConfig.direction} onSort={handleSort} />
+                  <FilterableSortHeader
+                    label="Invoice no."
+                    field="invoiceNo"
+                    sortField={sortConfig.field ?? undefined}
+                    sortDirection={sortConfig.direction}
+                    onSort={handleSort}
+                    filterValue={columnFilters.invoiceNo}
+                    filterOptions={invoiceNoOptions}
+                    onFilter={(value) => handleColumnFilter('invoiceNo', value)}
+                    sx={HEADER_CELL_SX}
+                  />
                   {visibleColumns.clientName && (
-                    <SortHeader label="Client" field="clientName" sortField={sortConfig.field} sortDirection={sortConfig.direction} onSort={handleSort} />
+                    <FilterableSortHeader
+                      label="Client"
+                      field="clientName"
+                      sortField={sortConfig.field ?? undefined}
+                      sortDirection={sortConfig.direction}
+                      onSort={handleSort}
+                      filterValue={columnFilters.clientId}
+                      filterOptions={clientOptions}
+                      onFilter={(value) => handleColumnFilter('clientId', value)}
+                      sx={HEADER_CELL_SX}
+                    />
                   )}
                   {visibleColumns.projectName && (
-                    <TableCell sx={HEADER_CELL_SX}>Project</TableCell>
+                    <FilterableSortHeader
+                      label="Project"
+                      field="projectName"
+                      sortField={sortConfig.field ?? undefined}
+                      sortDirection={sortConfig.direction}
+                      onSort={handleSort}
+                      filterValue={columnFilters.projectId}
+                      filterOptions={projectOptions}
+                      onFilter={(value) => handleColumnFilter('projectId', value)}
+                      sx={HEADER_CELL_SX}
+                    />
                   )}
                   {visibleColumns.invoiceDate && (
-                    <SortHeader label="Invoice date" field="invoiceDate" sortField={sortConfig.field} sortDirection={sortConfig.direction} onSort={handleSort} />
+                    <FilterableSortHeader
+                      label="Invoice date"
+                      field="invoiceDate"
+                      sortField={sortConfig.field ?? undefined}
+                      sortDirection={sortConfig.direction}
+                      onSort={handleSort}
+                      filterValue={columnFilters.invoiceDate}
+                      filterOptions={invoiceDateOptions}
+                      onFilter={(value) => handleColumnFilter('invoiceDate', value)}
+                      sx={HEADER_CELL_SX}
+                    />
                   )}
                   {visibleColumns.dueDate && (
-                    <SortHeader label="Due date" field="dueDate" sortField={sortConfig.field} sortDirection={sortConfig.direction} onSort={handleSort} />
+                    <FilterableSortHeader
+                      label="Due date"
+                      field="dueDate"
+                      sortField={sortConfig.field ?? undefined}
+                      sortDirection={sortConfig.direction}
+                      onSort={handleSort}
+                      filterValue={columnFilters.dueDate}
+                      filterOptions={dueDateOptions}
+                      onFilter={(value) => handleColumnFilter('dueDate', value)}
+                      sx={HEADER_CELL_SX}
+                    />
                   )}
                   {visibleColumns.baseAmount && (
-                    <TableCell sx={HEADER_CELL_SX}>Base</TableCell>
+                    <FilterableSortHeader
+                      label="Base"
+                      field="baseAmount"
+                      sortField={sortConfig.field ?? undefined}
+                      sortDirection={sortConfig.direction}
+                      onSort={handleSort}
+                      filterValue={columnFilters.baseAmount}
+                      filterOptions={baseAmountOptions}
+                      onFilter={(value) => handleColumnFilter('baseAmount', value)}
+                      sx={HEADER_CELL_SX}
+                    />
                   )}
                   {visibleColumns.gstAmount && (
-                    <TableCell sx={HEADER_CELL_SX}>GST</TableCell>
+                    <FilterableSortHeader
+                      label="GST"
+                      field="gstAmount"
+                      sortField={sortConfig.field ?? undefined}
+                      sortDirection={sortConfig.direction}
+                      onSort={handleSort}
+                      filterValue={columnFilters.gstAmount}
+                      filterOptions={gstAmountOptions}
+                      onFilter={(value) => handleColumnFilter('gstAmount', value)}
+                      sx={HEADER_CELL_SX}
+                    />
                   )}
                   {visibleColumns.totalAmount && (
-                    <TableCell sx={HEADER_CELL_SX}>Amount</TableCell>
+                    <FilterableSortHeader
+                      label="Amount"
+                      field="totalAmount"
+                      sortField={sortConfig.field ?? undefined}
+                      sortDirection={sortConfig.direction}
+                      onSort={handleSort}
+                      filterValue={columnFilters.totalAmount}
+                      filterOptions={totalAmountOptions}
+                      onFilter={(value) => handleColumnFilter('totalAmount', value)}
+                      sx={HEADER_CELL_SX}
+                    />
                   )}
                   {visibleColumns.totalReceived && (
-                    <TableCell sx={HEADER_CELL_SX}>Received</TableCell>
+                    <FilterableSortHeader
+                      label="Received"
+                      field="received"
+                      sortField={sortConfig.field ?? undefined}
+                      sortDirection={sortConfig.direction}
+                      onSort={handleSort}
+                      filterValue={columnFilters.received}
+                      filterOptions={receivedOptions}
+                      onFilter={(value) => handleColumnFilter('received', value)}
+                      sx={HEADER_CELL_SX}
+                    />
                   )}
                   {visibleColumns.balance && (
-                    <TableCell sx={HEADER_CELL_SX}>Net receivable</TableCell>
+                    <FilterableSortHeader
+                      label="Net receivable"
+                      field="netReceivable"
+                      sortField={sortConfig.field ?? undefined}
+                      sortDirection={sortConfig.direction}
+                      onSort={handleSort}
+                      filterValue={columnFilters.netReceivable}
+                      filterOptions={netReceivableOptions}
+                      onFilter={(value) => handleColumnFilter('netReceivable', value)}
+                      sx={HEADER_CELL_SX}
+                    />
                   )}
                   {visibleColumns.status && (
-                    <TableCell sx={HEADER_CELL_SX}>Status</TableCell>
+                    <FilterableSortHeader
+                      label="Status"
+                      field="status"
+                      sortField={sortConfig.field ?? undefined}
+                      sortDirection={sortConfig.direction}
+                      onSort={handleSort}
+                      filterValue={columnFilters.status}
+                      filterOptions={statusOptions}
+                      onFilter={(value) => handleColumnFilter('status', value)}
+                      sx={HEADER_CELL_SX}
+                    />
                   )}
                   <TableCell sx={HEADER_ACTION_SX}>
                     <Box sx={CENTER_CELL_CONTENT_SX}>Action</Box>
@@ -841,7 +974,7 @@ export default function BillingsPage() {
                         ))}
                       </TableRow>
                     ))
-                  : pagedRows.map((inv) => {
+                  : items.map((inv) => {
                       const dueRed = inv.status === 'overdue' || isDueOverdue(inv)
                       return (
                         <TableRow
@@ -912,7 +1045,10 @@ export default function BillingsPage() {
                           )}
                           {visibleColumns.status && (
                             <TableCell sx={BODY_CELL_SX}>
-                              <StatusBadge status={invoiceStatusToBadgeType(inv.status) as StatusType} />
+                              <Stack direction="row" gap={0.5} flexWrap="wrap" useFlexGap alignItems="center">
+                                <StatusBadge status={invoiceStatusToBadgeType(inv.status) as StatusType} />
+                                {inv.showPartialPaid ? <StatusBadge status="partially_paid" /> : null}
+                              </Stack>
                             </TableCell>
                           )}
                           <TableCell

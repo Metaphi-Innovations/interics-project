@@ -196,7 +196,8 @@ export function mergeClientPOMilestoneEditsFromCards(
 
   return existing.map((milestone) => {
     const isPaid =
-      clientMilestonePaymentStatus(invoices, milestone.id, milestone.serviceId) === 'Paid'
+      clientMilestonePaymentStatus(invoices, milestone.id, milestone.serviceId, milestone.name) ===
+      'Paid'
     if (isPaid) return milestone
 
     if (isRetentionMilestoneRow(milestone)) {

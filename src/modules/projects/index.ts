@@ -10,4 +10,5 @@ export type {
   ProjectCreateFormInput,
   ProjectListParams,
   ProjectListResult,
+  ProjectFiltersApi,
 } from './projects.types'

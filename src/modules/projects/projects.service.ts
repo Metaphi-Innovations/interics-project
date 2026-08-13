@@ -12,6 +12,7 @@ import {
 import type {
   ProjectCreateFormInput,
   ProjectDetailApi,
+  ProjectFiltersApi,
   ProjectListItemApi,
   ProjectListParams,
   ProjectListResult,
@@ -87,6 +88,11 @@ function isCreateFormInput(data: unknown): data is ProjectCreateFormInput {
 export const projectsService = {
   fieldAliases: PROJECT_FIELD_ALIASES,
 
+  async getFilters(): Promise<ProjectFiltersApi> {
+    const res = await client.get(`${BASE}/filters`)
+    return unwrapApiData<ProjectFiltersApi>(res.data)
+  },
+
   async getAll(params: ProjectListParams = {}): Promise<ProjectListResult> {
     const res = await client.get(BASE, {
       params: {
@@ -97,6 +103,10 @@ export const projectsService = {
         customerId: params.customerId || undefined,
         sector: params.sector || undefined,
         projectLeadId: params.projectLeadId || undefined,
+        projectName: params.projectName || undefined,
+        projectType: params.projectType || undefined,
+        expectedStartDate: params.expectedStartDate || undefined,
+        expectedEndDate: params.expectedEndDate || undefined,
         columns: (params.columns ?? DEFAULT_LIST_COLUMNS).join(','),
         sortBy: params.sortBy || undefined,
         sortOrder: params.sortOrder || undefined,

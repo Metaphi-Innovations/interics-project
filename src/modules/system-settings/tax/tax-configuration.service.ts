@@ -1,5 +1,6 @@
 import client from '@/api/client'
 import {
+  compactQueryParams,
   toApiStatus,
   toUiStatus,
   unwrapApiData,
@@ -7,6 +8,7 @@ import {
 } from '../shared/api'
 import { withInflight } from '../shared/inflight'
 import type { GSTRate, TDSSection } from '@/slices/settings/reducer'
+import type { ColumnFilterOption } from '@/components/listing'
 
 type GstApi = {
   id: string
@@ -29,6 +31,46 @@ type TdsApi = {
 
 const GST_BASE = '/system-settings/tax/gst-slabs'
 const TDS_BASE = '/system-settings/tax/tds-sections'
+
+export type GstListParams = {
+  page?: number
+  limit?: number
+  search?: string
+  slabName?: string
+  ratePercent?: string
+  description?: string
+  status?: string
+  sortBy?: string
+  sortOrder?: 'asc' | 'desc'
+}
+
+export type TdsListParams = {
+  page?: number
+  limit?: number
+  search?: string
+  sectionCode?: string
+  description?: string
+  defaultRatePercent?: string
+  appliesTo?: string
+  status?: string
+  sortBy?: string
+  sortOrder?: 'asc' | 'desc'
+}
+
+type GstFilters = {
+  slabName?: ColumnFilterOption[]
+  ratePercent?: ColumnFilterOption[]
+  description?: ColumnFilterOption[]
+  status?: ColumnFilterOption[]
+}
+
+type TdsFilters = {
+  sectionCode?: ColumnFilterOption[]
+  description?: ColumnFilterOption[]
+  defaultRatePercent?: ColumnFilterOption[]
+  appliesTo?: ColumnFilterOption[]
+  status?: ColumnFilterOption[]
+}
 
 function toGstRate(api: GstApi): GSTRate {
   return {
@@ -77,11 +119,27 @@ function toTdsPayload(data: Omit<TDSSection, 'id'> | Partial<TDSSection>) {
 }
 
 export const taxConfigurationService = {
-  async getGstRates(): Promise<GSTRate[]> {
-    return withInflight('tax:gst-slabs', async () => {
-      const res = await client.get(GST_BASE, { params: { limit: 100 } })
+  async getGstRates(params: GstListParams = {}): Promise<GSTRate[]> {
+    const query = compactQueryParams({
+      page: params.page ?? 1,
+      limit: params.limit ?? 100,
+      search: params.search,
+      slabName: params.slabName,
+      ratePercent: params.ratePercent,
+      description: params.description,
+      status: params.status,
+      sortBy: params.sortBy,
+      sortOrder: params.sortOrder,
+    })
+    return withInflight(`tax:gst-slabs:${JSON.stringify(query)}`, async () => {
+      const res = await client.get(GST_BASE, { params: query })
       return unwrapApiList<GstApi>(res.data).map(toGstRate)
     })
+  },
+
+  async getGstFilters(): Promise<GstFilters> {
+    const res = await client.get(`${GST_BASE}/filters`)
+    return unwrapApiData<GstFilters>(res.data)
   },
 
   async createGstRate(data: Omit<GSTRate, 'id'>): Promise<GSTRate> {
@@ -99,11 +157,28 @@ export const taxConfigurationService = {
     return toGstRate(unwrapApiData<GstApi>(res.data))
   },
 
-  async getTdsSections(): Promise<TDSSection[]> {
-    return withInflight('tax:tds-sections', async () => {
-      const res = await client.get(TDS_BASE, { params: { limit: 100 } })
+  async getTdsSections(params: TdsListParams = {}): Promise<TDSSection[]> {
+    const query = compactQueryParams({
+      page: params.page ?? 1,
+      limit: params.limit ?? 100,
+      search: params.search,
+      sectionCode: params.sectionCode,
+      description: params.description,
+      defaultRatePercent: params.defaultRatePercent,
+      appliesTo: params.appliesTo,
+      status: params.status,
+      sortBy: params.sortBy,
+      sortOrder: params.sortOrder,
+    })
+    return withInflight(`tax:tds-sections:${JSON.stringify(query)}`, async () => {
+      const res = await client.get(TDS_BASE, { params: query })
       return unwrapApiList<TdsApi>(res.data).map(toTdsSection)
     })
+  },
+
+  async getTdsFilters(): Promise<TdsFilters> {
+    const res = await client.get(`${TDS_BASE}/filters`)
+    return unwrapApiData<TdsFilters>(res.data)
   },
 
   async createTdsSection(data: Omit<TDSSection, 'id'>): Promise<TDSSection> {

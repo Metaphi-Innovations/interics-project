@@ -9,6 +9,7 @@ let mockRoles: Role[] = [
     description: 'Full system access including settings and user management',
     isSystem: true,
     userCount: 1,
+    status: 'active',
   },
   {
     id: 'r-002',
@@ -17,6 +18,7 @@ let mockRoles: Role[] = [
     description: 'Full access across all modules and projects',
     isSystem: true,
     userCount: 2,
+    status: 'active',
   },
   {
     id: 'r-003',
@@ -25,6 +27,7 @@ let mockRoles: Role[] = [
     description: 'Access to assigned projects only',
     isSystem: true,
     userCount: 2,
+    status: 'active',
   },
   {
     id: 'r-004',
@@ -33,6 +36,7 @@ let mockRoles: Role[] = [
     description: 'Read-only access across assigned projects',
     isSystem: true,
     userCount: 1,
+    status: 'active',
   },
 ]
 
@@ -48,8 +52,52 @@ export function recalculateRoleUserCountsFromUsers(users: { role: string }[]) {
 }
 
 export const rolesHandlers = [
-  http.get('/api/v1/roles', () => {
-    return HttpResponse.json(mockRoles)
+  http.get('/api/v1/roles', ({ request }) => {
+    const url = new URL(request.url)
+    const search = url.searchParams.get('search')?.toLowerCase() ?? ''
+    const name = url.searchParams.get('name')?.toLowerCase() ?? ''
+    const type = url.searchParams.get('type') ?? ''
+    const status = url.searchParams.get('status')?.toLowerCase() ?? ''
+
+    let filtered = mockRoles
+
+    if (search) {
+      filtered = filtered.filter(
+        (role) =>
+          role.name.toLowerCase().includes(search) ||
+          (role.description ?? '').toLowerCase().includes(search),
+      )
+    }
+    if (name) {
+      filtered = filtered.filter((role) => role.name.toLowerCase() === name)
+    }
+    if (type) {
+      filtered = filtered.filter((role) => (type === 'SYSTEM' ? role.isSystem : !role.isSystem))
+    }
+    if (status) {
+      filtered = filtered.filter((role) => role.status === status)
+    }
+
+    return HttpResponse.json(filtered)
+  }),
+
+  http.get('/api/v1/roles/filters', () => {
+    const names = Array.from(new Set(mockRoles.map((role) => role.name))).map((value) => ({
+      value,
+      label: value,
+    }))
+    return HttpResponse.json({
+      name: names,
+      type: [
+        { value: 'SYSTEM', label: 'System' },
+        { value: 'CUSTOM', label: 'Custom' },
+      ],
+      statuses: [
+        { value: 'ACTIVE', label: 'Active' },
+        { value: 'INACTIVE', label: 'Inactive' },
+      ],
+      level: [],
+    })
   }),
 
   http.get('/api/v1/roles/:id', ({ params }) => {
@@ -59,7 +107,7 @@ export const rolesHandlers = [
   }),
 
   http.post('/api/v1/roles', async ({ request }) => {
-    const data = (await request.json()) as Pick<Role, 'name' | 'level' | 'description'>
+    const data = (await request.json()) as Pick<Role, 'name' | 'level' | 'description' | 'status'>
     const newRole: Role = {
       id: `r-${String(roleIdCounter++).padStart(3, '0')}`,
       name: data.name,
@@ -67,6 +115,7 @@ export const rolesHandlers = [
       description: data.description,
       userCount: 0,
       isSystem: false,
+      status: data.status ?? 'active',
     }
     mockRoles.push(newRole)
     return HttpResponse.json(newRole, { status: 201 })
@@ -77,6 +126,28 @@ export const rolesHandlers = [
     if (idx === -1) return HttpResponse.json({ message: 'Role not found' }, { status: 404 })
     const data = (await request.json()) as Partial<Pick<Role, 'name' | 'level' | 'description'>>
     mockRoles[idx] = { ...mockRoles[idx], ...data }
+    return HttpResponse.json(mockRoles[idx])
+  }),
+
+  http.patch('/api/v1/roles/:id/status', async ({ params, request }) => {
+    const idx = mockRoles.findIndex((r) => r.id === params.id)
+    if (idx === -1) return HttpResponse.json({ message: 'Role not found' }, { status: 404 })
+
+    const body = (await request.json().catch(() => ({}))) as { status?: 'ACTIVE' | 'INACTIVE' }
+    if (!body.status) {
+      return HttpResponse.json({ message: 'Status is required' }, { status: 400 })
+    }
+    if (mockRoles[idx].isSystem) {
+      return HttpResponse.json({ message: 'System roles cannot be updated' }, { status: 400 })
+    }
+    if (body.status === 'INACTIVE' && mockRoles[idx].userCount > 0) {
+      return HttpResponse.json({ message: 'Cannot deactivate role assigned to active users' }, { status: 400 })
+    }
+
+    mockRoles[idx] = {
+      ...mockRoles[idx],
+      status: body.status === 'ACTIVE' ? 'active' : 'inactive',
+    }
     return HttpResponse.json(mockRoles[idx])
   }),
 

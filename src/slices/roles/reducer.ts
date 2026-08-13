@@ -1,6 +1,6 @@
 import { createSlice } from '@reduxjs/toolkit'
 import type { Role } from '../../types/permissions'
-import { fetchRoles, createRole, updateRole, deleteRole } from './thunk'
+import { fetchRoles, createRole, updateRole, deleteRole, toggleRoleStatus } from './thunk'
 
 interface RolesState {
   items: Role[]
@@ -50,6 +50,14 @@ const rolesSlice = createSlice({
         if (idx !== -1) state.items[idx] = action.payload
       })
       .addCase(updateRole.rejected, (state) => { state.saving = false })
+
+      .addCase(toggleRoleStatus.pending, (state) => { state.saving = true })
+      .addCase(toggleRoleStatus.fulfilled, (state, action) => {
+        state.saving = false
+        const idx = state.items.findIndex((r) => r.id === action.payload.id)
+        if (idx !== -1) state.items[idx] = action.payload
+      })
+      .addCase(toggleRoleStatus.rejected, (state) => { state.saving = false })
 
       .addCase(deleteRole.fulfilled, (state, action) => {
         state.items = state.items.filter((r) => r.id !== action.payload)

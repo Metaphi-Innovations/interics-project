@@ -1,6 +1,5 @@
 ﻿import { createAsyncThunk } from '@reduxjs/toolkit'
 import { receivablesApi } from '../../api/receivablesApi'
-import type { Invoice } from './reducer'
 import type { RecordPaymentPayload } from './paymentTypes'
 
 export interface FetchInvoicesParams {
@@ -14,6 +13,16 @@ export interface FetchInvoicesParams {
   dateTo?: string
   amountMin?: string
   amountMax?: string
+  invoiceNo?: string
+  invoiceDate?: string
+  dueDate?: string
+  baseAmount?: number
+  gstAmount?: number
+  totalAmount?: number
+  received?: number
+  netReceivable?: number
+  sortBy?: string
+  sortOrder?: 'asc' | 'desc'
 }
 
 export const fetchInvoices = createAsyncThunk(

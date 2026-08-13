@@ -92,7 +92,8 @@ export function recalculateClientPOMilestonesForExecutedValue(
 
   for (const m of result) {
     if (isClientRetentionRow(m)) {
-      const isPaid = clientMilestonePaymentStatus(invoices, m.id, m.serviceId) === 'Paid'
+      const isPaid =
+        clientMilestonePaymentStatus(invoices, m.id, m.serviceId, m.name) === 'Paid'
       slots.push({
         percentage: m.percentage,
         isPaid,
@@ -104,7 +105,7 @@ export function recalculateClientPOMilestonesForExecutedValue(
       continue
     }
 
-    const isPaid = clientMilestonePaymentStatus(invoices, m.id, m.serviceId) === 'Paid'
+    const isPaid = clientMilestonePaymentStatus(invoices, m.id, m.serviceId, m.name) === 'Paid'
     slots.push({
       percentage: m.percentage,
       isPaid,
@@ -197,7 +198,7 @@ export function clientPOHasPaidMilestone(
   invoices: ClientInvoice[],
 ): boolean {
   return milestones.some(
-    (m) => clientMilestonePaymentStatus(invoices, m.id, m.serviceId) === 'Paid',
+    (m) => clientMilestonePaymentStatus(invoices, m.id, m.serviceId, m.name) === 'Paid',
   )
 }
 
@@ -214,7 +215,7 @@ export function clientPOMilestonesAreProtected(
   if (!next || !clientPOHasPaidMilestone(existing, invoices)) return false
   if (existing.length !== next.length) return true
   return existing.some((m) => {
-    if (clientMilestonePaymentStatus(invoices, m.id, m.serviceId) !== 'Paid') return false
+    if (clientMilestonePaymentStatus(invoices, m.id, m.serviceId, m.name) !== 'Paid') return false
     const n = next.find((x) => x.id === m.id)
     if (!n) return true
     return (

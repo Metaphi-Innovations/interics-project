@@ -133,6 +133,10 @@ export interface ProjectListParams {
   customerId?: string
   sector?: string
   projectLeadId?: string
+  projectName?: string
+  projectType?: string
+  expectedStartDate?: string
+  expectedEndDate?: string
   columns?: string[]
   sortBy?: string
   sortOrder?: 'asc' | 'desc'
@@ -143,6 +147,17 @@ export interface ProjectListResult {
   total: number
   page: number
   pageSize: number
+}
+
+export interface ProjectFiltersApi {
+  projectName?: Array<{ value: string; label: string }>
+  status?: Array<{ value: string; label: string }>
+  sectors?: Array<{ value: string; label: string }>
+  projectType?: Array<{ value: string; label: string }>
+  type?: Array<{ value: string; label: string }>
+  projectLeadId?: Array<{ value: string; label: string }>
+  expectedStartDate?: Array<{ value: string; label: string }>
+  expectedEndDate?: Array<{ value: string; label: string }>
 }
 
 export type ProjectCreateApiPayload = {

@@ -1,4 +1,5 @@
-import { Box, Stack, Typography } from '@mui/material'
+import { useState } from 'react'
+import { Box, Stack, Tooltip, Typography } from '@mui/material'
 import { useTheme } from '@mui/material/styles'
 import type { Project } from '@/slices/projects/reducer'
 import { WorkspaceSection } from '@/components/templates'
@@ -31,6 +32,8 @@ function LabelValue({ label, children }: { label: string; children: React.ReactN
   )
 }
 
+const OVERVIEW_TEXT_LIMIT = 90
+
 /** Plain-text preview for optional rich-text project detail fields. */
 function formatOptionalHtml(value?: string | null): string {
   if (!value?.trim()) return '—'
@@ -45,6 +48,49 @@ function formatOptionalHtml(value?: string | null): string {
     .replace(/\n{3,}/g, '\n\n')
     .trim()
   return plain || '—'
+}
+
+function ExpandableOverviewText({ value }: { value?: string | null }) {
+  const [expanded, setExpanded] = useState(false)
+  const plain = formatOptionalHtml(value)
+  if (plain === '—') {
+    return (
+      <Typography variant="body2" sx={METADATA_PREWRAP_SX}>
+        —
+      </Typography>
+    )
+  }
+  const needsTruncate = plain.length > OVERVIEW_TEXT_LIMIT
+  const display = !needsTruncate || expanded ? plain : `${plain.slice(0, OVERVIEW_TEXT_LIMIT).trimEnd()}…`
+  return (
+    <Box>
+      <Tooltip title={needsTruncate && !expanded ? plain : ''} placement="top-start">
+        <Typography variant="body2" sx={METADATA_PREWRAP_SX}>
+          {display}
+        </Typography>
+      </Tooltip>
+      {needsTruncate ? (
+        <Typography
+          component="button"
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          sx={{
+            mt: 0.25,
+            p: 0,
+            border: 0,
+            bgcolor: 'transparent',
+            cursor: 'pointer',
+            fontSize: 11,
+            fontWeight: 600,
+            color: 'primary.main',
+            fontFamily: 'inherit',
+          }}
+        >
+          {expanded ? 'Show less' : 'Show more'}
+        </Typography>
+      ) : null}
+    </Box>
+  )
 }
 
 interface ProjectDetailsSectionsProps {
@@ -111,29 +157,19 @@ export function ProjectDetailsSections({ project }: ProjectDetailsSectionsProps)
           <RecordDetailSectionTitle>Area & Planning</RecordDetailSectionTitle>
           <Box sx={PROJECT_DETAILS_GRID_SX}>
             <LabelValue label="Workstations">
-              <Typography variant="body2" sx={METADATA_PREWRAP_SX}>
-                {formatOptionalHtml(project.workstations)}
-              </Typography>
+              <ExpandableOverviewText value={project.workstations} />
             </LabelValue>
             <LabelValue label="Cabins">
-              <Typography variant="body2" sx={METADATA_PREWRAP_SX}>
-                {formatOptionalHtml(project.cabins)}
-              </Typography>
+              <ExpandableOverviewText value={project.cabins} />
             </LabelValue>
             <LabelValue label="Meeting Rooms">
-              <Typography variant="body2" sx={METADATA_PREWRAP_SX}>
-                {formatOptionalHtml(project.meetingRooms)}
-              </Typography>
+              <ExpandableOverviewText value={project.meetingRooms} />
             </LabelValue>
             <LabelValue label="Services">
-              <Typography variant="body2" sx={METADATA_PREWRAP_SX}>
-                {formatOptionalHtml(project.services)}
-              </Typography>
+              <ExpandableOverviewText value={project.services} />
             </LabelValue>
             <LabelValue label="Support Function">
-              <Typography variant="body2" sx={METADATA_PREWRAP_SX}>
-                {formatOptionalHtml(project.supportFunction)}
-              </Typography>
+              <ExpandableOverviewText value={project.supportFunction} />
             </LabelValue>
             <LabelValue label="Expected Duration">
               <Typography variant="body2" sx={METADATA_BODY_SX}>

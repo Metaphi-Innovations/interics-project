@@ -119,7 +119,7 @@ export function aggregateVendorRow(
   let status = 'Not Invoiced'
   if (scoped.length > 0) {
     const allPaid = scoped.every((i) => i.status === 'paid')
-    const somePaid = scoped.some((i) => i.status === 'paid')
+    const somePaid = scoped.some((i) => i.status === 'paid' || i.status === 'partially_paid')
     if (allPaid) status = 'Settled'
     else if (somePaid) status = 'Partial'
     else status = 'Pending'

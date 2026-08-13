@@ -122,6 +122,8 @@ export interface ListingTemplateProps {
   hideSearch?: boolean
   /** Rendered after the search box in the toolbar row (e.g. Project / Status MUI Selects). */
   toolbarAfterSearch?: ReactNode
+  /** Clears search, toolbar filters, column filters, and sort. */
+  onResetAll?: () => void
 
   // Toolbar — filters
   filterConfig?: FilterField[]
@@ -353,6 +355,7 @@ export function ListingTemplate({
   onSearchChange,
   hideSearch = false,
   toolbarAfterSearch,
+  onResetAll,
   filterConfig,
   activeFilters = {},
   onFilterChange,
@@ -605,6 +608,16 @@ export function ListingTemplate({
                     sx={{ fontSize: '12px', flex: 1, '& input': { p: 0 } }}
                   />
                 </Stack>
+              )}
+              {onResetAll && (
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={onResetAll}
+                  sx={{ height: '32px', fontSize: '12px', flexShrink: 0 }}
+                >
+                  Reset
+                </Button>
               )}
               {toolbarAfterSearch}
             </Stack>

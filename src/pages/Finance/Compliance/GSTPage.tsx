@@ -27,6 +27,7 @@ import { Button, Drawer, Select, StatusBadge } from '@/design-system/components'
 import type { StatusType } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { financeApi } from '@/api/financeApi'
+import { unwrapApiData } from '@/modules/system-settings/shared/api'
 import type { GlobalGstEntry, GlobalGstResponse } from '@/slices/finance/types'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { fetchProjects } from '@/slices/projects/thunk'
@@ -165,7 +166,7 @@ export default function GSTPage() {
     setError(null)
     try {
       const g = await financeApi.getGstData(params)
-      setGstData(g.data)
+      setGstData(unwrapApiData<GlobalGstResponse>(g.data))
     } catch {
       setError('Could not load GST data.')
       setGstData(null)

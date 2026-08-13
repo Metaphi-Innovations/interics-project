@@ -89,7 +89,11 @@ const liveSlice = createSlice({
       })
       .addCase(fetchInvoices.fulfilled, (state, action) => {
         state.loading = false
-        state.invoices = action.payload ?? []
+        state.invoices = mergeByProjectId(
+          state.invoices,
+          action.meta.arg,
+          action.payload ?? [],
+        )
       })
       .addCase(fetchInvoices.rejected, (state) => {
         state.loading = false

@@ -1,6 +1,78 @@
 import type { ClientPOMilestone } from '@/slices/baseline/reducer'
-import type { ClientInvoice, VendorInvoice } from '@/slices/live/types'
+import type { ClientInvoice, ClientInvoiceLineItem, VendorInvoice } from '@/slices/live/types'
 import { isInvoiceFullyPaid } from './clientInvoiceUtils'
+
+function serviceCompatible(requested: string, ...candidates: Array<string | undefined>): boolean {
+  if (!requested) return true
+  const present = candidates.filter((c): c is string => Boolean(c))
+  if (present.length === 0) return true
+  return present.includes(requested)
+}
+
+function normalizeLabel(value: string | undefined): string {
+  return (value ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
+}
+
+function milestoneNameFromServiceName(serviceName: string | undefined): string {
+  const raw = (serviceName ?? '').trim()
+  if (!raw) return ''
+  const parts = raw.split(' — ')
+  return parts.length >= 2 ? parts[0]!.trim() : raw
+}
+
+function lineHasMilestoneId(
+  li: Pick<ClientInvoiceLineItem, 'milestoneId'>,
+  milestoneId: string,
+): boolean {
+  return Boolean(li.milestoneId) && li.milestoneId === milestoneId
+}
+
+function invoiceCoversMilestoneId(invoice: ClientInvoice, milestoneId: string): boolean {
+  if (invoice.milestoneId === milestoneId) return true
+  return (invoice.lineItems ?? []).some((li) => lineHasMilestoneId(li, milestoneId))
+}
+
+function invoiceCoversMilestoneName(
+  invoice: ClientInvoice,
+  milestoneName: string,
+  serviceId: string,
+): boolean {
+  const wanted = normalizeLabel(milestoneName)
+  if (!wanted) return false
+
+  const headerName = normalizeLabel(invoice.milestoneName)
+  if (
+    headerName === wanted &&
+    serviceCompatible(serviceId, invoice.serviceId)
+  ) {
+    return true
+  }
+
+  return (invoice.lineItems ?? []).some((li) => {
+    const lineName = normalizeLabel(
+      milestoneNameFromServiceName(li.serviceName) || li.serviceName,
+    )
+    return (
+      lineName === wanted &&
+      serviceCompatible(serviceId, li.serviceId, li.baselineServiceId, invoice.serviceId)
+    )
+  })
+}
+
+/** Find a client invoice that covers this milestone (header or any line item). */
+export function findClientInvoiceForMilestone(
+  invoices: ClientInvoice[],
+  milestoneId: string,
+  serviceId: string,
+  milestoneName?: string,
+): ClientInvoice | undefined {
+  const byId = invoices.find((invoice) => invoiceCoversMilestoneId(invoice, milestoneId))
+  if (byId) return byId
+  if (!milestoneName?.trim()) return undefined
+  return invoices.find((invoice) =>
+    invoiceCoversMilestoneName(invoice, milestoneName, serviceId),
+  )
+}
 
 export type MilestonePaymentStatusLabel = 'Paid' | 'Unpaid'
 
@@ -25,7 +97,12 @@ export function clientMilestoneStatusesForCard(
 
   for (const milestone of milestones) {
     if (milestone.serviceId !== serviceId) continue
-    const status = clientMilestonePaymentStatus(invoices, milestone.id, milestone.serviceId)
+    const status = clientMilestonePaymentStatus(
+      invoices,
+      milestone.id,
+      milestone.serviceId,
+      milestone.name,
+    )
     if (isClientRetentionMilestone(milestone)) {
       retentionStatus = status
     } else {
@@ -40,19 +117,10 @@ export function clientMilestonePaymentStatus(
   invoices: ClientInvoice[],
   milestoneId: string,
   serviceId: string,
+  milestoneName?: string,
 ): MilestonePaymentStatusLabel {
-  const inv = invoices.find((i) => {
-    if (i.milestoneId === milestoneId && (!serviceId || i.serviceId === serviceId)) {
-      return true
-    }
-    return (i.lineItems ?? []).some(
-      (li) =>
-        li.milestoneId === milestoneId &&
-        (!serviceId || !li.serviceId || li.serviceId === serviceId),
-    )
-  })
+  const inv = findClientInvoiceForMilestone(invoices, milestoneId, serviceId, milestoneName)
   if (!inv) return 'Unpaid'
-  if (inv.status === 'paid') return 'Paid'
   return isInvoiceFullyPaid(inv) ? 'Paid' : 'Unpaid'
 }
 

@@ -9,7 +9,6 @@ import MiscellaneousServicesIcon from '@mui/icons-material/MiscellaneousServices
 import DomainIcon from '@mui/icons-material/Domain'
 import StarIcon from '@mui/icons-material/Star'
 import AccountTreeIcon from '@mui/icons-material/AccountTree'
-import TuneIcon from '@mui/icons-material/Tune'
 import type { SvgIconComponent } from '@mui/icons-material'
 import { useTheme, alpha } from '@mui/material/styles'
 import GeneralSettingsSection from './sections/GeneralSettingsSection'
@@ -20,7 +19,6 @@ import ServicesSection from './sections/ServicesSection'
 import SectorsSection from './sections/SectorsSection'
 import RatingsSection from './sections/RatingsSection'
 import ProjectManagementMasterSection from './sections/ProjectManagementMasterSection'
-import SystemDefaultsSection from './sections/SystemDefaultsSection'
 
 interface NavItem {
   id: string
@@ -37,7 +35,6 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'sectors', label: 'Sector Master', icon: DomainIcon },
   { id: 'ratings', label: 'Rating Master', icon: StarIcon },
   { id: 'project-management', label: 'Project Management Master', icon: AccountTreeIcon },
-  { id: 'defaults', label: 'System Defaults', icon: TuneIcon },
 ]
 
 export default function SettingsPage() {
@@ -169,7 +166,6 @@ export default function SettingsPage() {
           {activeSection === 'sectors' && <SectorsSection />}
           {activeSection === 'ratings' && <RatingsSection />}
           {activeSection === 'project-management' && <ProjectManagementMasterSection />}
-          {activeSection === 'defaults' && <SystemDefaultsSection />}
         </Box>
       </Box>
     </Box>

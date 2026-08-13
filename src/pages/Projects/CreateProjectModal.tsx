@@ -35,7 +35,7 @@ import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { fetchCustomers, createCustomer, fetchCustomerById } from '../../slices/customers/thunk'
 import { fetchUsers } from '../../slices/users/thunk'
 import { fetchRoles } from '../../slices/roles/thunk'
-import { isProjectManagerRole } from './projectManagerRoles'
+import { isProjectLeadRole } from './projectManagerRoles'
 import { ProjectTypesField } from './components/ProjectTypesField'
 import { ContactPersonAutocomplete } from './components/ContactPersonAutocomplete'
 import { CreateContactPersonModal } from './components/CreateContactPersonModal'
@@ -240,13 +240,9 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
     }
   }, [open])
 
-  const managersFiltered = users.filter(
-    (u) => u.status === 'active' && isProjectManagerRole(u.role, roles),
+  const managers = users.filter(
+    (u) => u.status === 'active' && isProjectLeadRole(u.role, roles),
   )
-  const managers =
-    managersFiltered.length > 0
-      ? managersFiltered
-      : users.filter((u) => u.status === 'active')
   const activeUsers = users.filter((u) => u.status === 'active')
 
   function getRoleLabel(roleId: string) {

@@ -71,6 +71,10 @@ export interface Invoice {
   payments: Payment[]
   notes?: string
   clientPoId?: string
+  milestoneId?: string
+  milestoneName?: string
+  serviceId?: string
+  serviceName?: string
   documentUrl?: string | null
   fileName?: string | null
   createdAt: string

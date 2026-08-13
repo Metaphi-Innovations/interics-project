@@ -20,27 +20,25 @@ import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { fetchCustomers, createCustomer, fetchCustomerById } from '../../slices/customers/thunk'
 import { fetchUsers } from '../../slices/users/thunk'
 import { fetchRoles } from '../../slices/roles/thunk'
-import { isProjectManagerRole } from './projectManagerRoles'
-import { ProjectTypesField } from './components/ProjectTypesField'
+import { isProjectLeadRole } from './projectManagerRoles'
 import { ContactPersonAutocomplete } from './components/ContactPersonAutocomplete'
 import { CreateContactPersonModal } from './components/CreateContactPersonModal'
+import {
+  ProjectDetailsFields,
+  ProjectSetupFields,
+  validateProjectSetupForm,
+} from './components/ProjectSetupFormFields'
 import { createProject } from '../../slices/projects/thunk'
 import type { Contact, Customer } from '../../slices/customers/reducer'
 import type { User } from '../../slices/users/reducer'
 import { FullPageForm, FullPageFormSection } from '../../components/templates/FullPageForm'
 import { FormField } from '../../components/templates/DrawerForm'
-import { Input, useToast, DatePicker, dateFromIso, isoFromDate, RichTextEditor, AutocompleteField } from '@/design-system/components'
+import { useToast } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { getInitials, getAvatarColor } from '../../utils/formatters'
 import { alpha } from '@mui/material/styles'
 import { fetchSectors, fetchStatuses } from '../../slices/settings/thunk'
-import {
-  COUNTRIES,
-  INDIAN_CITIES,
-  INDIAN_STATES,
-  digitsOnly,
-  formatAddressLine,
-} from '@/constants/locations'
+import { formatAddressLine } from '@/constants/locations'
 import {
   getContactsForCustomer,
   getDefaultContactIds,
@@ -538,172 +536,18 @@ function Step2ProjectSetup({
   setFormData: React.Dispatch<React.SetStateAction<WizardFormData>>
   errors: StepErrors
 }) {
-  const sectors = useAppSelector((s) => s.settings.sectors)
-  const activeSectors = sectors.filter((s) => s.status === 'active')
-
-  function set(key: keyof WizardFormData, value: string) {
-    setFormData((prev) => ({ ...prev, [key]: value }))
-  }
-
   return (
     <FullPageFormSection title="Project Setup" subtitle="Basic project information" columns={2}>
-      <Box sx={{ gridColumn: '1 / -1' }}>
-        <FormField label="Project Name" required error={errors.name}>
-          <Input
-            value={formData.name}
-            onChange={(v) => set('name', v)}
-            placeholder="e.g. Acme Corp - Head Office Redesign"
-            size="sm"
-            error={Boolean(errors.name)}
-          />
-        </FormField>
-      </Box>
-
-      <FormField label="Project Scope" required error={errors.projectTypes}>
-        <ProjectTypesField
-          value={formData.projectTypes}
-          onChange={(v) => setFormData((prev) => ({ ...prev, projectTypes: v }))}
-          error={Boolean(errors.projectTypes)}
-        />
-      </FormField>
-
-      <FormField label="Sector" required error={errors.sector}>
-        <FormControl fullWidth size="small" error={Boolean(errors.sector)}>
-          <MuiSelect
-            value={formData.sector}
-            onChange={(e) => setFormData((prev) => ({ ...prev, sector: e.target.value }))}
-            displayEmpty
-            sx={{ fontSize: 13, '& .MuiOutlinedInput-root': { minHeight: 40 } }}
-          >
-            <MenuItem value="" disabled sx={{ fontSize: 13 }}>
-              Select sector…
-            </MenuItem>
-            {activeSectors.map((s) => (
-              <MenuItem key={s.id} value={s.name} sx={{ fontSize: 13 }}>
-                {s.name}
-              </MenuItem>
-            ))}
-            {formData.sector && !activeSectors.some((s) => s.name === formData.sector) ? (
-              <MenuItem value={formData.sector} sx={{ fontSize: 13 }}>
-                {formData.sector}
-              </MenuItem>
-            ) : null}
-          </MuiSelect>
-        </FormControl>
-      </FormField>
-
-      <Box sx={{ gridColumn: '1 / -1' }}>
-        <FormField label="Address" error={errors.address}>
-          <Input
-            value={formData.address}
-            onChange={(v) => set('address', v)}
-            placeholder="Street, building, landmark"
-            size="sm"
-            error={Boolean(errors.address)}
-          />
-        </FormField>
-      </Box>
-
-      <FormField label="City" error={errors.city}>
-        <AutocompleteField
-          options={[...INDIAN_CITIES]}
-          value={formData.city || null}
-          onChange={(v) => set('city', v ?? '')}
-          getOptionLabel={(o) => o}
-          isOptionEqualToValue={(a, b) => a === b}
-          placeholder="Search city…"
-          error={Boolean(errors.city)}
-          size="sm"
-        />
-      </FormField>
-
-      <FormField label="State" error={errors.state}>
-        <AutocompleteField
-          options={[...INDIAN_STATES]}
-          value={formData.state || null}
-          onChange={(v) => set('state', v ?? '')}
-          getOptionLabel={(o) => o}
-          isOptionEqualToValue={(a, b) => a === b}
-          placeholder="Search state…"
-          error={Boolean(errors.state)}
-          size="sm"
-        />
-      </FormField>
-
-      <FormField label="Country" error={errors.country}>
-        <AutocompleteField
-          options={[...COUNTRIES]}
-          value={formData.country || null}
-          onChange={(v) => set('country', v ?? '')}
-          getOptionLabel={(o) => o}
-          isOptionEqualToValue={(a, b) => a === b}
-          placeholder="Search country…"
-          error={Boolean(errors.country)}
-          size="sm"
-        />
-      </FormField>
-
-      <FormField label="PIN Code" error={errors.pincode}>
-        <Input
-          value={formData.pincode}
-          onChange={(v) => set('pincode', digitsOnly(v).slice(0, 10))}
-          placeholder="e.g. 110001"
-          size="sm"
-          error={Boolean(errors.pincode)}
-        />
-      </FormField>
-
-      <FormField label="Carpet Area (sq ft)">
-        <Input
-          type="number"
-          value={formData.carpetArea}
-          onChange={(v) => set('carpetArea', v)}
-          placeholder="e.g. 4500"
-          size="sm"
-        />
-      </FormField>
-
-      <FormField label="Headcount">
-        <Input
-          type="number"
-          value={formData.headcount}
-          onChange={(v) => set('headcount', v)}
-          placeholder="e.g. 120"
-          size="sm"
-        />
-      </FormField>
-
-      <FormField label="Expected Start Date" error={errors.startDate}>
-        <DatePicker
-          value={dateFromIso(formData.startDate)}
-          onChange={(d) => set('startDate', isoFromDate(d))}
-          fullWidth
-          size="sm"
-        />
-      </FormField>
-
-      <FormField label="Expected End Date" error={errors.expectedEndDate}>
-        <DatePicker
-          value={dateFromIso(formData.expectedEndDate)}
-          onChange={(d) => set('expectedEndDate', isoFromDate(d))}
-          fullWidth
-          size="sm"
-          minDate={dateFromIso(formData.startDate) ?? undefined}
-        />
-      </FormField>
+      <ProjectSetupFields
+        values={formData}
+        errors={errors}
+        onChange={(patch) => setFormData((prev) => ({ ...prev, ...patch }))}
+      />
     </FullPageFormSection>
   )
 }
 
 // ─── Step 3 — Project Details (optional) ──────────────────────────────────────
-
-const PROJECT_DETAIL_TOOLBAR = [
-  'bold', 'italic', 'underline',
-  'divider',
-  'bulletList', 'orderedList',
-  'divider',
-  'undo', 'redo',
-] as const
 
 function Step3ProjectDetails({
   formData,
@@ -712,59 +556,15 @@ function Step3ProjectDetails({
   formData: WizardFormData
   setFormData: React.Dispatch<React.SetStateAction<WizardFormData>>
 }) {
-  function set(key: keyof WizardFormData, value: string) {
-    setFormData((prev) => ({ ...prev, [key]: value }))
-  }
-
   return (
     <FullPageFormSection
       title="Project Details"
       subtitle="Optional space and requirement details — you can skip this step"
       columns={2}
     >
-      <RichTextEditor
-        label="Workstations"
-        value={formData.workstations}
-        onChange={(html) => set('workstations', html)}
-        placeholder="Describe workstation requirements…"
-        minHeight={120}
-        toolbar={[...PROJECT_DETAIL_TOOLBAR]}
-      />
-
-      <RichTextEditor
-        label="Cabins"
-        value={formData.cabins}
-        onChange={(html) => set('cabins', html)}
-        placeholder="Describe cabin requirements…"
-        minHeight={120}
-        toolbar={[...PROJECT_DETAIL_TOOLBAR]}
-      />
-
-      <RichTextEditor
-        label="Meeting Rooms"
-        value={formData.meetingRooms}
-        onChange={(html) => set('meetingRooms', html)}
-        placeholder="Describe meeting room requirements…"
-        minHeight={120}
-        toolbar={[...PROJECT_DETAIL_TOOLBAR]}
-      />
-
-      <RichTextEditor
-        label="Services"
-        value={formData.services}
-        onChange={(html) => set('services', html)}
-        placeholder="Describe services requirements…"
-        minHeight={120}
-        toolbar={[...PROJECT_DETAIL_TOOLBAR]}
-      />
-
-      <RichTextEditor
-        label="Support Function"
-        value={formData.supportFunction}
-        onChange={(html) => set('supportFunction', html)}
-        placeholder="Describe support function requirements…"
-        minHeight={120}
-        toolbar={[...PROJECT_DETAIL_TOOLBAR]}
+      <ProjectDetailsFields
+        values={formData}
+        onChange={(patch) => setFormData((prev) => ({ ...prev, ...patch }))}
       />
     </FullPageFormSection>
   )
@@ -1081,13 +881,9 @@ export default function CreateProjectPage() {
     dispatch(fetchStatuses())
   }, [dispatch])
 
-  const managersFiltered = users.filter(
-    (u) => u.status === 'active' && isProjectManagerRole(u.role, roles),
+  const managers = users.filter(
+    (u) => u.status === 'active' && isProjectLeadRole(u.role, roles),
   )
-  const managers =
-    managersFiltered.length > 0
-      ? managersFiltered
-      : users.filter((u) => u.status === 'active')
   const activeUsers = users.filter((u) => u.status === 'active')
 
   function getRoleLabel(roleId: string) {
@@ -1106,14 +902,7 @@ export default function CreateProjectPage() {
       }
     }
     if (step === 1) {
-      if (!formData.name.trim()) newErrors.name = 'Project name is required'
-      if (formData.projectTypes.length === 0) {
-        newErrors.projectTypes = 'Select at least one project type'
-      }
-      if (!formData.sector) newErrors.sector = 'Sector is required'
-      if (formData.pincode.trim() && !/^\d+$/.test(formData.pincode.trim())) {
-        newErrors.pincode = 'PIN code must be numeric'
-      }
+      Object.assign(newErrors, validateProjectSetupForm(formData))
     }
     // Step 2 (Project Details) is fully optional — no required validation
     if (step === 3 && !formData.projectManagerId) {

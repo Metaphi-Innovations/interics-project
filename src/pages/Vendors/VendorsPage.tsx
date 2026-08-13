@@ -24,18 +24,20 @@ import {
   LocationOn,
   Circle,
 } from '@mui/icons-material'
-import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore'
-import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp'
-import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'
 import { useTheme, alpha } from '@mui/material/styles'
 import { Truck, Plus, MoreVertical, Eye, Pencil, Trash2, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { fetchVendors, deleteVendor } from '../../slices/vendors/thunk'
-import { setFilters, resetFilters, setPage, setPageSize, setSortConfig } from '../../slices/vendors/reducer'
+import { setFilters, resetFilters, setPage, setSortConfig } from '../../slices/vendors/reducer'
 import type { Vendor } from '../../slices/vendors/reducer'
 import { ListingTemplate } from '../../components/templates'
 import type { FilterField, ColumnItem } from '../../components/templates/ListingTemplate'
+import {
+  FilterableHeaderCell,
+  FilterableSortHeader,
+  type ColumnFilterOption,
+} from '@/components/listing'
 import { VendorDrawer } from './VendorDrawer'
 import { PendingVendorContactsTable } from './PendingVendorContactsTable'
 import { PendingVendorViewDrawer } from './PendingVendorViewDrawer'
@@ -46,7 +48,6 @@ import { getInitials, getAvatarColor } from '../../utils/formatters'
 import { getSpecializationTagSx } from '../../utils/specializationTagStyles'
 import { tokens } from '@/design-system/tokens'
 import { getRatingMasterChipColors } from '../../utils/masterChipStyles'
-import { useSystemDefaultPageSize } from '@/hooks/useSystemDefaultPageSize'
 
 const VENDOR_ACTION_WIDTH_PX = 60
 const VENDOR_CELL_PAD_X = '14px'
@@ -58,6 +59,31 @@ type VendorTableVisibleColumns = {
   location: boolean
   specialization: boolean
   rating: boolean
+}
+
+type ActiveVendorColumnFilters = {
+  vendorName: string
+  website: string
+  location: string
+  specialization: string
+  rating: string
+}
+
+type PendingVendorColumnFilters = {
+  contactPerson: string
+  mobile: string
+  email: string
+  designation: string
+  createdOn: string
+}
+
+function toColumnFilterOptions(
+  options?: Array<{ value: string | number | boolean; label: string }>,
+): ColumnFilterOption[] {
+  return (options ?? []).map((option) => ({
+    value: String(option.value),
+    label: option.label,
+  }))
 }
 
 function vendorDataColCount(visible: VendorTableVisibleColumns): number {
@@ -135,12 +161,6 @@ function formatVendorWebsiteLabel(raw: string | null | undefined): string | null
   } catch {
     return raw!.replace(/^https?:\/\//i, '').replace(/\/$/, '') || null
   }
-}
-
-function getTotalVendorProjectCount(vendor: Vendor): number {
-  const fd = vendor.financialDetails
-  if (fd) return fd.activeProjects + fd.completedProjects
-  return vendor.activeProjects
 }
 
 function VendorRatingCell({ vendor }: { vendor: Vendor }) {
@@ -244,55 +264,6 @@ function RowActions({ vendor, onView, onEdit, onDelete }: RowActionsProps) {
   )
 }
 
-// ─── Sort Header Cell ──────────────────────────────────────────────────────────
-
-interface SortHeaderProps {
-  label: string
-  field: string
-  sortField: string | null
-  sortDirection: 'asc' | 'desc'
-  onSort: (field: string, direction: 'asc' | 'desc') => void
-  sx?: object
-}
-
-function SortHeader({ label, field, sortField, sortDirection, onSort, sx }: SortHeaderProps) {
-  const isActive = sortField === field
-  function handleClick() {
-    if (isActive) {
-      onSort(field, sortDirection === 'asc' ? 'desc' : 'asc')
-    } else {
-      onSort(field, 'asc')
-    }
-  }
-  return (
-    <TableCell
-      sx={{
-        fontSize: 11,
-        fontWeight: isActive ? 700 : 600,
-        color: isActive ? 'primary.main' : 'text.secondary',
-        py: '8px',
-        px: VENDOR_CELL_PAD_X,
-        borderBottom: `2px solid ${tokens.color.neutral[100]}`,
-        cursor: 'pointer',
-        userSelect: 'none',
-        '&:hover': { color: 'primary.main' },
-        ...sx,
-      }}
-      onClick={handleClick}
-    >
-      <Stack direction="row" alignItems="center" gap="2px">
-        {label}
-        {isActive
-          ? sortDirection === 'asc'
-            ? <KeyboardArrowUpIcon sx={{ fontSize: 14, color: 'primary.main' }} />
-            : <KeyboardArrowDownIcon sx={{ fontSize: 14, color: 'primary.main' }} />
-          : <UnfoldMoreIcon sx={{ fontSize: 14, color: tokens.color.neutral[300] }} />
-        }
-      </Stack>
-    </TableCell>
-  )
-}
-
 // ─── Vendor Table ─────────────────────────────────────────────────────────────
 
 interface VendorTableProps {
@@ -302,8 +273,14 @@ interface VendorTableProps {
   sortField: string | null
   sortDirection: 'asc' | 'desc'
   onSort: (field: string, direction: 'asc' | 'desc') => void
+  columnFilters: ActiveVendorColumnFilters
+  vendorNameOptions: ColumnFilterOption[]
+  websiteOptions: ColumnFilterOption[]
+  locationOptions: ColumnFilterOption[]
+  specializationOptions: ColumnFilterOption[]
+  ratingOptions: ColumnFilterOption[]
+  onColumnFilter: (field: keyof ActiveVendorColumnFilters, value: string) => void
   onView: (id: string) => void
-  onProjects: (vendor: Vendor, e?: React.MouseEvent) => void
   onEdit: (vendor: Vendor) => void
   onDelete: (vendor: Vendor) => void
 }
@@ -315,8 +292,14 @@ function VendorTable({
   sortField,
   sortDirection,
   onSort,
+  columnFilters,
+  vendorNameOptions,
+  websiteOptions,
+  locationOptions,
+  specializationOptions,
+  ratingOptions,
+  onColumnFilter,
   onView,
-  onProjects: _onProjects,
   onEdit,
   onDelete,
 }: VendorTableProps) {
@@ -341,41 +324,55 @@ function VendorTable({
           </colgroup>
         <TableHead>
           <TableRow sx={{ bgcolor: alpha(theme.palette.text.primary, 0.02) }}>
-            <SortHeader
+            <FilterableSortHeader
               label="Vendor Name"
-              field="name"
-              sortField={sortField}
+              field="vendorName"
+              sortField={sortField ?? undefined}
               sortDirection={sortDirection}
               onSort={onSort}
+              filterValue={columnFilters.vendorName}
+              filterOptions={vendorNameOptions}
+              onFilter={(value) => onColumnFilter('vendorName', value)}
               sx={{ ...headDataSx, verticalAlign: 'bottom' }}
             />
             {visibleColumns.website && (
-              <TableCell sx={{ ...headDataSx, display: { xs: 'none', sm: 'table-cell' } }}>
-                Website
-              </TableCell>
+              <FilterableHeaderCell
+                label="Website"
+                filterValue={columnFilters.website}
+                filterOptions={websiteOptions}
+                onFilter={(value) => onColumnFilter('website', value)}
+                sx={{ ...headDataSx, display: { xs: 'none', sm: 'table-cell' } }}
+              />
             )}
             {visibleColumns.location && (
-              <SortHeader
+              <FilterableSortHeader
                 label="Location"
-                field="city"
-                sortField={sortField}
+                field="location"
+                sortField={sortField ?? undefined}
                 sortDirection={sortDirection}
                 onSort={onSort}
+                filterValue={columnFilters.location}
+                filterOptions={locationOptions}
+                onFilter={(value) => onColumnFilter('location', value)}
                 sx={{ ...headDataSx, display: { xs: 'none', md: 'table-cell' }, verticalAlign: 'bottom' }}
               />
             )}
             {visibleColumns.specialization && (
-              <TableCell sx={{ ...headDataSx, display: { xs: 'none', lg: 'table-cell' } }}>
-                Specialization
-              </TableCell>
+              <FilterableHeaderCell
+                label="Specialization"
+                filterValue={columnFilters.specialization}
+                filterOptions={specializationOptions}
+                onFilter={(value) => onColumnFilter('specialization', value)}
+                sx={{ ...headDataSx, display: { xs: 'none', lg: 'table-cell' } }}
+              />
             )}
             {visibleColumns.rating && (
-              <SortHeader
+              <FilterableSortHeader
                 label="Rating"
-                field="rating"
-                sortField={sortField}
-                sortDirection={sortDirection}
-                onSort={onSort}
+                filterValue={columnFilters.rating}
+                filterOptions={ratingOptions}
+                onFilter={(value) => onColumnFilter('rating', value)}
+                sortable={false}
                 sx={{ ...headDataSx, display: { xs: 'none', md: 'table-cell' }, verticalAlign: 'bottom' }}
               />
             )}
@@ -531,12 +528,11 @@ function VendorTable({
 interface VendorGridCardProps {
   vendor: Vendor
   onView: (id: string) => void
-  onProjects: (vendor: Vendor, e?: React.MouseEvent) => void
   onEdit: (vendor: Vendor) => void
   onDelete: (vendor: Vendor) => void
 }
 
-function VendorGridCard({ vendor, onView, onProjects: _onProjects, onEdit, onDelete }: VendorGridCardProps) {
+function VendorGridCard({ vendor, onView, onEdit, onDelete }: VendorGridCardProps) {
   const theme = useTheme()
   const tagMode = theme.palette.mode === 'dark' ? 'dark' : 'light'
   const [anchor, setAnchor] = useState<null | HTMLElement>(null)
@@ -653,12 +649,11 @@ interface VendorsGridProps {
   items: Vendor[]
   loading: boolean
   onView: (id: string) => void
-  onProjects: (vendor: Vendor, e?: React.MouseEvent) => void
   onEdit: (vendor: Vendor) => void
   onDelete: (vendor: Vendor) => void
 }
 
-function VendorsGrid({ items, loading, onView, onProjects, onEdit, onDelete }: VendorsGridProps) {
+function VendorsGrid({ items, loading, onView, onEdit, onDelete }: VendorsGridProps) {
   if (loading) {
     return (
       <Box
@@ -699,7 +694,6 @@ function VendorsGrid({ items, loading, onView, onProjects, onEdit, onDelete }: V
           key={vendor.id}
           vendor={vendor}
           onView={onView}
-          onProjects={onProjects}
           onEdit={onEdit}
           onDelete={onDelete}
         />
@@ -778,17 +772,31 @@ function ConfirmDeleteDialog({ vendor, onConfirm, onClose }: ConfirmDeleteProps)
 
 export default function VendorsPage() {
   const dispatch = useAppDispatch()
-  const defaultPageSize = useSystemDefaultPageSize()
   const { items: rawItems, loading, pagination, filters, sortConfig } = useAppSelector((s) => s.vendors)
   const items = rawItems ?? []
   const { showToast } = useToast()
   const navigate = useNavigate()
+  const [filterOptions, setFilterOptions] = useState<Awaited<ReturnType<typeof vendorsService.getFilters>> | null>(null)
 
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [drawerMode, setDrawerMode] = useState<'add' | 'edit'>('add')
   const [editingVendor, setEditingVendor] = useState<Vendor | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Vendor | null>(null)
   const [activeFilters, setActiveFilters] = useState<Record<string, unknown>>({})
+  const [activeColumnFilters, setActiveColumnFilters] = useState<ActiveVendorColumnFilters>({
+    vendorName: '',
+    website: '',
+    location: '',
+    specialization: '',
+    rating: '',
+  })
+  const [pendingColumnFilters, setPendingColumnFilters] = useState<PendingVendorColumnFilters>({
+    contactPerson: '',
+    mobile: '',
+    email: '',
+    designation: '',
+    createdOn: '',
+  })
   const [viewMode, setViewMode] = useState<'table' | 'grid'>('table')
   const [visibleColumns, setVisibleColumns] = useState<VendorTableVisibleColumns>({
     website: true,
@@ -820,11 +828,23 @@ export default function VendorsPage() {
     page = pagination.page,
     pageSize = pagination.pageSize,
     overrides: {
+      contactsTab?: ContactsTab
       search?: string
       status?: string
       gstStatus?: string
       state?: string
-      profileStatus?: 'pending' | 'complete'
+      vendorName?: string
+      website?: string
+      location?: string
+      specialization?: string
+      rating?: string
+      contactPerson?: string
+      mobile?: string
+      email?: string
+      designation?: string
+      createdOn?: string
+      sortBy?: string
+      sortOrder?: 'asc' | 'desc'
     } = {},
   ) {
     const pick = (key: 'search' | 'status' | 'gstStatus' | 'state') => {
@@ -836,36 +856,56 @@ export default function VendorsPage() {
 
     const searchRaw = pick('search')
     const search = searchRaw?.trim() || undefined
-    const profileStatus =
-      overrides.profileStatus ?? (contactsTab === 'pending' ? 'pending' : 'complete')
+    const targetTab = overrides.contactsTab ?? contactsTab
+    const pickColumn = <K extends keyof ActiveVendorColumnFilters | keyof PendingVendorColumnFilters>(
+      key: K,
+    ) => {
+      if (Object.prototype.hasOwnProperty.call(overrides, key)) {
+        return overrides[key]
+      }
+      return targetTab === 'active'
+        ? activeColumnFilters[key as keyof ActiveVendorColumnFilters]
+        : pendingColumnFilters[key as keyof PendingVendorColumnFilters]
+    }
 
     return {
       page,
       pageSize,
       search,
-      profileStatus: profileStatus as 'pending' | 'complete',
-      ...(profileStatus === 'complete'
+      ...(targetTab === 'active'
         ? {
             status: pick('status') || undefined,
             gstStatus: pick('gstStatus') || undefined,
             state: pick('state') || undefined,
+            vendorName: String(pickColumn('vendorName') ?? '').trim() || undefined,
+            website: String(pickColumn('website') ?? '').trim() || undefined,
+            location: String(pickColumn('location') ?? '').trim() || undefined,
+            specialization: String(pickColumn('specialization') ?? '').trim() || undefined,
+            rating: String(pickColumn('rating') ?? '').trim() || undefined,
+            sortBy: overrides.sortBy ?? (targetTab === 'active' ? sortConfig.field || undefined : undefined),
+            sortOrder:
+              overrides.sortOrder ??
+              (targetTab === 'active' && sortConfig.field ? sortConfig.direction : undefined),
           }
-        : {}),
+        : {
+            status: 'Inactive',
+            contactPerson: String(pickColumn('contactPerson') ?? '').trim() || undefined,
+            mobile: String(pickColumn('mobile') ?? '').trim() || undefined,
+            email: String(pickColumn('email') ?? '').trim() || undefined,
+            designation: String(pickColumn('designation') ?? '').trim() || undefined,
+            createdOn: String(pickColumn('createdOn') ?? '').trim() || undefined,
+            sortBy: undefined,
+            sortOrder: undefined,
+          }),
     }
   }
 
   useEffect(() => {
-    if (defaultPageSize == null) return
-    dispatch(setPageSize(defaultPageSize))
-  }, [dispatch, defaultPageSize])
-
-  // ── Initial fetch ──────────────────────────────────────────────────
-  useEffect(() => {
-    if (defaultPageSize == null) return
-    dispatch(fetchVendors(buildFetchParams(1, defaultPageSize)))
+    void vendorsService.getFilters().then(setFilterOptions).catch(() => setFilterOptions(null))
+    dispatch(fetchVendors(buildFetchParams(1, pagination.pageSize || 20)))
     void refreshTabCounts()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [defaultPageSize])
+  }, [])
 
   useEffect(() => {
     return () => {
@@ -874,34 +914,6 @@ export default function VendorsPage() {
   }, [])
 
   // ── Computed ──────────────────────────────────────────────────────
-
-  // Sort items client-side
-  const sortedItems = useMemo(() => [...items].sort((a, b) => {
-    if (!sortConfig.field) return 0
-    if (sortConfig.field === 'projects') {
-      const av = getTotalVendorProjectCount(a)
-      const bv = getTotalVendorProjectCount(b)
-      return sortConfig.direction === 'asc' ? av - bv : bv - av
-    }
-    if (sortConfig.field === 'rating') {
-      const av = (a.rating ?? '').toLowerCase()
-      const bv = (b.rating ?? '').toLowerCase()
-      if (av === bv) return 0
-      const cmp = av < bv ? -1 : 1
-      return sortConfig.direction === 'asc' ? cmp : -cmp
-    }
-    const field = sortConfig.field as keyof Vendor
-    const aVal = a[field]
-    const bVal = b[field]
-    if (aVal === bVal) return 0
-    if (typeof aVal === 'number' && typeof bVal === 'number') {
-      return sortConfig.direction === 'asc' ? aVal - bVal : bVal - aVal
-    }
-    const aStr = String(aVal ?? '').toLowerCase()
-    const bStr = String(bVal ?? '').toLowerCase()
-    const cmp = aStr < bStr ? -1 : 1
-    return sortConfig.direction === 'asc' ? cmp : -cmp
-  }), [items, sortConfig])
 
   const contactsTabs = useMemo(
     () => [
@@ -917,6 +929,16 @@ export default function VendorsPage() {
     { field: 'specialization', label: 'Specialization', visible: visibleColumns.specialization },
     { field: 'rating', label: 'Rating', visible: visibleColumns.rating },
   ]
+  const vendorNameOptions = toColumnFilterOptions(filterOptions?.vendorName)
+  const websiteOptions = toColumnFilterOptions(filterOptions?.website)
+  const locationOptions = toColumnFilterOptions(filterOptions?.location)
+  const specializationOptions = toColumnFilterOptions(filterOptions?.specialization)
+  const ratingOptions = toColumnFilterOptions(filterOptions?.rating)
+  const pendingContactPersonOptions = toColumnFilterOptions(filterOptions?.contactPerson)
+  const pendingMobileOptions = toColumnFilterOptions(filterOptions?.mobile)
+  const pendingEmailOptions = toColumnFilterOptions(filterOptions?.email)
+  const pendingDesignationOptions = toColumnFilterOptions(filterOptions?.designation)
+  const pendingCreatedOnOptions = toColumnFilterOptions(filterOptions?.createdOn)
 
   // Filter config
   const filterConfig: FilterField[] = [
@@ -938,8 +960,10 @@ export default function VendorsPage() {
       icon: <VerifiedUser sx={{ fontSize: 12 }} />,
       options: [
         { label: 'All', value: '' },
-        { label: 'Registered', value: 'Registered' },
-        { label: 'Unregistered', value: 'Unregistered' },
+        ...(filterOptions?.gstStatuses?.map((option) => ({ label: option.label, value: option.value })) ?? [
+          { label: 'Registered', value: 'Registered' },
+          { label: 'Unregistered', value: 'Unregistered' },
+        ]),
       ],
     },
     {
@@ -949,10 +973,7 @@ export default function VendorsPage() {
       icon: <LocationOn sx={{ fontSize: 12 }} />,
       options: [
         { label: 'All', value: '' },
-        { label: 'Karnataka', value: 'Karnataka' },
-        { label: 'Maharashtra', value: 'Maharashtra' },
-        { label: 'Delhi', value: 'Delhi' },
-        { label: 'Gujarat', value: 'Gujarat' },
+        ...(filterOptions?.states?.map((option) => ({ label: option.label, value: option.value })) ?? []),
       ],
     },
   ]
@@ -991,6 +1012,14 @@ export default function VendorsPage() {
 
   function handleFilterReset() {
     setActiveFilters({})
+    setActiveColumnFilters((prev) => ({
+      ...prev,
+      vendorName: '',
+      website: '',
+      location: '',
+      specialization: '',
+      rating: '',
+    }))
     dispatch(resetFilters())
     dispatch(setPage(1))
     void dispatch(
@@ -1007,6 +1036,20 @@ export default function VendorsPage() {
 
   function handleSortChange(field: string, direction: 'asc' | 'desc') {
     dispatch(setSortConfig({ field, direction }))
+    dispatch(setPage(1))
+    void dispatch(fetchVendors(buildFetchParams(1, pagination.pageSize, { sortBy: field, sortOrder: direction })))
+  }
+
+  function handleActiveColumnFilter(field: keyof ActiveVendorColumnFilters, value: string) {
+    setActiveColumnFilters((prev) => ({ ...prev, [field]: value }))
+    dispatch(setPage(1))
+    void dispatch(fetchVendors(buildFetchParams(1, pagination.pageSize, { [field]: value })))
+  }
+
+  function handlePendingColumnFilter(field: keyof PendingVendorColumnFilters, value: string) {
+    setPendingColumnFilters((prev) => ({ ...prev, [field]: value }))
+    dispatch(setPage(1))
+    void dispatch(fetchVendors(buildFetchParams(1, pagination.pageSize, { [field]: value })))
   }
 
   function handlePageChange(p: number) {
@@ -1019,19 +1062,12 @@ export default function VendorsPage() {
     setContactsTab(next)
     dispatch(setPage(1))
     dispatch(
-      fetchVendors({
-        page: 1,
-        pageSize: pagination.pageSize,
-        search: filters.search || undefined,
-        profileStatus: next === 'pending' ? 'pending' : 'complete',
-        ...(next === 'active'
-          ? {
-              status: filters.status || undefined,
-              gstStatus: filters.gstStatus || undefined,
-              state: filters.state || undefined,
-            }
-          : {}),
-      }),
+      fetchVendors(
+        buildFetchParams(1, pagination.pageSize, {
+          contactsTab: next,
+          search: filters.search || undefined,
+        }),
+      ),
     )
   }
 
@@ -1040,20 +1076,64 @@ export default function VendorsPage() {
     dispatch(setPage(1))
     void refreshTabCounts()
     dispatch(
-      fetchVendors({
-        page: 1,
-        pageSize: pagination.pageSize,
-        search: filters.search || undefined,
-        profileStatus: 'complete',
-        status: filters.status || undefined,
-        gstStatus: filters.gstStatus || undefined,
-        state: filters.state || undefined,
-      }),
+      fetchVendors(
+        buildFetchParams(1, pagination.pageSize, {
+          contactsTab: 'active',
+          search: filters.search || undefined,
+          status: filters.status || undefined,
+          gstStatus: filters.gstStatus || undefined,
+          state: filters.state || undefined,
+        }),
+      ),
     )
   }
 
   function handleColumnVisibilityChange(field: string, visible: boolean) {
     setVisibleColumns((prev) => ({ ...prev, [field]: visible } as VendorTableVisibleColumns))
+  }
+
+  function handleResetAll() {
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
+    setActiveFilters({})
+    setActiveColumnFilters({
+      vendorName: '',
+      website: '',
+      location: '',
+      specialization: '',
+      rating: '',
+    })
+    setPendingColumnFilters({
+      contactPerson: '',
+      mobile: '',
+      email: '',
+      designation: '',
+      createdOn: '',
+    })
+    dispatch(setFilters({ search: '', status: '', gstStatus: '', state: '' }))
+    dispatch(setSortConfig({ field: null, direction: 'asc' }))
+    dispatch(setPage(1))
+    void dispatch(
+      fetchVendors(
+        buildFetchParams(1, pagination.pageSize, {
+          search: '',
+          status: '',
+          gstStatus: '',
+          state: '',
+          vendorName: '',
+          website: '',
+          location: '',
+          specialization: '',
+          rating: '',
+          contactPerson: '',
+          mobile: '',
+          email: '',
+          designation: '',
+          createdOn: '',
+          sortBy: undefined,
+          sortOrder: undefined,
+        }),
+      ),
+    )
   }
 
   function openAddDrawer() {
@@ -1079,12 +1159,6 @@ export default function VendorsPage() {
     if (vendor) {
       navigate(`/vendors/${vendor.id}`)
     }
-  }
-
-  function handleNavigateToVendorProjects(vendor: Vendor, e?: React.MouseEvent) {
-    e?.preventDefault()
-    e?.stopPropagation()
-    navigate(`/vendors/${vendor.id}?tab=projects`)
   }
 
   async function handleDelete() {
@@ -1125,6 +1199,7 @@ export default function VendorsPage() {
         activeFilters={contactsTab === 'active' ? activeFilters : undefined}
         onFilterChange={contactsTab === 'active' ? handleFilterChange : undefined}
         onFilterReset={contactsTab === 'active' ? handleFilterReset : undefined}
+        onResetAll={handleResetAll}
         columns={contactsTab === 'active' ? columnsConfig : undefined}
         onColumnVisibilityChange={
           contactsTab === 'active' ? handleColumnVisibilityChange : undefined
@@ -1135,8 +1210,15 @@ export default function VendorsPage() {
       >
         {contactsTab === 'pending' ? (
           <PendingVendorContactsTable
-            items={sortedItems}
+            items={items}
             loading={loading}
+            columnFilters={pendingColumnFilters}
+            contactPersonOptions={pendingContactPersonOptions}
+            mobileOptions={pendingMobileOptions}
+            emailOptions={pendingEmailOptions}
+            designationOptions={pendingDesignationOptions}
+            createdOnOptions={pendingCreatedOnOptions}
+            onColumnFilter={handlePendingColumnFilter}
             onView={(vendor) => {
               setPendingViewVendor(vendor)
               setPendingViewOpen(true)
@@ -1145,23 +1227,28 @@ export default function VendorsPage() {
           />
         ) : viewMode === 'grid' ? (
           <VendorsGrid
-            items={sortedItems}
+            items={items}
             loading={loading}
             onView={handleNavigateToVendor}
-            onProjects={handleNavigateToVendorProjects}
             onEdit={openEditDrawer}
             onDelete={setDeleteTarget}
           />
         ) : (
           <VendorTable
-            items={sortedItems}
+            items={items}
             loading={loading}
             visibleColumns={visibleColumns}
             sortField={sortConfig.field}
             sortDirection={sortConfig.direction}
             onSort={handleSortChange}
+            columnFilters={activeColumnFilters}
+            vendorNameOptions={vendorNameOptions}
+            websiteOptions={websiteOptions}
+            locationOptions={locationOptions}
+            specializationOptions={specializationOptions}
+            ratingOptions={ratingOptions}
+            onColumnFilter={handleActiveColumnFilter}
             onView={handleNavigateToVendor}
-            onProjects={handleNavigateToVendorProjects}
             onEdit={openEditDrawer}
             onDelete={setDeleteTarget}
           />

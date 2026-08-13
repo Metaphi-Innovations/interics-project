@@ -123,6 +123,16 @@ export type VendorFiltersApi = {
   gstStatuses?: Array<{ value: string; label: string }>
   states?: Array<{ value: string; label: string }>
   complianceStatuses?: Array<{ value: string; label: string }>
+  vendorName?: Array<{ value: string; label: string }>
+  website?: Array<{ value: string; label: string }>
+  location?: Array<{ value: string; label: string }>
+  specialization?: Array<{ value: string; label: string }>
+  contactPerson?: Array<{ value: string; label: string }>
+  mobile?: Array<{ value: string; label: string }>
+  email?: Array<{ value: string; label: string }>
+  designation?: Array<{ value: string; label: string }>
+  createdOn?: Array<{ value: string; label: string }>
+  rating?: Array<{ value: string; label: string }>
 }
 
 export type VendorListParams = {
@@ -132,6 +142,15 @@ export type VendorListParams = {
   isActive?: boolean
   gstStatus?: string
   state?: string
+  vendorName?: string
+  website?: string
+  location?: string
+  specialization?: string
+  contactPerson?: string
+  mobile?: string
+  email?: string
+  designation?: string
+  createdOn?: string
   columns?: string[]
   sortBy?: string
   sortOrder?: 'asc' | 'desc'
