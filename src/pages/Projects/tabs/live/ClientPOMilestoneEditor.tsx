@@ -25,6 +25,7 @@ import {
   type ClientPOServiceOption,
 } from './clientPOServiceOptions'
 import { recalculateClientPOMilestonesForExecutedValue } from './poExecutedValueRules'
+import { parseRateInput, rateInputDisplay, selectRateInputOnFocus } from './rateInput'
 
 const MILESTONE_GRID_COLUMNS_WITH_SERVICE =
   'minmax(120px, 1fr) minmax(0, 1fr) 72px 96px 36px'
@@ -193,28 +194,30 @@ function RetentionRow({
       <TextField
         size="small"
         type="number"
-        value={retention.percentage}
+        value={rateInputDisplay(retention.percentage)}
         onChange={(e) => {
-          const percentage = Number(e.target.value)
+          const percentage = parseRateInput(e.target.value)
           onUpdate({
             percentage,
             value: calcValue(poValue, percentage),
           })
         }}
+        onFocus={selectRateInputOnFocus}
         inputProps={{ style: { fontSize: 12, textAlign: 'right' } }}
         placeholder="%"
       />
       <TextField
         size="small"
         type="number"
-        value={retention.value}
+        value={rateInputDisplay(retention.value)}
         onChange={(e) => {
-          const value = Number(e.target.value)
+          const value = parseRateInput(e.target.value)
           onUpdate({
             value,
             percentage: calcPercentage(poValue, value),
           })
         }}
+        onFocus={selectRateInputOnFocus}
         inputProps={{ style: { fontSize: 12, textAlign: 'right' } }}
         placeholder="₹"
       />
@@ -401,8 +404,11 @@ export function ClientPOMilestoneEditor({
                 <TextField
                   size="small"
                   type="number"
-                  value={m.percentage}
-                  onChange={(e) => updateMilestone(idx, { percentage: Number(e.target.value) })}
+                  value={rateInputDisplay(m.percentage)}
+                  onChange={(e) =>
+                    updateMilestone(idx, { percentage: parseRateInput(e.target.value) })
+                  }
+                  onFocus={selectRateInputOnFocus}
                   disabled={disabled}
                   inputProps={{ style: { fontSize: 12, textAlign: 'right' } }}
                   placeholder="%"
@@ -410,8 +416,11 @@ export function ClientPOMilestoneEditor({
                 <TextField
                   size="small"
                   type="number"
-                  value={m.value}
-                  onChange={(e) => updateMilestone(idx, { value: Number(e.target.value) })}
+                  value={rateInputDisplay(m.value)}
+                  onChange={(e) =>
+                    updateMilestone(idx, { value: parseRateInput(e.target.value) })
+                  }
+                  onFocus={selectRateInputOnFocus}
                   disabled={disabled}
                   inputProps={{ style: { fontSize: 12, textAlign: 'right' } }}
                   placeholder="₹"

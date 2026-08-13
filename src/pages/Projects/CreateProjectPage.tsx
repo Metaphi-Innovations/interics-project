@@ -17,7 +17,7 @@ import {
 import { Add, PersonOutline, Check } from '@mui/icons-material'
 import { useNavigate } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
-import { fetchCustomers, createCustomer } from '../../slices/customers/thunk'
+import { fetchCustomers, createCustomer, fetchCustomerById } from '../../slices/customers/thunk'
 import { fetchUsers } from '../../slices/users/thunk'
 import { fetchRoles } from '../../slices/roles/thunk'
 import { isProjectManagerRole } from './projectManagerRoles'
@@ -31,7 +31,7 @@ import { FullPageForm, FullPageFormSection } from '../../components/templates/Fu
 import { FormField } from '../../components/templates/DrawerForm'
 import { Input, useToast, DatePicker, dateFromIso, isoFromDate, RichTextEditor, AutocompleteField } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
-import { toSlug, getInitials, getAvatarColor } from '../../utils/formatters'
+import { getInitials, getAvatarColor } from '../../utils/formatters'
 import { alpha } from '@mui/material/styles'
 import { fetchSectors, fetchStatuses } from '../../slices/settings/thunk'
 import {
@@ -50,6 +50,7 @@ import {
   buildProjectSetupPayload,
   FORM_CONTROL_INPUT_SX,
 } from './projectCreateHelpers'
+import { normalizeContacts } from '../../utils/entityContacts'
 import { buildAssignedTeamPayload } from '@/utils/projectAssignedTeam'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -197,7 +198,6 @@ function Step1Customer({
   const [savingCustomer, setSavingCustomer] = useState(false)
   const [newCustomerData, setNewCustomerData] = useState({
     name: '',
-    type: 'Company' as 'Company' | 'Individual',
     sector: '',
     contactPerson: '',
     phone: '',
@@ -208,8 +208,9 @@ function Step1Customer({
 
   const selectedCustomer =
     customers.find((c) => c.id === formData.customerId) ?? null
+  // Only real contact UUIDs from customer detail — never legacy list placeholders.
   const customerContacts = useMemo(
-    () => getContactsForCustomer(selectedCustomer),
+    () => normalizeContacts(selectedCustomer?.contacts ?? []),
     [selectedCustomer],
   )
   const selectedContacts = useMemo(
@@ -230,40 +231,43 @@ function Step1Customer({
       toast.error('Please fill in company name, contact person, and phone')
       return
     }
+    if (!newCustomerData.sector?.trim()) {
+      toast.error('Sector is required')
+      return
+    }
     try {
       setSavingCustomer(true)
-      const result = await dispatch(
+      const created = await dispatch(
         createCustomer({
           name: newCustomerData.name,
-          type: newCustomerData.type,
-          sector: newCustomerData.sector || undefined,
+          sector: newCustomerData.sector.trim(),
           contactPerson: newCustomerData.contactPerson,
+          designation: '',
           phone: newCustomerData.phone,
-          email: newCustomerData.email,
-          city: newCustomerData.city,
-          state: newCustomerData.state,
+          email: newCustomerData.email || '',
+          city: newCustomerData.city || '',
+          state: newCustomerData.state || '',
           gstStatus: 'Unregistered',
-          gstin: null,
-          pan: null,
-          address: null,
+          gstin: '',
+          pan: '',
+          address: '',
+          pincode: '',
           tags: [],
-          notes: null,
-          status: 'Active',
-          activeProjects: 0,
-          totalReceivables: 0,
+          notes: '',
         }),
       ).unwrap()
-      const contacts = getContactsForCustomer(result)
+      const full = await dispatch(fetchCustomerById(created.id)).unwrap()
+      void dispatch(fetchCustomers({}))
+      const contacts = getContactsForCustomer(full)
       setFormData((prev) => ({
         ...prev,
-        customerId: result.id,
-        customerName: result.name,
+        customerId: full.id,
+        customerName: full.name,
         contactIds: getDefaultContactIds(contacts),
       }))
       setShowInlineCustomer(false)
       setNewCustomerData({
         name: '',
-        type: 'Company',
         sector: '',
         contactPerson: '',
         phone: '',
@@ -272,8 +276,14 @@ function Step1Customer({
         state: '',
       })
       toast.success('Customer created')
-    } catch {
-      toast.error('Failed to create customer')
+    } catch (err: unknown) {
+      const message =
+        typeof err === 'string'
+          ? err
+          : err && typeof err === 'object' && 'message' in err && typeof err.message === 'string'
+            ? err.message
+            : 'Failed to create customer'
+      toast.error(message)
     } finally {
       setSavingCustomer(false)
     }
@@ -297,13 +307,35 @@ function Step1Customer({
           isOptionEqualToValue={(a, b) => a.id === b.id}
           value={selectedCustomer}
           onChange={(_, val) => {
-            const contacts = getContactsForCustomer(val)
+            if (!val) {
+              setFormData((prev) => ({
+                ...prev,
+                customerId: '',
+                customerName: '',
+                contactIds: [],
+              }))
+              return
+            }
             setFormData((prev) => ({
               ...prev,
-              customerId: val?.id ?? '',
-              customerName: val?.name ?? '',
-              contactIds: getDefaultContactIds(contacts),
+              customerId: val.id,
+              customerName: val.name,
+              contactIds: [],
             }))
+            void dispatch(fetchCustomerById(val.id))
+              .unwrap()
+              .then((detail) => {
+                const contacts = getContactsForCustomer(detail)
+                setFormData((prev) => ({
+                  ...prev,
+                  customerId: detail.id,
+                  customerName: detail.name,
+                  contactIds: getDefaultContactIds(contacts),
+                }))
+              })
+              .catch(() => {
+                toast.error('Failed to load customer contacts')
+              })
           }}
           renderOption={renderCustomerOption}
           renderInput={(params) => (
@@ -381,7 +413,7 @@ function Step1Customer({
               </Box>
               <Box>
                 <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
-                  Sector
+                  Sector <Box component="span" sx={{ color: 'error.main' }}>*</Box>
                 </Typography>
                 <FormControl fullWidth size="small">
                   <MuiSelect
@@ -458,7 +490,6 @@ function Step1Customer({
                   setShowInlineCustomer(false)
                   setNewCustomerData({
                     name: '',
-                    type: 'Company',
                     sector: '',
                     contactPerson: '',
                     phone: '',
@@ -489,7 +520,7 @@ function Step1Customer({
       open={createContactOpen}
       onClose={() => setCreateContactOpen(false)}
       customerId={formData.customerId}
-      existingCustomerContacts={getContactsForCustomer(selectedCustomer)}
+      existingCustomerContacts={normalizeContacts(selectedCustomer?.contacts ?? [])}
       onSaved={handleContactSaved}
     />
     </>
@@ -756,7 +787,9 @@ function Step4Team({
   getRoleLabel: (roleId: string) => string
   errors: StepErrors
 }) {
-  const teamOptions = allUsers.filter((u) => u.id !== formData.projectManagerId)
+  const teamOptions = allUsers.filter(
+    (u) => u.status === 'active' && u.id !== formData.projectManagerId,
+  )
 
   return (
     <FullPageFormSection
@@ -1048,7 +1081,14 @@ export default function CreateProjectPage() {
     dispatch(fetchStatuses())
   }, [dispatch])
 
-  const managers = users.filter((u) => isProjectManagerRole(u.role))
+  const managersFiltered = users.filter(
+    (u) => u.status === 'active' && isProjectManagerRole(u.role, roles),
+  )
+  const managers =
+    managersFiltered.length > 0
+      ? managersFiltered
+      : users.filter((u) => u.status === 'active')
+  const activeUsers = users.filter((u) => u.status === 'active')
 
   function getRoleLabel(roleId: string) {
     return roles.find((r) => r.id === roleId)?.name ?? roleId
@@ -1110,6 +1150,7 @@ export default function CreateProjectPage() {
     const payload = {
       customerId: formData.customerId,
       customerName: formData.customerName,
+      contactIds: formData.contactIds,
       name: formData.name,
       location,
       address: formData.address.trim(),
@@ -1129,7 +1170,7 @@ export default function CreateProjectPage() {
       assignedTeam: buildAssignedTeamPayload(
         formData.projectManagerId,
         formData.projectManagerName,
-        formData.teamMembers,
+        formData.teamMembers.filter((m) => m.status === 'active'),
         getRoleLabel,
       ),
       startDate: formData.startDate || null,
@@ -1147,9 +1188,13 @@ export default function CreateProjectPage() {
     try {
       const result = await dispatch(createProject(payload)).unwrap()
       toast.success('Project created successfully')
-      navigate(`/projects/${toSlug(result.name)}`)
-    } catch {
-      toast.error('Failed to create project')
+      navigate(`/projects/${result.id}`)
+    } catch (err: unknown) {
+      const message =
+        err && typeof err === 'object' && 'message' in err && typeof err.message === 'string'
+          ? err.message
+          : 'Failed to create project'
+      toast.error(message)
     }
   }
 
@@ -1188,7 +1233,7 @@ export default function CreateProjectPage() {
           <Step4Team
             formData={formData}
             setFormData={setFormData}
-            allUsers={users}
+            allUsers={activeUsers}
             managers={managers}
             getRoleLabel={getRoleLabel}
             errors={errors}

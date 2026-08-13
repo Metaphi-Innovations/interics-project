@@ -80,35 +80,84 @@ export interface VendorPOMilestoneOverviewRow {
   status: VendorPOMilestone['status']
 }
 
+export type VendorServiceNameCatalogEntry = {
+  id: string
+  name: string
+}
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+function looksLikeRawId(value: string | null | undefined): boolean {
+  const trimmed = (value ?? '').trim()
+  return !trimmed || UUID_RE.test(trimmed)
+}
+
 function findServiceInBaseline(baseline: Baseline | null, serviceId: string): PitchService | undefined {
-  if (!baseline) return undefined
-  for (const cat of baseline.categories) {
-    const svc = cat.services.find((s) => s.id === serviceId)
+  if (!baseline || !serviceId.trim()) return undefined
+  const categories = Array.isArray(baseline.categories) ? baseline.categories : []
+  for (const cat of categories) {
+    const svc = (cat.services ?? []).find(
+      (s) => s.id === serviceId || s.subcategoryId === serviceId,
+    )
     if (svc) return svc
   }
   return undefined
 }
 
-function linkedServiceLabels(po: VendorPO, baseline: Baseline | null): string {
-  const ids = po.linkedBaselineServiceIds ?? []
-  if (ids.length === 0) return '—'
-  return ids
-    .map((id) => {
-      const svc = findServiceInBaseline(baseline, id)
-      return svc?.subcategoryName ?? svc?.name ?? id
-    })
-    .join(', ')
+function resolveLinkedServiceName(
+  serviceId: string,
+  baseline: Baseline | null,
+  catalog?: VendorServiceNameCatalogEntry[],
+): string {
+  if (!serviceId.trim()) return ''
+  const fromBaseline = findServiceInBaseline(baseline, serviceId)
+  const baselineName = (
+    fromBaseline?.subcategoryName ??
+    fromBaseline?.name ??
+    fromBaseline?.customName ??
+    ''
+  ).trim()
+  if (baselineName && !looksLikeRawId(baselineName)) return baselineName
+
+  const fromCatalog = catalog?.find((s) => s.id === serviceId)?.name?.trim()
+  if (fromCatalog && !looksLikeRawId(fromCatalog)) return fromCatalog
+
+  return baselineName || fromCatalog || ''
 }
 
-export function vendorPOLinkedServiceLabel(po: VendorPO, baseline: Baseline | null): string {
-  return linkedServiceLabels(po, baseline)
+function linkedServiceLabels(
+  po: VendorPO,
+  baseline: Baseline | null,
+  catalog?: VendorServiceNameCatalogEntry[],
+): string {
+  const ids = po.linkedBaselineServiceIds ?? []
+  if (ids.length === 0) return '—'
+  const labels = ids
+    .map((id) => resolveLinkedServiceName(id, baseline, catalog) || null)
+    .filter((label): label is string => Boolean(label))
+  if (labels.length > 0) return [...new Set(labels)].join(', ')
+  return '—'
+}
+
+export function vendorPOLinkedServiceLabel(
+  po: VendorPO,
+  baseline: Baseline | null,
+  catalog?: VendorServiceNameCatalogEntry[],
+): string {
+  return linkedServiceLabels(po, baseline, catalog)
 }
 
 export function vendorPOCategoryLabel(po: VendorPO, baseline: Baseline | null): string {
   const serviceId = po.linkedBaselineServiceIds?.[0]
   if (!serviceId || !baseline) return '—'
-  for (const cat of baseline.categories) {
-    if (cat.services.some((s) => s.id === serviceId)) return cat.categoryName
+  const categories = Array.isArray(baseline.categories) ? baseline.categories : []
+  for (const cat of categories) {
+    if (
+      (cat.services ?? []).some((s) => s.id === serviceId || s.subcategoryId === serviceId)
+    ) {
+      return cat.categoryName
+    }
   }
   return '—'
 }
@@ -117,16 +166,21 @@ export function buildVendorPOMilestoneOverviewRows(
   vendorPOs: VendorPO[],
   projectId: string,
   baseline: Baseline | null,
+  catalog?: VendorServiceNameCatalogEntry[],
 ): VendorPOMilestoneOverviewRow[] {
   const rows: VendorPOMilestoneOverviewRow[] = []
   for (const po of vendorPOs.filter((p) => p.projectId === projectId)) {
-    const serviceLabel = linkedServiceLabels(po, baseline)
     const primaryServiceId = po.linkedBaselineServiceIds?.[0] ?? ''
-    const primarySvc = primaryServiceId ? findServiceInBaseline(baseline, primaryServiceId) : undefined
     const primaryServiceName =
-      primarySvc?.subcategoryName ?? primarySvc?.name ?? primaryServiceId
-    for (const m of po.milestones) {
+      resolveLinkedServiceName(primaryServiceId, baseline, catalog) || '—'
+    const serviceLabel = linkedServiceLabels(po, baseline, catalog)
+    for (const m of Array.isArray(po.milestones) ? po.milestones : []) {
       const milestoneType = resolveVendorPOMilestoneKind(m)
+      const rawName = (m.name ?? '').trim()
+      const displayName =
+        milestoneType === 'retention' && (looksLikeRawId(rawName) || !rawName)
+          ? 'Retention'
+          : rawName || (milestoneType === 'retention' ? 'Retention' : 'Milestone')
       rows.push({
         key: `${po.id}-${m.id}`,
         poId: po.id,
@@ -135,9 +189,9 @@ export function buildVendorPOMilestoneOverviewRows(
         vendor: po.vendorName,
         serviceId: primaryServiceId,
         serviceName: primaryServiceName,
-        service: serviceLabel,
+        service: serviceLabel === '—' ? primaryServiceName : serviceLabel,
         milestoneId: m.id,
-        name: m.name,
+        name: displayName,
         pct: m.percentage,
         amount: m.value,
         milestoneType,
@@ -169,8 +223,110 @@ export function buildVendorOfferRows(version: PitchVersion | null): VendorOfferR
   return rows
 }
 
+/** Live Vendor Offers table row — one per Live Vendor PO (independent of Pitch mappings). */
+export interface LiveVendorOfferRow {
+  key: string
+  po: VendorPO
+  vendorName: string
+  categoryName: string
+  serviceId: string
+  serviceName: string
+  offerAmount: number
+  notes: string
+}
+
+export function buildLiveVendorOfferRows(
+  vendorPOs: VendorPO[],
+  projectId: string,
+  baseline: Baseline | null,
+  catalog?: VendorServiceNameCatalogEntry[],
+): LiveVendorOfferRow[] {
+  return vendorPOs
+    .filter((po) => po.projectId === projectId)
+    .map((po) => {
+      const serviceId = po.linkedBaselineServiceIds?.[0] ?? ''
+      const serviceName =
+        resolveLinkedServiceName(serviceId, baseline, catalog) ||
+        vendorPOLinkedServiceLabel(po, baseline, catalog)
+      return {
+        key: po.id,
+        po,
+        vendorName: po.vendorName || '—',
+        categoryName: vendorPOCategoryLabel(po, baseline),
+        serviceId,
+        serviceName: looksLikeRawId(serviceName) ? '—' : serviceName,
+        offerAmount: vendorPoEffectiveValue(po),
+        notes: po.fileName?.trim() || po.poNumber?.trim() || '',
+      }
+    })
+}
+
 function normalizeOfferLabel(value: string): string {
   return value.trim().toLowerCase()
+}
+
+function pitchServiceLabel(svc: PitchService): string {
+  return normalizeOfferLabel(svc.subcategoryName ?? svc.name ?? svc.customName ?? '')
+}
+
+export interface MasterServiceSelection {
+  masterCategoryId: string
+  masterServiceId: string
+  masterCategoryName?: string
+  masterServiceName?: string
+}
+
+export interface ResolvedPitchServiceTarget {
+  categoryId: string
+  categoryName: string
+  service: PitchService
+}
+
+/** Map master category/service picker ids to a pitch or baseline service row. */
+export function resolvePitchServiceForMasterSelection(
+  version: { categories: PitchCategory[] } | null,
+  selection: MasterServiceSelection,
+): ResolvedPitchServiceTarget | null {
+  if (!version) return null
+
+  const masterCatName = selection.masterCategoryName?.trim()
+  const masterSvcName = selection.masterServiceName?.trim()
+
+  const serviceMatches = (svc: PitchService): boolean =>
+    svc.id === selection.masterServiceId ||
+    svc.subcategoryId === selection.masterServiceId ||
+    (masterSvcName != null &&
+      masterSvcName.length > 0 &&
+      pitchServiceLabel(svc) === normalizeOfferLabel(masterSvcName))
+
+  // Pass 1: category + service (ids or names)
+  for (const cat of version.categories) {
+    const categoryMatches =
+      cat.categoryId === selection.masterCategoryId ||
+      cat.id === selection.masterCategoryId ||
+      (masterCatName != null &&
+        masterCatName.length > 0 &&
+        normalizeOfferLabel(cat.categoryName) === normalizeOfferLabel(masterCatName))
+
+    if (!categoryMatches) continue
+
+    for (const svc of cat.services) {
+      if (serviceMatches(svc)) {
+        return { categoryId: cat.id, categoryName: cat.categoryName, service: svc }
+      }
+    }
+  }
+
+  // Pass 2: service only (category ids often differ between master and pitch/baseline rows)
+  for (const cat of version.categories) {
+    for (const svc of cat.services) {
+      if (serviceMatches(svc)) {
+        return { categoryId: cat.id, categoryName: cat.categoryName, service: svc }
+      }
+    }
+  }
+
+  return null
 }
 
 /** Stable key for a vendor-offer table row. */

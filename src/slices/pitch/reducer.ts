@@ -40,6 +40,7 @@ export interface VendorRetention {
 
 /** Vendor quotation document (PO Transition); stored per service–vendor mapping. */
 export interface VendorQuotation {
+  fileId?: string
   fileName: string
   fileUrl: string
   uploadedAt: string
@@ -159,6 +160,41 @@ const initialState: PitchState = {
   error: null,
 }
 
+function pitchVersionContentScore(v: PitchVersion): number {
+  const categories = v.categories ?? []
+  const services = categories.reduce((n, c) => n + (c.services?.length ?? 0), 0)
+  const vendors = categories.reduce(
+    (n, c) => n + (c.services ?? []).reduce((vs, s) => vs + (s.vendorMappings?.length ?? 0), 0),
+    0,
+  )
+  const expenses = v.plannedExpenses?.length ?? 0
+  return categories.length * 1000 + services * 100 + vendors * 10 + expenses
+}
+
+/** Prefer active version; if it is empty and another has pitch data, use the richest. */
+function pickPreferredPitchVersion(versions: PitchVersion[]): PitchVersion | null {
+  if (versions.length === 0) return null
+  const active = versions.find((v) => v.isActive) ?? null
+  const ranked = [...versions].sort(
+    (a, b) =>
+      pitchVersionContentScore(b) - pitchVersionContentScore(a) ||
+      b.versionNumber - a.versionNumber,
+  )
+  const richest = ranked[0] ?? null
+  if (active && pitchVersionContentScore(active) > 0) return active
+  if (richest && pitchVersionContentScore(richest) > 0) return richest
+  return active ?? richest
+}
+
+function applyMutatedVersion(state: PitchState, version: PitchVersion): void {
+  const idx = state.versions.findIndex((v) => v.id === version.id)
+  if (idx !== -1) state.versions[idx] = version
+  else state.versions.push(version)
+  // Always surface the version that was just mutated so UI matches DB.
+  state.activeVersionId = version.id
+  state.activeVersion = version
+}
+
 // ─── Slice ────────────────────────────────────────────────────────────────────
 
 const pitchSlice = createSlice({
@@ -184,10 +220,10 @@ const pitchSlice = createSlice({
       .addCase(fetchVersions.fulfilled, (state, action) => {
         state.loading = false
         state.versions = action.payload
-        const active = action.payload.find((v) => v.isActive) ?? action.payload[0] ?? null
-        if (active) {
-          state.activeVersionId = active.id
-          state.activeVersion = active
+        const preferred = pickPreferredPitchVersion(action.payload)
+        if (preferred) {
+          state.activeVersionId = preferred.id
+          state.activeVersion = preferred
         } else {
           state.activeVersionId = null
           state.activeVersion = null
@@ -213,9 +249,19 @@ const pitchSlice = createSlice({
       })
       .addCase(createVersion.fulfilled, (state, action) => {
         state.saving = false
-        state.versions.push(action.payload)
-        state.activeVersionId = action.payload.id
-        state.activeVersion = action.payload
+        const existingIdx = state.versions.findIndex((v) => v.id === action.payload.id)
+        if (existingIdx === -1) {
+          state.versions.push(action.payload)
+        } else {
+          state.versions[existingIdx] = action.payload
+        }
+        // Do not steal focus from a version the user is already editing.
+        if (!state.activeVersionId) {
+          state.activeVersionId = action.payload.id
+          state.activeVersion = action.payload
+        } else if (state.activeVersionId === action.payload.id) {
+          state.activeVersion = action.payload
+        }
       })
       .addCase(createVersion.rejected, (state, action) => {
         state.saving = false
@@ -246,11 +292,7 @@ const pitchSlice = createSlice({
       })
       .addCase(addCategory.fulfilled, (state, action) => {
         state.saving = false
-        const idx = state.versions.findIndex((v) => v.id === action.payload.id)
-        if (idx !== -1) state.versions[idx] = action.payload
-        if (state.activeVersionId === action.payload.id) {
-          state.activeVersion = action.payload
-        }
+        applyMutatedVersion(state, action.payload)
       })
       .addCase(addCategory.rejected, (state, action) => {
         state.saving = false
@@ -261,11 +303,7 @@ const pitchSlice = createSlice({
       })
       .addCase(deleteCategory.fulfilled, (state, action) => {
         state.saving = false
-        const idx = state.versions.findIndex((v) => v.id === action.payload.id)
-        if (idx !== -1) state.versions[idx] = action.payload
-        if (state.activeVersionId === action.payload.id) {
-          state.activeVersion = action.payload
-        }
+        applyMutatedVersion(state, action.payload)
       })
       .addCase(deleteCategory.rejected, (state, action) => {
         state.saving = false
@@ -276,11 +314,7 @@ const pitchSlice = createSlice({
       })
       .addCase(addService.fulfilled, (state, action) => {
         state.saving = false
-        const idx = state.versions.findIndex((v) => v.id === action.payload.id)
-        if (idx !== -1) state.versions[idx] = action.payload
-        if (state.activeVersionId === action.payload.id) {
-          state.activeVersion = action.payload
-        }
+        applyMutatedVersion(state, action.payload)
       })
       .addCase(addService.rejected, (state, action) => {
         state.saving = false
@@ -291,11 +325,7 @@ const pitchSlice = createSlice({
       })
       .addCase(updateService.fulfilled, (state, action) => {
         state.saving = false
-        const idx = state.versions.findIndex((v) => v.id === action.payload.id)
-        if (idx !== -1) state.versions[idx] = action.payload
-        if (state.activeVersionId === action.payload.id) {
-          state.activeVersion = action.payload
-        }
+        applyMutatedVersion(state, action.payload)
       })
       .addCase(updateService.rejected, (state, action) => {
         state.saving = false
@@ -306,11 +336,7 @@ const pitchSlice = createSlice({
       })
       .addCase(deleteService.fulfilled, (state, action) => {
         state.saving = false
-        const idx = state.versions.findIndex((v) => v.id === action.payload.id)
-        if (idx !== -1) state.versions[idx] = action.payload
-        if (state.activeVersionId === action.payload.id) {
-          state.activeVersion = action.payload
-        }
+        applyMutatedVersion(state, action.payload)
       })
       .addCase(deleteService.rejected, (state, action) => {
         state.saving = false
@@ -321,11 +347,7 @@ const pitchSlice = createSlice({
       })
       .addCase(updateMilestones.fulfilled, (state, action) => {
         state.saving = false
-        const idx = state.versions.findIndex((v) => v.id === action.payload.id)
-        if (idx !== -1) state.versions[idx] = action.payload
-        if (state.activeVersionId === action.payload.id) {
-          state.activeVersion = action.payload
-        }
+        applyMutatedVersion(state, action.payload)
       })
       .addCase(updateMilestones.rejected, (state, action) => {
         state.saving = false
@@ -336,11 +358,7 @@ const pitchSlice = createSlice({
       })
       .addCase(updateVendorMapping.fulfilled, (state, action) => {
         state.saving = false
-        const idx = state.versions.findIndex((v) => v.id === action.payload.id)
-        if (idx !== -1) state.versions[idx] = action.payload
-        if (state.activeVersionId === action.payload.id) {
-          state.activeVersion = action.payload
-        }
+        applyMutatedVersion(state, action.payload)
       })
       .addCase(updateVendorMapping.rejected, (state, action) => {
         state.saving = false
@@ -351,11 +369,7 @@ const pitchSlice = createSlice({
       })
       .addCase(updatePlannedExpenses.fulfilled, (state, action) => {
         state.saving = false
-        const idx = state.versions.findIndex((v) => v.id === action.payload.id)
-        if (idx !== -1) state.versions[idx] = action.payload
-        if (state.activeVersionId === action.payload.id) {
-          state.activeVersion = action.payload
-        }
+        applyMutatedVersion(state, action.payload)
       })
       .addCase(updatePlannedExpenses.rejected, (state, action) => {
         state.saving = false

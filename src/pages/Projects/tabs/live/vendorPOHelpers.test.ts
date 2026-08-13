@@ -3,8 +3,10 @@ import type { Baseline, VendorPO } from '@/slices/baseline/reducer'
 import type { PitchCategory, PitchVersion } from '@/slices/pitch/reducer'
 import {
   baselineToOfferVersion,
+  buildLiveVendorOfferRows,
   buildVendorOfferRows,
   resolveOfferVersionForProject,
+  resolvePitchServiceForMasterSelection,
   vendorOfferHasPo,
 } from './vendorPOHelpers'
 
@@ -123,6 +125,153 @@ describe('resolveOfferVersionForProject', () => {
     expect(offer.id).toBe(baseline.versionId)
     expect(offer.projectId).toBe(projectId)
     expect(offer.label).toBe('Version 1')
+  })
+})
+
+describe('buildLiveVendorOfferRows', () => {
+  it('lists Live Vendor POs only and ignores pitch/baseline vendorMappings', () => {
+    const baseline = makeBaseline([
+      makeCategory([
+        {
+          id: 'svc-1',
+          name: 'Design',
+          subcategoryId: 'sub-1',
+          subcategoryName: 'Design',
+          customName: null,
+          value: 100,
+          clientMilestones: [],
+          vendorMappings: [
+            {
+              id: 'vm-pitch',
+              vendorId: 'v-pitch',
+              vendorName: 'Pitch Only Vendor',
+              value: 999,
+              percentage: 100,
+              milestones: [],
+              isMeasurable: false,
+            },
+          ],
+          milestonesTotal: 0,
+        },
+      ]),
+    ])
+
+    const vendorPOs: VendorPO[] = [
+      {
+        id: 'vpo-1',
+        projectId,
+        vendorId: 'v-live',
+        vendorName: 'Live Vendor',
+        poNumber: 'PO-LIVE-1',
+        poDate: '2026-01-01',
+        poValue: 50000,
+        executedValue: 48000,
+        milestones: [],
+        status: 'Draft',
+        linkedBaselineServiceIds: ['svc-1'],
+        fileName: 'offer.pdf',
+      },
+    ]
+
+    const rows = buildLiveVendorOfferRows(vendorPOs, projectId, baseline)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.vendorName).toBe('Live Vendor')
+    expect(rows[0]?.offerAmount).toBe(48000)
+    expect(rows[0]?.categoryName).toBe('Build Services')
+    expect(rows[0]?.serviceName).toBe('Design')
+    expect(rows[0]?.notes).toBe('offer.pdf')
+    expect(rows.every((r) => r.vendorName !== 'Pitch Only Vendor')).toBe(true)
+  })
+
+  it('returns empty when no Live Vendor POs exist', () => {
+    const baseline = makeBaseline([
+      makeCategory([
+        {
+          id: 'svc-1',
+          name: 'Design',
+          subcategoryId: 'sub-1',
+          subcategoryName: 'Design',
+          customName: null,
+          value: 100,
+          clientMilestones: [],
+          vendorMappings: [
+            {
+              id: 'vm-1',
+              vendorId: 'v-1',
+              vendorName: 'Acme',
+              value: 40,
+              percentage: 40,
+              milestones: [],
+              isMeasurable: false,
+            },
+          ],
+          milestonesTotal: 0,
+        },
+      ]),
+    ])
+    expect(buildLiveVendorOfferRows([], projectId, baseline)).toHaveLength(0)
+  })
+})
+
+describe('resolvePitchServiceForMasterSelection', () => {
+  it('resolves master service id via subcategoryId for Live VPO linking', () => {
+    const version = makeVersion([
+      makeCategory([
+        {
+          id: 'svc-1',
+          name: 'Design',
+          subcategoryId: 'master-svc-design',
+          subcategoryName: 'Design',
+          customName: null,
+          value: 100,
+          clientMilestones: [],
+          vendorMappings: [],
+          milestonesTotal: 0,
+        },
+      ]),
+    ])
+
+    const resolved = resolvePitchServiceForMasterSelection(version, {
+      masterCategoryId: 'master-cat',
+      masterServiceId: 'master-svc-design',
+      masterCategoryName: 'Build Services',
+      masterServiceName: 'Design',
+    })
+
+    expect(resolved?.service.id).toBe('svc-1')
+  })
+
+  it('matches service by id even when category id differs', () => {
+    const version = makeVersion([
+      {
+        id: 'pitch-cat',
+        categoryId: 'other-master',
+        categoryName: 'Build Services',
+        totalValue: 100,
+        services: [
+          {
+            id: 'svc-1',
+            name: 'Design',
+            subcategoryId: 'master-svc-design',
+            subcategoryName: 'Design',
+            customName: null,
+            value: 100,
+            clientMilestones: [],
+            vendorMappings: [],
+            milestonesTotal: 0,
+          },
+        ],
+      },
+    ])
+
+    const resolved = resolvePitchServiceForMasterSelection(version, {
+      masterCategoryId: 'unrelated-master-cat',
+      masterServiceId: 'master-svc-design',
+      masterCategoryName: 'Different Label',
+      masterServiceName: 'Design',
+    })
+
+    expect(resolved?.service.id).toBe('svc-1')
   })
 })
 

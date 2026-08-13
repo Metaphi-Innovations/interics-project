@@ -18,17 +18,19 @@ import {
 } from '@mui/material'
 import { useTheme, alpha } from '@mui/material/styles'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
-import axios from 'axios'
 import { Banknote, ChevronLeft, ChevronRight, Upload } from 'lucide-react'
-import client from '@/api/client'
 import { ListingTemplate } from '@/components/templates'
 import type { FilterField, TabItem } from '@/components/templates/ListingTemplate'
 import { Avatar, Badge, useToast } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
-import type { AppDispatch } from '@/store'
 import { formatDate, formatInr } from '@/utils/formatters'
 import { fetchProjects } from '@/slices/projects/thunk'
+import {
+  payablesService,
+  toPayableSummaryKpis,
+} from '@/modules/finance/payables.service'
+import type { PayableSummaryKpis } from '@/pages/Finance/utils/payableSummary'
 import {
   fetchExpenses,
   fetchPayments,
@@ -36,6 +38,7 @@ import {
   fetchVendorInvoices,
   fetchVendorPayableControls,
 } from '@/slices/live/thunk'
+import { hydrateVendorInvoices } from '@/slices/live/reducer'
 import type { Baseline, VendorPO } from '@/slices/baseline/reducer'
 import {
   baselineVendorMilestoneEntries,
@@ -75,22 +78,11 @@ interface PaymentTableRow {
   invoiceNumber: string
   invoiceDate: string
   invoiceAmount: number
-}
-
-async function loadFinanceForAllProjects(dispatch: AppDispatch, projectIds: string[]): Promise<void> {
-  await Promise.all(
-    projectIds.flatMap((id) => [
-      dispatch(fetchVendorInvoices(id)).unwrap(),
-      dispatch(fetchPayments(id)).unwrap(),
-      dispatch(fetchExpenses(id)).unwrap(),
-      dispatch(fetchReimbursements(id)).unwrap(),
-      dispatch(fetchVendorPayableControls(id)).unwrap(),
-    ]),
-  )
+  tdsAmount: number
 }
 
 /** Equal-width data columns + fixed Action; padding matches listing toolbar (14px). */
-const PAY_DATA_COLUMN_COUNT = 7
+const PAY_DATA_COLUMN_COUNT = 8
 const PAY_ACTION_WIDTH_PX = 60
 const PAY_CELL_PAD_X = '14px'
 const PAY_DATA_COL_WIDTH = `calc((100% - ${PAY_ACTION_WIDTH_PX}px) / ${PAY_DATA_COLUMN_COUNT})`
@@ -267,25 +259,6 @@ function SimplePagination({ page, pageSize, total, onPage }: SimplePaginationPro
   )
 }
 
-async function fetchBaselineForProject(projectId: string): Promise<Baseline | null> {
-  try {
-    const res = await client.get<Baseline>(`/projects/${projectId}/baseline`)
-    return res.data
-  } catch (e) {
-    if (axios.isAxiosError(e) && e.response?.status === 404) return null
-    throw e
-  }
-}
-
-async function fetchVendorPOsForProject(projectId: string): Promise<VendorPO[]> {
-  try {
-    const res = await client.get<VendorPO[]>(`/projects/${projectId}/vendor-pos`)
-    return res.data
-  } catch {
-    return []
-  }
-}
-
 export default function PaymentsPage() {
   const dispatch = useAppDispatch()
   const theme = useTheme()
@@ -293,16 +266,11 @@ export default function PaymentsPage() {
   const { items: rawProjects, loading: projectsLoading } = useAppSelector((s) => s.projects)
   const projects = rawProjects ?? []
   const vendorInvoices = useAppSelector((s) => s.live.vendorInvoices ?? [])
-  const payments = useAppSelector((s) => s.live.payments ?? [])
 
   const [baselinesByProject, setBaselinesByProject] = useState<Record<string, Baseline | null>>({})
   const [vendorPOsByProject, setVendorPOsByProject] = useState<Record<string, VendorPO[]>>({})
   const [financeLoaded, setFinanceLoaded] = useState(false)
-
-  const projectIdsKey = useMemo(
-    () => projects.map((p) => p.id).sort().join(','),
-    [projects],
-  )
+  const [summaryKpis, setSummaryKpis] = useState<PayableSummaryKpis | null>(null)
 
   const [filterProjectId, setFilterProjectId] = useState('')
   const [filterVendorId, setFilterVendorId] = useState('')
@@ -329,45 +297,34 @@ export default function PaymentsPage() {
     void dispatch(fetchProjects({ pageSize: 100 }))
   }, [dispatch])
 
+  // One workspace call replaces N× baseline + vendor-PO + invoice + payments + expenses…
   useEffect(() => {
-    if (projects.length === 0) {
-      setBaselinesByProject({})
-      setVendorPOsByProject({})
-      return
-    }
     let cancelled = false
-    void (async () => {
-      const baselineEntries = await Promise.all(
-        projects.map(async (p) => [p.id, await fetchBaselineForProject(p.id)] as const),
-      )
-      const vendorPOEntries = await Promise.all(
-        projects.map(async (p) => [p.id, await fetchVendorPOsForProject(p.id)] as const),
-      )
-      if (!cancelled) {
-        setBaselinesByProject(Object.fromEntries(baselineEntries))
-        setVendorPOsByProject(Object.fromEntries(vendorPOEntries))
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [projectIdsKey, projects])
-
-  useEffect(() => {
-    if (projects.length === 0) {
-      setFinanceLoaded(true)
-      return
-    }
-    const hadStoreData = vendorInvoices.length > 0 || payments.length > 0
-    let cancelled = false
-    if (!hadStoreData) setFinanceLoaded(false)
-
+    setFinanceLoaded(false)
     void (async () => {
       try {
-        await loadFinanceForAllProjects(
-          dispatch,
-          projects.map((p) => p.id),
-        )
+        const workspace = await payablesService.getWorkspace()
+        if (cancelled) return
+
+        const poByProject: Record<string, VendorPO[]> = {}
+        for (const po of workspace.vendorPOs) {
+          const list = poByProject[po.projectId] ?? []
+          list.push(po)
+          poByProject[po.projectId] = list
+        }
+
+        const blByProject: Record<string, Baseline | null> = {}
+        for (const bl of workspace.baselines) {
+          if (bl?.projectId) blByProject[bl.projectId] = bl
+        }
+
+        setVendorPOsByProject(poByProject)
+        setBaselinesByProject(blByProject)
+        dispatch(hydrateVendorInvoices(workspace.vendorInvoices))
+      } catch {
+        if (!cancelled) {
+          showToast({ title: 'Failed to load payables workspace', variant: 'error' })
+        }
       } finally {
         if (!cancelled) setFinanceLoaded(true)
       }
@@ -375,7 +332,36 @@ export default function PaymentsPage() {
     return () => {
       cancelled = true
     }
-  }, [dispatch, projectIdsKey, projects])
+  }, [dispatch, showToast])
+
+  // Summary KPIs from dedicated API (refetch when project/vendor filters change)
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const summary = await payablesService.getSummary({
+          projectId: filterProjectId || undefined,
+          vendorId: filterVendorId || undefined,
+        })
+        if (!cancelled) setSummaryKpis(toPayableSummaryKpis(summary))
+      } catch {
+        if (!cancelled) setSummaryKpis(null)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [filterProjectId, filterVendorId])
+
+  // Lazy-load drawer-only finance for the selected project
+  useEffect(() => {
+    if (!workflowDrawer) return
+    const projectId = workflowDrawer.entry.projectId
+    void dispatch(fetchPayments(projectId))
+    void dispatch(fetchExpenses({ projectId }))
+    void dispatch(fetchReimbursements(projectId))
+    void dispatch(fetchVendorPayableControls(projectId))
+  }, [dispatch, workflowDrawer?.entry.projectId, workflowDrawer?.entry.milestone.id])
 
   const allCards = useMemo((): CardEntry[] => {
     const out: CardEntry[] = []
@@ -435,6 +421,7 @@ export default function PaymentsPage() {
         invoiceNumber: milestoneInv.invoiceNumber,
         invoiceDate: milestoneInv.invoiceDate,
         invoiceAmount: milestoneInv.baseAmount,
+        tdsAmount: milestoneInv.tdsAmount ?? 0,
       }
     },
     [invoicesByProject],
@@ -457,6 +444,7 @@ export default function PaymentsPage() {
         row.entry.projectName,
         row.entry.milestone.name,
         row.invoiceNumber,
+        String(row.tdsAmount),
         payableStatusLabel(row.payableSt),
       ]
         .join(' ')
@@ -491,9 +479,7 @@ export default function PaymentsPage() {
     [tabCounts],
   )
 
-  const isDataLoading =
-    projectsLoading ||
-    (projects.length > 0 && !financeLoaded && vendorInvoices.length === 0 && payments.length === 0)
+  const isDataLoading = projectsLoading || !financeLoaded
 
   const paginatedRows = useMemo(() => {
     const start = (page - 1) * PAY_PAGE_SIZE
@@ -509,36 +495,29 @@ export default function PaymentsPage() {
     if (page > maxPage) setPage(maxPage)
   }, [listingRows.length, page])
 
-  const summaryVendorPOs = useMemo(() => {
-    const all = Object.values(vendorPOsByProject).flat()
-    return all.filter((po) => {
-      if (filterProjectId && po.projectId !== filterProjectId) return false
-      if (filterVendorId && po.vendorId !== filterVendorId) return false
-      return true
-    })
-  }, [vendorPOsByProject, filterProjectId, filterVendorId])
-
-  const summaryPayments = useMemo(() => {
-    return payments.filter((p) => {
-      if (filterProjectId && p.projectId !== filterProjectId) return false
-      if (filterVendorId && p.vendorId !== filterVendorId) return false
-      return true
-    })
-  }, [payments, filterProjectId, filterVendorId])
-
   const vendorOptions = useMemo(() => {
     const labels: Record<string, string> = {}
     for (const c of allCards) {
       labels[c.row.vendorId] = c.row.vendorName
     }
+    for (const list of Object.values(vendorPOsByProject)) {
+      for (const po of list) {
+        if (po.vendorId) labels[po.vendorId] = po.vendorName || po.vendorId
+      }
+    }
     return Object.keys(labels).sort((a, b) => labels[a].localeCompare(labels[b]))
-  }, [allCards])
+  }, [allCards, vendorPOsByProject])
 
   const vendorNameById = useMemo(() => {
     const m: Record<string, string> = {}
     for (const c of allCards) m[c.row.vendorId] = c.row.vendorName
+    for (const list of Object.values(vendorPOsByProject)) {
+      for (const po of list) {
+        if (po.vendorId) m[po.vendorId] = po.vendorName || po.vendorId
+      }
+    }
     return m
-  }, [allCards])
+  }, [allCards, vendorPOsByProject])
 
   const filterConfig: FilterField[] = useMemo(
     () => [
@@ -587,6 +566,19 @@ export default function PaymentsPage() {
   function closeUploadInvoice() {
     setUploadOpen(false)
     setUploadInitialSelection(null)
+  }
+
+  async function handleInvoiceUploaded(projectId: string) {
+    try {
+      await dispatch(fetchVendorInvoices(projectId)).unwrap()
+      const summary = await payablesService.getSummary({
+        projectId: filterProjectId || undefined,
+        vendorId: filterVendorId || undefined,
+      })
+      setSummaryKpis(toPayableSummaryKpis(summary))
+    } catch {
+      // list already refreshed by drawer; summary can stay stale until next filter change
+    }
   }
 
   function handleActionMenuItem(label: string) {
@@ -674,9 +666,7 @@ export default function PaymentsPage() {
             onClick: () => openUploadInvoice(),
             startIcon: <Upload size={16} strokeWidth={1.75} />,
           }}
-          customSummary={
-            <SettlementSummaryStrip vendorPOs={summaryVendorPOs} payments={summaryPayments} />
-          }
+          customSummary={<SettlementSummaryStrip kpis={summaryKpis} />}
           tabs={statusTabs}
           activeTab={statusTab}
           onTabChange={(v) => setStatusTab(v as PayableStatusTab)}
@@ -708,6 +698,7 @@ export default function PaymentsPage() {
                       <TableCell sx={PAY_HEADER_SX}>Invoice No.</TableCell>
                       <TableCell sx={PAY_HEADER_SX}>Invoice date</TableCell>
                       <TableCell sx={PAY_HEADER_SX}>Invoice Amount</TableCell>
+                      <TableCell sx={PAY_HEADER_SX}>TDS Amount</TableCell>
                       <TableCell sx={PAY_HEADER_STATUS_SX}>Payment Status</TableCell>
                       <TableCell sx={PAY_HEADER_ACTION_SX}>Actions</TableCell>
                     </TableRow>
@@ -783,6 +774,11 @@ export default function PaymentsPage() {
                               ₹{formatInr(row.invoiceAmount)}
                             </Typography>
                           </TableCell>
+                          <TableCell sx={PAY_CELL_SX}>
+                            <Typography variant="body2" sx={PAY_TEXT_BODY_SX}>
+                              ₹{formatInr(row.tdsAmount)}
+                            </Typography>
+                          </TableCell>
                           <TableCell sx={PAY_CELL_STATUS_SX}>
                             <Box sx={CENTER_CELL_CONTENT_SX}>
                               <Badge
@@ -839,7 +835,16 @@ export default function PaymentsPage() {
         <VendorPayableWorkflowDrawer
           key={workflowDrawer ? `${workflowDrawer.entry.milestone.id}-${workflowDrawer.focus}` : 'closed'}
           open={workflowDrawer != null}
-          onClose={() => setWorkflowDrawer(null)}
+          onClose={() => {
+            setWorkflowDrawer(null)
+            void payablesService
+              .getSummary({
+                projectId: filterProjectId || undefined,
+                vendorId: filterVendorId || undefined,
+              })
+              .then((summary) => setSummaryKpis(toPayableSummaryKpis(summary)))
+              .catch(() => undefined)
+          }}
           entry={workflowDrawer?.entry ?? null}
           baseline={
             workflowDrawer ? baselinesByProject[workflowDrawer.entry.projectId] ?? null : null
@@ -855,6 +860,7 @@ export default function PaymentsPage() {
           eligibleEntries={eligibleUploadEntries}
           projectVendors={projectVendorOptions}
           initialSelection={uploadInitialSelection}
+          onUploaded={(projectId) => void handleInvoiceUploaded(projectId)}
         />
     </>
   )

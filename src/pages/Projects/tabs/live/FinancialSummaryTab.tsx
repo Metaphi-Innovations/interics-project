@@ -15,24 +15,21 @@ import type { Theme } from '@mui/material/styles'
 import { alpha, useTheme } from '@mui/material/styles'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { tokens } from '@/design-system/tokens'
-import { useAppDispatch, useAppSelector } from '../../../../store/hooks'
-import { fetchBaseline, fetchClientPO, fetchVendorPOs } from '../../../../slices/baseline/thunk'
-import { fetchVersions } from '../../../../slices/pitch/thunk'
-import { fetchExpenses } from '../../../../slices/live/thunk'
-import { resolvePitchVersionForProject } from '@/store/selectors/pitchSelectors'
-import type { PlannedExpense } from '@/slices/pitch/reducer'
-import { formatCurrency } from '../../../../utils/formatters'
+import { liveApi } from '@/api/liveApi'
+import type {
+  LiveOverviewCategoryGroup,
+  LiveOverviewDto,
+  LiveOverviewMetrics,
+  LiveOverviewWorkstreamRow,
+} from '@/api/liveApi'
+import { formatCurrencyCompact } from '../../../../utils/formatters'
 import {
   TABLE_CELL_SX,
   TABLE_HEADER_SX,
 } from './vendorSettlement/utils'
 import {
-  buildFinancialSummaryGroups,
-  buildFinancialSummaryTotal,
   sortWorkstreamRows,
-  type FinancialSummaryMetrics,
   type FinancialSummarySortField,
-  type FinancialSummaryWorkstreamRow,
 } from './financialSummaryAggregates'
 
 const COLUMN_DEFS: { key: FinancialSummarySortField; label: string }[] = [
@@ -48,7 +45,7 @@ const COLUMN_DEFS: { key: FinancialSummarySortField; label: string }[] = [
 ]
 
 function fmtInr(amount: number): string {
-  return `₹${formatCurrency(amount)}`
+  return formatCurrencyCompact(amount, 2)
 }
 
 function profitColor(value: number | null): string {
@@ -61,7 +58,7 @@ function fmtProfitPct(value: number | null): string {
   return `${value.toFixed(1)}%`
 }
 
-function MetricCells({ metrics }: { metrics: FinancialSummaryMetrics }) {
+function MetricCells({ metrics }: { metrics: LiveOverviewMetrics }) {
   return (
     <>
       <TableCell align="left" sx={NUM_CELL_SX}>
@@ -107,83 +104,60 @@ const NUM_CELL_SX = {
   fontVariantNumeric: 'tabular-nums',
 } as const
 
-/** Office Expenses only — sourced from Pitch → Expenses. */
-function officeExpensesFromPitch(planned: PlannedExpense[] | undefined): PlannedExpense[] {
-  return (planned ?? []).filter((pe) => pe.type === 'office_expenses')
-}
-
 interface FinancialSummaryTabProps {
   projectId: string
 }
 
 export default function FinancialSummaryTab({ projectId }: FinancialSummaryTabProps) {
   const theme = useTheme()
-  const dispatch = useAppDispatch()
-  const { baseline, clientPOs, vendorPOs } = useAppSelector((s) => s.baseline)
-  const { invoices, vendorInvoices, expenses } = useAppSelector((s) => s.live)
-  const { activeVersion, versions } = useAppSelector((s) => s.pitch)
+
+  const [data, setData] = useState<LiveOverviewDto | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   const [sortField, setSortField] = useState<FinancialSummarySortField>('workstream')
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
 
   useEffect(() => {
-    void dispatch(fetchBaseline(projectId))
-    void dispatch(fetchClientPO(projectId))
-    void dispatch(fetchVendorPOs(projectId))
-    void dispatch(fetchVersions(projectId))
-    void dispatch(fetchExpenses(projectId))
-  }, [dispatch, projectId])
-
-  const baselineForProject = baseline?.projectId === projectId ? baseline : null
-
-  const pitchVersion = useMemo(
-    () => resolvePitchVersionForProject(projectId, activeVersion, versions),
-    [projectId, activeVersion, versions],
-  )
-
-  /** Prefer live Pitch → Expenses; fall back to baseline snapshot only if pitch is not loaded. */
-  const pitchOfficeExpenses = useMemo((): PlannedExpense[] => {
-    if (pitchVersion) {
-      return officeExpensesFromPitch(pitchVersion.plannedExpenses)
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+    liveApi
+      .getLiveOverview(projectId)
+      .then((result) => {
+        if (!cancelled) setData(result)
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err?.message ?? 'Failed to load overview')
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
     }
-    return officeExpensesFromPitch(baselineForProject?.plannedExpenses)
-  }, [pitchVersion, baselineForProject])
-
-  const allGroups = useMemo(
-    () =>
-      buildFinancialSummaryGroups(
-        baselineForProject,
-        projectId,
-        clientPOs,
-        vendorPOs,
-        invoices,
-        vendorInvoices,
-        expenses,
-        pitchOfficeExpenses,
-      ),
-    [
-      baselineForProject,
-      projectId,
-      clientPOs,
-      vendorPOs,
-      invoices,
-      vendorInvoices,
-      expenses,
-      pitchOfficeExpenses,
-    ],
-  )
+  }, [projectId])
 
   const displayGroups = useMemo(
     () =>
-      allGroups.map((group) => ({
+      (data?.groups ?? []).map((group) => ({
         ...group,
         children: sortWorkstreamRows(group.children, sortField, sortDirection),
       })),
-    [allGroups, sortField, sortDirection],
+    [data, sortField, sortDirection],
   )
 
-  const total = useMemo(() => buildFinancialSummaryTotal(allGroups), [allGroups])
+  const total = data?.total ?? {
+    clientPOAmount: 0,
+    clientReceived: 0,
+    pendingReceived: 0,
+    vendorPOAmount: 0,
+    vendorPaid: 0,
+    pendingPaid: 0,
+    projectedProfitPct: null,
+    actualProfitPct: null,
+  }
 
   function toggleCategory(categoryId: string): void {
     setCollapsed((prev) => {
@@ -203,7 +177,7 @@ export default function FinancialSummaryTab({ projectId }: FinancialSummaryTabPr
     }
   }
 
-  const hasData = allGroups.length > 0
+  const hasData = displayGroups.length > 0
 
   return (
     <Box>
@@ -212,11 +186,23 @@ export default function FinancialSummaryTab({ projectId }: FinancialSummaryTabPr
           Financial Summary
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12, mt: 0.25 }}>
-          Category-wise profitability and collections vs payables at a glance.
+          Live client PO and collections vs payables by service.
         </Typography>
       </Box>
 
-      {!hasData ? (
+      {loading ? (
+        <Box sx={{ py: 6, textAlign: 'center' }}>
+          <Typography variant="body2" color="text.secondary" sx={{ fontSize: 13 }}>
+            Loading financial summary…
+          </Typography>
+        </Box>
+      ) : error ? (
+        <Box sx={{ py: 6, textAlign: 'center' }}>
+          <Typography variant="body2" color="error" sx={{ fontSize: 13 }}>
+            {error}
+          </Typography>
+        </Box>
+      ) : !hasData ? (
         <Box
           sx={{
             py: 6,
@@ -229,7 +215,7 @@ export default function FinancialSummaryTab({ projectId }: FinancialSummaryTabPr
           }}
         >
           <Typography variant="body2" color="text.secondary" sx={{ fontSize: 13 }}>
-            Lock a project baseline to view the financial summary by category and workstream.
+            No financial summary yet. Add live client POs to see service-wise collections.
           </Typography>
         </Box>
       ) : (
@@ -339,8 +325,8 @@ function CategorySection({
 }: {
   groupId: string
   groupName: string
-  subtotal: FinancialSummaryMetrics
-  workstreams: FinancialSummaryWorkstreamRow[]
+  subtotal: LiveOverviewMetrics
+  workstreams: LiveOverviewWorkstreamRow[]
   isCollapsed: boolean
   onToggle: () => void
   theme: Theme

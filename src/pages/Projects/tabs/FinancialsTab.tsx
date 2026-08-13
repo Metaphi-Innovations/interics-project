@@ -15,21 +15,11 @@ import {
   Tabs,
   Typography,
 } from '@mui/material'
-import { alpha, useTheme } from '@mui/material/styles'
 import { WorkspaceSection } from '../../../components/templates'
 import { tokens } from '@/design-system/tokens'
 import { Button } from '@/design-system/components'
-import { useAppDispatch, useAppSelector } from '../../../store/hooks'
-import {
-  fetchInvoices,
-  fetchVendorInvoices,
-  fetchPayments,
-  fetchExpenses,
-  fetchReimbursements,
-} from '../../../slices/live/thunk'
-import { fetchBaseline, fetchClientPO } from '../../../slices/baseline/thunk'
 import type { Project } from '../../../slices/projects/reducer'
-import { formatCurrency } from '../../../utils/formatters'
+import { formatCurrencyCompact } from '../../../utils/formatters'
 import {
   vendorInvoiceDocumentOpenUrl,
   TABLE_CELL_SX,
@@ -42,16 +32,9 @@ import {
   METADATA_BODY_SX,
   formatSqftRate,
 } from '../projectOverviewHelpers'
-import {
-  baselineForProject,
-  buildCostBreakdown,
-  buildRevenueBreakdown,
-  sumExpensesAmount,
-  sumPlannedExpensesBaseline,
-  sumVendorPaymentsNetPaid,
-} from './financialsAggregates'
-import { balancePending, totalReceivedBank } from './live/clientInvoiceUtils'
 import { TaxComplianceSection } from './live/TaxComplianceSection'
+import { liveApi, type FinancialInvoiceRow, type FinancialOverviewDto } from '@/api/liveApi'
+import { ProjectTabSkeleton } from '../components/ProjectTabSkeleton'
 
 const SUMMARY_COUNT = 4
 
@@ -125,16 +108,6 @@ const TRACKING_CELL_SX = {
   ...METRIC_CELL_ALIGN_SX,
 } as const
 
-const COST_TABLE_COLGROUP = (
-  <colgroup>
-    <col style={{ width: '22%' }} />
-    <col style={{ width: '22%' }} />
-    <col style={{ width: '19%' }} />
-    <col style={{ width: '19%' }} />
-    <col style={{ width: '18%' }} />
-  </colgroup>
-)
-
 const INVOICES_TABLE_COLGROUP = (
   <colgroup>
     <col style={{ width: '14%' }} />
@@ -147,16 +120,7 @@ const INVOICES_TABLE_COLGROUP = (
   </colgroup>
 )
 
-type ProjectInvoiceRow = {
-  id: string
-  invoiceNumber: string
-  party: string
-  invoiceType: 'Client' | 'Vendor'
-  amount: number
-  receivedDate: string
-  uploadedDate: string | undefined
-  documentUrl: string | undefined
-}
+type ProjectInvoiceRow = FinancialInvoiceRow & { receivedDate: string }
 
 function invoiceDocumentOpenUrl(documentUrl: string | undefined): string | null {
   if (!documentUrl) return null
@@ -164,7 +128,7 @@ function invoiceDocumentOpenUrl(documentUrl: string | undefined): string | null 
 }
 
 function fmtInr(amount: number): string {
-  return `₹${formatCurrency(amount)}`
+  return formatCurrencyCompact(amount, 2)
 }
 
 function fmtDate(value: string | null | undefined): string {
@@ -175,14 +139,12 @@ function fmtDate(value: string | null | undefined): string {
 }
 
 function activeDurationLabel(startRaw: string | null | undefined, endRaw: string | null | undefined): string {
-  if (!startRaw) return '—'
+  if (!startRaw || !endRaw) return '—'
   const start = new Date(startRaw)
-  if (Number.isNaN(start.getTime())) return '—'
+  const end = new Date(endRaw)
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return '—'
 
-  const candidateEnd = endRaw ? new Date(endRaw) : new Date()
-  if (Number.isNaN(candidateEnd.getTime())) return '—'
-
-  const ms = candidateEnd.getTime() - start.getTime()
+  const ms = end.getTime() - start.getTime()
   if (ms <= 0) return '0 days'
 
   const totalDays = Math.floor(ms / (1000 * 60 * 60 * 24))
@@ -212,130 +174,98 @@ function RateField({ label, value }: { label: string; value: number | null | und
   )
 }
 
-function CommercialRatesSection({ project }: { project: Project }) {
+function CommercialRatesSection({
+  buildValuePerSqft,
+  designFeePerSqft,
+}: {
+  buildValuePerSqft: number | null
+  designFeePerSqft: number | null
+}) {
   return (
     <WorkspaceSection title="Commercial rates">
       <RecordDetailSectionTitle>Per sqft values</RecordDetailSectionTitle>
       <Box sx={PROJECT_DETAILS_GRID_SX}>
-        <RateField label="Build Value per sqft" value={project.buildValuePerSqft} />
-        <RateField label="Design Fee per sqft" value={project.designFeePerSqft} />
+        <RateField label="Build Value per sqft" value={buildValuePerSqft} />
+        <RateField label="Design Fee per sqft" value={designFeePerSqft} />
       </Box>
     </WorkspaceSection>
   )
 }
 
 export default function FinancialsTab({ project }: FinancialsTabProps) {
-  const theme = useTheme()
   const [activeSubTab, setActiveSubTab] = useState<FinancialSubTab>('overview')
-  const dispatch = useAppDispatch()
   const canViewFinancialMetrics = usePermission('financial', 'view')
   const canViewCompliance = usePermission('compliance', 'view')
-  const selected = useAppSelector((s) => s.projects.selectedItem)
-  const { baseline: baselineState, clientPOs } = useAppSelector((s) => s.baseline)
-  const { invoices, vendorInvoices, payments, expenses } = useAppSelector((s) => s.live)
+
+  const [overview, setOverview] = useState<FinancialOverviewDto | null>(null)
+  const [financialInvoices, setFinancialInvoices] = useState<FinancialInvoiceRow[]>([])
+  const [overviewLoading, setOverviewLoading] = useState(false)
+  const [invoiceLoading, setInvoiceLoading] = useState(false)
+  const [overviewLoaded, setOverviewLoaded] = useState(false)
+  const [invoiceLoaded, setInvoiceLoaded] = useState(false)
 
   const projectId = project.id
-  const projectForSummary = selected?.id === projectId ? selected : project
+  const projectForSummary = project
 
   useEffect(() => {
-    void dispatch(fetchInvoices(projectId))
-    void dispatch(fetchVendorInvoices(projectId))
-    void dispatch(fetchPayments(projectId))
-    void dispatch(fetchExpenses(projectId))
-    void dispatch(fetchReimbursements(projectId))
-    void dispatch(fetchBaseline(projectId))
-    void dispatch(fetchClientPO(projectId))
-  }, [dispatch, projectId])
+    if (activeSubTab !== 'overview' || overviewLoaded) return
+    let cancelled = false
+    setOverviewLoading(true)
+    void (async () => {
+      try {
+        const data = await liveApi.getFinancialOverview(projectId)
+        if (!cancelled) {
+          setOverview(data)
+          setOverviewLoaded(true)
+        }
+      } catch {
+        if (!cancelled) setOverview(null)
+      } finally {
+        if (!cancelled) setOverviewLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [activeSubTab, overviewLoaded, projectId])
 
-  const baseline = useMemo(
-    () => baselineForProject(baselineState, projectId),
-    [baselineState, projectId],
-  )
+  useEffect(() => {
+    if (activeSubTab !== 'invoice' || invoiceLoaded) return
+    let cancelled = false
+    setInvoiceLoading(true)
+    void (async () => {
+      try {
+        const rows = await liveApi.getFinancialInvoices(projectId)
+        if (!cancelled) {
+          setFinancialInvoices(rows)
+          setInvoiceLoaded(true)
+        }
+      } catch {
+        if (!cancelled) setFinancialInvoices([])
+      } finally {
+        if (!cancelled) setInvoiceLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [activeSubTab, invoiceLoaded, projectId])
 
-  const revenueRows = useMemo(() => {
-    if (!baseline) return []
-    return buildRevenueBreakdown(baseline, invoices, projectId)
-  }, [baseline, invoices, projectId])
-
-  const costRows = useMemo(() => {
-    if (!baseline) return []
-    return buildCostBreakdown(baseline, vendorInvoices)
-  }, [baseline, vendorInvoices])
+  const projectStartDate = projectForSummary.startDate
+  const projectEndDate = projectForSummary.expectedEndDate
+  const activeDuration = useMemo(() => {
+    if (!projectStartDate || !projectEndDate) return '—'
+    return activeDurationLabel(projectStartDate, projectEndDate)
+  }, [projectStartDate, projectEndDate])
 
   const projectInvoiceRows = useMemo((): ProjectInvoiceRow[] => {
-    const clientRows: ProjectInvoiceRow[] = invoices
-      .filter((inv) => inv.projectId === projectId)
-      .map((inv) => ({
-        id: `client-${inv.id}`,
-        invoiceNumber: inv.invoiceNumber,
-        party: inv.clientName?.trim() || projectForSummary.customerName || '—',
-        invoiceType: 'Client',
-        amount: inv.grossAmount,
-        receivedDate: inv.invoiceDate,
-        uploadedDate: inv.uploadedAt,
-        documentUrl: inv.documentUrl,
-      }))
+    return financialInvoices.map((row) => ({ ...row, receivedDate: row.invoiceDate }))
+  }, [financialInvoices])
 
-    const vendorRows: ProjectInvoiceRow[] = vendorInvoices
-      .filter((inv) => inv.projectId === projectId)
-      .map((inv) => ({
-        id: `vendor-${inv.id}`,
-        invoiceNumber: inv.invoiceNumber,
-        party: inv.vendorName,
-        invoiceType: 'Vendor',
-        amount: inv.netPayable,
-        receivedDate: inv.invoiceDate,
-        uploadedDate: inv.uploadedAt,
-        documentUrl: inv.documentUrl,
-      }))
-
-    return [...clientRows, ...vendorRows].sort((a, b) => {
-      const aTs = new Date(a.receivedDate).getTime()
-      const bTs = new Date(b.receivedDate).getTime()
-      return (Number.isNaN(bTs) ? 0 : bTs) - (Number.isNaN(aTs) ? 0 : aTs)
-    })
-  }, [invoices, vendorInvoices, projectId, projectForSummary.customerName])
-
-  const revenue = projectForSummary.totalClientPOValue
-  const cost = projectForSummary.totalVendorPOValue
-  const grossProfit = revenue - cost
-  const marginPct = revenue > 0 ? (100 * grossProfit) / revenue : 0
-
-  const selectedClientPO = useMemo(() => {
-    return clientPOs.find((po) => po.projectId === projectId) ?? null
-  }, [clientPOs, projectId])
-
-  const projectStartDate = selectedClientPO?.startDate ?? projectForSummary.startDate
-  const projectEndDate = selectedClientPO?.endDate ?? projectForSummary.expectedEndDate
-
-  const amountReceived = useMemo(
-    () =>
-      invoices
-        .filter((i) => i.projectId === projectId)
-        .reduce((sum, inv) => sum + totalReceivedBank(inv.payments), 0),
-    [invoices, projectId],
-  )
-
-  const invoicesUnderProcess = useMemo(
-    () =>
-      invoices
-        .filter((i) => i.projectId === projectId && balancePending(i) > 0.01)
-        .reduce((sum, inv) => sum + inv.grossAmount, 0),
-    [invoices, projectId],
-  )
-
-  const vendorPaymentAmount = useMemo(
-    () => sumVendorPaymentsNetPaid(payments, projectId),
-    [payments, projectId],
-  )
-
-  const softExpenses = useMemo(
-    () =>
-      expenses
-        .filter((e) => e.projectId === projectId && e.type !== 'vendor_linked')
-        .reduce((sum, e) => sum + e.amount, 0),
-    [expenses, projectId],
-  )
+  const revenue = overview?.summary.revenue ?? 0
+  const cost = overview?.summary.cost ?? 0
+  const grossProfit = overview?.summary.grossProfit ?? 0
+  const marginPct = overview?.summary.marginPct ?? 0
 
   const summaryMetrics: Array<{
     label: string
@@ -345,17 +275,17 @@ export default function FinancialsTab({ project }: FinancialsTabProps) {
     {
       label: 'REVENUE',
       valueColor: 'primary.main',
-      renderValue: () => formatCurrency(revenue),
+      renderValue: () => formatCurrencyCompact(revenue, 2),
     },
     {
       label: 'COST',
       valueColor: 'warning.main',
-      renderValue: () => formatCurrency(cost),
+      renderValue: () => formatCurrencyCompact(cost, 2),
     },
     {
       label: 'GROSS PROFIT',
       valueColor: grossProfit < 0 ? 'error.main' : 'success.main',
-      renderValue: () => formatCurrency(grossProfit),
+      renderValue: () => formatCurrencyCompact(grossProfit, 2),
     },
     {
       label: 'MARGIN %',
@@ -364,41 +294,16 @@ export default function FinancialsTab({ project }: FinancialsTabProps) {
     },
   ]
 
-  const revenueGrand = useMemo(() => {
-    return revenueRows.reduce(
-      (acc, r) => ({
-        baseline: acc.baseline + r.baseline,
-        invoiced: acc.invoiced + r.invoiced,
-        received: acc.received + r.received,
-      }),
-      { baseline: 0, invoiced: 0, received: 0 },
-    )
-  }, [revenueRows])
-
-  const costGrand = useMemo(() => {
-    return costRows.reduce(
-      (acc, r) => ({
-        baseline: acc.baseline + r.baseline,
-        invoiced: acc.invoiced + r.invoiced,
-        paid: acc.paid + r.paid,
-      }),
-      { baseline: 0, invoiced: 0, paid: 0 },
-    )
-  }, [costRows])
-
-  const unbilledAmount = Math.max(0, revenueGrand.baseline - revenueGrand.invoiced)
-  const unbilledVendorPayments = Math.max(0, costGrand.baseline - costGrand.invoiced)
-  const plannedSoftExpenses = baseline ? sumPlannedExpensesBaseline(baseline) : 0
-  const totalSoftExpenses = Math.max(softExpenses, plannedSoftExpenses, sumExpensesAmount(expenses, projectId))
-
-  const trackingMetrics = [
-    { label: 'Amount Received', value: fmtInr(amountReceived) },
-    { label: 'Invoices Under Process', value: fmtInr(invoicesUnderProcess) },
-    { label: 'Unbilled Amount', value: fmtInr(unbilledAmount) },
-    { label: 'Vendor Payment Amount', value: fmtInr(vendorPaymentAmount) },
-    { label: 'Unbilled Vendor Payments', value: fmtInr(unbilledVendorPayments) },
-    { label: 'Soft Expenses', value: fmtInr(totalSoftExpenses) },
-  ]
+  const trackingMetrics = overview
+    ? [
+        { label: 'Amount Received', value: fmtInr(overview.tracking.amountReceived) },
+        { label: 'Invoices Under Process', value: fmtInr(overview.tracking.invoicesUnderProcess) },
+        { label: 'Unbilled Amount', value: fmtInr(overview.tracking.unbilledAmount) },
+        { label: 'Vendor Payment Amount', value: fmtInr(overview.tracking.vendorPaymentAmount) },
+        { label: 'Unbilled Vendor Payments', value: fmtInr(overview.tracking.unbilledVendorPayments) },
+        { label: 'Expenses', value: fmtInr(overview.tracking.expenses) },
+      ]
+    : []
 
   const subTabs = useMemo(() => {
     const tabs: { label: string; value: FinancialSubTab }[] = [
@@ -416,6 +321,14 @@ export default function FinancialsTab({ project }: FinancialsTabProps) {
       setActiveSubTab('overview')
     }
   }, [canViewCompliance, activeSubTab])
+
+  const tabLoading =
+    (activeSubTab === 'overview' && overviewLoading) ||
+    (activeSubTab === 'invoice' && invoiceLoading)
+
+  if (tabLoading) {
+    return <ProjectTabSkeleton rows={6} showKpis />
+  }
 
   return (
     <Box>
@@ -443,7 +356,12 @@ export default function FinancialsTab({ project }: FinancialsTabProps) {
             description="Project revenue, cost, collections, and variance against baseline."
           />
 
-      {canViewFinancialMetrics ? <CommercialRatesSection project={projectForSummary} /> : null}
+      {canViewFinancialMetrics && overview ? (
+        <CommercialRatesSection
+          buildValuePerSqft={overview.commercialRates.buildValuePerSqft}
+          designFeePerSqft={overview.commercialRates.designFeePerSqft}
+        />
+      ) : null}
 
       {/* Section 1 — Summary strip */}
       <Card
@@ -495,12 +413,7 @@ export default function FinancialsTab({ project }: FinancialsTabProps) {
               {metric.label === 'MARGIN %' ? (
                 metric.renderValue()
               ) : (
-                <>
-                  <Box component="span" sx={{ fontSize: 12, fontWeight: 400, opacity: 0.85 }}>
-                    ₹
-                  </Box>
-                  {metric.renderValue()}
-                </>
+                metric.renderValue()
               )}
             </Typography>
           </Box>
@@ -565,7 +478,7 @@ export default function FinancialsTab({ project }: FinancialsTabProps) {
             { label: 'Project End Date', value: fmtDate(projectEndDate) },
             {
               label: 'Active Duration / Timeline',
-              value: activeDurationLabel(projectStartDate, projectEndDate),
+              value: activeDuration,
             },
           ].map((item, idx) => (
             <Box
@@ -638,73 +551,6 @@ export default function FinancialsTab({ project }: FinancialsTabProps) {
           </Box>
         ))}
       </Card>
-
-      <WorkspaceSection title="Cost breakdown" noPadding>
-        {!baseline ? (
-          <Typography variant="body2" color="text.secondary" sx={{ py: 2, px: 2 }}>
-            Cost breakdown requires a locked baseline for this project.
-          </Typography>
-        ) : costRows.length === 0 ? (
-          <Typography variant="body2" color="text.secondary" sx={{ py: 2, px: 2 }}>
-            No vendor mappings in the baseline.
-          </Typography>
-        ) : (
-          <TableContainer>
-            <Table
-              size="small"
-              sx={{
-                tableLayout: 'fixed',
-                width: '100%',
-                '& .MuiTableCell-root': { verticalAlign: 'middle' },
-              }}
-            >
-              {COST_TABLE_COLGROUP}
-              <TableHead>
-                <TableRow>
-                  {['Vendor', 'Service', 'Baseline value', 'Invoiced', 'Paid'].map((h) => (
-                    <TableCell key={h} sx={TABLE_HEADER_SX}>
-                      {h}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {costRows.map((r) => (
-                  <TableRow key={`${r.vendorId}-${r.serviceId}`}>
-                    <TableCell sx={TABLE_CELL_SX}>{r.vendorName}</TableCell>
-                    <TableCell sx={TABLE_CELL_SX}>{r.serviceName}</TableCell>
-                    <TableCell sx={TABLE_CELL_SX}>{fmtInr(r.baseline)}</TableCell>
-                    <TableCell sx={TABLE_CELL_SX}>{fmtInr(r.invoiced)}</TableCell>
-                    <TableCell sx={TABLE_CELL_SX}>{fmtInr(r.paid)}</TableCell>
-                  </TableRow>
-                ))}
-                <TableRow
-                  sx={{
-                    '& .MuiTableCell-root': {
-                      borderTop: `2px solid ${tokens.color.neutral[200]}`,
-                      bgcolor: alpha(theme.palette.primary.main, 0.06),
-                      fontWeight: 700,
-                    },
-                  }}
-                >
-                  <TableCell colSpan={2} sx={{ ...TABLE_CELL_SX, fontWeight: 700 }}>
-                    Grand total
-                  </TableCell>
-                  <TableCell sx={{ ...TABLE_CELL_SX, fontWeight: 700 }}>
-                    {fmtInr(costGrand.baseline)}
-                  </TableCell>
-                  <TableCell sx={{ ...TABLE_CELL_SX, fontWeight: 700 }}>
-                    {fmtInr(costGrand.invoiced)}
-                  </TableCell>
-                  <TableCell sx={{ ...TABLE_CELL_SX, fontWeight: 700 }}>
-                    {fmtInr(costGrand.paid)}
-                  </TableCell>
-                </TableRow>
-              </TableBody>
-            </Table>
-          </TableContainer>
-        )}
-      </WorkspaceSection>
         </Stack>
       ) : null}
 

@@ -23,9 +23,11 @@ import {
   PODocumentLinkField,
   poDocumentOpenUrl,
 } from '@/components/documents/PODocumentLinkField'
+import { parseSettingsApiError } from '@/modules/system-settings/shared/api-errors'
 import { READONLY_DISABLED_TEXTFIELD_SX } from './readOnlyFieldStyles'
 import { Button, Checkbox, DatePicker, dateFromIso, isoFromDate, useToast } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
+import { uploadProjectDocumentFile } from '@/api/uploadFileApi'
 import { DrawerForm, FormField } from '../../../../components/templates'
 import { useAppDispatch, useAppSelector } from '../../../../store/hooks'
 import {
@@ -348,7 +350,7 @@ export function AddVendorPODrawer({
 
   useEffect(() => {
     if (open) {
-      void dispatch(fetchVendors({ pageSize: 500 }))
+      void dispatch(fetchVendors({ pageSize: 100, status: 'Active' }))
     }
   }, [open, dispatch])
 
@@ -481,7 +483,19 @@ export function AddVendorPODrawer({
       return
     }
     const vendor = vendors.find((v) => v.vendorId === form.vendorId)
-    const documentUrl = form.file ? URL.createObjectURL(form.file) : null
+    let documentUrl: string | null = null
+    let fileName: string | null = null
+    if (form.file) {
+      try {
+        const uploaded = await uploadProjectDocumentFile(form.file)
+        documentUrl = uploaded.viewUrl
+        fileName = uploaded.originalName || form.file.name
+      } catch (err) {
+        const parsed = parseSettingsApiError(err, 'Failed to upload PO document')
+        toast({ title: parsed.message, variant: 'error' })
+        return
+      }
+    }
     const milestonePayload = buildVendorPOMilestonePayload(milestones, retention)
     const link = offerLinkRef.current
     const linkedIds = link?.serviceIds?.length ? link.serviceIds : undefined
@@ -501,7 +515,7 @@ export function AddVendorPODrawer({
             linkedVendorMappingId: link?.vendorMappingId,
             status: 'Draft',
             documentUrl,
-            fileName: form.file?.name ?? null,
+            fileName,
             insurance: form.insurance,
             contractSigned: form.contractSigned,
             requiredDocumentsSubmitted: form.requiredDocumentsSubmitted,
@@ -511,8 +525,9 @@ export function AddVendorPODrawer({
       await dispatch(fetchVendorPOs(projectId)).unwrap()
       toast({ title: 'Vendor PO saved successfully', variant: 'success' })
       onClose()
-    } catch {
-      toast({ title: 'Failed to save vendor PO', variant: 'error' })
+    } catch (err) {
+      const parsed = parseSettingsApiError(err, 'Failed to save vendor PO')
+      toast({ title: parsed.message, variant: 'error' })
     }
   }
 
@@ -774,7 +789,7 @@ export function ViewVendorPODrawer({
   useEffect(() => {
     if (open) {
       void dispatch(fetchVendorInvoices(projectId))
-      void dispatch(fetchVendors({ pageSize: 500 }))
+      void dispatch(fetchVendors({ pageSize: 100, status: 'Active' }))
     }
   }, [open, projectId, dispatch])
 

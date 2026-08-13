@@ -1,5 +1,7 @@
-import client from './client'
+﻿import client from './client'
+import { unwrapApiData } from '@/modules/system-settings/shared/api'
 import type { RecordPaymentPayload } from '@/slices/receivables/paymentTypes'
+import type { Invoice } from '@/slices/receivables/reducer'
 
 export interface ReceivablesListParams extends Record<string, unknown> {
   page?: number
@@ -15,12 +17,28 @@ export interface ReceivablesListParams extends Record<string, unknown> {
 }
 
 export const receivablesApi = {
-  getAll: (params?: ReceivablesListParams) => client.get('/invoices', { params }),
-  getById: (id: string) => client.get(`/invoices/${id}`),
-  create: (data: Record<string, unknown>) => client.post('/invoices', data),
-  update: (id: string, data: Record<string, unknown>) => client.put(`/invoices/${id}`, data),
-  recordPayment: (id: string, data: RecordPaymentPayload) =>
-    client.post(`/invoices/${id}/payments`, data),
-  patchStatus: (id: string, data: { status: string }) =>
-    client.patch(`/invoices/${id}/status`, data),
+  getAll: async (params?: ReceivablesListParams) => {
+    const res = await client.get('/invoices', { params })
+    return unwrapApiData<{ items: Invoice[]; total: number }>(res.data)
+  },
+  getById: async (id: string) => {
+    const res = await client.get(`/invoices/${id}`)
+    return unwrapApiData<Invoice>(res.data)
+  },
+  create: async (data: Record<string, unknown>) => {
+    const res = await client.post('/invoices', data)
+    return unwrapApiData<Invoice>(res.data)
+  },
+  update: async (id: string, data: Record<string, unknown>) => {
+    const res = await client.put(`/invoices/${id}`, data)
+    return unwrapApiData<Invoice>(res.data)
+  },
+  recordPayment: async (id: string, data: RecordPaymentPayload) => {
+    const res = await client.post(`/invoices/${id}/payments`, data)
+    return unwrapApiData<Invoice>(res.data)
+  },
+  patchStatus: async (id: string, data: { status: string }) => {
+    const res = await client.patch(`/invoices/${id}/status`, data)
+    return unwrapApiData<Invoice>(res.data)
+  },
 }

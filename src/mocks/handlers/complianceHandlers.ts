@@ -465,7 +465,7 @@ function resetDemoState(): void {
 }
 
 export const complianceHandlers = [
-  http.get('/api/compliance/filing', ({ request }) => {
+  http.get('*/api/v1/compliance/filing', ({ request }) => {
     const url = new URL(request.url)
     const raw = url.searchParams.get('period') || '2026-04'
     const bundleKey = resolveBundlePeriod(raw)
@@ -481,7 +481,7 @@ export const complianceHandlers = [
     return HttpResponse.json({ items })
   }),
 
-  http.get('/api/compliance/gst', ({ request }) => {
+  http.get('*/api/v1/compliance/gst', ({ request }) => {
     const url = new URL(request.url)
     const periodParam = url.searchParams.get('period')
     if (periodParam !== null && periodParam !== '') {
@@ -498,7 +498,7 @@ export const complianceHandlers = [
     return globalGstLedger(request)
   }),
 
-  http.get('/api/compliance/tds', ({ request }) => {
+  http.get('*/api/v1/compliance/tds', ({ request }) => {
     const url = new URL(request.url)
     const periodParam = url.searchParams.get('period')
     if (periodParam !== null && periodParam !== '') {
@@ -521,7 +521,7 @@ export const complianceHandlers = [
     return globalTdsLedger(request)
   }),
 
-  http.post('/api/compliance/returns/:id/file', async ({ params, request }) => {
+  http.post('*/api/v1/compliance/returns/:id/file', async ({ params, request }) => {
     const id = params.id as string
     const body = (await request.json()) as { filedDate?: string; notes?: string }
     const filedDate = body.filedDate ?? new Date().toISOString().slice(0, 10)
@@ -551,7 +551,7 @@ export const complianceHandlers = [
     })
   }),
 
-  http.post('/api/compliance/challans', async ({ request }) => {
+  http.post('*/api/v1/compliance/challans', async ({ request }) => {
     const body = (await request.json()) as {
       period?: string
       bsrCode?: string
@@ -585,7 +585,7 @@ export const complianceHandlers = [
     return HttpResponse.json({ challans: clone(b.challans), summary: clone(b.tdsSummary) })
   }),
 
-  http.patch('/api/compliance/deductions/:id/map-challan', async ({ params, request }) => {
+  http.patch('*/api/v1/compliance/deductions/:id/map-challan', async ({ params, request }) => {
     const deductionId = params.id as string
     const body = (await request.json()) as { challanId?: string }
     const challanId = body.challanId
@@ -623,7 +623,7 @@ export const complianceHandlers = [
     })
   }),
 
-  http.delete('/api/compliance/challans/:id', ({ params }) => {
+  http.delete('*/api/v1/compliance/challans/:id', ({ params }) => {
     const id = params.id as string
     const b = findBundleForChallanId(id)
     if (!b) {

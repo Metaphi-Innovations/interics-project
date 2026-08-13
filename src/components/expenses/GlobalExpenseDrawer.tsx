@@ -27,7 +27,6 @@ export function GlobalExpenseDrawer({ open, onClose, onSuccess }: GlobalExpenseD
   const { saving } = useAppSelector((s) => s.live)
 
   const formRef = useRef<ExpenseFormHandle>(null)
-  const [formValid, setFormValid] = useState(false)
   const [selectedProjectId, setSelectedProjectId] = useState('')
   const [submitLabel, setSubmitLabel] = useState('Save')
 
@@ -57,7 +56,7 @@ export function GlobalExpenseDrawer({ open, onClose, onSuccess }: GlobalExpenseD
       const { projectId, data: body } = data
       try {
         await dispatch(createExpense({ projectId, data: body })).unwrap()
-        await dispatch(fetchExpenses(projectId)).unwrap()
+        await dispatch(fetchExpenses({ projectId })).unwrap()
         if (isReimbursableExpenseType(body.type)) {
           await dispatch(fetchReimbursements(projectId)).unwrap()
         }
@@ -82,7 +81,7 @@ export function GlobalExpenseDrawer({ open, onClose, onSuccess }: GlobalExpenseD
       onSubmit={() => formRef.current?.submit()}
       submitLabel={submitLabel}
       submitLoading={saving}
-      submitDisabled={!formValid || saving}
+      submitDisabled={saving}
     >
       <ExpenseForm
         ref={formRef}
@@ -95,7 +94,6 @@ export function GlobalExpenseDrawer({ open, onClose, onSuccess }: GlobalExpenseD
         open={open}
         onSubmit={handleSubmit}
         onCancel={onClose}
-        onValidityChange={setFormValid}
         onSubmitLabelChange={setSubmitLabel}
       />
     </DrawerForm>

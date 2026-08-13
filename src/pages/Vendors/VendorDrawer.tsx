@@ -1,32 +1,35 @@
 import { useState, useEffect, useRef } from 'react'
-import { Box, Stack, TextField, MenuItem, Autocomplete, Chip as MuiChip, Typography } from '@mui/material'
+import {
+  Box,
+  Stack,
+  TextField,
+  MenuItem,
+  Autocomplete,
+  Chip as MuiChip,
+  Typography,
+  CircularProgress,
+} from '@mui/material'
 import { DrawerForm, FormSection, FormField } from '../../components/templates'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
-import { createVendor, updateVendor } from '../../slices/vendors/thunk'
+import { createVendor, updateVendor, createVendorContact, updateVendorContact } from '../../slices/vendors/thunk'
 import { useToast, Button } from '@/design-system/components'
-import type { Vendor, VendorComplianceDocument } from '../../slices/vendors/reducer'
-import { buildVendorComplianceSnapshot } from '../../utils/vendorCompliance'
+import { validateVendorForm, vendorsService } from '@/modules/vendors'
+import {
+  hasErrors,
+  firstErrorMessage,
+} from '@/modules/system-settings/shared/settings-validation'
+import { clearFieldError } from '@/modules/system-settings/shared/api-errors'
+import { INDIAN_STATES, digitsOnly } from '@/constants/locations'
+import { lookupPincodeLocation } from '@/utils/pincodeLookup'
+import { extractIndianMobileDigits, sanitizeMobileInput } from '@/utils/mobile'
+import type { Vendor } from '../../slices/vendors/reducer'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-
-const INDIAN_STATES = [
-  'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh',
-  'Goa', 'Gujarat', 'Haryana', 'Himachal Pradesh', 'Jharkhand',
-  'Karnataka', 'Kerala', 'Madhya Pradesh', 'Maharashtra', 'Manipur',
-  'Meghalaya', 'Mizoram', 'Nagaland', 'Odisha', 'Punjab',
-  'Rajasthan', 'Sikkim', 'Tamil Nadu', 'Telangana', 'Tripura',
-  'Uttar Pradesh', 'Uttarakhand', 'West Bengal',
-  'Andaman and Nicobar Islands', 'Chandigarh', 'Dadra and Nagar Haveli',
-  'Daman and Diu', 'Delhi', 'Jammu and Kashmir', 'Ladakh',
-  'Lakshadweep', 'Puducherry',
-]
 
 const VENDOR_TAGS = [
   'Civil', 'Furniture', 'FF&E', 'Lighting', 'MEP', 'HVAC',
   'Flooring', 'Material', 'Contractor', 'Consultancy', 'Design', 'Electrical',
 ]
-
-const GSTIN_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -84,60 +87,33 @@ export interface VendorDrawerProps {
   onCompleted?: () => void
 }
 
-// ─── Validation ───────────────────────────────────────────────────────────────
-
-function validate(form: FormState): Record<string, string> {
-  const errors: Record<string, string> = {}
-  if (!form.name.trim()) errors.name = 'Name is required'
-  if (form.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
-    errors.email = 'Invalid email format'
-  }
-  if (form.gstStatus === 'Registered') {
-    if (!form.gstin.trim()) {
-      errors.gstin = 'GSTIN is required for registered vendors'
-    } else if (!GSTIN_REGEX.test(form.gstin)) {
-      errors.gstin = 'Invalid GSTIN (e.g. 29ABCDE1234F1Z5)'
-    }
-  }
-  return errors
-}
-
-function complianceDocFromFile(
-  documentType: 'gst' | 'pan',
-  file: File,
-  existing?: VendorComplianceDocument | null,
-): VendorComplianceDocument {
-  const now = new Date().toISOString()
-  return {
-    documentType,
-    name: file.name,
-    url: URL.createObjectURL(file),
-    description: existing?.description ?? null,
-    uploadedBy: existing?.uploadedBy ?? null,
-    uploadedOn: existing?.uploadedOn ?? now,
-    lastUpdatedOn: now,
-    expiryDate: null,
-  }
-}
-
 // ─── VendorDrawer ─────────────────────────────────────────────────────────────
 
 export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: VendorDrawerProps) {
   const dispatch = useAppDispatch()
   const saving = useAppSelector((s) => s.vendors.saving)
+  const existingVendors = useAppSelector((s) => s.vendors.items ?? [])
   const { showToast } = useToast()
 
   const [form, setForm] = useState<FormState>(defaultForm)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [gstCertFile, setGstCertFile] = useState<File | null>(null)
   const [panDocFile, setPanDocFile] = useState<File | null>(null)
+  const [pincodeLookupLoading, setPincodeLookupLoading] = useState(false)
+  const [shippingPincodeLookupLoading, setShippingPincodeLookupLoading] = useState(false)
   const gstFileInputRef = useRef<HTMLInputElement>(null)
   const panFileInputRef = useRef<HTMLInputElement>(null)
+  const pincodeLookupSeq = useRef(0)
+  const shippingPincodeLookupSeq = useRef(0)
 
   useEffect(() => {
     if (open) {
       setGstCertFile(null)
       setPanDocFile(null)
+      setPincodeLookupLoading(false)
+      setShippingPincodeLookupLoading(false)
+      pincodeLookupSeq.current += 1
+      shippingPincodeLookupSeq.current += 1
       if (vendor && mode === 'edit') {
         setForm({
           name: vendor.name,
@@ -145,13 +121,13 @@ export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: Vendo
           gstStatus: vendor.gstStatus,
           gstin: vendor.gstin ?? '',
           pan: vendor.pan ?? '',
-          contactPerson: vendor.contactPerson,
+          contactPerson: vendor.contactPerson ?? '',
           designation: vendor.designation ?? '',
-          phone: vendor.phone,
-          email: vendor.email,
+          phone: extractIndianMobileDigits(vendor.phone),
+          email: vendor.email ?? '',
           address: vendor.address ?? '',
-          city: vendor.city,
-          state: vendor.state,
+          city: vendor.city === 'Unknown' ? '' : vendor.city,
+          state: vendor.state === 'Unknown' ? '' : vendor.state,
           pincode: vendor.pincode ?? '',
           shippingAddress: vendor.shippingAddress ?? '',
           shippingCity: vendor.shippingCity ?? '',
@@ -170,83 +146,129 @@ export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: Vendo
 
   function update<K extends keyof FormState>(field: K, value: FormState[K]) {
     setForm((f) => ({ ...f, [field]: value }))
+    setErrors((errs) => clearFieldError(errs, field))
+  }
+
+  async function resolvePincode(pin: string) {
+    const seq = ++pincodeLookupSeq.current
+    setPincodeLookupLoading(true)
+    setErrors((errs) =>
+      clearFieldError(clearFieldError(clearFieldError(errs, 'pincode'), 'city'), 'state'),
+    )
+    try {
+      const location = await lookupPincodeLocation(pin)
+      if (seq !== pincodeLookupSeq.current) return
+      setForm((f) => ({
+        ...f,
+        pincode: location.pincode,
+        city: location.city,
+        state: location.state,
+      }))
+    } catch {
+      if (seq !== pincodeLookupSeq.current) return
+      setErrors((errs) => ({
+        ...errs,
+        pincode: 'Could not resolve city/state for this pincode',
+      }))
+    } finally {
+      if (seq === pincodeLookupSeq.current) {
+        setPincodeLookupLoading(false)
+      }
+    }
+  }
+
+  function handlePincodeChange(raw: string) {
+    const pin = digitsOnly(raw).slice(0, 6)
+    update('pincode', pin)
+    if (pin.length < 6) {
+      pincodeLookupSeq.current += 1
+      setPincodeLookupLoading(false)
+      return
+    }
+    void resolvePincode(pin)
+  }
+
+  async function resolveShippingPincode(pin: string) {
+    const seq = ++shippingPincodeLookupSeq.current
+    setShippingPincodeLookupLoading(true)
+    setErrors((errs) =>
+      clearFieldError(
+        clearFieldError(clearFieldError(errs, 'shippingPincode'), 'shippingCity'),
+        'shippingState',
+      ),
+    )
+    try {
+      const location = await lookupPincodeLocation(pin)
+      if (seq !== shippingPincodeLookupSeq.current) return
+      setForm((f) => ({
+        ...f,
+        shippingPincode: location.pincode,
+        shippingCity: location.city,
+        shippingState: location.state,
+      }))
+    } catch {
+      if (seq !== shippingPincodeLookupSeq.current) return
+      setErrors((errs) => ({
+        ...errs,
+        shippingPincode: 'Could not resolve city/state for this pincode',
+      }))
+    } finally {
+      if (seq === shippingPincodeLookupSeq.current) {
+        setShippingPincodeLookupLoading(false)
+      }
+    }
+  }
+
+  function handleShippingPincodeChange(raw: string) {
+    const pin = digitsOnly(raw).slice(0, 6)
+    update('shippingPincode', pin)
+    if (pin.length < 6) {
+      shippingPincodeLookupSeq.current += 1
+      setShippingPincodeLookupLoading(false)
+      return
+    }
+    void resolveShippingPincode(pin)
   }
 
   async function handleSubmit() {
-    const errs = validate(form)
-    setErrors(errs)
-    if (Object.keys(errs).length > 0) return
-
-    const gstDocument =
-      gstCertFile !== null
-        ? complianceDocFromFile('gst', gstCertFile, vendor?.gstDocument)
-        : mode === 'edit'
-          ? (vendor?.gstDocument ?? null)
-          : null
-    const panDocument =
-      panDocFile !== null
-        ? complianceDocFromFile('pan', panDocFile, vendor?.panDocument)
-        : mode === 'edit'
-          ? (vendor?.panDocument ?? null)
-          : null
-    const bankChequeDocument = mode === 'edit' ? (vendor?.bankChequeDocument ?? null) : null
-    const insuranceDocument = mode === 'edit' ? (vendor?.insuranceDocument ?? null) : null
-    const insuranceExpiryIso =
-      mode === 'edit' ? (vendor?.compliance?.insurance?.expiryDate ?? null) : null
-
-    const compliance = buildVendorComplianceSnapshot(
-      {
-        gstDocument,
-        panDocument,
-        bankChequeDocument,
-        insuranceDocument,
-        gstin: form.gstStatus === 'Registered' ? form.gstin.trim() : null,
-        pan: form.pan.trim() || null,
-        gstStatus: form.gstStatus,
-      },
-      insuranceExpiryIso,
-    )
-
-    const documents =
-      mode === 'edit' && vendor?.documents && vendor.documents.length > 0
-        ? vendor.documents
-        : undefined
-
     const wasPending = vendor?.profileStatus === 'pending'
 
     const payload = {
       name: form.name.trim(),
       website: form.website.trim() || null,
       gstStatus: form.gstStatus,
-      gstin: form.gstStatus === 'Registered' ? form.gstin.trim() : null,
+      gstin: form.gstin.trim() || null,
       pan: form.pan.trim() || null,
-      gstDocument,
-      panDocument,
-      bankChequeDocument,
-      insuranceDocument,
-      compliance,
       contactPerson: form.contactPerson.trim(),
       designation: form.designation.trim() || null,
       phone: form.phone.trim(),
       email: form.email.trim(),
       address: form.address.trim() || null,
       city: form.city.trim(),
-      state: form.state,
+      state: form.state.trim(),
       pincode: form.pincode.trim() || null,
       shippingAddress: form.shippingAddress.trim() || null,
       shippingCity: form.shippingCity.trim() || null,
       shippingState: form.shippingState.trim() || null,
       shippingPincode: form.shippingPincode.trim() || null,
       tags: form.tags,
-      paymentTerms: form.paymentTerms || null,
       notes: form.notes.trim() || null,
       status: (wasPending ? 'Active' : (vendor?.status ?? 'Active')) as 'Active' | 'Inactive',
-      rating: vendor?.rating ?? null,
-      activeProjects: vendor?.activeProjects ?? 0,
-      totalPayables: vendor?.totalPayables ?? 0,
-      ...(mode === 'add' ? { profileStatus: 'complete' as const } : {}),
-      ...(wasPending ? { profileStatus: 'complete' as const } : {}),
-      ...(documents ? { documents } : {}),
+      gstCertificateFile: gstCertFile,
+      panCardFile: panDocFile,
+    }
+
+    const errs = validateVendorForm(payload, {
+      existingVendors,
+      excludeId: mode === 'edit' ? vendor?.id : undefined,
+    })
+    setErrors(errs)
+    if (hasErrors(errs)) {
+      showToast({
+        title: firstErrorMessage(errs, 'Please fix the highlighted fields'),
+        variant: 'error',
+      })
+      return
     }
 
     try {
@@ -256,6 +278,64 @@ export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: Vendo
         onCompleted?.()
       } else {
         await dispatch(updateVendor({ id: vendor!.id, data: payload })).unwrap()
+
+        // Sync primary contact via contact API (with id) so edit doesn't create duplicates.
+        const contactName = form.contactPerson.trim()
+        const contactPhone = form.phone.trim()
+        const contactEmail = form.email.trim()
+        const contactDesignation = form.designation.trim()
+        const hasContactDetails = Boolean(contactName && contactPhone && contactEmail)
+
+        if (hasContactDetails) {
+          let existingContacts = vendor!.contacts ?? []
+          // List rows often omit contacts[]; load detail so we update by id instead of duplicating.
+          if (!existingContacts.length) {
+            try {
+              const full = await vendorsService.getById(vendor!.id)
+              existingContacts = full.contacts ?? []
+            } catch {
+              existingContacts = []
+            }
+          }
+
+          const primary =
+            existingContacts.find((c) => c.isPrimary) ?? existingContacts[0] ?? null
+          const primaryId = primary?.id?.trim() ?? ''
+          const canUpdateExisting =
+            Boolean(primaryId) &&
+            !primaryId.startsWith('vc-local-') &&
+            !primaryId.startsWith('pending-')
+
+          if (canUpdateExisting) {
+            await dispatch(
+              updateVendorContact({
+                vendorId: vendor!.id,
+                contactId: primaryId,
+                data: {
+                  name: contactName,
+                  phone: contactPhone,
+                  email: contactEmail,
+                  designation: contactDesignation || null,
+                  isPrimary: true,
+                },
+              }),
+            ).unwrap()
+          } else {
+            await dispatch(
+              createVendorContact({
+                vendorId: vendor!.id,
+                data: {
+                  name: contactName,
+                  phone: contactPhone,
+                  email: contactEmail,
+                  designation: contactDesignation,
+                  isPrimary: true,
+                },
+              }),
+            ).unwrap()
+          }
+        }
+
         if (wasPending) {
           showToast({ title: 'Vendor contact updated successfully.', variant: 'success' })
           onCompleted?.()
@@ -264,8 +344,12 @@ export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: Vendo
         }
       }
       onClose()
-    } catch {
-      showToast({ title: 'Failed to save vendor', variant: 'error' })
+    } catch (err: unknown) {
+      const message =
+        err && typeof err === 'object' && 'message' in err && typeof (err as { message: unknown }).message === 'string'
+          ? (err as { message: string }).message
+          : 'Failed to save vendor'
+      showToast({ title: message, variant: 'error' })
     }
   }
 
@@ -314,13 +398,14 @@ export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: Vendo
       </FormSection>
 
       <FormSection title="Contact Details" columns={2}>
-        <FormField label="Contact Person">
+        <FormField label="Contact Person" error={errors.contactPerson}>
           <TextField
             fullWidth
             size="small"
             value={form.contactPerson}
             onChange={(e) => update('contactPerson', e.target.value)}
             placeholder="Full name"
+            error={!!errors.contactPerson}
           />
         </FormField>
 
@@ -334,14 +419,16 @@ export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: Vendo
           />
         </FormField>
 
-        <FormField label="Phone">
+        <FormField label="Phone" error={errors.phone} hint="10-digit mobile starting with 6–9">
           <TextField
             fullWidth
             size="small"
             type="tel"
             value={form.phone}
-            onChange={(e) => update('phone', e.target.value)}
-            placeholder="+91 98765 43210"
+            onChange={(e) => update('phone', sanitizeMobileInput(e.target.value))}
+            placeholder="9876543210"
+            inputProps={{ inputMode: 'numeric', maxLength: 10 }}
+            error={!!errors.phone}
           />
         </FormField>
 
@@ -373,40 +460,56 @@ export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: Vendo
           </FormField>
         </Box>
 
-        <FormField label="City">
+        <FormField
+          label="Pincode"
+          error={errors.pincode}
+          hint={pincodeLookupLoading ? 'Looking up city & state…' : 'City and state auto-fill'}
+        >
+          <TextField
+            fullWidth
+            size="small"
+            value={form.pincode}
+            onChange={(e) => handlePincodeChange(e.target.value)}
+            placeholder="560001"
+            inputProps={{ inputMode: 'numeric', maxLength: 6 }}
+            error={!!errors.pincode}
+            InputProps={{
+              endAdornment: pincodeLookupLoading ? (
+                <CircularProgress color="inherit" size={16} />
+              ) : undefined,
+            }}
+          />
+        </FormField>
+
+        <FormField label="City" error={errors.city}>
           <TextField
             fullWidth
             size="small"
             value={form.city}
             onChange={(e) => update('city', e.target.value)}
             placeholder="City"
+            error={!!errors.city}
           />
         </FormField>
 
-        <FormField label="State">
+        <FormField label="State" error={errors.state}>
           <TextField
             fullWidth
             size="small"
             select
             value={form.state}
             onChange={(e) => update('state', e.target.value)}
+            error={!!errors.state}
           >
+            <MenuItem value="">
+              Select state…
+            </MenuItem>
             {INDIAN_STATES.map((s) => (
               <MenuItem key={s} value={s}>
                 {s}
               </MenuItem>
             ))}
           </TextField>
-        </FormField>
-
-        <FormField label="Pincode">
-          <TextField
-            fullWidth
-            size="small"
-            value={form.pincode}
-            onChange={(e) => update('pincode', e.target.value)}
-            placeholder="560001"
-          />
         </FormField>
       </FormSection>
 
@@ -425,23 +528,50 @@ export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: Vendo
           </FormField>
         </Box>
 
-        <FormField label="City">
+        <FormField
+          label="Pincode"
+          error={errors.shippingPincode}
+          hint={
+            shippingPincodeLookupLoading
+              ? 'Looking up city & state…'
+              : 'City and state auto-fill'
+          }
+        >
+          <TextField
+            fullWidth
+            size="small"
+            value={form.shippingPincode}
+            onChange={(e) => handleShippingPincodeChange(e.target.value)}
+            placeholder="560001"
+            inputProps={{ inputMode: 'numeric', maxLength: 6 }}
+            error={!!errors.shippingPincode}
+            InputProps={{
+              endAdornment: shippingPincodeLookupLoading ? (
+                <CircularProgress color="inherit" size={16} />
+              ) : undefined,
+            }}
+          />
+        </FormField>
+
+        <FormField label="City" error={errors.shippingCity}>
           <TextField
             fullWidth
             size="small"
             value={form.shippingCity}
             onChange={(e) => update('shippingCity', e.target.value)}
             placeholder="City"
+            error={!!errors.shippingCity}
           />
         </FormField>
 
-        <FormField label="State">
+        <FormField label="State" error={errors.shippingState}>
           <TextField
             fullWidth
             size="small"
             select
             value={form.shippingState}
             onChange={(e) => update('shippingState', e.target.value)}
+            error={!!errors.shippingState}
           >
             <MenuItem value="">
               Select state…
@@ -453,16 +583,6 @@ export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: Vendo
             ))}
           </TextField>
         </FormField>
-
-        <FormField label="Pincode">
-          <TextField
-            fullWidth
-            size="small"
-            value={form.shippingPincode}
-            onChange={(e) => update('shippingPincode', e.target.value)}
-            placeholder="560001"
-          />
-        </FormField>
       </FormSection>
 
       <FormSection title="Tax & Compliance" columns={2}>
@@ -472,11 +592,7 @@ export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: Vendo
             size="small"
             select
             value={form.gstStatus}
-            onChange={(e) => {
-              const val = e.target.value as 'Registered' | 'Unregistered'
-              update('gstStatus', val)
-              if (val === 'Unregistered') update('gstin', '')
-            }}
+            onChange={(e) => update('gstStatus', e.target.value as 'Registered' | 'Unregistered')}
           >
             <MenuItem value="Registered">Registered</MenuItem>
             <MenuItem value="Unregistered">Unregistered</MenuItem>
@@ -495,7 +611,6 @@ export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: Vendo
             value={form.gstin}
             onChange={(e) => update('gstin', e.target.value.toUpperCase())}
             placeholder="29ABCDE1234F1Z5"
-            disabled={form.gstStatus === 'Unregistered'}
             error={!!errors.gstin}
           />
         </FormField>

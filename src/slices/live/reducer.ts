@@ -1,4 +1,4 @@
-import { createSlice } from '@reduxjs/toolkit'
+import { createSlice, type PayloadAction } from '@reduxjs/toolkit'
 import {
   fetchInvoices,
   createInvoice,
@@ -77,6 +77,9 @@ const liveSlice = createSlice({
   reducers: {
     reset() {
       return initialState
+    },
+    hydrateVendorInvoices(state, action: PayloadAction<VendorInvoice[]>) {
+      state.vendorInvoices = Array.isArray(action.payload) ? action.payload : []
     },
   },
   extraReducers: (builder) => {
@@ -277,7 +280,7 @@ const liveSlice = createSlice({
       })
 
       .addCase(fetchExpenses.fulfilled, (state, action) => {
-        const projectId = action.meta.arg
+        const projectId = action.meta.arg.projectId
         state.expenses = mergeByProjectId(state.expenses, projectId, action.payload)
       })
 
@@ -330,5 +333,5 @@ const liveSlice = createSlice({
   },
 })
 
-export const { reset } = liveSlice.actions
+export const { reset, hydrateVendorInvoices } = liveSlice.actions
 export default liveSlice.reducer

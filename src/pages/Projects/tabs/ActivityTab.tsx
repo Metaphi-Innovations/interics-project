@@ -1,7 +1,7 @@
 /**
  * Project Activity tab — timeline with type filters, date range, and mock data for p-001.
  */
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Box,
   Stack,
@@ -25,7 +25,9 @@ import { DateRangePicker } from '@/design-system/components'
 import { CHART_COLORS, tokens } from '@/design-system/tokens'
 import type { Project } from '../../../slices/projects/reducer'
 import { WorkspaceSection } from '../../../components/templates'
-import { formatRelativeTime, getAvatarColor, getInitials } from '../../../utils/formatters'
+import { formatInr, formatRelativeTime, getAvatarColor, getInitials } from '../../../utils/formatters'
+import { liveApi, type ProjectActivityApiItem, type ProjectActivityApiType } from '@/api/liveApi'
+import { ProjectTabSkeleton } from '../components/ProjectTabSkeleton'
 
 export type ActivityCategory = 'status' | 'financial' | 'document' | 'team' | 'system'
 
@@ -47,6 +49,123 @@ export interface ActivityEntry {
 }
 
 export type ActivityTypeFilter = 'all' | 'status' | 'financial' | 'document' | 'team'
+
+const DOCTYPE_LABELS: Record<string, string> = {
+  client_quotation: 'Client quotation',
+  vendor_quotation: 'Vendor quotation',
+  client_po: 'Client PO',
+  vendor_po: 'Vendor PO',
+  vendor_invoice: 'Vendor invoice',
+  requirement: 'Requirement document',
+  final_layout: 'Final layout',
+  final_rcp: 'Final RCP',
+  final_views: 'Final views',
+  final_photographs: 'Final photographs',
+  handover: 'Handover document',
+}
+
+function formatAmountDisplay(amount: unknown): string {
+  const n = typeof amount === 'number' ? amount : Number(amount)
+  if (!Number.isFinite(n)) return '—'
+  return `₹${formatInr(n)}`
+}
+
+function humanizeAction(action: string): string {
+  const known: Record<string, string> = {
+    payment_recorded: 'Payment recorded',
+    vendor_payment_recorded: 'Payment recorded',
+    invoice_generated: 'Invoice generated',
+    vendor_invoice_generated: 'Vendor invoice uploaded',
+    expense_added: 'Expense added',
+    reimbursement_added: 'Reimbursement added',
+    document_uploaded: 'Document uploaded',
+    handover_document_uploaded: 'Document uploaded',
+    client_po_added: 'Client PO added',
+    vendor_offer_added: 'Vendor offer added',
+  }
+  if (known[action]) return known[action]
+  return action.replaceAll('_', ' ')
+}
+
+function detailFromPayload(
+  item: ProjectActivityApiItem,
+): ActivityFinancialDetail | undefined {
+  const payload = item.payload
+  if (!payload) return undefined
+  const kind = typeof payload.kind === 'string' ? payload.kind : null
+
+  if (
+    kind === 'payment' ||
+    item.action === 'payment_recorded' ||
+    item.action === 'vendor_payment_recorded'
+  ) {
+    return {
+      kind: 'payment',
+      vendor:
+        (typeof payload.vendor === 'string' && payload.vendor) ||
+        (typeof payload.milestone === 'string' && payload.milestone) ||
+        'Payment',
+      amountDisplay: formatAmountDisplay(payload.amount),
+      reference:
+        (typeof payload.reference === 'string' && payload.reference) ||
+        (typeof payload.invoiceNumber === 'string' && payload.invoiceNumber) ||
+        '—',
+    }
+  }
+
+  if (item.action === 'invoice_generated' || item.action === 'vendor_invoice_generated') {
+    return {
+      kind: 'invoice',
+      invoiceNumber:
+        (typeof payload.invoiceNumber === 'string' && payload.invoiceNumber) || '—',
+      amountDisplay: formatAmountDisplay(payload.amount),
+      milestone:
+        (typeof payload.milestone === 'string' && payload.milestone) || '—',
+    }
+  }
+
+  if (item.action === 'expense_added') {
+    return {
+      kind: 'expense',
+      expenseType: item.description || 'Expense',
+      amountDisplay: formatAmountDisplay(payload.amount),
+      vendor: typeof payload.vendor === 'string' ? payload.vendor : null,
+    }
+  }
+
+  if (item.action === 'reimbursement_added') {
+    return {
+      kind: 'reimbursement',
+      amountDisplay: formatAmountDisplay(payload.amount),
+      payee: typeof payload.payee === 'string' ? payload.payee : 'Payee',
+    }
+  }
+
+  return undefined
+}
+
+function mapActivityItem(item: ProjectActivityApiItem): ActivityEntry {
+  const payload = item.payload
+  const doctype =
+    payload && typeof payload.doctype === 'string' ? payload.doctype : undefined
+  const docLabel = doctype ? DOCTYPE_LABELS[doctype] ?? doctype.replaceAll('_', ' ') : null
+
+  return {
+    id: item.id,
+    at: item.createdAt,
+    actorName: item.actorName,
+    category: (item.category as ActivityCategory) ?? 'system',
+    verb:
+      item.category === 'document' && docLabel
+        ? docLabel
+        : humanizeAction(item.action),
+    description:
+      item.category === 'document' && docLabel
+        ? ` uploaded`
+        : ` ${item.description}`,
+    detail: item.category === 'financial' ? detailFromPayload(item) : undefined,
+  }
+}
 
 /** Mock activity for demo project p-001 — actors and finance refs match canonical demo entities. */
 export const MOCK_ACTIVITY_P001: ActivityEntry[] = [
@@ -346,9 +465,77 @@ export default function ActivityTab({ project }: ActivityTabProps) {
   const theme = useTheme()
   const [typeFilter, setTypeFilter] = useState<ActivityTypeFilter>('all')
   const [dateRange, setDateRange] = useState<[Date | null, Date | null]>([null, null])
+  const [activityRows, setActivityRows] = useState<ActivityEntry[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    const [start, end] = dateRange
+    setLoading(true)
+    void (async () => {
+      try {
+        const activityPromise = liveApi.getProjectActivity(project.id, {
+          type: typeFilter as ProjectActivityApiType,
+          from: start ? dayjs(start).startOf('day').toISOString() : undefined,
+          to: end ? dayjs(end).endOf('day').toISOString() : undefined,
+          page: 1,
+          limit: 100,
+        })
+
+        const shouldLoadDocuments = typeFilter === 'all' || typeFilter === 'document'
+        const documentsPromise = shouldLoadDocuments
+          ? liveApi.getProjectDocuments(project.id, { doctype: 'all' })
+          : Promise.resolve([])
+
+        const [res, documents] = await Promise.all([activityPromise, documentsPromise])
+        if (cancelled) return
+
+        const mapped: ActivityEntry[] = (res.items ?? []).map(mapActivityItem)
+
+        if (shouldLoadDocuments) {
+          const existingDocKeys = new Set(
+            mapped
+              .filter((row) => row.category === 'document')
+              .map((row) => `${row.at}|${row.description}|${row.verb}`),
+          )
+          for (const doc of documents) {
+            const verb = DOCTYPE_LABELS[doc.doctype] ?? doc.doctype.replaceAll('_', ' ')
+            const description = ` uploaded — ${doc.name}`
+            const key = `${doc.uploadedAt}|${description}|${verb}`
+            if (existingDocKeys.has(key)) continue
+            const hasSimilar = mapped.some(
+              (row) =>
+                row.category === 'document' &&
+                Math.abs(new Date(row.at).getTime() - new Date(doc.uploadedAt).getTime()) <
+                  60_000 &&
+                row.verb.toLowerCase().includes(verb.toLowerCase().split(' ')[0] ?? ''),
+            )
+            if (hasSimilar) continue
+            mapped.push({
+              id: `doc-${doc.id}`,
+              at: doc.uploadedAt,
+              actorName: doc.uploadedBy || 'System',
+              category: 'document',
+              verb,
+              description,
+            })
+          }
+        }
+
+        setActivityRows(mapped)
+      } catch {
+        if (!cancelled) setActivityRows([])
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [project.id, typeFilter, dateRange])
 
   const filteredRows = useMemo(() => {
-    const sourceRows = ACTIVITY_BY_PROJECT_ID[project.id] ?? []
+    const sourceRows = activityRows
     const [start, end] = dateRange
     const hasRange = Boolean(start && end)
 
@@ -368,7 +555,7 @@ export default function ActivityTab({ project }: ActivityTabProps) {
     }
 
     return [...rows].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
-  }, [project.id, typeFilter, dateRange])
+  }, [activityRows, typeFilter, dateRange])
 
   return (
     <WorkspaceSection title="Activity">
@@ -419,7 +606,9 @@ export default function ActivityTab({ project }: ActivityTabProps) {
           />
         </Stack>
 
-        {filteredRows.length === 0 ? (
+        {loading ? (
+          <ProjectTabSkeleton rows={5} />
+        ) : filteredRows.length === 0 ? (
           <Box sx={{ py: 6, textAlign: 'center' }}>
             <Box sx={{ color: tokens.color.primary[300], mb: 1, display: 'flex', justifyContent: 'center' }}>
               <History size={48} strokeWidth={1.25} />

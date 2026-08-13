@@ -26,12 +26,12 @@ import {
 import { FileUp, History } from 'lucide-react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
-import { fetchVendorById, updateVendor } from '../../slices/vendors/thunk'
+import { fetchVendorById, updateVendor, createVendorContact, updateVendorContact, deleteVendorContact } from '../../slices/vendors/thunk'
 import { applyVendorPatch, clearSelected } from '../../slices/vendors/reducer'
 import type {
   Vendor,
 } from '../../slices/vendors/reducer'
-import type { Contact } from '../../slices/customers/reducer'
+import type { ActivityEntry, Contact } from '../../slices/customers/reducer'
 import { WorkspaceDetail, WorkspaceSection } from '../../components/templates'
 import { VendorDrawer } from './VendorDrawer'
 import { ContactDrawer } from '../../components/ContactDrawer'
@@ -39,12 +39,13 @@ import { ComplianceDocumentsUploadModal } from './ComplianceDocumentsUploadModal
 import { EditVendorRatingModal } from './EditVendorRatingModal'
 import type { ComplianceDocumentUploadValues } from './ComplianceDocumentsUploadModal'
 import {
-  createUploadedCompliancePreview,
   UploadedCompliancePreviewStack,
 } from './VendorAdditionalComplianceSection'
 import type { UploadedCompliancePreview } from './VendorAdditionalComplianceSection'
 import { StatusBadge, useToast, Button } from '@/design-system/components'
 import type { StatusType } from '@/design-system/components'
+import { vendorsService, toActivityEntry, type VendorFormInput } from '@/modules/vendors'
+import { downloadAuthenticatedDocument } from '@/utils/openAuthenticatedDocument'
 import {
   getInitials,
   getAvatarColor,
@@ -52,8 +53,6 @@ import {
 import {
   normalizeContacts,
   legacyContactsFromVendor,
-  getPrimaryContact as getVendorListingPrimaryContact,
-  primaryFieldsFromVendor,
 } from '../../utils/vendorContacts'
 import { tokens } from '@/design-system/tokens'
 import { useTheme, alpha } from '@mui/material/styles'
@@ -64,8 +63,9 @@ import {
   getInsuranceExpiryDate,
   getVendorComplianceRegistrationDoc,
   resolveComplianceDocKeyFromDocumentName,
+  type ComplianceRegistrationDocKey,
 } from '../../utils/vendorComplianceDocuments'
-import type { ComplianceRegistrationDocKey } from '../../utils/vendorComplianceDocuments'
+import type { VendorDocumentFiles } from '@/modules/vendors/vendors.types'
 import {
   getRecordDetailFlatSectionSx,
   RecordDetailSectionTitle,
@@ -73,7 +73,6 @@ import {
   getRecordTagChipColors,
   gstStatusHeaderPillSx,
   type ActivityFilterCategory,
-  filterActivityLog,
   getActivityTimelineVisual,
   formatActivityTimestamp,
   RecordDetailTaxDocCard,
@@ -218,6 +217,8 @@ export default function VendorDetailPage() {
   const [contactDrawerOpen, setContactDrawerOpen] = useState(false)
   const [editingContact, setEditingContact] = useState<Contact | null>(null)
   const [activityFilter, setActivityFilter] = useState<ActivityFilterCategory>('all')
+  const [activityItems, setActivityItems] = useState<ActivityEntry[]>([])
+  const [activityLoading, setActivityLoading] = useState(false)
   const [uploadModalOpen, setUploadModalOpen] = useState(false)
   const [localUploadedDocs, setLocalUploadedDocs] = useState<UploadedCompliancePreview[]>([])
   const [ratingModalOpen, setRatingModalOpen] = useState(false)
@@ -250,47 +251,100 @@ export default function VendorDetailPage() {
   }, [searchParams])
 
   useEffect(() => {
+    if (!vendor || activeTab !== 'activity') return
+    let cancelled = false
+    setActivityLoading(true)
+    const type = activityFilter === 'all' ? 'ALL' : activityFilter.toUpperCase()
+    void vendorsService
+      .getActivity(vendor.id, { type, activityPage: 1, activityLimit: 50 })
+      .then((section) => {
+        if (cancelled) return
+        const items = Array.isArray(section?.items) ? section.items : []
+        setActivityItems(items.map(toActivityEntry))
+      })
+      .catch(() => {
+        if (cancelled) return
+        setActivityItems([])
+        showToast({ title: 'Failed to load activity', variant: 'error' })
+      })
+      .finally(() => {
+        if (!cancelled) setActivityLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [vendor, activeTab, activityFilter])
+
+  useEffect(() => {
     setLocalUploadedDocs([])
   }, [vendor?.id])
 
   async function handleComplianceUpload(values: ComplianceDocumentUploadValues) {
     if (!vendor) return
 
-    const uploadedBy = authUser?.name ?? 'Current User'
-    const docKey = resolveComplianceDocKeyFromDocumentName(values.documentName)
-    const hadExisting = docKey
-      ? getVendorComplianceRegistrationDoc(vendor, docKey) !== null
-      : false
+    if (!values.file) {
+      showToast({ title: 'Please select a file to upload', variant: 'error' })
+      return
+    }
 
-    const patch = buildGenericComplianceUploadPatch(vendor, {
+    const docKey = resolveComplianceDocKeyFromDocumentName(values.documentName)
+    if (!docKey) {
+      showToast({
+        title: 'Use GST, PAN, Cheque, Insurance, or Catalogue in the document name',
+        variant: 'error',
+      })
+      return
+    }
+
+    const files: VendorDocumentFiles = {}
+    switch (docKey) {
+      case 'gst':
+        files.gstCertificate = values.file
+        break
+      case 'pan':
+        files.panCard = values.file
+        break
+      case 'bank_cheque':
+        files.cancelledCheque = values.file
+        break
+      case 'insurance':
+        files.insuranceDocument = values.file
+        break
+      case 'catalogue':
+        files.catalogue = values.file
+        break
+      default:
+        break
+    }
+
+    const hadExisting = getVendorComplianceRegistrationDoc(vendor, docKey) !== null
+    const uploadedBy = authUser?.name ?? 'Current User'
+    const optimistic = buildGenericComplianceUploadPatch(vendor, {
       documentName: values.documentName,
       file: values.file,
       notes: values.notes,
       uploadedBy,
       expiryDate: values.expiryDate,
     })
-
-    if (docKey) {
-      dispatch(applyVendorPatch({ id: vendor.id, patch }))
-    } else {
-      const preview = createUploadedCompliancePreview(values)
-      setLocalUploadedDocs((prev) => [preview, ...prev])
-    }
-
+    dispatch(applyVendorPatch({ id: vendor.id, patch: optimistic }))
     setUploadModalOpen(false)
-    showToast({
-      title: hadExisting
-        ? 'Document updated successfully.'
-        : 'Document uploaded successfully.',
-      variant: 'success',
-    })
 
     try {
-      await dispatch(updateVendor({ id: vendor.id, data: patch })).unwrap()
+      await vendorsService.updateDocuments(vendor.id, {
+        files,
+        insuranceExpiryDate:
+          docKey === 'insurance'
+            ? values.expiryDate ?? getInsuranceExpiryDate(vendor)
+            : undefined,
+      })
+      await dispatch(fetchVendorById(vendor.id)).unwrap()
+      showToast({
+        title: hadExisting ? 'Document updated successfully.' : 'Document uploaded successfully.',
+        variant: 'success',
+      })
     } catch {
-      if (docKey) {
-        void dispatch(fetchVendorById(vendor.id))
-      }
+      void dispatch(fetchVendorById(vendor.id))
+      showToast({ title: 'Failed to upload document', variant: 'error' })
     }
   }
 
@@ -308,7 +362,13 @@ export default function VendorDetailPage() {
   async function handleRatingSave(newRating: string) {
     if (!vendor) return
     try {
-      await dispatch(updateVendor({ id: vendor.id, data: { rating: newRating } })).unwrap()
+      const updated = await dispatch(
+        updateVendor({ id: vendor.id, data: { rating: newRating } }),
+      ).unwrap()
+      if (updated.rating !== newRating) {
+        // Ensure Redux reflects the saved rating even if merge edge-cases occur
+        dispatch(applyVendorPatch({ id: vendor.id, patch: { rating: newRating } }))
+      }
       showToast({ title: 'Vendor rating updated successfully.', variant: 'success' })
       setRatingModalOpen(false)
     } catch {
@@ -324,12 +384,34 @@ export default function VendorDetailPage() {
     window.open(url, '_blank', 'noopener,noreferrer')
   }
 
+  async function downloadTaxDocument(url: string, fileName?: string) {
+    await downloadAuthenticatedDocument(url, fileName, () => {
+      showToast({ title: 'Failed to download document', variant: 'error' })
+    })
+  }
+
+  function docKeyToRemovable(
+    docKey: ComplianceRegistrationDocKey,
+  ): NonNullable<VendorFormInput['removeDocuments']>[number] {
+    switch (docKey) {
+      case 'gst':
+        return 'GST_CERTIFICATE'
+      case 'pan':
+        return 'PAN_CARD'
+      case 'bank_cheque':
+        return 'CANCELLED_CHEQUE'
+      case 'insurance':
+        return 'INSURANCE_DOCUMENT'
+      case 'catalogue':
+        return 'CATALOGUE'
+    }
+  }
+
   async function handleDeleteComplianceDoc(docKey: ComplianceRegistrationDocKey) {
     if (!vendor || !getVendorComplianceRegistrationDoc(vendor, docKey)) return
 
     const deletedBy = authUser?.name ?? 'Current User'
     const patch = buildComplianceDeletePatch(vendor, docKey, deletedBy)
-
     dispatch(applyVendorPatch({ id: vendor.id, patch }))
     setLocalUploadedDocs((prev) => {
       const next = prev.filter(
@@ -347,7 +429,10 @@ export default function VendorDetailPage() {
     })
 
     try {
-      await dispatch(updateVendor({ id: vendor.id, data: patch })).unwrap()
+      await vendorsService.updateDocuments(vendor.id, {
+        removeDocuments: [docKeyToRemovable(docKey)],
+      })
+      await dispatch(fetchVendorById(vendor.id)).unwrap()
       showToast({ title: 'Document removed successfully.', variant: 'success' })
     } catch {
       void dispatch(fetchVendorById(vendor.id))
@@ -380,66 +465,92 @@ export default function VendorDetailPage() {
       : undefined
   }
 
-  async function persistContacts(nextContacts: Contact[]) {
+  async function reloadContacts() {
     if (!vendor) return
-    const normalized = normalizeContacts(nextContacts)
-    const primary = getVendorListingPrimaryContact({ ...vendor, contacts: normalized })
-    try {
-      await dispatch(
-        updateVendor({
-          id: vendor.id,
-          data: {
-            contacts: normalized,
-            ...primaryFieldsFromVendor(primary),
-          },
-        }),
-      ).unwrap()
-      setContacts(normalized)
-    } catch {
-      showToast({ title: 'Failed to save contacts', variant: 'error' })
-    }
+    await dispatch(fetchVendorById(vendor.id)).unwrap()
   }
 
   async function handleSaveContact(data: Omit<Contact, 'id'> & { id?: string }) {
-    let next: Contact[]
-    if (data.id) {
-      next = contacts.map((c) => {
-        if (c.id === data.id) {
-          return { ...c, ...data, id: c.id, isPrimary: data.isPrimary ?? c.isPrimary }
-        }
-        return data.isPrimary ? { ...c, isPrimary: false } : c
-      })
-      if (data.isPrimary) {
-        next = next.map((c) => ({ ...c, isPrimary: c.id === data.id }))
+    if (!vendor) return
+    try {
+      if (data.id && !data.id.startsWith('vc-local-') && !data.id.startsWith('pending-')) {
+        await dispatch(
+          updateVendorContact({
+            vendorId: vendor.id,
+            contactId: data.id,
+            data: {
+              name: data.name,
+              designation: data.designation,
+              phone: data.phone,
+              email: data.email,
+              isPrimary: data.isPrimary,
+            },
+          }),
+        ).unwrap()
+        showToast({ title: 'Contact updated', variant: 'success' })
+      } else {
+        await dispatch(
+          createVendorContact({
+            vendorId: vendor.id,
+            data: {
+              name: data.name,
+              designation: data.designation,
+              phone: data.phone,
+              email: data.email,
+              isPrimary: data.isPrimary || contacts.length === 0,
+            },
+          }),
+        ).unwrap()
+        showToast({ title: 'Contact added', variant: 'success' })
       }
-      showToast({ title: 'Contact updated', variant: 'success' })
-    } else {
-      const newId = `vc-local-${Date.now()}`
-      const isFirst = contacts.length === 0
-      const makePrimary = Boolean(data.isPrimary) || isFirst
-      let list = makePrimary ? contacts.map((c) => ({ ...c, isPrimary: false })) : [...contacts]
-      list.push({ ...data, id: newId, isPrimary: makePrimary })
-      next = list
-      showToast({ title: 'Contact added', variant: 'success' })
+      setContactDrawerOpen(false)
+      setEditingContact(null)
+      await reloadContacts()
+    } catch (err) {
+      const message =
+        err && typeof err === 'object' && 'message' in err
+          ? String((err as { message: string }).message)
+          : 'Failed to save contact'
+      showToast({ title: message, variant: 'error' })
     }
-    setContactDrawerOpen(false)
-    setEditingContact(null)
-    await persistContacts(next)
   }
 
   async function handleSetPrimary(contactId: string) {
-    const next = contacts.map((c) => ({ ...c, isPrimary: c.id === contactId }))
-    await persistContacts(next)
-    showToast({ title: 'Primary contact updated', variant: 'success' })
+    if (!vendor) return
+    try {
+      await dispatch(
+        updateVendorContact({
+          vendorId: vendor.id,
+          contactId,
+          data: { isPrimary: true },
+        }),
+      ).unwrap()
+      await reloadContacts()
+      showToast({ title: 'Primary contact updated', variant: 'success' })
+    } catch (err) {
+      const message =
+        err && typeof err === 'object' && 'message' in err
+          ? String((err as { message: string }).message)
+          : 'Failed to update primary contact'
+      showToast({ title: message, variant: 'error' })
+    }
   }
 
   async function handleDeleteContact(contact: Contact) {
-    let next = contacts.filter((c) => c.id !== contact.id)
-    if (next.length > 0) {
-      next = normalizeContacts(next)
+    if (!vendor) return
+    try {
+      await dispatch(
+        deleteVendorContact({ vendorId: vendor.id, contactId: contact.id }),
+      ).unwrap()
+      await reloadContacts()
+      showToast({ title: 'Contact removed', variant: 'success' })
+    } catch (err) {
+      const message =
+        err && typeof err === 'object' && 'message' in err
+          ? String((err as { message: string }).message)
+          : 'Failed to remove contact'
+      showToast({ title: message, variant: 'error' })
     }
-    await persistContacts(next)
-    showToast({ title: 'Contact removed', variant: 'success' })
   }
 
   if (localLoading) return <DetailSkeleton />
@@ -543,11 +654,6 @@ export default function VendorDetailPage() {
                   }}
                 >
                   {vendor!.pan ?? '—'}
-                </Typography>
-              </LabelValue>
-              <LabelValue label="Vendor type">
-                <Typography variant="body2" sx={{ color: 'text.primary', fontWeight: 500, fontSize: theme.typography.body2.fontSize }}>
-                  {vendor!.financialDetails?.vendorType ?? '—'}
                 </Typography>
               </LabelValue>
               <LabelValue label="Rating">
@@ -689,7 +795,7 @@ export default function VendorDetailPage() {
                   document={gstDoc}
                   emptyDocMessage={COMPLIANCE_EMPTY_DOC_MESSAGES.gst}
                   onView={openTaxDocument}
-                  onDownload={openTaxDocument}
+                  onDownload={(url) => { void downloadTaxDocument(url, gstDoc.name) }}
                   onCopySuccess={onCopy}
                   onDelete={complianceDocDeleteHandler('gst')}
                 />
@@ -705,7 +811,7 @@ export default function VendorDetailPage() {
                   document={panDoc}
                   emptyDocMessage={COMPLIANCE_EMPTY_DOC_MESSAGES.pan}
                   onView={openTaxDocument}
-                  onDownload={openTaxDocument}
+                  onDownload={(url) => { void downloadTaxDocument(url, panDoc.name) }}
                   onCopySuccess={onCopy}
                   onDelete={complianceDocDeleteHandler('pan')}
                 />
@@ -721,7 +827,7 @@ export default function VendorDetailPage() {
                   document={bankDoc}
                   emptyDocMessage={COMPLIANCE_EMPTY_DOC_MESSAGES.bank_cheque}
                   onView={openTaxDocument}
-                  onDownload={openTaxDocument}
+                  onDownload={(url) => { void downloadTaxDocument(url, bankDoc.name) }}
                   onCopySuccess={onCopy}
                   onDelete={complianceDocDeleteHandler('bank_cheque')}
                 />
@@ -737,7 +843,7 @@ export default function VendorDetailPage() {
                   document={catalogueDoc}
                   emptyDocMessage={COMPLIANCE_EMPTY_DOC_MESSAGES.catalogue}
                   onView={openTaxDocument}
-                  onDownload={openTaxDocument}
+                  onDownload={(url) => { void downloadTaxDocument(url, catalogueDoc.name) }}
                   onCopySuccess={onCopy}
                   onDelete={complianceDocDeleteHandler('catalogue')}
                 />
@@ -753,7 +859,7 @@ export default function VendorDetailPage() {
                   document={insuranceDoc}
                   emptyDocMessage={COMPLIANCE_EMPTY_DOC_MESSAGES.insurance}
                   onView={openTaxDocument}
-                  onDownload={openTaxDocument}
+                  onDownload={(url) => { void downloadTaxDocument(url, insuranceDoc.name) }}
                   onCopySuccess={onCopy}
                   onDelete={complianceDocDeleteHandler('insurance')}
                 />
@@ -761,7 +867,7 @@ export default function VendorDetailPage() {
               <UploadedCompliancePreviewStack
                 documents={localUploadedDocs}
                 onView={openTaxDocument}
-                onDownload={openTaxDocument}
+                onDownload={(url) => { void downloadTaxDocument(url) }}
                 onCopySuccess={onCopy}
                 onDelete={handleDeleteUploadedPreview}
                 stackTopSpacing={false}
@@ -876,7 +982,9 @@ export default function VendorDetailPage() {
                     <MuiIconButton
                       size="small"
                       title={contact.isPrimary ? 'Primary contact' : 'Set as primary'}
-                      onClick={() => { void handleSetPrimary(contact.id) }}
+                      onClick={() => {
+                        if (!contact.isPrimary) void handleSetPrimary(contact.id)
+                      }}
                       sx={{ color: contact.isPrimary ? 'warning.main' : 'text.secondary', '&:hover': { color: 'warning.main' } }}
                     >
                       {contact.isPrimary ? <Star sx={{ fontSize: 15 }} /> : <StarBorder sx={{ fontSize: 15 }} />}
@@ -942,23 +1050,6 @@ export default function VendorDetailPage() {
   // ── renderActivity ─────────────────────────────────────────────────────────
 
   function renderActivity() {
-    const log = vendor!.activityLog ?? []
-    const filtered = filterActivityLog(log, activityFilter)
-
-    if (log.length === 0) {
-      return (
-        <Box sx={{ py: 6, textAlign: 'center' }}>
-          <History size={40} strokeWidth={1.25} color={tokens.color.neutral[300]} style={{ margin: '0 auto 12px' }} />
-          <Typography variant="body2" fontWeight={500}>
-            No activity yet
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-            Actions will appear here as the record is updated.
-          </Typography>
-        </Box>
-      )
-    }
-
     return (
       <Box>
         <Stack direction="row" flexWrap="wrap" gap={0.75} sx={{ mb: 2.5 }}>
@@ -976,23 +1067,41 @@ export default function VendorDetailPage() {
                   height: 26,
                   fontSize: theme.typography.caption.fontSize,
                   fontWeight: selected ? 600 : 500,
+                  ...(selected
+                    ? {}
+                    : {
+                        bgcolor: 'transparent',
+                        borderColor: 'divider',
+                      }),
                 }}
               />
             )
           })}
         </Stack>
 
-        {filtered.length === 0 ? (
-          <Box sx={{ py: 4, textAlign: 'center' }}>
-            <Typography variant="body2" color="text.secondary">
-              No activity matches this filter.
+        {activityLoading ? (
+          <Stack gap={1.5}>
+            {[0, 1, 2].map((i) => (
+              <Skeleton key={i} variant="rectangular" height={48} sx={{ borderRadius: 1 }} />
+            ))}
+          </Stack>
+        ) : activityItems.length === 0 ? (
+          <Box sx={{ py: 6, textAlign: 'center' }}>
+            <History size={40} strokeWidth={1.25} color={tokens.color.neutral[300]} style={{ margin: '0 auto 12px' }} />
+            <Typography variant="body2" fontWeight={500}>
+              No activity yet
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+              {activityFilter === 'all'
+                ? 'Actions will appear here as the record is updated.'
+                : 'No activity matches this filter.'}
             </Typography>
           </Box>
         ) : (
           <Stack gap={0}>
-            {filtered.map((entry, i) => {
+            {activityItems.map((entry, i) => {
               const { Icon, bg, iconColor } = getActivityTimelineVisual(entry.type, theme)
-              const isLast = i === filtered.length - 1
+              const isLast = i === activityItems.length - 1
               return (
                 <Box
                   key={entry.id}
@@ -1005,6 +1114,7 @@ export default function VendorDetailPage() {
                     borderBottom: isLast ? 'none' : '0.5px solid',
                     borderColor: 'divider',
                     bgcolor: 'transparent',
+                    transition: 'background-color 0.15s ease',
                     '&:hover': { bgcolor: 'action.hover' },
                   }}
                 >

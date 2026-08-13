@@ -6,6 +6,14 @@ import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { fetchSystemDefaults, updateSystemDefaults } from '@/slices/settings/thunk'
 import type { SystemDefaults } from '@/slices/settings/reducer'
 import { tokens, TREND_COLORS } from '@/design-system/tokens'
+import {
+  requiredText,
+  paginationSize,
+  collectErrors,
+  hasErrors,
+  firstErrorMessage,
+} from '@/modules/system-settings/shared/settings-validation'
+import { parseSettingsApiError, clearFieldError } from '@/modules/system-settings/shared/api-errors'
 
 interface SelectField {
   key: keyof SystemDefaults
@@ -140,6 +148,7 @@ export default function SystemDefaultsSection() {
   const { systemDefaults, saving } = useAppSelector(s => s.settings)
   const [isEditing, setIsEditing] = useState(false)
   const [form, setForm] = useState<SystemDefaults>(systemDefaults)
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
 
   useEffect(() => {
     dispatch(fetchSystemDefaults())
@@ -150,18 +159,39 @@ export default function SystemDefaultsSection() {
   }, [systemDefaults])
 
   const handleSave = () => {
+    const next = collectErrors([
+      ['currency', requiredText(String(form.currency ?? ''), 'Currency')],
+      ['financialYearStart', requiredText(String(form.financialYearStart ?? ''), 'Financial Year Start')],
+      ['defaultTaxRegime', requiredText(String(form.defaultTaxRegime ?? ''), 'Default Tax Regime')],
+      ['defaultProjectType', requiredText(String(form.defaultProjectType ?? ''), 'Default Project Type')],
+      ['defaultPaginationSize', paginationSize(form.defaultPaginationSize)],
+      ['dateFormat', requiredText(String(form.dateFormat ?? ''), 'Date Format')],
+      ['autoArchiveDays', form.autoArchiveDays === null || form.autoArchiveDays === undefined
+        ? 'Auto-archive setting is required'
+        : undefined],
+    ])
+    setFieldErrors(next)
+    if (hasErrors(next)) {
+      error(firstErrorMessage(next, 'Please fix the highlighted fields'))
+      return
+    }
     dispatch(updateSystemDefaults(form))
       .unwrap()
       .then(() => {
         setIsEditing(false)
         success('System defaults saved')
       })
-      .catch(() => error('Failed to save'))
+      .catch((err) => {
+        const parsed = parseSettingsApiError(err, 'Failed to save')
+        if (Object.keys(parsed.fieldErrors).length) setFieldErrors(parsed.fieldErrors)
+        error(parsed.message)
+      })
   }
 
   const handleCancel = () => {
     setIsEditing(false)
     setForm(systemDefaults)
+    setFieldErrors({})
   }
 
   return (
@@ -212,7 +242,10 @@ export default function SystemDefaultsSection() {
                           ...prev,
                           [field.key]: updateFormValue(field.key, e.target.value),
                         }))
+                        setFieldErrors(errors => clearFieldError(errors, field.key))
                       }}
+                      error={!!fieldErrors[field.key]}
+                      helperText={fieldErrors[field.key]}
                     >
                       {field.options.map((option) => (
                         <MenuItem key={String(option.value)} value={option.value}>

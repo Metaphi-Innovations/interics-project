@@ -201,7 +201,7 @@ export function AddVendorInvoiceDrawer({
         toast.success('Vendor invoice saved')
       }
       await dispatch(fetchVendorInvoices(projectId)).unwrap()
-      await dispatch(fetchExpenses(projectId)).unwrap()
+      await dispatch(fetchExpenses({ projectId })).unwrap()
       onClose()
     } catch {
       toast.error('Failed to save vendor invoice')

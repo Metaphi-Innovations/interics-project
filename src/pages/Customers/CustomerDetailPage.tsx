@@ -27,36 +27,36 @@ import {
 import { History } from 'lucide-react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
-import { fetchCustomerById, updateCustomer } from '../../slices/customers/thunk'
+import { fetchCustomerById, setCustomerActive, createCustomerContact, updateCustomerContact } from '../../slices/customers/thunk'
 import { clearSelected } from '../../slices/customers/reducer'
-import type { Contact } from '../../slices/customers/reducer'
+import type { ActivityEntry, Contact, CustomerFinancialDetails } from '../../slices/customers/reducer'
 import { WorkspaceDetail, WorkspaceSection } from '../../components/templates'
 import { CustomerDrawer } from './CustomerDrawer'
 import { ContactDrawer } from '../../components/ContactDrawer'
-import { StatusBadge, useToast, Button } from '@/design-system/components'
+import { StatusBadge, useToast, Button, ConfirmDialog } from '@/design-system/components'
 import type { StatusType } from '@/design-system/components'
 import { PODocumentLinkField } from '@/components/documents/PODocumentLinkField'
 import {
   getInitials,
   getAvatarColor,
   formatCurrency,
+  formatDate,
 } from '../../utils/formatters'
 import {
-  getPrimaryContact,
+  getCustomerContactsList,
   legacyContactsFromCustomer,
   normalizeContacts,
-  primaryFieldsFromContact,
 } from '../../utils/customerContacts'
+import { customersService } from '@/modules/customers'
+import { projectsService } from '@/modules/projects'
+import type { Project } from '@/slices/projects/reducer'
+import { toActivityEntry, toFinancialDetails } from '@/modules/customers/customers.activity.mapper'
 import { tokens } from '@/design-system/tokens'
 import { useTheme, alpha } from '@mui/material/styles'
 import {
   getRecordDetailFlatSectionSx,
   RecordDetailSectionTitle,
-  formatFullAddress,
-  getRecordTagChipColors,
-  gstStatusHeaderPillSx,
   type ActivityFilterCategory,
-  filterActivityLog,
   getActivityTimelineVisual,
   formatActivityTimestamp,
 } from '../workspace/recordDetailTabUtils'
@@ -146,6 +146,7 @@ const CUSTOMER_DETAIL_TABS = ['overview', 'contacts', 'projects', 'financial', '
 export default function CustomerDetailPage() {
   const { id: slug } = useParams<{ id: string }>()
   const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
   const dispatch = useAppDispatch()
   const customer = useAppSelector((s) => s.customers.selectedItem)
   const { showToast } = useToast()
@@ -160,7 +161,15 @@ export default function CustomerDetailPage() {
   const [contacts, setContacts] = useState<Contact[]>([])
   const [contactDrawerOpen, setContactDrawerOpen] = useState(false)
   const [editingContact, setEditingContact] = useState<Contact | null>(null)
+  const [deleteContactTarget, setDeleteContactTarget] = useState<Contact | null>(null)
+  const [deletingContact, setDeletingContact] = useState(false)
   const [activityFilter, setActivityFilter] = useState<ActivityFilterCategory>('all')
+  const [activityItems, setActivityItems] = useState<ActivityEntry[]>([])
+  const [activityLoading, setActivityLoading] = useState(false)
+  const [financialDetails, setFinancialDetails] = useState<CustomerFinancialDetails | null>(null)
+  const [financialLoading, setFinancialLoading] = useState(false)
+  const [linkedProjects, setLinkedProjects] = useState<Project[]>([])
+  const [linkedProjectsLoading, setLinkedProjectsLoading] = useState(false)
 
   useEffect(() => {
     if (!slug) return
@@ -195,79 +204,175 @@ export default function CustomerDetailPage() {
     }
   }, [searchParams])
 
+  useEffect(() => {
+    if (!customer || activeTab !== 'activity') return
+    let cancelled = false
+    setActivityLoading(true)
+    const type = activityFilter === 'all' ? 'ALL' : activityFilter.toUpperCase()
+    void customersService
+      .getActivity(customer.id, { type, activityPage: 1, activityLimit: 50 })
+      .then((section) => {
+        if (cancelled) return
+        setActivityItems((section.items ?? []).map(toActivityEntry))
+      })
+      .catch(() => {
+        if (cancelled) return
+        setActivityItems([])
+        showToast({ title: 'Failed to load activity', variant: 'error' })
+      })
+      .finally(() => {
+        if (!cancelled) setActivityLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [customer, activeTab, activityFilter])
+
+  useEffect(() => {
+    if (!customer || activeTab !== 'financial') return
+    let cancelled = false
+    setFinancialLoading(true)
+    void customersService
+      .getFinancial(customer.id)
+      .then((api) => {
+        if (cancelled) return
+        setFinancialDetails(toFinancialDetails(api, customer.gstStatus))
+      })
+      .catch(() => {
+        if (cancelled) return
+        setFinancialDetails(null)
+        showToast({ title: 'Failed to load financial details', variant: 'error' })
+      })
+      .finally(() => {
+        if (!cancelled) setFinancialLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [customer, activeTab])
+
+  useEffect(() => {
+    if (!customer || activeTab !== 'projects') return
+    let cancelled = false
+    setLinkedProjectsLoading(true)
+    void projectsService
+      .getAll({ customerId: customer.id, limit: 100 })
+      .then((result) => {
+        if (cancelled) return
+        setLinkedProjects(result.items)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setLinkedProjects([])
+        showToast({ title: 'Failed to load linked projects', variant: 'error' })
+      })
+      .finally(() => {
+        if (!cancelled) setLinkedProjectsLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [customer, activeTab])
+
   async function handleToggleStatus() {
     if (!customer) return
-    const newStatus = customer.status === 'Active' ? 'Inactive' : 'Active'
+    const nextActive = customer.status !== 'Active'
     try {
-      await dispatch(updateCustomer({ id: customer.id, data: { status: newStatus } })).unwrap()
-      showToast({ title: `Customer ${newStatus === 'Inactive' ? 'deactivated' : 'activated'}`, variant: 'success' })
-    } catch {
-      showToast({ title: 'Failed to update status', variant: 'error' })
+      await dispatch(setCustomerActive({ id: customer.id, isActive: nextActive })).unwrap()
+      showToast({ title: `Customer ${nextActive ? 'activated' : 'deactivated'}`, variant: 'success' })
+      void dispatch(fetchCustomerById(customer.id))
+    } catch (err) {
+      const message =
+        err && typeof err === 'object' && 'message' in err
+          ? String((err as { message: string }).message)
+          : 'Failed to update status'
+      showToast({ title: message, variant: 'error' })
     }
   }
 
   // ── Contact actions ─────────────────────────────────────────────────────────
 
-  async function persistContacts(nextContacts: Contact[]) {
+  async function reloadContacts() {
     if (!customer) return
-    const normalized = normalizeContacts(nextContacts)
-    const primary = getPrimaryContact({ ...customer, contacts: normalized })
-    try {
-      await dispatch(
-        updateCustomer({
-          id: customer.id,
-          data: {
-            contacts: normalized,
-            ...primaryFieldsFromContact(primary),
-          },
-        }),
-      ).unwrap()
-      setContacts(normalized)
-    } catch {
-      showToast({ title: 'Failed to save contacts', variant: 'error' })
-    }
+    const full = await dispatch(fetchCustomerById(customer.id)).unwrap()
+    setContacts(getCustomerContactsList(full))
   }
 
   async function handleSaveContact(data: Omit<Contact, 'id'> & { id?: string }) {
-    let next: Contact[]
-    if (data.id) {
-      next = contacts.map((c) => {
-        if (c.id === data.id) {
-          return { ...c, ...data, id: c.id, isPrimary: data.isPrimary ?? c.isPrimary }
-        }
-        return data.isPrimary ? { ...c, isPrimary: false } : c
-      })
-      if (data.isPrimary) {
-        next = next.map((c) => ({ ...c, isPrimary: c.id === data.id }))
+    if (!customer) return
+    try {
+      if (data.id) {
+        await dispatch(
+          updateCustomerContact({
+            customerId: customer.id,
+            contactId: data.id,
+            data: {
+              name: data.name,
+              designation: data.designation,
+              phone: data.phone,
+              email: data.email,
+              isPrimary: data.isPrimary,
+            },
+          }),
+        ).unwrap()
+        showToast({ title: 'Contact updated', variant: 'success' })
+      } else {
+        await dispatch(
+          createCustomerContact({
+            customerId: customer.id,
+            data: {
+              name: data.name,
+              designation: data.designation,
+              phone: data.phone,
+              email: data.email,
+              isPrimary: data.isPrimary || contacts.length === 0,
+            },
+          }),
+        ).unwrap()
+        showToast({ title: 'Contact added', variant: 'success' })
       }
-      showToast({ title: 'Contact updated', variant: 'success' })
-    } else {
-      const newId = `cc-local-${Date.now()}`
-      const isFirst = contacts.length === 0
-      const makePrimary = data.isPrimary || isFirst
-      let list = makePrimary ? contacts.map((c) => ({ ...c, isPrimary: false })) : [...contacts]
-      list.push({ ...data, id: newId, isPrimary: makePrimary })
-      next = list
-      showToast({ title: 'Contact added', variant: 'success' })
+      setContactDrawerOpen(false)
+      setEditingContact(null)
+      await reloadContacts()
+    } catch (err) {
+      const message =
+        err && typeof err === 'object' && 'message' in err
+          ? String((err as { message: string }).message)
+          : 'Failed to save contact'
+      showToast({ title: message, variant: 'error' })
     }
-    setContactDrawerOpen(false)
-    setEditingContact(null)
-    await persistContacts(next)
   }
 
   async function handleSetPrimary(contactId: string) {
-    const next = contacts.map((c) => ({ ...c, isPrimary: c.id === contactId }))
-    await persistContacts(next)
-    showToast({ title: 'Primary contact updated', variant: 'success' })
+    if (!customer) return
+    try {
+      await dispatch(
+        updateCustomerContact({
+          customerId: customer.id,
+          contactId,
+          data: { isPrimary: true },
+        }),
+      ).unwrap()
+      await reloadContacts()
+      showToast({ title: 'Primary contact updated', variant: 'success' })
+    } catch {
+      showToast({ title: 'Failed to update primary contact', variant: 'error' })
+    }
   }
 
-  async function handleDeleteContact(contact: Contact) {
-    let next = contacts.filter((c) => c.id !== contact.id)
-    if (next.length > 0) {
-      next = normalizeContacts(next)
+  async function handleDeleteContact() {
+    if (!customer || !deleteContactTarget) return
+    setDeletingContact(true)
+    try {
+      await customersService.removeContact(customer.id, deleteContactTarget.id)
+      setDeleteContactTarget(null)
+      await reloadContacts()
+      showToast({ title: 'Contact removed', variant: 'success' })
+    } catch {
+      showToast({ title: 'Failed to remove contact', variant: 'error' })
+    } finally {
+      setDeletingContact(false)
     }
-    await persistContacts(next)
-    showToast({ title: 'Contact removed', variant: 'success' })
   }
 
   if (localLoading) return <DetailSkeleton />
@@ -285,15 +390,10 @@ export default function CustomerDetailPage() {
 
   function renderOverview() {
     const gstRegistered = customer!.gstStatus === 'Registered'
-    const gstPill = gstStatusHeaderPillSx(gstRegistered, theme)
     const mono =
       (theme.typography as { fontFamilyMonospace?: string }).fontFamilyMonospace ?? `'Courier New', monospace`
-    const addressStr = formatFullAddress(
-      customer!.address,
-      customer!.city,
-      customer!.state,
-      customer!.pincode,
-    ).trim()
+    const street = customer!.address?.trim() || ''
+    const cityState = [customer!.city, customer!.state].filter(Boolean).join(', ')
 
     return (
       <Stack gap={0}>
@@ -315,201 +415,183 @@ export default function CustomerDetailPage() {
             }}
           >
             <LabelValue label="Customer name">
-              <Typography variant="body2" sx={{ color: 'text.primary', fontWeight: 500, fontSize: theme.typography.body2.fontSize }}>
+              <Typography variant="body2" sx={{ color: 'text.primary', fontWeight: 600, fontSize: theme.typography.body2.fontSize }}>
                 {customer!.name}
               </Typography>
             </LabelValue>
-            <LabelValue label="Customer type">
-              <MuiChip
-                label={customer!.type}
-                size="small"
-                variant="filled"
-                sx={{
-                  height: 22,
-                  fontWeight: 600,
-                  fontSize: theme.typography.caption.fontSize,
-                  borderRadius: tokens.borderRadius.lg,
-                  border: 'none',
-                }}
-              />
+            <LabelValue label="Sector">
+              {customer!.sector ? (
+                <MuiChip
+                  label={customer!.sector}
+                  size="small"
+                  sx={{
+                    height: 22,
+                    fontWeight: 600,
+                    fontSize: theme.typography.caption.fontSize,
+                    bgcolor: theme.palette.grey[100],
+                    color: theme.palette.grey[700],
+                    borderRadius: tokens.borderRadius.lg,
+                  }}
+                />
+              ) : (
+                <Typography variant="body2" color="text.disabled">—</Typography>
+              )}
             </LabelValue>
             <LabelValue label="Status">
               <StatusBadge status={customer!.status.toLowerCase() as StatusType} />
             </LabelValue>
             <LabelValue label="GST status">
-              <Box
-                component="span"
+              <Typography
+                variant="body2"
                 sx={{
-                  ...gstPill,
-                  fontSize: theme.typography.caption.fontSize,
                   fontWeight: 600,
-                  px: theme.spacing(1),
-                  py: theme.spacing(0.5),
-                  borderRadius: tokens.borderRadius.md,
-                  lineHeight: 1.2,
-                  display: 'inline-block',
+                  fontSize: theme.typography.body2.fontSize,
+                  color: gstRegistered ? 'success.main' : 'text.primary',
                 }}
               >
                 {customer!.gstStatus}
-              </Box>
+              </Typography>
             </LabelValue>
             <LabelValue label="City">
-              <Typography variant="body2" sx={{ color: 'text.primary', fontWeight: 500, fontSize: theme.typography.body2.fontSize }}>
+              <Typography variant="body2" sx={{ color: 'text.primary', fontWeight: 600, fontSize: theme.typography.body2.fontSize }}>
                 {customer!.city || '—'}
               </Typography>
             </LabelValue>
             <LabelValue label="State">
-              <Typography variant="body2" sx={{ color: 'text.primary', fontWeight: 500, fontSize: theme.typography.body2.fontSize }}>
+              <Typography variant="body2" sx={{ color: 'text.primary', fontWeight: 600, fontSize: theme.typography.body2.fontSize }}>
                 {customer!.state || '—'}
               </Typography>
             </LabelValue>
             <LabelValue label="Pincode">
-              <Typography variant="body2" sx={{ color: 'text.primary', fontWeight: 500, fontSize: theme.typography.body2.fontSize }}>
-                {customer!.pincode ?? '—'}
+              <Typography variant="body2" sx={{ color: 'text.primary', fontWeight: 600, fontSize: theme.typography.body2.fontSize }}>
+                {customer!.pincode?.trim() ? customer!.pincode : '—'}
               </Typography>
             </LabelValue>
           </Box>
         </Box>
 
-        {customer!.gstDocument ||
-        customer!.panDocument ||
-        customer!.gstin ||
-        customer!.pan ? (
+        <Box
+          sx={{
+            ...getRecordDetailFlatSectionSx(theme, { isLast: false }),
+            mb: theme.spacing(3),
+            pb: theme.spacing(3),
+          }}
+        >
+          <RecordDetailSectionTitle>Documents</RecordDetailSectionTitle>
           <Box
             sx={{
-              ...getRecordDetailFlatSectionSx(theme, { isLast: false }),
-              mb: theme.spacing(3),
-              pb: theme.spacing(3),
+              display: 'grid',
+              gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
+              gap: theme.spacing(2.5),
+              py: theme.spacing(0.5),
             }}
           >
-            <RecordDetailSectionTitle>Documents</RecordDetailSectionTitle>
-            <Box
-              sx={{
-                display: 'grid',
-                gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
-                gap: theme.spacing(2.5),
-                py: theme.spacing(0.5),
-              }}
-            >
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: theme.spacing(1.5) }}>
-                {customer!.gstDocument ? (
-                  <PODocumentLinkField
-                    label="GST document"
-                    fileName={customer!.gstDocument.name}
-                    documentUrl={customer!.gstDocument.url}
-                    onOpenFailed={() =>
-                      showToast({ title: 'Unable to open document', variant: 'error' })
-                    }
-                  />
-                ) : null}
-                <Typography
-                  variant="body2"
-                  sx={{
-                    letterSpacing: '0.5px',
-                    color: 'text.primary',
-                    fontWeight: 500,
-                    fontSize: theme.typography.body2.fontSize,
-                  }}
-                >
-                  {customer!.gstin ? (
-                    <>
-                      GSTIN -{' '}
-                      <Box component="span" sx={{ fontFamily: mono }}>
-                        {customer!.gstin}
-                      </Box>
-                    </>
-                  ) : (
-                    '—'
-                  )}
-                </Typography>
-              </Box>
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: theme.spacing(1.5) }}>
-                {customer!.panDocument ? (
-                  <PODocumentLinkField
-                    label="PAN document"
-                    fileName={customer!.panDocument.name}
-                    documentUrl={customer!.panDocument.url}
-                    onOpenFailed={() =>
-                      showToast({ title: 'Unable to open document', variant: 'error' })
-                    }
-                  />
-                ) : null}
-                <Typography
-                  variant="body2"
-                  sx={{
-                    letterSpacing: '0.5px',
-                    color: 'text.primary',
-                    fontWeight: 500,
-                    fontSize: theme.typography.body2.fontSize,
-                  }}
-                >
-                  {customer!.pan ? (
-                    <>
-                      PAN -{' '}
-                      <Box component="span" sx={{ fontFamily: mono }}>
-                        {customer!.pan}
-                      </Box>
-                    </>
-                  ) : (
-                    '—'
-                  )}
-                </Typography>
-              </Box>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: theme.spacing(1.5) }}>
+              {customer!.gstDocument ? (
+                <PODocumentLinkField
+                  label="GST document"
+                  fileName={customer!.gstDocument.name}
+                  documentUrl={customer!.gstDocument.url}
+                  onOpenFailed={() =>
+                    showToast({ title: 'Unable to open document', variant: 'error' })
+                  }
+                />
+              ) : (
+                <LabelValue label="GST document">
+                  <Typography variant="body2" color="text.disabled">—</Typography>
+                </LabelValue>
+              )}
+              <Typography
+                variant="body2"
+                sx={{
+                  letterSpacing: '0.5px',
+                  color: 'text.primary',
+                  fontWeight: 500,
+                  fontSize: theme.typography.body2.fontSize,
+                }}
+              >
+                {customer!.gstin ? (
+                  <>
+                    GSTIN -{' '}
+                    <Box component="span" sx={{ fontFamily: mono }}>
+                      {customer!.gstin}
+                    </Box>
+                  </>
+                ) : (
+                  '—'
+                )}
+              </Typography>
+            </Box>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: theme.spacing(1.5) }}>
+              {customer!.panDocument ? (
+                <PODocumentLinkField
+                  label="PAN document"
+                  fileName={customer!.panDocument.name}
+                  documentUrl={customer!.panDocument.url}
+                  onOpenFailed={() =>
+                    showToast({ title: 'Unable to open document', variant: 'error' })
+                  }
+                />
+              ) : (
+                <LabelValue label="PAN document">
+                  <Typography variant="body2" color="text.disabled">—</Typography>
+                </LabelValue>
+              )}
+              <Typography
+                variant="body2"
+                sx={{
+                  letterSpacing: '0.5px',
+                  color: 'text.primary',
+                  fontWeight: 500,
+                  fontSize: theme.typography.body2.fontSize,
+                }}
+              >
+                {customer!.pan ? (
+                  <>
+                    PAN -{' '}
+                    <Box component="span" sx={{ fontFamily: mono }}>
+                      {customer!.pan}
+                    </Box>
+                  </>
+                ) : (
+                  '—'
+                )}
+              </Typography>
             </Box>
           </Box>
-        ) : null}
+        </Box>
 
-        <Box sx={getRecordDetailFlatSectionSx(theme, { isLast: false })}>
+        <Box sx={getRecordDetailFlatSectionSx(theme, { isLast: true })}>
           <RecordDetailSectionTitle>Address & location</RecordDetailSectionTitle>
-          {addressStr ? (
-            <Typography
-              variant="body2"
-              sx={{ color: 'text.primary', fontWeight: 500, fontSize: theme.typography.body2.fontSize, whiteSpace: 'pre-line' }}
-            >
-              {addressStr}
-            </Typography>
+          {street || cityState ? (
+            <Box>
+              {street ? (
+                <Typography
+                  variant="body2"
+                  sx={{ color: 'text.primary', fontWeight: 500, fontSize: theme.typography.body2.fontSize }}
+                >
+                  {street}
+                </Typography>
+              ) : null}
+              {cityState ? (
+                <Typography
+                  variant="body2"
+                  sx={{
+                    color: 'text.primary',
+                    fontWeight: 500,
+                    fontSize: theme.typography.body2.fontSize,
+                    mt: street ? 0.5 : 0,
+                  }}
+                >
+                  {cityState}
+                </Typography>
+              ) : null}
+            </Box>
           ) : (
             <Typography variant="body2" color="text.disabled">
               No address added
             </Typography>
           )}
-        </Box>
-
-        <Box sx={getRecordDetailFlatSectionSx(theme, { isLast: true })}>
-          <RecordDetailSectionTitle>Tags & notes</RecordDetailSectionTitle>
-          {customer!.tags.length > 0 ? (
-            <Stack direction="row" flexWrap="wrap" gap={theme.spacing(0.75)}>
-              {customer!.tags.map((tag) => {
-                const c = getRecordTagChipColors(tag, theme)
-                return (
-                  <MuiChip
-                    key={tag}
-                    label={tag}
-                    size="small"
-                    variant="filled"
-                    sx={{
-                      bgcolor: c.bg,
-                      color: c.color,
-                      fontWeight: 600,
-                      fontSize: theme.typography.caption.fontSize,
-                      borderRadius: tokens.borderRadius.lg,
-                      border: 'none',
-                      height: 22,
-                    }}
-                  />
-                )
-              })}
-            </Stack>
-          ) : (
-            <Typography variant="body2" color="text.disabled">
-              No tags added
-            </Typography>
-          )}
-          {customer!.notes ? (
-            <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic', mt: theme.spacing(1.5) }}>
-              {customer!.notes}
-            </Typography>
-          ) : null}
         </Box>
       </Stack>
     )
@@ -628,7 +710,7 @@ export default function CustomerDetailPage() {
                     <MuiIconButton
                       size="small"
                       title="Delete contact"
-                      onClick={() => { void handleDeleteContact(contact) }}
+                      onClick={() => setDeleteContactTarget(contact)}
                       sx={{ color: 'text.secondary', '&:hover': { color: 'error.main' } }}
                     >
                       <Delete sx={{ fontSize: 15 }} />
@@ -646,7 +728,15 @@ export default function CustomerDetailPage() {
   // ── renderProjects ─────────────────────────────────────────────────────────
 
   function renderProjects() {
-    if (customer!.activeProjects === 0) {
+    if (linkedProjectsLoading) {
+      return (
+        <WorkspaceSection title="Linked Projects">
+          <Skeleton variant="rectangular" height={180} sx={{ borderRadius: 2 }} />
+        </WorkspaceSection>
+      )
+    }
+
+    if (linkedProjects.length === 0) {
       return (
         <WorkspaceSection title="Linked Projects">
           <Box sx={{ py: 5, textAlign: 'center' }}>
@@ -659,24 +749,50 @@ export default function CustomerDetailPage() {
         </WorkspaceSection>
       )
     }
+
+    const headerCellSx = {
+      fontSize: 11,
+      fontWeight: 600,
+      color: 'text.secondary',
+      textTransform: 'uppercase' as const,
+      letterSpacing: '0.4px',
+      bgcolor: 'action.hover',
+      borderBottom: '1px solid',
+      borderColor: 'divider',
+      py: 1.25,
+    }
+
     return (
       <WorkspaceSection title="Linked Projects">
         <Table size="small">
           <TableHead>
             <TableRow>
-              <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary' }}>Project Name</TableCell>
-              <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary' }}>Status</TableCell>
-              <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary' }}>Value</TableCell>
-              <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary' }}>Manager</TableCell>
+              <TableCell sx={headerCellSx}>Project Name</TableCell>
+              <TableCell sx={headerCellSx}>Status</TableCell>
+              <TableCell sx={headerCellSx}>Value</TableCell>
+              <TableCell sx={headerCellSx}>Manager</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {[...Array(customer!.activeProjects)].map((_, i) => (
-              <TableRow key={i}>
-                <TableCell sx={{ fontSize: 12 }}>Project {i + 1}</TableCell>
-                <TableCell><StatusBadge status="active" /></TableCell>
-                <TableCell sx={{ fontSize: 12 }}>—</TableCell>
-                <TableCell sx={{ fontSize: 12 }}>—</TableCell>
+            {linkedProjects.map((project) => (
+              <TableRow
+                key={project.id}
+                hover
+                sx={{ cursor: 'pointer' }}
+                onClick={() => navigate(`/projects/${project.id}`)}
+              >
+                <TableCell sx={{ fontSize: 13, borderColor: 'divider' }}>{project.name}</TableCell>
+                <TableCell sx={{ borderColor: 'divider' }}>
+                  <StatusBadge
+                    status={project.status.toLowerCase() as StatusType}
+                  />
+                </TableCell>
+                <TableCell sx={{ fontSize: 13, borderColor: 'divider' }}>
+                  {formatCurrency(project.projectValue)}
+                </TableCell>
+                <TableCell sx={{ fontSize: 13, borderColor: 'divider' }}>
+                  {project.projectManager || '—'}
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -688,14 +804,27 @@ export default function CustomerDetailPage() {
   // ── renderFinancial ────────────────────────────────────────────────────────
 
   function renderFinancial() {
-    const fd = customer!.financialDetails
+    if (financialLoading) {
+      return (
+        <Grid container spacing={2}>
+          <Grid size={{ xs: 12, md: 6 }}>
+            <Skeleton variant="rectangular" height={220} sx={{ borderRadius: 2 }} />
+          </Grid>
+          <Grid size={{ xs: 12, md: 6 }}>
+            <Skeleton variant="rectangular" height={220} sx={{ borderRadius: 2 }} />
+          </Grid>
+        </Grid>
+      )
+    }
+
+    const fd = financialDetails ?? customer!.financialDetails
     if (!fd) {
       return (
-        <WorkspaceSection>
-          <Box sx={{ py: 5, textAlign: 'center' }}>
-            <Typography variant="body2" color="text.secondary">Financial details not available</Typography>
-          </Box>
-        </WorkspaceSection>
+        <Box sx={{ py: 5, textAlign: 'center' }}>
+          <Typography variant="body2" color="text.secondary">
+            Financial details not available
+          </Typography>
+        </Box>
       )
     }
 
@@ -709,7 +838,14 @@ export default function CustomerDetailPage() {
             rows={[
               { label: 'Total Billed', value: fmt(fd.totalBilled) },
               { label: 'Amount Received', value: fmt(fd.amountReceived) },
-              { label: 'Outstanding', value: <Box sx={{ color: fd.outstanding > 0 ? 'error.main' : 'success.main' }}>{fmt(fd.outstanding)}</Box> },
+              {
+                label: 'Outstanding',
+                value: (
+                  <Box sx={{ color: fd.outstanding > 0 ? 'error.main' : 'success.main' }}>
+                    {fmt(fd.outstanding)}
+                  </Box>
+                ),
+              },
               { label: 'TDS Withheld', value: fmt(fd.tdsWithheld) },
             ]}
           />
@@ -721,7 +857,10 @@ export default function CustomerDetailPage() {
               { label: 'Active Projects', value: fd.activeProjects },
               { label: 'Completed Projects', value: fd.completedProjects },
               { label: 'Total Project Value', value: fmt(fd.totalProjectValue) },
-              { label: 'Last Invoice Date', value: fd.lastInvoiceDate },
+              {
+                label: 'Last Invoice Date',
+                value: fd.lastInvoiceDate ? formatDate(fd.lastInvoiceDate) : '—',
+              },
             ]}
           />
         </Grid>
@@ -732,23 +871,6 @@ export default function CustomerDetailPage() {
   // ── renderActivity ─────────────────────────────────────────────────────────
 
   function renderActivity() {
-    const log = customer!.activityLog ?? []
-    const filtered = filterActivityLog(log, activityFilter)
-
-    if (log.length === 0) {
-      return (
-        <Box sx={{ py: 6, textAlign: 'center' }}>
-          <History size={40} strokeWidth={1.25} color={tokens.color.neutral[300]} style={{ margin: '0 auto 12px' }} />
-          <Typography variant="body2" fontWeight={500}>
-            No activity yet
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-            Actions will appear here as the record is updated.
-          </Typography>
-        </Box>
-      )
-    }
-
     return (
       <Box>
         <Stack direction="row" flexWrap="wrap" gap={0.75} sx={{ mb: 2.5 }}>
@@ -766,23 +888,41 @@ export default function CustomerDetailPage() {
                   height: 26,
                   fontSize: theme.typography.caption.fontSize,
                   fontWeight: selected ? 600 : 500,
+                  ...(selected
+                    ? {}
+                    : {
+                        bgcolor: 'transparent',
+                        borderColor: 'divider',
+                      }),
                 }}
               />
             )
           })}
         </Stack>
 
-        {filtered.length === 0 ? (
-          <Box sx={{ py: 4, textAlign: 'center' }}>
-            <Typography variant="body2" color="text.secondary">
-              No activity matches this filter.
+        {activityLoading ? (
+          <Stack gap={1.5}>
+            {[0, 1, 2].map((i) => (
+              <Skeleton key={i} variant="rectangular" height={48} sx={{ borderRadius: 1 }} />
+            ))}
+          </Stack>
+        ) : activityItems.length === 0 ? (
+          <Box sx={{ py: 6, textAlign: 'center' }}>
+            <History size={40} strokeWidth={1.25} color={tokens.color.neutral[300]} style={{ margin: '0 auto 12px' }} />
+            <Typography variant="body2" fontWeight={500}>
+              No activity yet
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+              {activityFilter === 'all'
+                ? 'Actions will appear here as the record is updated.'
+                : 'No activity matches this filter.'}
             </Typography>
           </Box>
         ) : (
           <Stack gap={0}>
-            {filtered.map((entry, i) => {
+            {activityItems.map((entry, i) => {
               const { Icon, bg, iconColor } = getActivityTimelineVisual(entry.type, theme)
-              const isLast = i === filtered.length - 1
+              const isLast = i === activityItems.length - 1
               return (
                 <Box
                   key={entry.id}
@@ -795,6 +935,7 @@ export default function CustomerDetailPage() {
                     borderBottom: isLast ? 'none' : '0.5px solid',
                     borderColor: 'divider',
                     bgcolor: 'transparent',
+                    transition: 'background-color 0.15s ease',
                     '&:hover': { bgcolor: 'action.hover' },
                   }}
                 >
@@ -813,7 +954,7 @@ export default function CustomerDetailPage() {
                     <Icon size={14} strokeWidth={1.75} color={iconColor} />
                   </Box>
                   <Box sx={{ flex: 1, pt: theme.spacing(0.25) }}>
-                    <Typography variant="body2" fontWeight={500} sx={{ lineHeight: 1.4 }}>
+                    <Typography variant="body2" fontWeight={600} sx={{ lineHeight: 1.4 }}>
                       {entry.description}
                     </Typography>
                     <Typography
@@ -886,6 +1027,9 @@ export default function CustomerDetailPage() {
         onClose={() => setDrawerOpen(false)}
         mode="edit"
         customer={customer}
+        onSuccess={() => {
+          if (customer?.id) void dispatch(fetchCustomerById(customer.id))
+        }}
       />
 
       {/* Add/Edit contact drawer */}
@@ -895,6 +1039,25 @@ export default function CustomerDetailPage() {
         mode={editingContact ? 'edit' : 'add'}
         contact={editingContact}
         onSave={handleSaveContact}
+      />
+
+      <ConfirmDialog
+        open={Boolean(deleteContactTarget)}
+        onClose={() => {
+          if (deletingContact) return
+          setDeleteContactTarget(null)
+        }}
+        onConfirm={handleDeleteContact}
+        loading={deletingContact}
+        variant="destructive"
+        title="Delete contact?"
+        description={
+          deleteContactTarget
+            ? `Remove “${deleteContactTarget.name}” from this customer? This cannot be undone.`
+            : undefined
+        }
+        confirmLabel="Delete Contact"
+        cancelLabel="Keep Contact"
       />
 
     </>

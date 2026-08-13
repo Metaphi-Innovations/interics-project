@@ -17,6 +17,7 @@ import { READONLY_DISABLED_TEXTFIELD_SX } from './readOnlyFieldStyles'
 import type { MilestonePaymentStatusLabel } from './milestonePaymentStatus'
 import { VENDOR_MILESTONE_PCT_EPS, validateVendorMilestonePercents } from '@/utils/vendorMilestones'
 import type { VendorMapping, VendorMilestone } from '@/slices/pitch/reducer'
+import { parseRateInput, rateInputDisplay, selectRateInputOnFocus } from './rateInput'
 
 export interface VendorPOMilestoneRow {
   id: string
@@ -420,8 +421,11 @@ export function VendorPOMilestoneEditor({
                     size="small"
                     fullWidth
                     type="number"
-                    value={m.percentage}
-                    onChange={(e) => updateMilestone(idx, 'percentage', Number(e.target.value))}
+                    value={rateInputDisplay(m.percentage)}
+                    onChange={(e) =>
+                      updateMilestone(idx, 'percentage', parseRateInput(e.target.value))
+                    }
+                    onFocus={selectRateInputOnFocus}
                     placeholder="%"
                     disabled={rowDisabled}
                     sx={MILESTONE_INPUT_SX}
@@ -430,8 +434,11 @@ export function VendorPOMilestoneEditor({
                     size="small"
                     fullWidth
                     type="number"
-                    value={m.value}
-                    onChange={(e) => updateMilestone(idx, 'value', Number(e.target.value))}
+                    value={rateInputDisplay(m.value)}
+                    onChange={(e) =>
+                      updateMilestone(idx, 'value', parseRateInput(e.target.value))
+                    }
+                    onFocus={selectRateInputOnFocus}
                     placeholder="₹ VALUE"
                     disabled={rowDisabled}
                     sx={MILESTONE_INPUT_SX}
@@ -515,8 +522,11 @@ export function VendorPOMilestoneEditor({
                       size="small"
                       fullWidth
                       type="number"
-                      value={retention.percentage}
-                      onChange={(e) => updateRetention('percentage', Number(e.target.value))}
+                      value={rateInputDisplay(retention.percentage)}
+                      onChange={(e) =>
+                        updateRetention('percentage', parseRateInput(e.target.value))
+                      }
+                      onFocus={selectRateInputOnFocus}
                       placeholder="%"
                       disabled={isRetentionFieldDisabled()}
                       sx={MILESTONE_INPUT_SX}
@@ -525,8 +535,11 @@ export function VendorPOMilestoneEditor({
                       size="small"
                       fullWidth
                       type="number"
-                      value={retention.amount}
-                      onChange={(e) => updateRetention('amount', Number(e.target.value))}
+                      value={rateInputDisplay(retention.amount)}
+                      onChange={(e) =>
+                        updateRetention('amount', parseRateInput(e.target.value))
+                      }
+                      onFocus={selectRateInputOnFocus}
                       placeholder="₹ VALUE"
                       disabled={isRetentionFieldDisabled()}
                       sx={MILESTONE_INPUT_SX}
@@ -580,8 +593,11 @@ export function VendorPOMilestoneEditor({
                   size="small"
                   fullWidth
                   type="number"
-                  value={m.percentage}
-                  onChange={(e) => updateMilestone(idx, 'percentage', Number(e.target.value))}
+                  value={rateInputDisplay(m.percentage)}
+                  onChange={(e) =>
+                    updateMilestone(idx, 'percentage', parseRateInput(e.target.value))
+                  }
+                  onFocus={selectRateInputOnFocus}
                   placeholder="%"
                   disabled={rowDisabled}
                   sx={MILESTONE_INPUT_SX}
@@ -590,8 +606,11 @@ export function VendorPOMilestoneEditor({
                   size="small"
                   fullWidth
                   type="number"
-                  value={m.value}
-                  onChange={(e) => updateMilestone(idx, 'value', Number(e.target.value))}
+                  value={rateInputDisplay(m.value)}
+                  onChange={(e) =>
+                    updateMilestone(idx, 'value', parseRateInput(e.target.value))
+                  }
+                  onFocus={selectRateInputOnFocus}
                   placeholder="₹ VALUE"
                   disabled={rowDisabled}
                   sx={MILESTONE_INPUT_SX}
@@ -667,8 +686,11 @@ export function VendorPOMilestoneEditor({
             <TextField
               size="small"
               type="number"
-              value={retention.percentage}
-              onChange={(e) => updateRetention('percentage', Number(e.target.value))}
+              value={rateInputDisplay(retention.percentage)}
+              onChange={(e) =>
+                updateRetention('percentage', parseRateInput(e.target.value))
+              }
+              onFocus={selectRateInputOnFocus}
               placeholder="%"
               disabled={isRetentionFieldDisabled()}
               sx={{ '& .MuiInputBase-input': { fontSize: 11 } }}
@@ -676,8 +698,9 @@ export function VendorPOMilestoneEditor({
             <TextField
               size="small"
               type="number"
-              value={retention.amount}
-              onChange={(e) => updateRetention('amount', Number(e.target.value))}
+              value={rateInputDisplay(retention.amount)}
+              onChange={(e) => updateRetention('amount', parseRateInput(e.target.value))}
+              onFocus={selectRateInputOnFocus}
               placeholder="₹ VALUE"
               disabled={isRetentionFieldDisabled()}
               sx={{ '& .MuiInputBase-input': { fontSize: 11 } }}

@@ -16,12 +16,8 @@ import { Button, useToast } from '@/design-system/components'
 import { WorkspaceSection } from '@/components/templates'
 import { tokens } from '@/design-system/tokens'
 import type { Baseline, VendorPO } from '@/slices/baseline/reducer'
-import type { PitchVersion } from '@/slices/pitch/reducer'
 import { formatCurrency } from '@/utils/formatters'
-import {
-  buildVendorOfferRows,
-  findVendorPOForOfferRow,
-} from '@/pages/Projects/tabs/live/vendorPOHelpers'
+import { buildLiveVendorOfferRows } from '@/pages/Projects/tabs/live/vendorPOHelpers'
 import { ViewVendorPODrawer } from '@/pages/Projects/tabs/live/VendorPOBillingDrawers'
 
 const TABLE_HEADER_SX = {
@@ -139,7 +135,6 @@ function OfferRowActions({
 }
 
 export interface VendorOffersSectionProps {
-  offerVersion: PitchVersion | null
   loading?: boolean
   onAddOffer: () => void
   projectId: string
@@ -148,7 +143,6 @@ export interface VendorOffersSectionProps {
 }
 
 export function VendorOffersSection({
-  offerVersion,
   loading = false,
   onAddOffer,
   projectId,
@@ -156,17 +150,11 @@ export function VendorOffersSection({
   baseline,
 }: VendorOffersSectionProps) {
   const { showToast } = useToast()
-  const vendorRows = buildVendorOfferRows(offerVersion)
+  const vendorRows = useMemo(
+    () => buildLiveVendorOfferRows(vendorPOs, projectId, baseline),
+    [vendorPOs, projectId, baseline],
+  )
   const [viewVendorPO, setViewVendorPO] = useState<VendorPO | null>(null)
-
-  const poByOfferRowKey = useMemo(() => {
-    const map = new Map<string, VendorPO>()
-    for (const row of vendorRows) {
-      const po = findVendorPOForOfferRow(row, vendorPOs, projectId)
-      if (po) map.set(`${row.mapping.id}-${row.serviceId}`, po)
-    }
-    return map
-  }, [vendorRows, vendorPOs, projectId])
 
   return (
     <>
@@ -226,57 +214,50 @@ export function VendorOffersSection({
                         py: 3,
                       }}
                     >
-                      No vendor offers on file. Add a vendor offer or map vendors on the Pitch tab.
+                      No Live vendor offers on file. Add a vendor offer here (independent of Pitch).
                     </TableCell>
                   </TableRow>
                 ) : (
-                  vendorRows.map((row) => {
-                    const rowKey = `${row.mapping.id}-${row.serviceId}`
-                    const linkedPo = poByOfferRowKey.get(rowKey)
-
-                    return (
-                      <TableRow key={rowKey} hover>
-                        <TableCell sx={TABLE_CELL_SX}>{row.mapping.vendorName || '—'}</TableCell>
-                        <TableCell sx={TABLE_CELL_SX}>{row.categoryName}</TableCell>
-                        <TableCell sx={TABLE_CELL_SX}>{row.serviceName}</TableCell>
-                        <TableCell sx={{ ...TABLE_CELL_SX, fontWeight: 600 }}>
-                          ₹{formatCurrency(row.mapping.value)}
-                        </TableCell>
-                        <TableCell sx={{ ...TABLE_CELL_SX, color: 'text.secondary' }}>
-                          {row.mapping.notes?.trim() || '—'}
-                        </TableCell>
-                        <TableCell className="vendor-offer-action-cell" sx={ACTION_CELL_SX}>
-                          <Box
-                            sx={{
-                              display: 'flex',
-                              justifyContent: 'center',
-                              alignItems: 'center',
-                              minHeight: 32,
-                            }}
-                          >
-                            <OfferRowActions
-                              canView={Boolean(linkedPo)}
-                              onView={() => {
-                                if (linkedPo) setViewVendorPO(linkedPo)
-                              }}
-                              onDownloadTemplate1={() =>
-                                showToast({
-                                  title: 'Download template 1 (placeholder)',
-                                  variant: 'success',
-                                })
-                              }
-                              onDownloadTemplate2={() =>
-                                showToast({
-                                  title: 'Download Template 2 (placeholder)',
-                                  variant: 'success',
-                                })
-                              }
-                            />
-                          </Box>
-                        </TableCell>
-                      </TableRow>
-                    )
-                  })
+                  vendorRows.map((row) => (
+                    <TableRow key={row.key} hover>
+                      <TableCell sx={TABLE_CELL_SX}>{row.vendorName}</TableCell>
+                      <TableCell sx={TABLE_CELL_SX}>{row.categoryName}</TableCell>
+                      <TableCell sx={TABLE_CELL_SX}>{row.serviceName}</TableCell>
+                      <TableCell sx={{ ...TABLE_CELL_SX, fontWeight: 600 }}>
+                        ₹{formatCurrency(row.offerAmount)}
+                      </TableCell>
+                      <TableCell sx={{ ...TABLE_CELL_SX, color: 'text.secondary' }}>
+                        {row.notes || '—'}
+                      </TableCell>
+                      <TableCell className="vendor-offer-action-cell" sx={ACTION_CELL_SX}>
+                        <Box
+                          sx={{
+                            display: 'flex',
+                            justifyContent: 'center',
+                            alignItems: 'center',
+                            minHeight: 32,
+                          }}
+                        >
+                          <OfferRowActions
+                            canView
+                            onView={() => setViewVendorPO(row.po)}
+                            onDownloadTemplate1={() =>
+                              showToast({
+                                title: 'Download template 1 (placeholder)',
+                                variant: 'success',
+                              })
+                            }
+                            onDownloadTemplate2={() =>
+                              showToast({
+                                title: 'Download Template 2 (placeholder)',
+                                variant: 'success',
+                              })
+                            }
+                          />
+                        </Box>
+                      </TableCell>
+                    </TableRow>
+                  ))
                 )}
               </TableBody>
             </Table>

@@ -48,17 +48,17 @@ export function recalculateRoleUserCountsFromUsers(users: { role: string }[]) {
 }
 
 export const rolesHandlers = [
-  http.get('/api/roles', () => {
+  http.get('/api/v1/roles', () => {
     return HttpResponse.json(mockRoles)
   }),
 
-  http.get('/api/roles/:id', ({ params }) => {
+  http.get('/api/v1/roles/:id', ({ params }) => {
     const role = mockRoles.find((r) => r.id === params.id)
     if (!role) return HttpResponse.json({ message: 'Role not found' }, { status: 404 })
     return HttpResponse.json(role)
   }),
 
-  http.post('/api/roles', async ({ request }) => {
+  http.post('/api/v1/roles', async ({ request }) => {
     const data = (await request.json()) as Pick<Role, 'name' | 'level' | 'description'>
     const newRole: Role = {
       id: `r-${String(roleIdCounter++).padStart(3, '0')}`,
@@ -72,7 +72,7 @@ export const rolesHandlers = [
     return HttpResponse.json(newRole, { status: 201 })
   }),
 
-  http.put('/api/roles/:id', async ({ params, request }) => {
+  http.put('/api/v1/roles/:id', async ({ params, request }) => {
     const idx = mockRoles.findIndex((r) => r.id === params.id)
     if (idx === -1) return HttpResponse.json({ message: 'Role not found' }, { status: 404 })
     const data = (await request.json()) as Partial<Pick<Role, 'name' | 'level' | 'description'>>
@@ -80,7 +80,7 @@ export const rolesHandlers = [
     return HttpResponse.json(mockRoles[idx])
   }),
 
-  http.delete('/api/roles/:id', ({ params }) => {
+  http.delete('/api/v1/roles/:id', ({ params }) => {
     const role = mockRoles.find((r) => r.id === params.id)
     if (!role) return HttpResponse.json({ message: 'Role not found' }, { status: 404 })
     if (role.userCount > 0) {

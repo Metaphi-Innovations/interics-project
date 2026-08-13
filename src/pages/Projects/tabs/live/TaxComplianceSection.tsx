@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useState } from 'react'
 import {
   Box,
   Stack,
@@ -9,23 +9,15 @@ import {
   TableBody,
   TableRow,
   TableCell,
+  IconButton,
+  TextField,
 } from '@mui/material'
+import { Edit as EditIcon } from '@mui/icons-material'
 import { WorkspaceSection } from '../../../../components/templates'
 import { tokens } from '@/design-system/tokens'
-import { useAppSelector } from '../../../../store/hooks'
-import type { VendorPayment } from '../../../../slices/live/reducer'
+import { Button } from '@/design-system/components'
+import { liveApi } from '@/api/liveApi'
 import { formatInr, formatDate } from '../../../../utils/formatters'
-import {
-  effectiveGstPercent,
-  effectiveLabourCessPercent,
-  invoiceLabourCessAmount,
-} from '@/pages/Projects/tabs/live/clientInvoiceUtils'
-
-function vendorTdsRatePercent(p: VendorPayment): string {
-  if (p.invoiceTotal <= 0) return '—'
-  const pct = (100 * p.tdsDeducted) / p.invoiceTotal
-  return `${Math.round(pct * 10) / 10}%`
-}
 
 const TABLE_HEADER_SX = {
   fontSize: 10,
@@ -45,48 +37,167 @@ const TABLE_CELL_SX = {
   px: 2,
 }
 
+const SUMMARY_CARD_SX = {
+  p: 2,
+  border: `1px solid ${tokens.color.neutral[100]}`,
+  borderRadius: 2,
+  bgcolor: 'background.paper',
+} as const
+
+type TaxComplianceData = NonNullable<Awaited<ReturnType<typeof liveApi.getTaxCompliance>>>
+
 export interface TaxComplianceSectionProps {
   projectId: string
   clientName: string
 }
 
-export function TaxComplianceSection({ projectId, clientName }: TaxComplianceSectionProps) {
-  const { invoices, payments } = useAppSelector((s) => s.live)
+function LabourCessPayableCard({
+  projectId,
+  value,
+  onSaved,
+}: {
+  projectId: string
+  value: number
+  onSaved: (next: number) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(String(value))
+  const [saving, setSaving] = useState(false)
 
-  const projectInvoices = useMemo(
-    () => invoices.filter((i) => i.projectId === projectId),
-    [invoices, projectId],
-  )
+  useEffect(() => {
+    if (!editing) setDraft(String(value))
+  }, [value, editing])
 
-  const projectPayments = useMemo(
-    () => payments.filter((p) => p.projectId === projectId),
-    [payments, projectId],
-  )
+  async function handleSave() {
+    const amount = Number(draft)
+    if (!Number.isFinite(amount) || amount < 0) return
+    setSaving(true)
+    try {
+      const summary = await liveApi.updateLabourCessPayable(projectId, amount)
+      onSaved(summary.labourCessPayable)
+      setEditing(false)
+    } catch {
+      // keep edit mode open on failure
+    } finally {
+      setSaving(false)
+    }
+  }
 
-  const gstCollected = useMemo(
-    () => projectInvoices.reduce((s, i) => s + i.gstAmount, 0),
-    [projectInvoices],
+  return (
+    <Box sx={SUMMARY_CARD_SX}>
+      <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1 }}>
+        <Typography
+          variant="overline"
+          sx={{ fontSize: 10, color: 'text.secondary', display: 'block', letterSpacing: 0.6 }}
+        >
+          LABOUR CESS PAYABLE
+        </Typography>
+        {!editing ? (
+          <IconButton
+            size="small"
+            aria-label="Edit labour cess payable"
+            onClick={() => setEditing(true)}
+            sx={{ mt: -0.5, mr: -0.5, color: 'text.secondary' }}
+          >
+            <EditIcon sx={{ fontSize: 16 }} />
+          </IconButton>
+        ) : null}
+      </Box>
+      {editing ? (
+        <Stack gap={1.5} sx={{ mt: 1 }}>
+          <TextField
+            size="small"
+            type="number"
+            inputProps={{ min: 0, step: 0.01 }}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            autoFocus
+            sx={{ '& .MuiInputBase-input': { fontSize: 13 } }}
+          />
+          <Stack direction="row" gap={1}>
+            <Button
+              size="sm"
+              variant="contained"
+              color="primary"
+              label={saving ? 'Saving…' : 'Save'}
+              disabled={saving}
+              onClick={() => void handleSave()}
+            />
+            <Button
+              size="sm"
+              variant="outlined"
+              color="primary"
+              label="Cancel"
+              disabled={saving}
+              onClick={() => {
+                setDraft(String(value))
+                setEditing(false)
+              }}
+            />
+          </Stack>
+        </Stack>
+      ) : (
+        <Typography
+          variant="h6"
+          sx={{
+            fontWeight: 700,
+            fontSize: 15,
+            mt: 0.5,
+            color: 'text.primary',
+          }}
+        >
+          ₹{formatInr(value)}
+        </Typography>
+      )}
+    </Box>
   )
-  const labourCessCollected = useMemo(
-    () => projectInvoices.reduce((s, i) => s + invoiceLabourCessAmount(i), 0),
-    [projectInvoices],
-  )
-  const labourCessPayable = labourCessCollected
-  const clientTds = useMemo(
-    () => projectInvoices.reduce((s, i) => s + i.tdsAmount, 0),
-    [projectInvoices],
-  )
-  const vendorTds = useMemo(
-    () => projectPayments.reduce((s, p) => s + p.tdsDeducted, 0),
-    [projectPayments],
-  )
+}
 
-  const totalGstInTable = gstCollected
-  const totalLabourCessInTable = labourCessCollected
-  const totalClientTdsInTable = clientTds
-  const totalVendorTdsInTable = vendorTds
+export function TaxComplianceSection({ projectId }: TaxComplianceSectionProps) {
+  const [data, setData] = useState<TaxComplianceData | null>(null)
+  const [loading, setLoading] = useState(true)
 
-  if (projectInvoices.length === 0) {
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    void (async () => {
+      try {
+        const result = await liveApi.getTaxCompliance(projectId)
+        if (cancelled) return
+        setData(result)
+      } catch {
+        if (cancelled) return
+        setData(null)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [projectId])
+
+  const gstRows = data?.details.gstOnClientInvoices ?? []
+  const labourRows = data?.details.labourCessOnClientInvoices ?? []
+  const clientTdsRows = data?.details.tdsDeductedByClient ?? []
+  const vendorTdsRows = data?.details.tdsDeductedOnVendors ?? []
+
+  const totalGstInTable = data?.totals.gstTotal ?? 0
+  const totalLabourCessInTable = data?.totals.labourCessTotal ?? 0
+  const totalClientTdsInTable = data?.totals.clientTdsTotal ?? 0
+  const totalVendorTdsInTable = data?.totals.vendorTdsTotal ?? 0
+
+  if (loading) {
+    return (
+      <Box sx={{ py: 6, px: 2, textAlign: 'center' }}>
+        <Typography variant="body2" color="text.secondary">
+          Loading compliance data…
+        </Typography>
+      </Box>
+    )
+  }
+
+  if (!data || gstRows.length === 0) {
     return (
       <Box sx={{ py: 6, px: 2, textAlign: 'center' }}>
         <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 480, mx: 'auto' }}>
@@ -96,16 +207,13 @@ export function TaxComplianceSection({ projectId, clientName }: TaxComplianceSec
     )
   }
 
-  type SummaryCard = {
-    key: string
-    overline: string
-    value: number
-  }
-
-  const summaryCards: SummaryCard[] = [
-    { key: 'gst-collected', overline: 'GST COLLECTED', value: gstCollected },
-    { key: 'labour-cess-collected', overline: 'LABOUR CESS COLLECTED', value: labourCessCollected },
-    { key: 'labour-cess-payable', overline: 'LABOUR CESS PAYABLE', value: labourCessPayable },
+  const readOnlySummaryCards = [
+    { key: 'gst-collected', overline: 'GST COLLECTED', value: data.summary.gstCollected },
+    {
+      key: 'labour-cess-collected',
+      overline: 'LABOUR CESS COLLECTED',
+      value: data.summary.labourCessCollected,
+    },
   ]
 
   return (
@@ -120,16 +228,8 @@ export function TaxComplianceSection({ projectId, clientName }: TaxComplianceSec
           gap: 2,
         }}
       >
-        {summaryCards.map((m) => (
-          <Box
-            key={m.key}
-            sx={{
-              p: 2,
-              border: `1px solid ${tokens.color.neutral[100]}`,
-              borderRadius: 2,
-              bgcolor: 'background.paper',
-            }}
-          >
+        {readOnlySummaryCards.map((m) => (
+          <Box key={m.key} sx={SUMMARY_CARD_SX}>
             <Typography
               variant="overline"
               sx={{ fontSize: 10, color: 'text.secondary', display: 'block', letterSpacing: 0.6 }}
@@ -149,6 +249,15 @@ export function TaxComplianceSection({ projectId, clientName }: TaxComplianceSec
             </Typography>
           </Box>
         ))}
+        <LabourCessPayableCard
+          projectId={projectId}
+          value={data.summary.labourCessPayable}
+          onSaved={(labourCessPayable) =>
+            setData((prev) =>
+              prev ? { ...prev, summary: { ...prev.summary, labourCessPayable } } : prev,
+            )
+          }
+        />
       </Box>
 
       <WorkspaceSection title="GST on Client Invoices" noPadding>
@@ -164,42 +273,42 @@ export function TaxComplianceSection({ projectId, clientName }: TaxComplianceSec
             </TableRow>
           </TableHead>
           <TableBody>
-            {projectInvoices.map((inv) => (
-                <TableRow key={inv.id} hover>
-                  <TableCell sx={TABLE_CELL_SX}>
-                    <Typography variant="body2" sx={{ fontSize: 12 }}>
-                      {inv.invoiceNumber}
-                    </Typography>
-                  </TableCell>
-                  <TableCell sx={TABLE_CELL_SX}>
-                    <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600 }}>
-                      {inv.milestoneName}
-                    </Typography>
-                    <Typography variant="caption" sx={{ fontSize: 10, color: 'text.secondary' }}>
-                      {inv.serviceName}
-                    </Typography>
-                  </TableCell>
-                  <TableCell sx={TABLE_CELL_SX}>
-                    <Typography variant="body2" sx={{ fontSize: 12 }}>
-                      {formatDate(inv.invoiceDate)}
-                    </Typography>
-                  </TableCell>
-                  <TableCell sx={TABLE_CELL_SX}>
-                    <Typography variant="body2" sx={{ fontSize: 12 }}>
-                      ₹{formatInr(inv.baseAmount)}
-                    </Typography>
-                  </TableCell>
-                  <TableCell sx={TABLE_CELL_SX}>
-                    <Typography variant="body2" sx={{ fontSize: 12 }}>
-                      {effectiveGstPercent(inv)}
-                    </Typography>
-                  </TableCell>
-                  <TableCell sx={TABLE_CELL_SX}>
-                    <Typography variant="body2" sx={{ fontSize: 12 }}>
-                      ₹{formatInr(inv.gstAmount)}
-                    </Typography>
-                  </TableCell>
-                </TableRow>
+            {gstRows.map((inv) => (
+              <TableRow key={inv.id} hover>
+                <TableCell sx={TABLE_CELL_SX}>
+                  <Typography variant="body2" sx={{ fontSize: 12 }}>
+                    {inv.invoiceNumber}
+                  </Typography>
+                </TableCell>
+                <TableCell sx={TABLE_CELL_SX}>
+                  <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600 }}>
+                    {inv.milestoneName}
+                  </Typography>
+                  <Typography variant="caption" sx={{ fontSize: 10, color: 'text.secondary' }}>
+                    {inv.serviceName}
+                  </Typography>
+                </TableCell>
+                <TableCell sx={TABLE_CELL_SX}>
+                  <Typography variant="body2" sx={{ fontSize: 12 }}>
+                    {formatDate(inv.invoiceDate)}
+                  </Typography>
+                </TableCell>
+                <TableCell sx={TABLE_CELL_SX}>
+                  <Typography variant="body2" sx={{ fontSize: 12 }}>
+                    ₹{formatInr(inv.baseAmount)}
+                  </Typography>
+                </TableCell>
+                <TableCell sx={TABLE_CELL_SX}>
+                  <Typography variant="body2" sx={{ fontSize: 12 }}>
+                    {inv.gstRateLabel}
+                  </Typography>
+                </TableCell>
+                <TableCell sx={TABLE_CELL_SX}>
+                  <Typography variant="body2" sx={{ fontSize: 12 }}>
+                    ₹{formatInr(inv.gstAmount)}
+                  </Typography>
+                </TableCell>
+              </TableRow>
             ))}
             <TableRow>
               <TableCell colSpan={5} sx={{ ...TABLE_CELL_SX, fontWeight: 700, borderBottom: 'none' }}>
@@ -226,46 +335,43 @@ export function TaxComplianceSection({ projectId, clientName }: TaxComplianceSec
             </TableRow>
           </TableHead>
           <TableBody>
-            {projectInvoices.map((inv) => {
-              const labourCessAmount = invoiceLabourCessAmount(inv)
-              return (
-                <TableRow key={`labour-${inv.id}`} hover>
-                  <TableCell sx={TABLE_CELL_SX}>
-                    <Typography variant="body2" sx={{ fontSize: 12 }}>
-                      {inv.invoiceNumber}
-                    </Typography>
-                  </TableCell>
-                  <TableCell sx={TABLE_CELL_SX}>
-                    <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600 }}>
-                      {inv.milestoneName}
-                    </Typography>
-                    <Typography variant="caption" sx={{ fontSize: 10, color: 'text.secondary' }}>
-                      {inv.serviceName}
-                    </Typography>
-                  </TableCell>
-                  <TableCell sx={TABLE_CELL_SX}>
-                    <Typography variant="body2" sx={{ fontSize: 12 }}>
-                      {formatDate(inv.invoiceDate)}
-                    </Typography>
-                  </TableCell>
-                  <TableCell sx={TABLE_CELL_SX}>
-                    <Typography variant="body2" sx={{ fontSize: 12 }}>
-                      ₹{formatInr(inv.baseAmount)}
-                    </Typography>
-                  </TableCell>
-                  <TableCell sx={TABLE_CELL_SX}>
-                    <Typography variant="body2" sx={{ fontSize: 12 }}>
-                      {effectiveLabourCessPercent(inv)}
-                    </Typography>
-                  </TableCell>
-                  <TableCell sx={TABLE_CELL_SX}>
-                    <Typography variant="body2" sx={{ fontSize: 12 }}>
-                      ₹{formatInr(labourCessAmount)}
-                    </Typography>
-                  </TableCell>
-                </TableRow>
-              )
-            })}
+            {labourRows.map((inv) => (
+              <TableRow key={`labour-${inv.id}`} hover>
+                <TableCell sx={TABLE_CELL_SX}>
+                  <Typography variant="body2" sx={{ fontSize: 12 }}>
+                    {inv.invoiceNumber}
+                  </Typography>
+                </TableCell>
+                <TableCell sx={TABLE_CELL_SX}>
+                  <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600 }}>
+                    {inv.milestoneName}
+                  </Typography>
+                  <Typography variant="caption" sx={{ fontSize: 10, color: 'text.secondary' }}>
+                    {inv.serviceName}
+                  </Typography>
+                </TableCell>
+                <TableCell sx={TABLE_CELL_SX}>
+                  <Typography variant="body2" sx={{ fontSize: 12 }}>
+                    {formatDate(inv.invoiceDate)}
+                  </Typography>
+                </TableCell>
+                <TableCell sx={TABLE_CELL_SX}>
+                  <Typography variant="body2" sx={{ fontSize: 12 }}>
+                    ₹{formatInr(inv.baseAmount)}
+                  </Typography>
+                </TableCell>
+                <TableCell sx={TABLE_CELL_SX}>
+                  <Typography variant="body2" sx={{ fontSize: 12 }}>
+                    {inv.labourCessRateLabel}
+                  </Typography>
+                </TableCell>
+                <TableCell sx={TABLE_CELL_SX}>
+                  <Typography variant="body2" sx={{ fontSize: 12 }}>
+                    ₹{formatInr(inv.labourCessAmount)}
+                  </Typography>
+                </TableCell>
+              </TableRow>
+            ))}
             <TableRow>
               <TableCell colSpan={5} sx={{ ...TABLE_CELL_SX, fontWeight: 700, borderBottom: 'none' }}>
                 Total Labour Cess
@@ -293,39 +399,39 @@ export function TaxComplianceSection({ projectId, clientName }: TaxComplianceSec
                 </TableRow>
               </TableHead>
               <TableBody>
-                {projectInvoices.map((inv) => (
-                    <TableRow key={`tds-${inv.id}`} hover>
-                      <TableCell sx={TABLE_CELL_SX}>
-                        <Typography variant="body2" sx={{ fontSize: 12 }}>
-                          {inv.invoiceNumber}
-                        </Typography>
-                      </TableCell>
-                      <TableCell sx={TABLE_CELL_SX}>
-                        <Typography variant="body2" sx={{ fontSize: 12 }}>
-                          {clientName}
-                        </Typography>
-                      </TableCell>
-                      <TableCell sx={TABLE_CELL_SX}>
-                        <Typography variant="body2" sx={{ fontSize: 12 }}>
-                          {formatDate(inv.invoiceDate)}
-                        </Typography>
-                      </TableCell>
-                      <TableCell sx={TABLE_CELL_SX}>
-                        <Typography variant="body2" sx={{ fontSize: 12 }}>
-                          ₹{formatInr(inv.grossAmount)}
-                        </Typography>
-                      </TableCell>
-                      <TableCell sx={TABLE_CELL_SX}>
-                        <Typography variant="body2" sx={{ fontSize: 12 }} color="text.secondary">
-                          At payment
-                        </Typography>
-                      </TableCell>
-                      <TableCell sx={TABLE_CELL_SX}>
-                        <Typography variant="body2" sx={{ fontSize: 12 }}>
-                          ₹{formatInr(inv.tdsAmount)}
-                        </Typography>
-                      </TableCell>
-                    </TableRow>
+                {clientTdsRows.map((inv) => (
+                  <TableRow key={`tds-${inv.id}`} hover>
+                    <TableCell sx={TABLE_CELL_SX}>
+                      <Typography variant="body2" sx={{ fontSize: 12 }}>
+                        {inv.invoiceNumber}
+                      </Typography>
+                    </TableCell>
+                    <TableCell sx={TABLE_CELL_SX}>
+                      <Typography variant="body2" sx={{ fontSize: 12 }}>
+                        {inv.clientName}
+                      </Typography>
+                    </TableCell>
+                    <TableCell sx={TABLE_CELL_SX}>
+                      <Typography variant="body2" sx={{ fontSize: 12 }}>
+                        {formatDate(inv.invoiceDate)}
+                      </Typography>
+                    </TableCell>
+                    <TableCell sx={TABLE_CELL_SX}>
+                      <Typography variant="body2" sx={{ fontSize: 12 }}>
+                        ₹{formatInr(inv.grossAmount)}
+                      </Typography>
+                    </TableCell>
+                    <TableCell sx={TABLE_CELL_SX}>
+                      <Typography variant="body2" sx={{ fontSize: 12 }} color="text.secondary">
+                        {inv.tdsRateLabel}
+                      </Typography>
+                    </TableCell>
+                    <TableCell sx={TABLE_CELL_SX}>
+                      <Typography variant="body2" sx={{ fontSize: 12 }}>
+                        ₹{formatInr(inv.tdsAmount)}
+                      </Typography>
+                    </TableCell>
+                  </TableRow>
                 ))}
                 <TableRow>
                   <TableCell colSpan={5} sx={{ ...TABLE_CELL_SX, fontWeight: 700, borderBottom: 'none' }}>
@@ -354,7 +460,7 @@ export function TaxComplianceSection({ projectId, clientName }: TaxComplianceSec
                 </TableRow>
               </TableHead>
               <TableBody>
-                {projectPayments.length === 0 ? (
+                {vendorTdsRows.length === 0 ? (
                   <TableRow>
                     <TableCell
                       colSpan={6}
@@ -364,7 +470,7 @@ export function TaxComplianceSection({ projectId, clientName }: TaxComplianceSec
                     </TableCell>
                   </TableRow>
                 ) : (
-                  projectPayments.map((p) => (
+                  vendorTdsRows.map((p) => (
                     <TableRow key={p.id} hover>
                       <TableCell sx={TABLE_CELL_SX}>
                         <Typography variant="body2" sx={{ fontSize: 12 }}>
@@ -388,18 +494,18 @@ export function TaxComplianceSection({ projectId, clientName }: TaxComplianceSec
                       </TableCell>
                       <TableCell sx={TABLE_CELL_SX}>
                         <Typography variant="body2" sx={{ fontSize: 12 }}>
-                          {vendorTdsRatePercent(p)}
+                          {p.tdsRateLabel}
                         </Typography>
                       </TableCell>
                       <TableCell sx={TABLE_CELL_SX}>
                         <Typography variant="body2" sx={{ fontSize: 12 }}>
-                          ₹{formatInr(p.tdsDeducted)}
+                          ₹{formatInr(p.tdsAmount)}
                         </Typography>
                       </TableCell>
                     </TableRow>
                   ))
                 )}
-                {projectPayments.length > 0 && (
+                {vendorTdsRows.length > 0 && (
                   <TableRow>
                     <TableCell colSpan={4} sx={{ ...TABLE_CELL_SX, fontWeight: 700, borderBottom: 'none' }}>
                       Total

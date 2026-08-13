@@ -22,6 +22,7 @@ import {
 } from './VendorPOMilestoneEditor'
 import type { MilestonePaymentStatusLabel } from './milestonePaymentStatus'
 import type { VendorPOMilestone } from '@/slices/baseline/reducer'
+import { parseRateInput, rateInputDisplay, selectRateInputOnFocus } from './rateInput'
 
 export interface CategoryOption {
   id: string
@@ -437,8 +438,9 @@ function ValueRowCardEditor({
               size="small"
               fullWidth
               type="number"
-              value={card.percentage}
-              onChange={(e) => updateField('percentage', Number(e.target.value))}
+              value={rateInputDisplay(card.percentage)}
+              onChange={(e) => updateField('percentage', parseRateInput(e.target.value))}
+              onFocus={selectRateInputOnFocus}
               placeholder="%"
               sx={{ '& .MuiInputBase-input': { fontSize: 11 }, '& .MuiInputBase-root': { width: '100%' } }}
             />
@@ -446,8 +448,9 @@ function ValueRowCardEditor({
               size="small"
               fullWidth
               type="number"
-              value={card.value}
-              onChange={(e) => updateField('value', Number(e.target.value))}
+              value={rateInputDisplay(card.value)}
+              onChange={(e) => updateField('value', parseRateInput(e.target.value))}
+              onFocus={selectRateInputOnFocus}
               placeholder="₹ VALUE"
               sx={{ '& .MuiInputBase-input': { fontSize: 11 }, '& .MuiInputBase-root': { width: '100%' } }}
             />

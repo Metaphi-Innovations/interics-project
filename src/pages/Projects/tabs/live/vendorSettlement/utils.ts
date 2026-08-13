@@ -71,10 +71,11 @@ export function globalVendorContextKey(projectId: string, row: VendorServiceRow)
 
 export function baselineVendorServiceRows(baseline: Baseline | null): VendorServiceRow[] {
   if (!baseline) return []
+  const categories = Array.isArray(baseline.categories) ? baseline.categories : []
   const rows: VendorServiceRow[] = []
-  for (const cat of baseline.categories) {
-    for (const svc of cat.services) {
-      for (const m of svc.vendorMappings) {
+  for (const cat of categories) {
+    for (const svc of cat.services ?? []) {
+      for (const m of svc.vendorMappings ?? []) {
         rows.push({
           vendorId: m.vendorId,
           vendorName: m.vendorName,
@@ -96,8 +97,9 @@ export function invoiceMatchesRow(inv: VendorInvoice, row: VendorServiceRow): bo
 
 export function findPitchService(baseline: Baseline | null, serviceId: string): PitchService | undefined {
   if (!baseline) return undefined
-  for (const cat of baseline.categories) {
-    const s = cat.services.find((svc) => svc.id === serviceId)
+  const categories = Array.isArray(baseline.categories) ? baseline.categories : []
+  for (const cat of categories) {
+    const s = (cat.services ?? []).find((svc) => svc.id === serviceId)
     if (s) return s
   }
   return undefined

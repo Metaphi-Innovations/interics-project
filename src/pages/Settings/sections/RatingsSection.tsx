@@ -3,6 +3,7 @@ import {
   Box, Typography, TextField, MenuItem,
   Table, TableHead, TableRow, TableCell, TableBody, TableContainer,
   IconButton, Chip,
+  Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions,
 } from '@mui/material'
 import { Edit, ToggleOff, ToggleOn } from '@mui/icons-material'
 import { Plus } from 'lucide-react'
@@ -22,6 +23,13 @@ import {
   SETTINGS_TABLE_SX,
   settingsDataColWidth,
 } from '../components/settingsTableStyles'
+import {
+  requiredAlphabeticName,
+  collectErrors,
+  hasErrors,
+  firstErrorMessage,
+} from '@/modules/system-settings/shared/settings-validation'
+import { parseSettingsApiError, clearFieldError } from '@/modules/system-settings/shared/api-errors'
 
 const DATA_COL_COUNT = 2
 const dataColWidth = settingsDataColWidth(DATA_COL_COUNT)
@@ -36,33 +44,44 @@ export default function RatingsSection() {
   const error = useToast((s) => s.error)
   const { ratings, saving } = useAppSelector(s => s.settings)
   const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [editingRow, setEditingRow] = useState<RatingMaster | null>(null)
   const [form, setForm] = useState<RatingForm>(defaultForm)
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
+  const [toggleTarget, setToggleTarget] = useState<RatingMaster | null>(null)
+  const [toggling, setToggling] = useState(false)
 
   useEffect(() => {
-    dispatch(fetchRatings())
-  }, [dispatch])
+    const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 300)
+    return () => window.clearTimeout(timer)
+  }, [search])
 
-  const filtered = ratings.filter(s =>
-    s.name.toLowerCase().includes(search.toLowerCase())
-  )
+  useEffect(() => {
+    dispatch(fetchRatings({ search: debouncedSearch || undefined, force: true }))
+  }, [dispatch, debouncedSearch])
 
   const openAdd = () => {
     setEditingRow(null)
     setForm(defaultForm)
+    setFieldErrors({})
     setDrawerOpen(true)
   }
 
   const openEdit = (row: RatingMaster) => {
     setEditingRow(row)
     setForm({ name: row.name, status: row.status })
+    setFieldErrors({})
     setDrawerOpen(true)
   }
 
   const handleSave = () => {
-    if (!form.name.trim()) {
-      error('Rating name is required')
+    const next = collectErrors([
+      ['name', requiredAlphabeticName(form.name, 'Rating Name', 100)],
+    ])
+    setFieldErrors(next)
+    if (hasErrors(next)) {
+      error(firstErrorMessage(next, 'Please fix the highlighted fields'))
       return
     }
     const action = editingRow
@@ -73,8 +92,33 @@ export default function RatingsSection() {
         setDrawerOpen(false)
         success(editingRow ? 'Rating updated' : 'Rating added')
       })
-      .catch(() => error('Failed to save rating'))
+      .catch((err) => {
+        const parsed = parseSettingsApiError(err, 'Failed to save rating')
+        if (Object.keys(parsed.fieldErrors).length) setFieldErrors(parsed.fieldErrors)
+        error(parsed.message)
+      })
   }
+
+  const confirmToggle = async () => {
+    if (!toggleTarget) return
+    setToggling(true)
+    try {
+      await dispatch(toggleRatingStatus(toggleTarget.id)).unwrap()
+      success(
+        toggleTarget.status === 'active'
+          ? 'Rating deactivated'
+          : 'Rating activated',
+      )
+      setToggleTarget(null)
+    } catch (err) {
+      const parsed = parseSettingsApiError(err, 'Failed to update status')
+      error(parsed.message)
+    } finally {
+      setToggling(false)
+    }
+  }
+
+  const toggleNextActive = toggleTarget?.status !== 'active'
 
   const chipMode = theme.palette.mode === 'dark' ? 'dark' : 'light'
 
@@ -115,7 +159,7 @@ export default function RatingsSection() {
             </TableRow>
           </TableHead>
           <TableBody>
-            {filtered.map(row => {
+            {ratings.map(row => {
               const colors = getRatingMasterChipColors(row.name, chipMode)
               return (
                 <TableRow key={row.id} sx={{ height: 44 }}>
@@ -142,10 +186,10 @@ export default function RatingsSection() {
                     <IconButton size="small" onClick={() => openEdit(row)}>
                       <Edit sx={{ fontSize: 14 }} />
                     </IconButton>
-                    <IconButton size="small" onClick={() => dispatch(toggleRatingStatus(row.id))}>
+                    <IconButton size="small" onClick={() => setToggleTarget(row)}>
                       {row.status === 'active'
-                        ? <ToggleOff sx={{ fontSize: 14, color: 'warning.main' }} />
-                        : <ToggleOn sx={{ fontSize: 14, color: 'success.main' }} />}
+                        ? <ToggleOn sx={{ fontSize: 14, color: 'success.main' }} />
+                        : <ToggleOff sx={{ fontSize: 14, color: 'error.main' }} />}
                     </IconButton>
                   </TableCell>
                 </TableRow>
@@ -179,7 +223,12 @@ export default function RatingsSection() {
             fullWidth
             placeholder="e.g. Premium"
             value={form.name}
-            onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+            onChange={e => {
+              setForm(f => ({ ...f, name: e.target.value }))
+              setFieldErrors(errors => clearFieldError(errors, 'name'))
+            }}
+            error={!!fieldErrors.name}
+            helperText={fieldErrors.name}
           />
           <TextField
             select
@@ -194,6 +243,25 @@ export default function RatingsSection() {
           </TextField>
         </Box>
       </Modal>
+
+      <Dialog open={!!toggleTarget} onClose={() => !toggling && setToggleTarget(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>{toggleNextActive ? 'Activate' : 'Deactivate'}?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            {toggleNextActive
+              ? `Activate "${toggleTarget?.name}"?`
+              : `Deactivate "${toggleTarget?.name}"? It will no longer be available for new records.`}
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button size="sm" variant="outlined" color="secondary" onClick={() => setToggleTarget(null)} disabled={toggling}>
+            Cancel
+          </Button>
+          <Button size="sm" variant="contained" color="primary" onClick={() => void confirmToggle()} disabled={toggling}>
+            {toggling ? 'Updating...' : 'Confirm'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   )
 }

@@ -3,6 +3,8 @@ import { Box, Stack, FormControlLabel, Switch } from '@mui/material'
 import { DrawerForm, FormSection, FormField } from '../templates'
 import { Input } from '@/design-system/components'
 import type { Contact } from '../../slices/customers/reducer'
+import { requiredPhone } from '@/modules/system-settings/shared/settings-validation'
+import { extractIndianMobileDigits, sanitizeMobileInput } from '@/utils/mobile'
 
 interface ContactDrawerProps {
   open: boolean
@@ -37,7 +39,8 @@ const empty: FormState = {
 function validate(form: FormState): FormErrors {
   const errors: FormErrors = {}
   if (!form.name.trim()) errors.name = 'Full name is required'
-  if (!form.phone.trim()) errors.phone = 'Phone number is required'
+  const phoneError = requiredPhone(form.phone)
+  if (phoneError) errors.phone = phoneError
   if (!form.email.trim()) {
     errors.email = 'Email is required'
   } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
@@ -56,7 +59,7 @@ export function ContactDrawer({ open, onClose, mode, contact, onSave }: ContactD
         setForm({
           name: contact.name,
           designation: contact.designation,
-          phone: contact.phone,
+          phone: extractIndianMobileDigits(contact.phone),
           email: contact.email,
           isPrimary: contact.isPrimary,
         })
@@ -123,11 +126,16 @@ export function ContactDrawer({ open, onClose, mode, contact, onSave }: ContactD
           />
         </FormField>
 
-        <FormField label="Phone" required error={errors.phone}>
+        <FormField
+          label="Phone"
+          required
+          error={errors.phone}
+          hint="10-digit mobile starting with 6–9"
+        >
           <Input
-            placeholder="+91 9876543210"
+            placeholder="9876543210"
             value={form.phone}
-            onChange={(v) => set('phone', v)}
+            onChange={(v) => set('phone', sanitizeMobileInput(v))}
             error={!!errors.phone}
             size="sm"
           />

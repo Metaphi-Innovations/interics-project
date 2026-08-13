@@ -178,6 +178,10 @@ const projectsSlice = createSlice({
     setPage(state, action: PayloadAction<number>) {
       state.pagination.page = action.payload
     },
+    setPageSize(state, action: PayloadAction<number>) {
+      state.pagination.pageSize = action.payload
+      state.pagination.page = 1
+    },
     setSortConfig(state, action: PayloadAction<SortConfig>) {
       state.sortConfig = action.payload
     },
@@ -243,5 +247,5 @@ const projectsSlice = createSlice({
   },
 })
 
-export const { setFilters, resetFilters, setPage, setSortConfig, clearSelected, reset } = projectsSlice.actions
+export const { setFilters, resetFilters, setPage, setPageSize, setSortConfig, clearSelected, reset } = projectsSlice.actions
 export default projectsSlice.reducer

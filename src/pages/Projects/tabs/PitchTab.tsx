@@ -67,7 +67,10 @@ import { selectPitchFinancials } from '../../../store/selectors/pitchSelectors'
 import { formatCurrency } from '../../../utils/formatters'
 import type { Project } from '../../../slices/projects/reducer'
 import { registerVendorQuotationUpload } from '../projectDocumentUploads'
+import { pitchService } from '@/modules/projects/pitch.service'
+import { parseSettingsApiError } from '@/modules/system-settings/shared/api-errors'
 import { deleteExpense, fetchExpenses } from '@/slices/live/thunk'
+import { ProjectTabSkeleton } from '../components/ProjectTabSkeleton'
 const SECTION_NAMES = ['Design & Diligence', 'Build Services', 'Consultancy'] as const
 const CLIENT_OFFER_DRAFT_SERVICE_ID = '__client-offer-draft-service__'
 const FINANCIAL_SIDEBAR_WIDTH = 280
@@ -192,6 +195,7 @@ export default function PitchTab({ project }: { project: Project }) {
   const [selectedMasterCategoryId, setSelectedMasterCategoryId] = useState('')
   const [expandedClientOffer, setExpandedClientOffer] = useState<Record<string, boolean>>({})
   const ensuringServiceRef = useRef<Set<string>>(new Set())
+  const creatingVersionRef = useRef(false)
 
   useEffect(() => {
     void dispatch(fetchVersions(project.id))
@@ -201,10 +205,27 @@ export default function PitchTab({ project }: { project: Project }) {
   }, [dispatch, project.id])
 
   useEffect(() => {
-    if (!loading && versions.length === 0) {
-      void dispatch(createVersion({ projectId: project.id, data: { label: 'Version 1' } }))
-    }
+    if (loading || versions.length > 0 || creatingVersionRef.current) return
+    creatingVersionRef.current = true
+    void dispatch(createVersion({ projectId: project.id, data: { label: 'Version 1' } }))
+      .unwrap()
+      .catch(() => dispatch(fetchVersions(project.id)))
+      .finally(() => {
+        creatingVersionRef.current = false
+      })
   }, [dispatch, loading, project.id, versions.length])
+
+  // Keep DB `isActive` aligned with the version the UI prefers (has categories/vendors/expenses).
+  useEffect(() => {
+    if (!activeVersion || activeVersion.isActive) return
+    void dispatch(
+      updateVersion({
+        projectId: project.id,
+        versionId: activeVersion.id,
+        data: { isActive: true },
+      }),
+    )
+  }, [activeVersion?.id, activeVersion?.isActive, dispatch, project.id])
 
   const versionForSidebar = activeVersion ?? ZERO_PITCH_VERSION
   const finVersionId = versionForSidebar.id === '__none__' ? null : versionForSidebar.id
@@ -533,6 +554,7 @@ export default function PitchTab({ project }: { project: Project }) {
     vendorName: string,
     serviceName: string,
     notes?: string,
+    viewUrl?: string,
   ): void {
     registerVendorQuotationUpload({
       projectId: project.id,
@@ -542,8 +564,8 @@ export default function PitchTab({ project }: { project: Project }) {
       notes,
       uploadedBy: authUser?.name ?? 'Unknown',
       uploadedByUserId: authUser?.id ?? 'unknown',
+      ...(viewUrl ? { viewUrl } : {}),
     })
-    showToast({ title: 'Quotation added to Documents', variant: 'success' })
   }
 
   const getClientOfferServiceOptions = useCallback(
@@ -651,6 +673,35 @@ export default function PitchTab({ project }: { project: Project }) {
 
     const notesValue = draft.notesTags.trim() || undefined
 
+    const uploadedByRowId = new Map<
+      string,
+      { fileId: string; fileName: string; fileUrl: string; uploadedAt: string; file: File }
+    >()
+
+    for (const row of draft.rows) {
+      if (!row.file || !row.vendorId) continue
+      try {
+        const uploaded = await pitchService.uploadPitchFile(project.id, {
+          file: row.file,
+          kind: 'vendor_offer',
+          label: `${vendorOptions.find((v) => v.id === row.vendorId)?.label ?? 'Vendor'} — ${serviceOpt.label}`,
+        })
+        uploadedByRowId.set(row.id, {
+          fileId: uploaded.fileId,
+          fileName: uploaded.fileName,
+          fileUrl: uploaded.viewUrl,
+          uploadedAt: uploaded.uploadedAt,
+          file: row.file,
+        })
+      } catch (err) {
+        showToast({
+          title: parseSettingsApiError(err, 'Failed to upload vendor offer file').message,
+          variant: 'error',
+        })
+        return
+      }
+    }
+
     const next: VendorMapping[] = draft.rows.flatMap((row, index) => {
       const amount = Number(row.amount)
       if (!Number.isFinite(amount) || amount <= 0 || !row.vendorId) {
@@ -659,11 +710,13 @@ export default function PitchTab({ project }: { project: Project }) {
       const vendor = vendorOptions.find((v) => v.id === row.vendorId)
       const prev = existingById.get(row.id) ?? existingByVendor.get(row.vendorId)
       const mappingId = row.id.startsWith('new-') ? `vm-${Date.now()}-${index}` : row.id
-      const quotation = row.file
+      const uploaded = uploadedByRowId.get(row.id)
+      const quotation = uploaded
         ? {
-            fileName: row.file.name,
-            fileUrl: URL.createObjectURL(row.file),
-            uploadedAt: new Date().toISOString(),
+            fileId: uploaded.fileId,
+            fileName: uploaded.fileName,
+            fileUrl: uploaded.fileUrl,
+            uploadedAt: uploaded.uploadedAt,
           }
         : prev?.quotation
       const notes = draft.notesTags.trim()
@@ -687,18 +740,21 @@ export default function PitchTab({ project }: { project: Project }) {
     await saveMappingsForService(service.id, next)
 
     for (const row of draft.rows) {
-      if (!row.file || !row.vendorId) continue
+      const uploaded = uploadedByRowId.get(row.id)
+      if (!uploaded || !row.vendorId) continue
       const vendor = vendorOptions.find((v) => v.id === row.vendorId)
-      syncVendorQuotationToDocuments(row.file, vendor?.label ?? '', serviceOpt.label, notesValue)
+      syncVendorQuotationToDocuments(
+        uploaded.file,
+        vendor?.label ?? '',
+        serviceOpt.label,
+        notesValue,
+        uploaded.fileUrl,
+      )
     }
   }
 
   if (loading && versions.length === 0) {
-    return (
-      <Box sx={{ p: 3 }}>
-        <Typography variant="body2" color="text.secondary">Loading pitch data…</Typography>
-      </Box>
-    )
+    return <ProjectTabSkeleton rows={6} showKpis />
   }
 
   return (
@@ -1041,31 +1097,51 @@ export default function PitchTab({ project }: { project: Project }) {
                               <input
                                 type="file"
                                 hidden
-                                accept=".pdf,.doc,.docx,.xlsx"
+                                accept=".pdf,.png,.jpg,.jpeg,.webp"
                                 onChange={(e) => {
                                   const f = e.target.files?.[0]
                                   if (!f) return
-                                  const blobUrl = URL.createObjectURL(f)
-                                  const next = mappings.map((m) =>
-                                    m.id === row.mapping.id
-                                      ? {
-                                          ...m,
-                                          quotation: {
-                                            fileName: f.name,
-                                            fileUrl: blobUrl,
-                                            uploadedAt: new Date().toISOString(),
-                                          },
-                                        }
-                                      : m,
-                                  )
-                                  saveMappingsForService(row.serviceId, next)
-                                  syncVendorQuotationToDocuments(
-                                    f,
-                                    row.mapping.vendorName,
-                                    row.serviceName,
-                                    row.mapping.notes,
-                                  )
-                                  e.target.value = ''
+                                  const input = e.target
+                                  void (async () => {
+                                    try {
+                                      const uploaded = await pitchService.uploadPitchFile(project.id, {
+                                        file: f,
+                                        kind: 'vendor_offer',
+                                        label: `${row.mapping.vendorName} — ${row.serviceName}`,
+                                      })
+                                      const next = mappings.map((m) =>
+                                        m.id === row.mapping.id
+                                          ? {
+                                              ...m,
+                                              quotation: {
+                                                fileId: uploaded.fileId,
+                                                fileName: uploaded.fileName,
+                                                fileUrl: uploaded.viewUrl,
+                                                uploadedAt: uploaded.uploadedAt,
+                                              },
+                                            }
+                                          : m,
+                                      )
+                                      await saveMappingsForService(row.serviceId, next)
+                                      syncVendorQuotationToDocuments(
+                                        f,
+                                        row.mapping.vendorName,
+                                        row.serviceName,
+                                        row.mapping.notes,
+                                        uploaded.viewUrl,
+                                      )
+                                    } catch (err) {
+                                      showToast({
+                                        title: parseSettingsApiError(
+                                          err,
+                                          'Failed to upload vendor offer file',
+                                        ).message,
+                                        variant: 'error',
+                                      })
+                                    } finally {
+                                      input.value = ''
+                                    }
+                                  })()
                                 }}
                               />
                             </MuiButton>
@@ -1100,8 +1176,7 @@ export default function PitchTab({ project }: { project: Project }) {
             </Box>
           </Box>
 
-          {activeVersion && (
-            <Box sx={{ mt: 3, p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 2, bgcolor: 'background.paper' }}>
+          <Box sx={{ mt: 3, p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 2, bgcolor: 'background.paper' }}>
               <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }} flexWrap="wrap" gap={1}>
                 <Typography variant="subtitle1" fontWeight={600} sx={{ fontSize: 15 }}>
                   Expenses
@@ -1111,6 +1186,7 @@ export default function PitchTab({ project }: { project: Project }) {
                   color="primary"
                   size="small"
                   startIcon={<Add fontSize="small" />}
+                  disabled={!activeVersion}
                   onClick={() => {
                     setExpenseEditing(null)
                     setExpenseDrawerOpen(true)
@@ -1134,14 +1210,14 @@ export default function PitchTab({ project }: { project: Project }) {
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {(activeVersion.plannedExpenses ?? []).length === 0 ? (
+                    {(activeVersion?.plannedExpenses ?? []).length === 0 ? (
                       <TableRow>
                         <TableCell colSpan={5} sx={{ py: 2, color: 'text.disabled', fontSize: 12 }}>
                           No planned expenses yet.
                         </TableCell>
                       </TableRow>
                     ) : (
-                      (activeVersion.plannedExpenses ?? []).map((row) => (
+                      (activeVersion?.plannedExpenses ?? []).map((row) => (
                         <TableRow key={row.id}>
                           <TableCell sx={{ fontSize: 12, ...TABLE_CELL_PAD }}>
                             {row.type === 'additional'
@@ -1198,11 +1274,10 @@ export default function PitchTab({ project }: { project: Project }) {
               </Box>
               <Stack direction="row" justifyContent="flex-end" sx={{ mt: 2, pt: 1.5, borderTop: `1px solid ${tokens.color.neutral[100]}` }}>
                 <Typography variant="body2" sx={{ fontWeight: 600, fontSize: 13 }}>
-                  Total Planned Expenses: ₹{formatCurrency((activeVersion.plannedExpenses ?? []).reduce((sum, e) => sum + e.amount, 0))}
+                  Total Planned Expenses: ₹{formatCurrency((activeVersion?.plannedExpenses ?? []).reduce((sum, e) => sum + e.amount, 0))}
                 </Typography>
               </Stack>
             </Box>
-          )}
         </Box>
         <Box
           sx={{
@@ -1221,17 +1296,16 @@ export default function PitchTab({ project }: { project: Project }) {
         <DialogContent>
           <Stack gap={1.5} sx={{ mt: 1 }}>
             <FormControl fullWidth size="small">
-              <InputLabel sx={{ fontSize: 12 }}>Category</InputLabel>
+              <InputLabel id="pitch-add-category-label" sx={{ fontSize: 12 }}>
+                Category
+              </InputLabel>
               <MuiSelect
+                labelId="pitch-add-category-label"
                 label="Category"
                 value={selectedMasterCategoryId}
                 onChange={(e) => setSelectedMasterCategoryId(e.target.value)}
                 sx={{ fontSize: 12 }}
-                displayEmpty
               >
-                <MenuItem value="" disabled sx={{ fontSize: 12 }}>
-                  Select Category
-                </MenuItem>
                 {addablePitchCategories.map((cat) => (
                   <MenuItem key={cat.id} value={cat.id} sx={{ fontSize: 12 }}>
                     {cat.name}
@@ -1309,7 +1383,7 @@ export default function PitchTab({ project }: { project: Project }) {
                 }),
               ).unwrap()
 
-              const syncedLive = (await dispatch(fetchExpenses(project.id)).unwrap()).find(
+              const syncedLive = (await dispatch(fetchExpenses({ projectId: project.id })).unwrap()).find(
                 (e) => e.sourcePlannedExpenseId === expenseDeleteTarget.id,
               )
               if (syncedLive) {
@@ -1319,7 +1393,7 @@ export default function PitchTab({ project }: { project: Project }) {
                     expenseId: syncedLive.id,
                   }),
                 ).unwrap()
-                await dispatch(fetchExpenses(project.id)).unwrap()
+                await dispatch(fetchExpenses({ projectId: project.id })).unwrap()
               }
               setExpenseDeleteTarget(null)
             }}

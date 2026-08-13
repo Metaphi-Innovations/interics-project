@@ -43,11 +43,13 @@ import { useNavigate } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { fetchProjects, changeProjectStatus, updateProject } from '../../slices/projects/thunk'
 import { fetchUsers } from '../../slices/users/thunk'
+import { fetchRoles } from '../../slices/roles/thunk'
 import { isProjectManagerRole } from './projectManagerRoles'
 import {
   setFilters,
   resetFilters,
   setPage,
+  setPageSize,
   setSortConfig,
 } from '../../slices/projects/reducer'
 import type { Project } from '../../slices/projects/reducer'
@@ -69,7 +71,6 @@ import {
   getDaysBetweenDates,
   getInitials,
   getAvatarColor,
-  toSlug,
 } from '../../utils/formatters'
 import { formatProjectSite } from '../../utils/projectSite'
 import { getProjectTypes, PROJECT_TYPE_OPTIONS } from './projectTypes'
@@ -81,6 +82,7 @@ import {
   lifecycleStatusForMasterName,
 } from '../../utils/masterChipStyles'
 import type { StatusMaster } from '../../slices/settings/reducer'
+import { useSystemDefaultPageSize } from '@/hooks/useSystemDefaultPageSize'
 
 // ─── Column visibility state ──────────────────────────────────────────────────
 
@@ -1123,12 +1125,14 @@ export default function ProjectsPage() {
   const dispatch = useAppDispatch()
   const navigate = useNavigate()
   const toast = useToast()
+  const defaultPageSize = useSystemDefaultPageSize()
 
   const { items: rawItems, loading, saving, filters, pagination, sortConfig } = useAppSelector(
     (s) => s.projects
   )
   const items = rawItems ?? []
   const users = useAppSelector((s) => s.users.items ?? [])
+  const roles = useAppSelector((s) => s.roles.items ?? [])
   const statusMasters = useAppSelector((s) => s.settings.statuses)
 
   // Local state
@@ -1156,8 +1160,14 @@ export default function ProjectsPage() {
   // Load users + status master
   useEffect(() => {
     dispatch(fetchUsers({}))
+    dispatch(fetchRoles(undefined))
     dispatch(fetchStatuses())
   }, [dispatch])
+
+  useEffect(() => {
+    if (defaultPageSize == null) return
+    dispatch(setPageSize(defaultPageSize))
+  }, [dispatch, defaultPageSize])
 
   // Default to Live tab/filter on entry unless a status already exists in current session state.
   useEffect(() => {
@@ -1167,17 +1177,18 @@ export default function ProjectsPage() {
   }, [dispatch, filters.status])
 
   const refetch = useCallback(() => {
+    if (defaultPageSize == null) return
     dispatch(
       fetchProjects({
         page: pagination.page,
-        pageSize: pagination.pageSize,
+        pageSize: defaultPageSize,
         search: filters.search || undefined,
         status: filters.status || undefined,
         type: filters.type || undefined,
         projectManager: filters.projectManager || undefined,
       })
     )
-  }, [dispatch, pagination.page, pagination.pageSize, filters])
+  }, [dispatch, pagination.page, defaultPageSize, filters])
 
   useEffect(() => {
     refetch()
@@ -1252,7 +1263,7 @@ export default function ProjectsPage() {
   ]
 
   const managerOptions = users
-    .filter((u) => isProjectManagerRole(u.role))
+    .filter((u) => isProjectManagerRole(u.role, roles))
     .map((u) => ({ value: u.id, label: u.name }))
 
   const filterConfig = [
@@ -1346,7 +1357,7 @@ export default function ProjectsPage() {
   }
 
   function handleView(project: Project) {
-    navigate(`/projects/${toSlug(project.name)}`)
+    navigate(`/projects/${project.id}`)
   }
 
   function handleEdit(project: Project) {

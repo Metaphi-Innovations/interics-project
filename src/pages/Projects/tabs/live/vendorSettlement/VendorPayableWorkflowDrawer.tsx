@@ -113,7 +113,7 @@ export function VendorPayableWorkflowDrawer({
   useEffect(() => {
     if (!open || !projectId) return
     void dispatch(fetchVendorInvoices(projectId))
-    void dispatch(fetchExpenses(projectId))
+    void dispatch(fetchExpenses({ projectId }))
     void dispatch(fetchPayments(projectId))
   }, [open, projectId, dispatch])
 
@@ -244,7 +244,7 @@ export function VendorPayableWorkflowDrawer({
     await Promise.all([
       dispatch(fetchVendorInvoices(projectId)).unwrap(),
       dispatch(fetchPayments(projectId)).unwrap(),
-      dispatch(fetchExpenses(projectId)).unwrap(),
+      dispatch(fetchExpenses({ projectId })).unwrap(),
       dispatch(fetchReimbursements(projectId)).unwrap(),
     ])
   }, [dispatch, projectId])

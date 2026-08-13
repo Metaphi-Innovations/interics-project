@@ -3,6 +3,7 @@ import {
   Box, Typography, TextField, MenuItem,
   Table, TableHead, TableRow, TableCell, TableBody, TableContainer,
   IconButton,
+  Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions,
 } from '@mui/material'
 import { Edit, ToggleOff, ToggleOn } from '@mui/icons-material'
 import { Plus } from 'lucide-react'
@@ -20,6 +21,13 @@ import {
   SETTINGS_TABLE_SX,
   settingsDataColWidth,
 } from '../components/settingsTableStyles'
+import {
+  requiredAlphabeticName,
+  collectErrors,
+  hasErrors,
+  firstErrorMessage,
+} from '@/modules/system-settings/shared/settings-validation'
+import { parseSettingsApiError, clearFieldError } from '@/modules/system-settings/shared/api-errors'
 
 const DATA_COL_COUNT = 2
 const dataColWidth = settingsDataColWidth(DATA_COL_COUNT)
@@ -33,33 +41,44 @@ export default function SectorsSection() {
   const error = useToast((s) => s.error)
   const { sectors, saving } = useAppSelector(s => s.settings)
   const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [editingRow, setEditingRow] = useState<SectorMaster | null>(null)
   const [form, setForm] = useState<SectorForm>(defaultForm)
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
+  const [toggleTarget, setToggleTarget] = useState<SectorMaster | null>(null)
+  const [toggling, setToggling] = useState(false)
 
   useEffect(() => {
-    dispatch(fetchSectors())
-  }, [dispatch])
+    const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 300)
+    return () => window.clearTimeout(timer)
+  }, [search])
 
-  const filtered = sectors.filter(s =>
-    s.name.toLowerCase().includes(search.toLowerCase())
-  )
+  useEffect(() => {
+    dispatch(fetchSectors({ search: debouncedSearch || undefined, force: true }))
+  }, [dispatch, debouncedSearch])
 
   const openAdd = () => {
     setEditingRow(null)
     setForm(defaultForm)
+    setFieldErrors({})
     setDrawerOpen(true)
   }
 
   const openEdit = (row: SectorMaster) => {
     setEditingRow(row)
     setForm({ name: row.name, status: row.status })
+    setFieldErrors({})
     setDrawerOpen(true)
   }
 
   const handleSave = () => {
-    if (!form.name.trim()) {
-      error('Sector name is required')
+    const next = collectErrors([
+      ['name', requiredAlphabeticName(form.name, 'Sector Name', 100)],
+    ])
+    setFieldErrors(next)
+    if (hasErrors(next)) {
+      error(firstErrorMessage(next, 'Please fix the highlighted fields'))
       return
     }
     const action = editingRow
@@ -70,8 +89,33 @@ export default function SectorsSection() {
         setDrawerOpen(false)
         success(editingRow ? 'Sector updated' : 'Sector added')
       })
-      .catch(() => error('Failed to save sector'))
+      .catch((err) => {
+        const parsed = parseSettingsApiError(err, 'Failed to save sector')
+        if (Object.keys(parsed.fieldErrors).length) setFieldErrors(parsed.fieldErrors)
+        error(parsed.message)
+      })
   }
+
+  const confirmToggle = async () => {
+    if (!toggleTarget) return
+    setToggling(true)
+    try {
+      await dispatch(toggleSectorStatus(toggleTarget.id)).unwrap()
+      success(
+        toggleTarget.status === 'active'
+          ? 'Sector deactivated'
+          : 'Sector activated',
+      )
+      setToggleTarget(null)
+    } catch (err) {
+      const parsed = parseSettingsApiError(err, 'Failed to update status')
+      error(parsed.message)
+    } finally {
+      setToggling(false)
+    }
+  }
+
+  const toggleNextActive = toggleTarget?.status !== 'active'
 
   return (
     <Box>
@@ -110,7 +154,7 @@ export default function SectorsSection() {
             </TableRow>
           </TableHead>
           <TableBody>
-            {filtered.map(row => (
+            {sectors.map(row => (
               <TableRow key={row.id} sx={{ height: 44 }}>
                 <TableCell sx={{ ...SETTINGS_TABLE_CELL_SX, fontWeight: 500 }}>{row.name}</TableCell>
                 <TableCell sx={SETTINGS_TABLE_CELL_SX}>
@@ -120,10 +164,10 @@ export default function SectorsSection() {
                   <IconButton size="small" onClick={() => openEdit(row)}>
                     <Edit sx={{ fontSize: 14 }} />
                   </IconButton>
-                  <IconButton size="small" onClick={() => dispatch(toggleSectorStatus(row.id))}>
+                  <IconButton size="small" onClick={() => setToggleTarget(row)}>
                     {row.status === 'active'
-                      ? <ToggleOff sx={{ fontSize: 14, color: 'warning.main' }} />
-                      : <ToggleOn sx={{ fontSize: 14, color: 'success.main' }} />}
+                      ? <ToggleOn sx={{ fontSize: 14, color: 'success.main' }} />
+                      : <ToggleOff sx={{ fontSize: 14, color: 'error.main' }} />}
                   </IconButton>
                 </TableCell>
               </TableRow>
@@ -156,7 +200,12 @@ export default function SectorsSection() {
             fullWidth
             placeholder="e.g. Banking"
             value={form.name}
-            onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+            onChange={e => {
+              setForm(f => ({ ...f, name: e.target.value }))
+              setFieldErrors(errors => clearFieldError(errors, 'name'))
+            }}
+            error={!!fieldErrors.name}
+            helperText={fieldErrors.name}
           />
           <TextField
             select
@@ -171,6 +220,25 @@ export default function SectorsSection() {
           </TextField>
         </Box>
       </Modal>
+
+      <Dialog open={!!toggleTarget} onClose={() => !toggling && setToggleTarget(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>{toggleNextActive ? 'Activate' : 'Deactivate'}?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            {toggleNextActive
+              ? `Activate "${toggleTarget?.name}"?`
+              : `Deactivate "${toggleTarget?.name}"? It will no longer be available for new records.`}
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button size="sm" variant="outlined" color="secondary" onClick={() => setToggleTarget(null)} disabled={toggling}>
+            Cancel
+          </Button>
+          <Button size="sm" variant="contained" color="primary" onClick={() => void confirmToggle()} disabled={toggling}>
+            {toggling ? 'Updating...' : 'Confirm'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   )
 }

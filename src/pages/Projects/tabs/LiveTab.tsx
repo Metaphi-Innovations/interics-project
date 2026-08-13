@@ -16,6 +16,7 @@ import FinancialSummaryTab from './live/FinancialSummaryTab'
 import BillingTab from './live/BillingTab'
 import PaymentsTab from './live/PaymentsTab'
 import ExpensesTab from './live/ExpensesTab'
+import { ProjectTabSkeleton } from '../components/ProjectTabSkeleton'
 
 interface LiveTabProps {
   project: Project
@@ -25,6 +26,7 @@ export default function LiveTab({ project }: LiveTabProps) {
   const dispatch = useAppDispatch()
   const [searchParams] = useSearchParams()
   const [activeSubTab, setActiveSubTab] = useState('financial-summary')
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     const sub = searchParams.get('liveSubTab')
@@ -32,11 +34,14 @@ export default function LiveTab({ project }: LiveTabProps) {
   }, [project.id, searchParams])
 
   useEffect(() => {
-    dispatch(fetchInvoices(project.id))
-    dispatch(fetchVendorInvoices(project.id))
-    dispatch(fetchPayments(project.id))
-    dispatch(fetchExpenses(project.id))
-    dispatch(fetchReimbursements(project.id))
+    setLoading(true)
+    void Promise.all([
+      dispatch(fetchInvoices(project.id)),
+      dispatch(fetchVendorInvoices(project.id)),
+      dispatch(fetchPayments(project.id)),
+      dispatch(fetchExpenses({ projectId: project.id })),
+      dispatch(fetchReimbursements(project.id)),
+    ]).finally(() => setLoading(false))
   }, [dispatch, project.id])
 
   const payableContext = parsePayableContext(searchParams)
@@ -47,6 +52,10 @@ export default function LiveTab({ project }: LiveTabProps) {
     { label: 'Payable', value: 'payments' },
     { label: 'Expenses', value: 'expenses' },
   ] as const
+
+  if (loading) {
+    return <ProjectTabSkeleton rows={6} showKpis />
+  }
 
   return (
     <Box>

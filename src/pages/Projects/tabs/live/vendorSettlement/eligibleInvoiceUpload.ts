@@ -16,7 +16,7 @@ export interface EligibleInvoiceUploadEntry {
   milestone: VendorMilestone
 }
 
-/** Vendor linked to an approved Vendor PO on a project (for cascading Project → Vendor). */
+/** Vendor linked to a Vendor PO on a project (for cascading Project → Vendor). */
 export interface ProjectVendorOption {
   projectId: string
   projectName: string
@@ -24,12 +24,8 @@ export interface ProjectVendorOption {
   vendorName: string
 }
 
-function isApprovedVendorPO(po: VendorPO): boolean {
-  return po.status === 'Issued' || po.status === 'Accepted'
-}
-
 /**
- * Vendors associated with approved Vendor POs for each project.
+ * Vendors associated with Vendor POs for each project (any PO status).
  */
 export function buildProjectVendorOptionsFromVendorPOs(
   projects: Array<{ id: string; name: string }>,
@@ -39,7 +35,7 @@ export function buildProjectVendorOptionsFromVendorPOs(
 
   for (const project of projects) {
     for (const po of vendorPOsByProject[project.id] ?? []) {
-      if (po.projectId !== project.id || !isApprovedVendorPO(po)) continue
+      if (po.projectId !== project.id) continue
       if (!po.vendorId) continue
       const key = `${project.id}::${po.vendorId}`
       if (map.has(key)) continue
@@ -61,7 +57,7 @@ export function buildProjectVendorOptionsFromVendorPOs(
 
 /**
  * Eligible Vendor PO milestones for invoice upload:
- * approved (Issued/Accepted) POs without an existing vendor invoice.
+ * any Vendor PO milestones without an existing vendor invoice.
  */
 export function buildEligibleVendorInvoiceUploadEntries(
   projects: Array<{ id: string; name: string }>,
@@ -72,22 +68,23 @@ export function buildEligibleVendorInvoiceUploadEntries(
   const out: EligibleInvoiceUploadEntry[] = []
 
   for (const project of projects) {
-    const approvedPOs = (vendorPOsByProject[project.id] ?? []).filter(
-      (po) => po.projectId === project.id && isApprovedVendorPO(po),
+    const projectPOs = (vendorPOsByProject[project.id] ?? []).filter(
+      (po) => po.projectId === project.id && Boolean(po.vendorId),
     )
-    if (approvedPOs.length === 0) continue
+    if (projectPOs.length === 0) continue
 
     const baseline = baselinesByProject[project.id] ?? null
-    const overview = buildVendorPOMilestoneOverviewRows(approvedPOs, project.id, baseline)
+    const overview = buildVendorPOMilestoneOverviewRows(projectPOs, project.id, baseline)
     const scopedInvoices = vendorInvoices.filter((inv) => inv.projectId === project.id)
 
     for (const row of overview) {
-      if (!row.vendorId || !row.serviceId) continue
+      if (!row.vendorId) continue
+      const serviceId = row.serviceId || `po:${row.poId}`
       const context: VendorServiceRow = {
         vendorId: row.vendorId,
         vendorName: row.vendor,
-        serviceId: row.serviceId,
-        serviceName: row.serviceName || row.service,
+        serviceId,
+        serviceName: row.serviceName || row.service || '—',
       }
       const milestone: VendorMilestone = {
         id: row.milestoneId,

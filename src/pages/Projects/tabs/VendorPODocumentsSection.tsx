@@ -1,6 +1,6 @@
 /**
  * Project Management → Vendor PO Documents
- * Generate Word PO docs, upload final versions, and track version history.
+ * Generate Word PO docs via backend, upload final versions, and track version history.
  */
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import {
@@ -30,46 +30,22 @@ import { tokens } from '@/design-system/tokens'
 import { WorkspaceSection } from '@/components/templates'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { fetchVendorPOs } from '@/slices/baseline/thunk'
-import { fetchCompanyProfile } from '@/slices/settings/thunk'
 import type { Project } from '@/slices/projects/reducer'
 import type { VendorPO } from '@/slices/baseline/reducer'
 import { formatDate } from '@/utils/formatters'
+import { liveApi, type GeneratedVendorDocumentApi } from '@/api/liveApi'
+import { openAuthenticatedDocument } from '@/utils/openAuthenticatedDocument'
+import { ProjectTabSkeleton } from '../components/ProjectTabSkeleton'
 import {
   TABLE_CELL_SX,
   TABLE_HEADER_SX,
 } from './live/vendorSettlement/utils'
 import {
-  downloadBlob,
-  generateVendorPODocxBlob,
-  templateDocumentTitle,
   VENDOR_PO_TEMPLATE_LABELS,
   type VendorPODocTemplate,
 } from './generateVendorPODocx'
 
-export type VendorPODocVersionSource = 'generated' | 'upload'
-
-export interface VendorPODocVersion {
-  id: string
-  version: number
-  fileName: string
-  blobUrl: string
-  createdAt: string
-  createdBy: string
-  source: VendorPODocVersionSource
-}
-
-export interface VendorPOGeneratedDocument {
-  id: string
-  documentName: string
-  vendorId: string
-  vendorName: string
-  vendorPoId: string
-  poNumber: string
-  template: VendorPODocTemplate
-  generatedAt: string
-  generatedBy: string
-  versions: VendorPODocVersion[]
-}
+export type VendorPOGeneratedDocument = GeneratedVendorDocumentApi
 
 interface VendorPODocumentsSectionProps {
   project: Project
@@ -108,17 +84,9 @@ const HEADER_SX = {
 
 const MENU_ITEM_SX = { fontSize: 12, py: 0.75 } as const
 
-function latestVersion(doc: VendorPOGeneratedDocument): VendorPODocVersion | null {
+function latestVersion(doc: VendorPOGeneratedDocument) {
   if (doc.versions.length === 0) return null
   return doc.versions.reduce((best, v) => (v.version > best.version ? v : best))
-}
-
-function slugFileBase(name: string): string {
-  return name
-    .replace(/[^\w\s-]/g, '')
-    .trim()
-    .replace(/\s+/g, '_')
-    .slice(0, 80)
 }
 
 function VendorOptionLabel(po: VendorPO): string {
@@ -211,13 +179,12 @@ export function VendorPODocumentsSection({ project }: VendorPODocumentsSectionPr
   const success = useToast((s) => s.success)
   const error = useToast((s) => s.error)
   const vendorPOs = useAppSelector((s) => s.baseline.vendorPOs)
-  const companyProfile = useAppSelector((s) => s.settings.companyProfile)
-  const authUser = useAppSelector((s) => s.auth.user)
 
   const [vendorPoId, setVendorPoId] = useState('')
   const [template, setTemplate] = useState<VendorPODocTemplate>('trade_contract')
   const [vendorError, setVendorError] = useState<string | undefined>()
   const [generating, setGenerating] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [documents, setDocuments] = useState<VendorPOGeneratedDocument[]>([])
   const [historyDoc, setHistoryDoc] = useState<VendorPOGeneratedDocument | null>(null)
   const [uploadTargetId, setUploadTargetId] = useState<string | null>(null)
@@ -225,14 +192,27 @@ export function VendorPODocumentsSection({ project }: VendorPODocumentsSectionPr
 
   useEffect(() => {
     void dispatch(fetchVendorPOs(project.id))
-    void dispatch(fetchCompanyProfile())
   }, [dispatch, project.id])
 
   useEffect(() => {
-    setDocuments([])
+    let cancelled = false
+    setLoading(true)
     setVendorPoId('')
     setHistoryDoc(null)
     setUploadTargetId(null)
+    void (async () => {
+      try {
+        const rows = await liveApi.getGeneratedDocuments(project.id)
+        if (!cancelled) setDocuments(rows)
+      } catch {
+        if (!cancelled) setDocuments([])
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
   }, [project.id])
 
   const projectVendorPOs = useMemo(
@@ -249,8 +229,6 @@ export function VendorPODocumentsSection({ project }: VendorPODocumentsSectionPr
     [projectVendorPOs],
   )
 
-  const actorName = authUser?.name?.trim() || 'Unknown'
-
   async function handleGenerate() {
     if (!vendorPoId) {
       setVendorError('Vendor is required')
@@ -264,40 +242,16 @@ export function VendorPODocumentsSection({ project }: VendorPODocumentsSectionPr
 
     setGenerating(true)
     try {
-      const blob = await generateVendorPODocxBlob({
-        template,
-        project,
-        po,
-        company: companyProfile,
-      })
-      const documentName = templateDocumentTitle(template, po.vendorName, po.poNumber)
-      const fileName = `${slugFileBase(documentName)}.docx`
-      const blobUrl = URL.createObjectURL(blob)
-      const now = new Date().toISOString()
-      const version: VendorPODocVersion = {
-        id: crypto.randomUUID(),
-        version: 1,
-        fileName,
-        blobUrl,
-        createdAt: now,
-        createdBy: actorName,
-        source: 'generated',
-      }
-      const row: VendorPOGeneratedDocument = {
-        id: crypto.randomUUID(),
-        documentName,
-        vendorId: po.vendorId,
-        vendorName: po.vendorName,
+      const row = await liveApi.generateVendorDocument(project.id, {
         vendorPoId: po.id,
-        poNumber: po.poNumber,
         template,
-        generatedAt: now,
-        generatedBy: actorName,
-        versions: [version],
-      }
-      setDocuments((prev) => [row, ...prev])
-      downloadBlob(blob, fileName)
-      success('Document generated', 'Open the downloaded file in Microsoft Word, then upload the final version.')
+      })
+      setDocuments((prev) => [row, ...prev.filter((d) => d.id !== row.id)])
+      if (row.downloadUrl) void openAuthenticatedDocument(row.downloadUrl)
+      success(
+        'Document generated',
+        'Open the file in Microsoft Word, then upload the final version.',
+      )
     } catch {
       error('Failed to generate document')
     } finally {
@@ -307,37 +261,27 @@ export function VendorPODocumentsSection({ project }: VendorPODocumentsSectionPr
 
   function handleDownload(doc: VendorPOGeneratedDocument) {
     const latest = latestVersion(doc)
-    if (!latest) return
-    const a = document.createElement('a')
-    a.href = latest.blobUrl
-    a.download = latest.fileName
-    a.rel = 'noopener'
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
+    const url = latest?.downloadUrl || doc.downloadUrl
+    if (url) void openAuthenticatedDocument(url)
   }
 
   function handleView(doc: VendorPOGeneratedDocument) {
     setHistoryDoc(doc)
   }
 
-  function handleDelete(doc: VendorPOGeneratedDocument) {
-    for (const v of doc.versions) {
-      URL.revokeObjectURL(v.blobUrl)
+  async function handleDelete(doc: VendorPOGeneratedDocument) {
+    try {
+      await liveApi.deleteGeneratedDocument(project.id, doc.id)
+      setDocuments((prev) => prev.filter((d) => d.id !== doc.id))
+      if (historyDoc?.id === doc.id) setHistoryDoc(null)
+      success('Document deleted')
+    } catch {
+      error('Failed to delete document')
     }
-    setDocuments((prev) => prev.filter((d) => d.id !== doc.id))
-    if (historyDoc?.id === doc.id) setHistoryDoc(null)
-    success('Document deleted')
   }
 
-  function handleDownloadVersion(version: VendorPODocVersion) {
-    const a = document.createElement('a')
-    a.href = version.blobUrl
-    a.download = version.fileName
-    a.rel = 'noopener'
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
+  function handleDownloadVersion(version: VendorPOGeneratedDocument['versions'][number]) {
+    if (version.downloadUrl) void openAuthenticatedDocument(version.downloadUrl)
   }
 
   function openUpload(docId: string) {
@@ -345,7 +289,7 @@ export function VendorPODocumentsSection({ project }: VendorPODocumentsSectionPr
     window.setTimeout(() => fileInputRef.current?.click(), 0)
   }
 
-  function handleUploadFile(files: FileList | null) {
+  async function handleUploadFile(files: FileList | null) {
     const file = files?.[0]
     const targetId = uploadTargetId
     setUploadTargetId(null)
@@ -362,24 +306,26 @@ export function VendorPODocumentsSection({ project }: VendorPODocumentsSectionPr
       return
     }
 
-    setDocuments((prev) =>
-      prev.map((doc) => {
-        if (doc.id !== targetId) return doc
-        const nextVersion = (latestVersion(doc)?.version ?? 0) + 1
-        const blobUrl = URL.createObjectURL(file)
-        const version: VendorPODocVersion = {
-          id: crypto.randomUUID(),
-          version: nextVersion,
-          fileName: file.name,
-          blobUrl,
-          createdAt: new Date().toISOString(),
-          createdBy: actorName,
-          source: 'upload',
-        }
-        return { ...doc, versions: [...doc.versions, version] }
-      }),
+    try {
+      const updated = await liveApi.uploadGeneratedDocumentVersion(
+        project.id,
+        targetId,
+        file,
+      )
+      setDocuments((prev) => prev.map((d) => (d.id === updated.id ? updated : d)))
+      if (historyDoc?.id === updated.id) setHistoryDoc(updated)
+      success('Final version uploaded')
+    } catch {
+      error('Failed to upload document version')
+    }
+  }
+
+  if (loading) {
+    return (
+      <WorkspaceSection title="Vendor PO Documents">
+        <ProjectTabSkeleton rows={3} />
+      </WorkspaceSection>
     )
-    success('Final version uploaded')
   }
 
   return (
@@ -481,25 +427,16 @@ export function VendorPODocumentsSection({ project }: VendorPODocumentsSectionPr
                 overflow: 'hidden',
               }}
             >
-              <Table
-                size="small"
-                sx={{
-                  tableLayout: 'fixed',
-                  width: '100%',
-                  '& .MuiTableCell-root': { boxSizing: 'border-box' },
-                }}
-              >
+              <Table size="small" sx={{ tableLayout: 'fixed', width: '100%' }}>
                 <TableHead>
-                  <TableRow sx={{ bgcolor: tokens.color.neutral[50] }}>
-                    <TableCell sx={{ ...HEADER_SX, width: COL_WIDTH.name }}>Document Name</TableCell>
+                  <TableRow>
+                    <TableCell sx={{ ...HEADER_SX, width: COL_WIDTH.name }}>Document</TableCell>
                     <TableCell sx={{ ...HEADER_SX, width: COL_WIDTH.vendor }}>Vendor</TableCell>
                     <TableCell sx={{ ...HEADER_SX, width: COL_WIDTH.template }}>Template</TableCell>
-                    <TableCell sx={{ ...HEADER_SX, width: COL_WIDTH.date }}>Generated Date</TableCell>
+                    <TableCell sx={{ ...HEADER_SX, width: COL_WIDTH.date }}>Generated</TableCell>
                     <TableCell sx={{ ...HEADER_SX, width: COL_WIDTH.version }}>Version</TableCell>
-                    <TableCell sx={{ ...HEADER_SX, width: COL_WIDTH.by }}>Generated By</TableCell>
-                    <TableCell
-                      sx={{ ...HEADER_SX, width: COL_WIDTH.actions, textAlign: 'right' }}
-                    >
+                    <TableCell sx={{ ...HEADER_SX, width: COL_WIDTH.by }}>By</TableCell>
+                    <TableCell sx={{ ...HEADER_SX, width: COL_WIDTH.actions, textAlign: 'right' }}>
                       Actions
                     </TableCell>
                   </TableRow>
@@ -512,7 +449,7 @@ export function VendorPODocumentsSection({ project }: VendorPODocumentsSectionPr
                         <TableCell sx={CELL_SX}>
                           <Typography
                             variant="body2"
-                            sx={{ fontSize: 12, fontWeight: 500 }}
+                            sx={{ fontSize: 12, fontWeight: 600 }}
                             noWrap
                             title={doc.documentName}
                           >
@@ -541,7 +478,7 @@ export function VendorPODocumentsSection({ project }: VendorPODocumentsSectionPr
                             <DocumentRowActions
                               onDownload={() => handleDownload(doc)}
                               onEdit={() => openUpload(doc.id)}
-                              onDelete={() => handleDelete(doc)}
+                              onDelete={() => void handleDelete(doc)}
                               onView={() => handleView(doc)}
                             />
                           </Box>
@@ -561,7 +498,7 @@ export function VendorPODocumentsSection({ project }: VendorPODocumentsSectionPr
         type="file"
         accept=".doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         hidden
-        onChange={(e) => handleUploadFile(e.target.files)}
+        onChange={(e) => void handleUploadFile(e.target.files)}
       />
 
       <DrawerForm

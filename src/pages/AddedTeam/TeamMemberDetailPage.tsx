@@ -43,6 +43,7 @@ import { ProjectOverviewTab } from '@/pages/Projects/components/ProjectOverviewT
 import { formatBuildingFloor } from '@/pages/Projects/projectOverviewHelpers'
 import { getProjectAssignedMembers } from '@/utils/projectAssignedTeam'
 import { formatCurrency, formatDate, getAvatarColor, getInitials } from '@/utils/formatters'
+import { teamsApi } from '@/api/teamsApi'
 
 type AssignedPeriod =
   | 'Last 1 Year'
@@ -348,6 +349,10 @@ export default function TeamMemberDetailPage() {
   const isEditMode = searchParams.get('mode') === 'edit'
 
   const selectedUser = useMemo(() => users.find((user) => user.id === memberId) ?? null, [users, memberId])
+  const [teamDetail, setTeamDetail] = useState<{
+    user: Record<string, unknown>
+    assignments: Array<Record<string, unknown>>
+  } | null>(null)
   const roleName = useMemo(() => {
     if (!selectedUser) return '—'
     return roles.find((role) => role.id === selectedUser.role)?.name ?? selectedUser.role
@@ -371,6 +376,22 @@ export default function TeamMemberDetailPage() {
   }, [dispatch])
 
   useEffect(() => {
+    if (!memberId) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const detail = await teamsApi.getMemberDetail(memberId)
+        if (!cancelled) setTeamDetail(detail)
+      } catch {
+        if (!cancelled) setTeamDetail(null)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [memberId])
+
+  useEffect(() => {
     if (!selectedUser) return
     setForm({
       name: selectedUser.name,
@@ -380,8 +401,29 @@ export default function TeamMemberDetailPage() {
   }, [selectedUser])
 
   const assignedProjects = useMemo<AssignedProjectRow[]>(() => {
+    if (teamDetail?.assignments?.length) {
+      return teamDetail.assignments.map((row) => ({
+        id: String(row.projectId ?? ''),
+        projectName: String(row.projectName ?? '—'),
+        projectLead: '—',
+        status: String(row.projectStatus ?? 'PITCH') as Project['status'],
+        progress: '—',
+        startDate: (row.startDate as string | null) ?? null,
+        expectedEndDate: (row.expectedEndDate as string | null) ?? null,
+        sites: '—',
+        revenue: Number(row.revenue ?? 0),
+        profit: Number(row.profit ?? 0),
+        profitPct: null,
+        project:
+          projects.find((p) => p.id === row.projectId) ??
+          ({
+            id: String(row.projectId ?? ''),
+            name: String(row.projectName ?? '—'),
+            status: String(row.projectStatus ?? 'PITCH') as Project['status'],
+          } as Project),
+      }))
+    }
     if (!selectedUser) return []
-
     return projects
       .filter((project) =>
         getProjectAssignedMembers(project).some((member) => member.userId === selectedUser.id),
@@ -400,7 +442,7 @@ export default function TeamMemberDetailPage() {
         profitPct: projectProfitPct(project),
         project,
       }))
-  }, [projects, selectedUser])
+  }, [teamDetail, projects, selectedUser])
 
   const [period, setPeriod] = useState<AssignedPeriod>('Last 1 Year')
   const [customFrom, setCustomFrom] = useState<Date | null>(null)

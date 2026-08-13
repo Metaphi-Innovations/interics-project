@@ -6,7 +6,6 @@ import { fetchExpenses, fetchVendorInvoices } from '../../../../slices/live/thun
 import { VendorOffersSection } from '../../components/VendorOffersSection'
 import { VendorMilestonesSection } from '../../components/VendorMilestonesSection'
 import { AddVendorOfferDrawer } from './AddVendorOfferDrawer'
-import { useLiveOfferVersion } from './useLiveOfferVersion'
 import type { ParsedPayableContext } from '@/utils/payableNavigation'
 
 interface VendorPOPayableSummaryProps {
@@ -19,8 +18,7 @@ export function VendorPOPayableSummary({
   payableContext,
 }: VendorPOPayableSummaryProps) {
   const dispatch = useAppDispatch()
-  const { vendorPOs, baseline } = useAppSelector((s) => s.baseline)
-  const { offerVersion, loading } = useLiveOfferVersion(projectId)
+  const { vendorPOs, baseline, loading } = useAppSelector((s) => s.baseline)
 
   const [addOfferOpen, setAddOfferOpen] = useState(false)
 
@@ -28,7 +26,7 @@ export function VendorPOPayableSummary({
     void dispatch(fetchVendorPOs(projectId))
     void dispatch(fetchBaseline(projectId))
     void dispatch(fetchVendorInvoices(projectId))
-    void dispatch(fetchExpenses(projectId))
+    void dispatch(fetchExpenses({ projectId }))
   }, [dispatch, projectId])
 
   const projectVendorPOs = useMemo(
@@ -45,8 +43,7 @@ export function VendorPOPayableSummary({
     <>
       <Stack gap={2}>
         <VendorOffersSection
-          offerVersion={offerVersion}
-          loading={loading}
+          loading={loading && projectVendorPOs.length === 0}
           onAddOffer={() => setAddOfferOpen(true)}
           projectId={projectId}
           vendorPOs={projectVendorPOs}

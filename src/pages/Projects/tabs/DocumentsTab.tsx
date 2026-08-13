@@ -1,7 +1,7 @@
 /**
  * Project detail Documents tab — grouped by Project, Client, and Vendor document sets.
  */
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   Box,
   Stack,
@@ -35,6 +35,9 @@ import {
   TABLE_CELL_SX,
   TABLE_HEADER_SX,
 } from './live/vendorSettlement/utils'
+import { liveApi, type ProjectDocumentListItem } from '@/api/liveApi'
+import { openAuthenticatedDocument } from '@/utils/openAuthenticatedDocument'
+import { ProjectTabSkeleton } from '../components/ProjectTabSkeleton'
 import {
   isLegacyInternalUploadCategory,
   openProjectUploadInNewTab,
@@ -49,10 +52,12 @@ import {
   countProjectDocumentRows,
   filterDocumentRowsBySearch,
   filterProjectDocumentSectionsBySearch,
+  mergeApiRowsIntoProjectDocumentSections,
   mergeDocumentRows,
   mergeLegacyInternalUploadRows,
   resolveProjectForDocuments,
   vendorPOToDocumentRow,
+  PROJECT_DOCTYPE_SECTION_TITLE,
   type ProjectDocumentColumnRow,
 } from '../projectDocumentsDisplay'
 
@@ -102,9 +107,16 @@ const BUILTIN_TYPE_LABELS: Record<string, string> = {
   client_po: 'Client PO',
   vendor_quotation: 'Vendor Quotation',
   vendor_po: 'Vendor PO',
+  vendor_invoice: 'Vendor Invoice',
   vendor_invoice_doc: 'Vendor Invoice',
   internal_requirements: 'Requirements',
   internal_attachments: 'Attachment',
+  requirement: 'Requirements',
+  final_layout: 'Final Layout',
+  final_rcp: 'Final RCP',
+  final_views: 'Final Views',
+  final_photographs: 'Final Photographs',
+  handover: 'Handover',
   other: 'Other',
 }
 
@@ -114,15 +126,6 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
-function slugifyCategoryValue(name: string): string {
-  const slug = name
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '_')
-    .replace(/^_|_$/g, '')
-  return `custom_${slug || 'category'}`
 }
 
 function typeLabelForUpload(cat: UploadCategory, customCategories: CategoryOption[]): string {
@@ -354,14 +357,9 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
     [project, listProjects],
   )
 
-  const { uploads, addUpload, removeUpload } = useProjectDocumentUploads(project.id)
-
-  useEffect(() => {
-    void dispatch(fetchClientPO(project.id))
-    void dispatch(fetchVendorPOs(project.id))
-    void dispatch(fetchVersions(project.id))
-  }, [dispatch, project.id])
-
+  const { uploads, removeUpload } = useProjectDocumentUploads(project.id)
+  const [apiDocuments, setApiDocuments] = useState<ProjectDocumentListItem[]>([])
+  const [docsLoading, setDocsLoading] = useState(true)
   const [filter, setFilter] = useState<DocumentFilter>('all')
   const [search, setSearch] = useState('')
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -369,6 +367,7 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
   const [addCategoryOpen, setAddCategoryOpen] = useState(false)
   const [newCategoryName, setNewCategoryName] = useState('')
   const [newCategoryError, setNewCategoryError] = useState('')
+  const [uploading, setUploading] = useState(false)
 
   const [docName, setDocName] = useState('')
   const [category, setCategory] = useState<UploadCategory | ''>('')
@@ -379,6 +378,75 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
     category?: string
   }>({})
 
+  useEffect(() => {
+    void dispatch(fetchClientPO(project.id))
+    void dispatch(fetchVendorPOs(project.id))
+    void dispatch(fetchVersions(project.id))
+  }, [dispatch, project.id])
+
+  useEffect(() => {
+    let cancelled = false
+    setDocsLoading(true)
+    void (async () => {
+      try {
+        const doctypeParam =
+          filter === 'all'
+            ? undefined
+            : filter === 'client' || filter === 'vendor' || filter === 'project'
+              ? filter
+              : (filter as string)
+        const [rows, doctypes] = await Promise.all([
+          liveApi.getProjectDocuments(project.id, {
+            doctype: doctypeParam,
+          }),
+          liveApi.getDocumentDoctypes(project.id),
+        ])
+        if (cancelled) return
+        setApiDocuments(rows)
+        setCustomCategories(
+          doctypes.map((d) => ({ value: d.value, label: d.label })),
+        )
+      } catch {
+        if (!cancelled) {
+          setApiDocuments([])
+        }
+      } finally {
+        if (!cancelled) setDocsLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [project.id, filter])
+
+  const apiRowsByDoctype = useCallback(
+    (doctype: string | string[]): ColumnRow[] => {
+      const set = Array.isArray(doctype) ? doctype : [doctype]
+      return apiDocuments
+        .filter((doc) => set.includes(doc.doctype))
+        .map(
+          (doc): ColumnRow => ({
+            id: `api-${doc.doctype}-${doc.id}`,
+            name: doc.name,
+            typeLabel: BUILTIN_TYPE_LABELS[doc.doctype] ?? doc.doctype.replaceAll('_', ' '),
+            uploadedBy: doc.uploadedBy ?? '—',
+            dateStr: formatDate(doc.uploadedAt),
+            sizeStr: doc.sizeBytes != null ? formatBytes(doc.sizeBytes) : '—',
+            isUpload: false,
+            href: doc.viewUrl ?? undefined,
+            canDelete: false,
+            onView: () => {
+              if (doc.viewUrl) void openAuthenticatedDocument(doc.viewUrl)
+            },
+            onDownload: () => {
+              if (doc.downloadUrl) void openAuthenticatedDocument(doc.downloadUrl)
+            },
+          }),
+        )
+    },
+    [apiDocuments],
+  )
+
   const categoryOptions = useMemo(
     () => [...BUILTIN_CATEGORY_OPTIONS, ...customCategories],
     [customCategories],
@@ -388,10 +456,11 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
     const q = search
     return uploads.filter((u) => {
       if (u.projectId !== project.id) return false
-      const blob = [u.displayName, u.fileName, u.notes].join(' ')
+      const typeLabel = typeLabelForUpload(u.category, customCategories)
+      const blob = [u.displayName, u.fileName, u.notes, typeLabel, u.uploadedBy].join(' ')
       return matchesSearch(blob, q)
     })
-  }, [uploads, project.id, search])
+  }, [uploads, project.id, search, customCategories])
 
   const buildUploadColumnRow = (u: UploadedProjectDocument): ColumnRow => ({
     id: u.id,
@@ -423,46 +492,101 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
   const clientQuotations = useMemo(
     () =>
       filterDocumentRowsBySearch(
-        pickUploads('client_quotation').map(buildUploadColumnRow),
+        mergeDocumentRows(
+          pickUploads('client_quotation').map(buildUploadColumnRow),
+          apiRowsByDoctype('client_quotation'),
+        ),
         search,
         matchesSearch,
       ),
-    [uploadsFiltered, search],
+    [uploadsFiltered, search, apiRowsByDoctype, customCategories],
   )
 
   const clientDocumentUploads = useMemo(
     () =>
       filterDocumentRowsBySearch(
-        pickUploads('client_documents').map(buildUploadColumnRow),
+        mergeDocumentRows(
+          pickUploads('client_documents').map(buildUploadColumnRow),
+          apiRowsByDoctype('client_documents'),
+        ),
         search,
         matchesSearch,
       ),
-    [uploadsFiltered, search],
+    [uploadsFiltered, search, apiRowsByDoctype, customCategories],
   )
 
   const baselineClientPORows = useMemo(() => {
-    const rows = clientPOs
+    const fromBaseline = clientPOs
       .filter((po) => po.projectId === project.id)
       .map(clientPOToDocumentRow)
       .filter((row): row is ProjectDocumentColumnRow => row !== null)
-    return filterDocumentRowsBySearch(rows, search, matchesSearch)
-  }, [clientPOs, project.id, search])
+    const fromApi = apiDocuments
+      .filter((doc) => doc.doctype === 'client_po')
+      .map(
+        (doc): ProjectDocumentColumnRow => ({
+          id: `api-client-po-${doc.id}`,
+          name: doc.name,
+          typeLabel: 'Client PO',
+          uploadedBy: doc.uploadedBy ?? 'System',
+          dateStr: formatDate(doc.uploadedAt),
+          sizeStr: doc.sizeBytes != null ? formatBytes(doc.sizeBytes) : null,
+          isUpload: false,
+          href: doc.viewUrl ?? undefined,
+          canDelete: false,
+          onView: () => {
+            if (doc.viewUrl) void openAuthenticatedDocument(doc.viewUrl)
+          },
+        }),
+      )
+    return filterDocumentRowsBySearch(
+      mergeDocumentRows(fromBaseline, fromApi),
+      search,
+      matchesSearch,
+    )
+  }, [clientPOs, project.id, search, apiDocuments])
 
   const clientPO = useMemo(
-    () => mergeDocumentRows(
-      pickUploads('client_po').map(buildUploadColumnRow),
-      baselineClientPORows,
-    ).filter((row) => matchesSearch(`${row.name} ${row.typeLabel}`, search)),
-    [uploadsFiltered, baselineClientPORows, search],
+    () =>
+      filterDocumentRowsBySearch(
+        mergeDocumentRows(
+          pickUploads('client_po').map(buildUploadColumnRow),
+          baselineClientPORows,
+        ),
+        search,
+        matchesSearch,
+      ),
+    [uploadsFiltered, baselineClientPORows, search, customCategories],
   )
 
   const baselineVendorPORows = useMemo(() => {
-    const rows = vendorPOList
+    const fromBaseline = vendorPOList
       .filter((po) => po.projectId === project.id)
       .map(vendorPOToDocumentRow)
       .filter((row): row is ProjectDocumentColumnRow => row !== null)
-    return filterDocumentRowsBySearch(rows, search, matchesSearch)
-  }, [vendorPOList, project.id, search])
+    const fromApi = apiDocuments
+      .filter((doc) => doc.doctype === 'vendor_po')
+      .map(
+        (doc): ProjectDocumentColumnRow => ({
+          id: `api-vendor-po-${doc.id}`,
+          name: doc.name,
+          typeLabel: 'Vendor PO',
+          uploadedBy: doc.uploadedBy ?? 'System',
+          dateStr: formatDate(doc.uploadedAt),
+          sizeStr: doc.sizeBytes != null ? formatBytes(doc.sizeBytes) : null,
+          isUpload: false,
+          href: doc.viewUrl ?? undefined,
+          canDelete: false,
+          onView: () => {
+            if (doc.viewUrl) void openAuthenticatedDocument(doc.viewUrl)
+          },
+        }),
+      )
+    return filterDocumentRowsBySearch(
+      mergeDocumentRows(fromBaseline, fromApi),
+      search,
+      matchesSearch,
+    )
+  }, [vendorPOList, project.id, search, apiDocuments])
 
   const pitchVendorQuotationRows = useMemo(() => {
     const rows = collectPitchVendorQuotationRows(pitchActiveVersion, project.id)
@@ -471,30 +595,42 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
 
   const vendorQuotations = useMemo(
     () =>
-      mergeDocumentRows(
-        pickUploads('vendor_quotation').map(buildUploadColumnRow),
-        pitchVendorQuotationRows,
-      ).filter((row) => matchesSearch(`${row.name} ${row.typeLabel}`, search)),
-    [uploadsFiltered, pitchVendorQuotationRows, search],
+      filterDocumentRowsBySearch(
+        mergeDocumentRows(
+          pickUploads('vendor_quotation').map(buildUploadColumnRow),
+          pitchVendorQuotationRows,
+          apiRowsByDoctype('vendor_quotation'),
+        ),
+        search,
+        matchesSearch,
+      ),
+    [uploadsFiltered, pitchVendorQuotationRows, search, apiRowsByDoctype, customCategories],
   )
 
   const vendorPORows = useMemo(
     () =>
-      mergeDocumentRows(
-        pickUploads('vendor_po').map(buildUploadColumnRow),
-        baselineVendorPORows,
-      ).filter((row) => matchesSearch(`${row.name} ${row.typeLabel}`, search)),
-    [uploadsFiltered, baselineVendorPORows, search],
+      filterDocumentRowsBySearch(
+        mergeDocumentRows(
+          pickUploads('vendor_po').map(buildUploadColumnRow),
+          baselineVendorPORows,
+        ),
+        search,
+        matchesSearch,
+      ),
+    [uploadsFiltered, baselineVendorPORows, search, customCategories],
   )
 
   const vendorDocumentUploads = useMemo(
     () =>
       filterDocumentRowsBySearch(
-        pickUploads('vendor_documents').map(buildUploadColumnRow),
+        mergeDocumentRows(
+          pickUploads('vendor_documents').map(buildUploadColumnRow),
+          apiRowsByDoctype(['vendor_documents', 'vendor_invoice']),
+        ),
         search,
         matchesSearch,
       ),
-    [uploadsFiltered, search],
+    [uploadsFiltered, search, apiRowsByDoctype, customCategories],
   )
 
   const legacyInternalUploadRows = useMemo(() => {
@@ -503,10 +639,19 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
         (u) =>
           u.projectId === project.id &&
           (isLegacyInternalUploadCategory(u.category) || u.category === 'project_documents') &&
-          matchesSearch([u.displayName, u.fileName, u.notes].join(' '), search),
+          matchesSearch(
+            [
+              u.displayName,
+              u.fileName,
+              u.notes,
+              typeLabelForUpload(u.category, customCategories),
+              u.uploadedBy,
+            ].join(' '),
+            search,
+          ),
       )
       .map(buildUploadColumnRow)
-  }, [uploads, project.id, search, buildUploadColumnRow])
+  }, [uploads, project.id, search, customCategories])
 
   const projectDocumentSections = useMemo(() => {
     const withPersisted = buildProjectDocumentSections(projectForDocuments, {
@@ -516,30 +661,49 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
       withPersisted,
       legacyInternalUploadRows,
     )
-    return filterProjectDocumentSectionsBySearch(withLegacy, search, matchesSearch)
-  }, [projectForDocuments, search, legacyInternalUploadRows])
+    const withApi = mergeApiRowsIntoProjectDocumentSections(withLegacy, {
+      Requirements: apiRowsByDoctype('requirement'),
+      'Final Layout': apiRowsByDoctype('final_layout'),
+      'Final RCP': apiRowsByDoctype('final_rcp'),
+      'Final Views': apiRowsByDoctype('final_views'),
+      'Final Photographs': apiRowsByDoctype('final_photographs'),
+      'Final Handover Documents': apiRowsByDoctype(['handover', 'project_documents']),
+    })
+    return filterProjectDocumentSectionsBySearch(withApi, search, matchesSearch)
+  }, [projectForDocuments, search, legacyInternalUploadRows, apiRowsByDoctype])
 
   /** Rows from Create Project → Project Documents (not manual drawer uploads). */
-  const projectFinalDocumentCount = useMemo(
-    () => countProjectDocumentRows(buildProjectDocumentSections(projectForDocuments)),
-    [projectForDocuments],
-  )
+  const projectFinalDocumentCount = useMemo(() => {
+    const local = countProjectDocumentRows(buildProjectDocumentSections(projectForDocuments))
+    const fromApi = apiDocuments.filter(
+      (d) => Boolean(PROJECT_DOCTYPE_SECTION_TITLE[d.doctype]),
+    ).length
+    return Math.max(local, fromApi)
+  }, [projectForDocuments, apiDocuments])
 
   const handleDelete = (id: string) => {
     removeUpload(id)
   }
 
   const baselineDocumentCount = useMemo(() => {
-    const clientCount = clientPOs.filter((po) => po.projectId === project.id && po.documentUrl).length
-    const vendorCount = vendorPOList.filter((po) => po.projectId === project.id && po.documentUrl).length
+    const clientCount = clientPOs.filter(
+      (po) => po.projectId === project.id && (po.documentUrl || po.fileName),
+    ).length
+    const vendorCount = vendorPOList.filter(
+      (po) => po.projectId === project.id && (po.documentUrl || po.fileName),
+    ).length
     const pitchCount = collectPitchVendorQuotationRows(pitchActiveVersion, project.id).length
-    return clientCount + vendorCount + pitchCount
-  }, [clientPOs, vendorPOList, pitchActiveVersion, project.id])
+    const apiPoCount = apiDocuments.filter((d) =>
+      d.doctype === 'client_po' || d.doctype === 'vendor_po',
+    ).length
+    return Math.max(clientCount + vendorCount + pitchCount, apiPoCount + pitchCount)
+  }, [clientPOs, vendorPOList, pitchActiveVersion, project.id, apiDocuments])
 
   const totalCount = useMemo(() => {
     const uploadCount = uploads.filter((u) => u.projectId === project.id).length
-    return uploadCount + projectFinalDocumentCount + baselineDocumentCount
-  }, [uploads, project.id, projectFinalDocumentCount, baselineDocumentCount])
+    const localCount = uploadCount + projectFinalDocumentCount + baselineDocumentCount
+    return Math.max(localCount, apiDocuments.length)
+  }, [uploads, project.id, projectFinalDocumentCount, baselineDocumentCount, apiDocuments.length])
 
   const showProject = filter === 'all' || filter === 'project'
   const showClient = filter === 'all' || filter === 'client'
@@ -554,13 +718,16 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
     () =>
       customCategories.map((cat) => {
         const rows = filterDocumentRowsBySearch(
-          pickUploads(cat.value as UploadCategory).map(buildUploadColumnRow),
+          mergeDocumentRows(
+            pickUploads(cat.value as UploadCategory).map(buildUploadColumnRow),
+            apiRowsByDoctype(cat.value),
+          ),
           search,
           matchesSearch,
         )
         return { ...cat, rows }
       }),
-    [customCategories, uploadsFiltered, search],
+    [customCategories, uploadsFiltered, search, apiRowsByDoctype],
   )
 
   const customRowCount = useMemo(() => {
@@ -593,7 +760,15 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
     customRowCount,
   ])
 
-  const projectDocumentContent = projectDocumentSections.map((section) => (
+  const showProjectSections =
+    showProject && !isCustomFilter && (filter === 'project' || projectRowCount > 0)
+
+  // On All, hide empty project category tables; keep only sections that have rows.
+  const projectDocumentContent = (
+    filter === 'all'
+      ? projectDocumentSections.filter((section) => section.rows.length > 0)
+      : projectDocumentSections
+  ).map((section) => (
     <SubsectionBlock
       key={section.title}
       title={section.title}
@@ -628,8 +803,20 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
   const globalEmpty = totalCount === 0
   const hasActiveSearch = search.trim().length > 0
   const noMatches = !globalEmpty && visibleRowCount === 0 && hasActiveSearch
-  const showProjectSections =
-    showProject && !isCustomFilter && (filter === 'project' || projectRowCount > 0)
+
+  useEffect(() => {
+    if (!drawerOpen) {
+      setDocName('')
+      setCategory('')
+      setSelectedFiles([])
+      setNotes('')
+      setFormErrors({})
+    }
+  }, [drawerOpen])
+
+  if (docsLoading) {
+    return <ProjectTabSkeleton rows={5} />
+  }
 
   const openDrawer = () => {
     setFormErrors({})
@@ -650,7 +837,7 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
     setNewCategoryError('')
   }
 
-  const handleAddCategory = () => {
+  const handleAddCategory = async () => {
     const label = newCategoryName.trim()
     if (!label) {
       setNewCategoryError('Category name is required')
@@ -663,65 +850,57 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
       setNewCategoryError('Category already exists')
       return
     }
-    let value = slugifyCategoryValue(label)
-    const usedValues = new Set(categoryOptions.map((o) => o.value))
-    if (usedValues.has(value)) {
-      value = `${value}_${Date.now()}`
+    try {
+      const created = await liveApi.createDocumentDoctype(project.id, { label })
+      if (!created) {
+        setNewCategoryError('Failed to create category')
+        return
+      }
+      setCustomCategories((prev) => [...prev, { value: created.value, label: created.label }])
+      setFilter(created.value)
+      if (drawerOpen) {
+        setCategory(created.value as UploadCategory)
+        setFormErrors((prev) => ({ ...prev, category: undefined }))
+      }
+      closeAddCategory()
+    } catch {
+      setNewCategoryError('Failed to create category for this project')
     }
-    setCustomCategories((prev) => [...prev, { value, label }])
-    if (drawerOpen) {
-      setCategory(value as UploadCategory)
-      setFormErrors((prev) => ({ ...prev, category: undefined }))
-    }
-    closeAddCategory()
   }
 
-  useEffect(() => {
-    if (!drawerOpen) {
-      setDocName('')
-      setCategory('')
-      setSelectedFiles([])
-      setNotes('')
-      setFormErrors({})
-    }
-  }, [drawerOpen])
-
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     const err: typeof formErrors = {}
     if (!docName.trim()) err.name = 'Document name is required'
     if (!category) err.category = 'Category is required'
     setFormErrors(err)
     if (Object.keys(err).length > 0) return
 
-    const file = selectedFiles[0] ?? null
-    const fallbackBlob = new Blob(
-      [
-        `No file uploaded for "${docName.trim()}".\n`,
-        notes.trim() ? `Notes: ${notes.trim()}\n` : '',
-      ],
-      { type: 'text/plain' },
-    )
-    const blobUrl = URL.createObjectURL(file ?? fallbackBlob)
-    const uid = authUser?.id ?? 'unknown'
-    const uname = authUser?.name ?? 'Unknown'
-    const fileName = file?.name ?? `${docName.trim().replace(/\s+/g, '_')}.txt`
-    const sizeBytes = file?.size ?? fallbackBlob.size
-
-    const next: UploadedProjectDocument = {
-      id: crypto.randomUUID(),
-      projectId: project.id,
-      displayName: docName.trim(),
-      category: category as UploadCategory,
-      fileName,
-      sizeBytes,
-      uploadedAt: new Date().toISOString(),
-      uploadedBy: uname,
-      uploadedByUserId: uid,
-      notes: notes.trim(),
-      blobUrl,
+    const file = selectedFiles[0]
+    if (!file) {
+      setFormErrors((prev) => ({ ...prev, name: 'Please choose a file to upload' }))
+      return
     }
-    addUpload(next, file)
-    closeDrawer()
+
+    setUploading(true)
+    try {
+      const uploaded = await liveApi.uploadProjectDocument(project.id, {
+        doctype: category as string,
+        displayName: docName.trim(),
+        notes: notes.trim() || undefined,
+        file,
+      })
+      if (uploaded) {
+        setApiDocuments((prev) => [uploaded, ...prev])
+      }
+      closeDrawer()
+    } catch {
+      setFormErrors((prev) => ({
+        ...prev,
+        name: 'Failed to upload document. Try again.',
+      }))
+    } finally {
+      setUploading(false)
+    }
   }
 
   const filterToolbar = (
@@ -851,6 +1030,7 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
           width={480}
           submitLabel="Upload"
           cancelLabel="Cancel"
+          submitLoading={uploading}
           onSubmit={handleSubmit}
         >
           <UploadFormBody
@@ -916,6 +1096,7 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
         width={480}
         submitLabel="Upload"
         cancelLabel="Cancel"
+        submitLoading={uploading}
         onSubmit={handleSubmit}
       >
         <UploadFormBody

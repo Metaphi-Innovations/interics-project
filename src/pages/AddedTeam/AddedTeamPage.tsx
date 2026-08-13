@@ -20,13 +20,11 @@ import { ArrowUpward, ArrowDownward, PersonOutline } from '@mui/icons-material'
 import { Eye } from 'lucide-react'
 import { FolderKanban, UserPlus } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import { useAppDispatch, useAppSelector } from '@/store/hooks'
-import { fetchProjects } from '@/slices/projects/thunk'
 import type { Project } from '@/slices/projects/reducer'
 import { ListingTemplate } from '@/components/templates/ListingTemplate'
 import { tokens } from '@/design-system/tokens'
-import { getProjectAssignedMembers, projectHasAssignedMembers } from '@/utils/projectAssignedTeam'
 import { getInitials, getAvatarColor } from '@/utils/formatters'
+import { teamsApi } from '@/api/teamsApi'
 
 export interface TeamAssignmentRow {
   id: string
@@ -38,6 +36,53 @@ export interface TeamAssignmentRow {
   projectName: string
   projectCode: string
   projectStatus: Project['status']
+}
+
+type TeamMemberApiRow = {
+  id?: string
+  userId?: string
+  teamMember?: string
+  memberName?: string
+  projectCount?: number
+  role?: string
+  roleLabel?: string
+  projectId?: string
+  project?: string
+  projectName?: string
+  projectCode?: string
+  projectStatus?: string
+}
+
+function mapApiTeamRow(raw: TeamMemberApiRow): TeamAssignmentRow | null {
+  const userId = raw.userId?.trim()
+  const projectId = raw.projectId?.trim()
+  if (!userId || !projectId) return null
+
+  const statusRaw = String(raw.projectStatus ?? '').toUpperCase()
+  const projectStatus: Project['status'] =
+    statusRaw === 'LIVE'
+      ? 'Live'
+      : statusRaw === 'PITCH'
+        ? 'Pitch'
+        : statusRaw === 'COMPLETED'
+          ? 'Completed'
+          : statusRaw === 'CANCELLED'
+            ? 'Cancelled'
+            : statusRaw === 'ARCHIVED'
+              ? 'Archived'
+              : 'Pitch'
+
+  return {
+    id: raw.id?.trim() || `${projectId}-${userId}`,
+    userId,
+    memberName: (raw.memberName ?? raw.teamMember ?? '').trim() || 'Unknown',
+    projectCount: Number(raw.projectCount ?? 1) || 1,
+    roleLabel: (raw.roleLabel ?? raw.role ?? 'Team Member').trim() || 'Team Member',
+    projectId,
+    projectName: (raw.projectName ?? raw.project ?? '').trim() || 'Untitled project',
+    projectCode: (raw.projectCode ?? '').trim(),
+    projectStatus,
+  }
 }
 
 const TEAM_DATA_COLUMN_COUNT = 4
@@ -132,38 +177,6 @@ const CENTER_CELL_CONTENT_SX = {
 
 function teamDataColWidth(): string {
   return `calc((100% - ${TEAM_ACTION_WIDTH_PX}px) / ${TEAM_DATA_COLUMN_COUNT})`
-}
-
-function flattenProjectTeam(projects: Project[]): TeamAssignmentRow[] {
-  const rows: TeamAssignmentRow[] = []
-  for (const project of projects) {
-    const members = getProjectAssignedMembers(project)
-    for (const member of members) {
-      rows.push({
-        id: `${project.id}-${member.userId}`,
-        userId: member.userId,
-        memberName: member.name,
-        projectCount: 0,
-        roleLabel: member.roleLabel ?? 'Team Member',
-        projectId: project.id,
-        projectName: project.name,
-        projectCode: project.projectCode,
-        projectStatus: project.status,
-      })
-    }
-  }
-
-  const projectsByMember = new Map<string, Set<string>>()
-  for (const row of rows) {
-    const projectIds = projectsByMember.get(row.userId) ?? new Set<string>()
-    projectIds.add(row.projectId)
-    projectsByMember.set(row.userId, projectIds)
-  }
-
-  return rows.map((row) => ({
-    ...row,
-    projectCount: projectsByMember.get(row.userId)?.size ?? 1,
-  }))
 }
 
 function MemberAvatar({ name }: { name: string }) {
@@ -416,10 +429,10 @@ function AddedTeamTable({
 }
 
 export default function AddedTeamPage() {
-  const dispatch = useAppDispatch()
   const navigate = useNavigate()
-  const { items: rawItems, loading, error } = useAppSelector((s) => s.projects)
-  const items = rawItems ?? []
+  const [items, setItems] = useState<TeamAssignmentRow[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
@@ -429,15 +442,35 @@ export default function AddedTeamPage() {
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
-    dispatch(fetchProjects({ page: 1, pageSize: 100 }))
-  }, [dispatch])
+    let cancelled = false
+    setLoading(true)
+    void (async () => {
+      try {
+        const res = await teamsApi.getMembers({ page: 1, limit: 500 })
+        if (cancelled) return
+        const rawItems = Array.isArray(res?.items) ? res.items : []
+        const rows = rawItems
+          .map((item) => mapApiTeamRow(item as TeamMemberApiRow))
+          .filter((row): row is TeamAssignmentRow => row != null)
+        setItems(rows)
+        setError(null)
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load team members')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
-  const allRows = useMemo(() => flattenProjectTeam(items), [items])
+  const allRows = useMemo(() => items, [items])
 
   const projectOptions = useMemo(() => {
     const seen = new Map<string, string>()
     for (const p of items) {
-      seen.set(p.id, p.name)
+      seen.set(p.projectId, p.projectName)
     }
     return Array.from(seen.entries()).map(([value, label]) => ({ value, label }))
   }, [items])
@@ -455,7 +488,8 @@ export default function AddedTeamPage() {
       )
     }
     if (statusFilter) {
-      rows = rows.filter((r) => r.projectStatus === statusFilter)
+      const wanted = statusFilter.toUpperCase()
+      rows = rows.filter((r) => String(r.projectStatus).toUpperCase() === wanted)
     }
     if (projectFilter) {
       rows = rows.filter((r) => r.projectId === projectFilter)
@@ -498,7 +532,7 @@ export default function AddedTeamPage() {
     },
     {
       label: 'PROJECTS WITH TEAM',
-      value: items.filter((p) => projectHasAssignedMembers(p)).length,
+      value: new Set(items.map((p) => p.projectId)).size,
       variant: 'success' as const,
       icon: <FolderKanban size={24} strokeWidth={1.75} />,
     },
@@ -511,11 +545,8 @@ export default function AddedTeamPage() {
       type: 'select' as const,
       options: [
         { label: 'All', value: '' },
-        { label: 'Pitch', value: 'Pitch' },
-        { label: 'Live', value: 'Live' },
-        { label: 'Completed', value: 'Completed' },
-        { label: 'Cancelled', value: 'Cancelled' },
-        { label: 'Archived', value: 'Archived' },
+        { label: 'Pitch', value: 'PITCH' },
+        { label: 'Live', value: 'LIVE' },
       ],
     },
     {
@@ -574,7 +605,7 @@ export default function AddedTeamPage() {
       <AddedTeamTable
         rows={sortedRows}
         loading={loading}
-        projectCount={items.length}
+        projectCount={new Set(items.map((p) => p.projectId)).size}
         loadError={error}
         sortField={sortField}
         sortDirection={sortDirection}

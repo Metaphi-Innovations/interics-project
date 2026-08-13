@@ -31,7 +31,7 @@ interface MockProject {
   clientName: string
 }
 
-/** Same projects as `/api/projects` — not a parallel infrastructure demo set. */
+/** Same projects as `/api/v1/projects` — not a parallel infrastructure demo set. */
 const mockProjects: MockProject[] = demoProjectListOptions()
 
 let mockUsers: MockUser[] = [
@@ -130,10 +130,10 @@ function syncRoleCounts() {
 syncRoleCounts()
 
 export const usersHandlers = [
-  /** Lightweight options for user form (full `/api/projects` is paginated in projectsHandlers). */
-  http.get('/api/projects-list', () => HttpResponse.json(mockProjects)),
+  /** Lightweight options for user form (full `/api/v1/projects` is paginated in projectsHandlers). */
+  http.get('/api/v1/projects-list', () => HttpResponse.json(mockProjects)),
 
-  http.get('/api/users', ({ request }) => {
+  http.get('/api/v1/users', ({ request }) => {
     const url = new URL(request.url)
     const search = url.searchParams.get('search')?.toLowerCase() ?? ''
     const role = url.searchParams.get('role') ?? ''
@@ -158,7 +158,7 @@ export const usersHandlers = [
     return HttpResponse.json(filtered)
   }),
 
-  http.get('/api/users/:id', ({ params }) => {
+  http.get('/api/v1/users/:id', ({ params }) => {
     const user = mockUsers.find((u) => u.id === params.id)
     if (!user) {
       return HttpResponse.json({ message: 'User not found' }, { status: 404 })
@@ -166,7 +166,7 @@ export const usersHandlers = [
     return HttpResponse.json(user)
   }),
 
-  http.post('/api/users', async ({ request }) => {
+  http.post('/api/v1/users', async ({ request }) => {
     const data = (await request.json()) as Omit<MockUser, 'id' | 'createdAt' | 'lastLogin'>
     const newUser: MockUser = {
       ...data,
@@ -180,7 +180,7 @@ export const usersHandlers = [
     return HttpResponse.json(newUser, { status: 201 })
   }),
 
-  http.put('/api/users/:id', async ({ params, request }) => {
+  http.put('/api/v1/users/:id', async ({ params, request }) => {
     const idx = mockUsers.findIndex((u) => u.id === params.id)
     if (idx === -1) {
       return HttpResponse.json({ message: 'User not found' }, { status: 404 })
@@ -191,7 +191,7 @@ export const usersHandlers = [
     return HttpResponse.json(mockUsers[idx])
   }),
 
-  http.patch('/api/users/:id/status', ({ params }) => {
+  http.patch('/api/v1/users/:id/status', ({ params }) => {
     const idx = mockUsers.findIndex((u) => u.id === params.id)
     if (idx === -1) {
       return HttpResponse.json({ message: 'User not found' }, { status: 404 })
@@ -205,7 +205,7 @@ export const usersHandlers = [
     return HttpResponse.json(mockUsers[idx])
   }),
 
-  http.delete('/api/users/:id', ({ params }) => {
+  http.delete('/api/v1/users/:id', ({ params }) => {
     const user = mockUsers.find((u) => u.id === params.id)
     if (!user) {
       return HttpResponse.json({ message: 'User not found' }, { status: 404 })

@@ -1,177 +1,157 @@
 import { createAsyncThunk } from '@reduxjs/toolkit'
+import { baselineReject, baselineService } from '@/modules/projects/baseline.service'
 import type { ClientPO, Baseline, VendorPO } from './reducer'
 
-const BASE = '/api/projects'
+export const fetchClientPO = createAsyncThunk<ClientPO[], string, { rejectValue: string }>(
+  'baseline/fetchClientPO',
+  async (projectId, { rejectWithValue }) => {
+    try {
+      return await baselineService.listClientPos(projectId)
+    } catch (err) {
+      return rejectWithValue(baselineReject(err, 'Failed to fetch client POs'))
+    }
+  },
+)
 
-// ─── Fetch client POs ─────────────────────────────────────────────────────────
-
-export const fetchClientPO = createAsyncThunk<
-  ClientPO[],
-  string,
+export const fetchClientPoById = createAsyncThunk<
+  ClientPO,
+  { projectId: string; poId: string },
   { rejectValue: string }
->('baseline/fetchClientPO', async (projectId, { rejectWithValue }) => {
-  const res = await fetch(`${BASE}/${projectId}/po`)
-  if (res.status === 404) return []
-  if (!res.ok) return rejectWithValue('Failed to fetch client POs')
-  return res.json() as Promise<ClientPO[]>
+>('baseline/fetchClientPoById', async ({ projectId, poId }, { rejectWithValue }) => {
+  try {
+    return await baselineService.getClientPo(projectId, poId)
+  } catch (err) {
+    return rejectWithValue(baselineReject(err, 'Failed to fetch client PO'))
+  }
 })
-
-// ─── Upload client PO ─────────────────────────────────────────────────────────
 
 export const uploadClientPO = createAsyncThunk<
   ClientPO,
   { projectId: string; data: Omit<ClientPO, 'id' | 'projectId'> },
   { rejectValue: string }
 >('baseline/uploadClientPO', async ({ projectId, data }, { rejectWithValue }) => {
-  const res = await fetch(`${BASE}/${projectId}/po`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  })
-  if (!res.ok) return rejectWithValue('Failed to upload client PO')
-  return res.json() as Promise<ClientPO>
+  try {
+    return await baselineService.createClientPo(projectId, data)
+  } catch (err) {
+    return rejectWithValue(baselineReject(err, 'Failed to upload client PO'))
+  }
 })
-
-// ─── Update client PO ─────────────────────────────────────────────────────────
 
 export const updateClientPO = createAsyncThunk<
   ClientPO,
   { projectId: string; poId: string; data: Partial<ClientPO> },
   { rejectValue: string }
 >('baseline/updateClientPO', async ({ projectId, poId, data }, { rejectWithValue }) => {
-  const res = await fetch(`${BASE}/${projectId}/po/${poId}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  })
-  if (!res.ok) return rejectWithValue('Failed to update client PO')
-  return res.json() as Promise<ClientPO>
+  try {
+    return await baselineService.updateClientPo(projectId, poId, data)
+  } catch (err) {
+    return rejectWithValue(baselineReject(err, 'Failed to update client PO'))
+  }
 })
-
-// ─── Delete client PO ─────────────────────────────────────────────────────────
 
 export const deleteClientPO = createAsyncThunk<
   string,
   { projectId: string; poId: string },
   { rejectValue: string }
 >('baseline/deleteClientPO', async ({ projectId, poId }, { rejectWithValue }) => {
-  const res = await fetch(`${BASE}/${projectId}/po/${poId}`, {
-    method: 'DELETE',
-  })
-  if (!res.ok) return rejectWithValue('Failed to delete client PO')
-  return poId
+  try {
+    await baselineService.deleteClientPo(projectId, poId)
+    return poId
+  } catch (err) {
+    return rejectWithValue(baselineReject(err, 'Failed to delete client PO'))
+  }
 })
 
-// ─── Fetch baseline ───────────────────────────────────────────────────────────
+export const fetchBaseline = createAsyncThunk<Baseline | null, string, { rejectValue: string }>(
+  'baseline/fetchBaseline',
+  async (projectId, { rejectWithValue }) => {
+    try {
+      return await baselineService.getBaseline(projectId)
+    } catch (err) {
+      return rejectWithValue(baselineReject(err, 'Failed to fetch baseline'))
+    }
+  },
+)
 
-export const fetchBaseline = createAsyncThunk<
-  Baseline | null,
-  string,
-  { rejectValue: string }
->('baseline/fetchBaseline', async (projectId, { rejectWithValue }) => {
-  const res = await fetch(`${BASE}/${projectId}/baseline`)
-  if (res.status === 404) return null
-  if (!res.ok) return rejectWithValue('Failed to fetch baseline')
-  return res.json() as Promise<Baseline | null>
-})
-
-export const fetchBaselineHistory = createAsyncThunk<
-  Baseline[],
-  string,
-  { rejectValue: string }
->('baseline/fetchBaselineHistory', async (projectId, { rejectWithValue }) => {
-  const res = await fetch(`${BASE}/${projectId}/baseline/history`)
-  if (res.status === 404) return []
-  if (!res.ok) return rejectWithValue('Failed to fetch baseline history')
-  return res.json() as Promise<Baseline[]>
-})
-
-// ─── Create baseline ──────────────────────────────────────────────────────────
+export const fetchBaselineHistory = createAsyncThunk<Baseline[], string, { rejectValue: string }>(
+  'baseline/fetchBaselineHistory',
+  async (projectId, { rejectWithValue }) => {
+    try {
+      return await baselineService.listBaselineHistory(projectId)
+    } catch (err) {
+      return rejectWithValue(baselineReject(err, 'Failed to fetch baseline history'))
+    }
+  },
+)
 
 export const createBaseline = createAsyncThunk<
   Baseline,
   { projectId: string; data: Partial<Baseline> },
   { rejectValue: string }
 >('baseline/createBaseline', async ({ projectId, data }, { rejectWithValue }) => {
-  const res = await fetch(`${BASE}/${projectId}/baseline`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  })
-  if (!res.ok) return rejectWithValue('Failed to create baseline')
-  return res.json() as Promise<Baseline>
+  try {
+    return await baselineService.createBaseline(projectId, data)
+  } catch (err) {
+    return rejectWithValue(baselineReject(err, 'Failed to create baseline'))
+  }
 })
 
-// ─── Fetch vendor POs ─────────────────────────────────────────────────────────
-
-export const fetchVendorPOs = createAsyncThunk<
-  VendorPO[],
-  string,
-  { rejectValue: string }
->('baseline/fetchVendorPOs', async (projectId, { rejectWithValue }) => {
-  const res = await fetch(`${BASE}/${projectId}/vendor-pos`)
-  if (!res.ok) return rejectWithValue('Failed to fetch vendor POs')
-  return res.json() as Promise<VendorPO[]>
-})
-
-// ─── Create vendor PO ─────────────────────────────────────────────────────────
+export const fetchVendorPOs = createAsyncThunk<VendorPO[], string, { rejectValue: string }>(
+  'baseline/fetchVendorPOs',
+  async (projectId, { rejectWithValue }) => {
+    try {
+      return await baselineService.listVendorPos(projectId)
+    } catch (err) {
+      return rejectWithValue(baselineReject(err, 'Failed to fetch vendor POs'))
+    }
+  },
+)
 
 export const createVendorPO = createAsyncThunk<
   VendorPO,
   { projectId: string; data: Omit<VendorPO, 'id' | 'projectId'> },
   { rejectValue: string }
 >('baseline/createVendorPO', async ({ projectId, data }, { rejectWithValue }) => {
-  const res = await fetch(`${BASE}/${projectId}/vendor-pos`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  })
-  if (!res.ok) return rejectWithValue('Failed to create vendor PO')
-  return res.json() as Promise<VendorPO>
+  try {
+    return await baselineService.createVendorPo(projectId, data)
+  } catch (err) {
+    return rejectWithValue(baselineReject(err, 'Failed to create vendor PO'))
+  }
 })
-
-// ─── Update vendor PO ─────────────────────────────────────────────────────────
 
 export const updateVendorPO = createAsyncThunk<
   VendorPO,
   { projectId: string; poId: string; data: Partial<VendorPO> },
   { rejectValue: string }
 >('baseline/updateVendorPO', async ({ projectId, poId, data }, { rejectWithValue }) => {
-  const res = await fetch(`${BASE}/${projectId}/vendor-pos/${poId}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  })
-  if (!res.ok) return rejectWithValue('Failed to update vendor PO')
-  return res.json() as Promise<VendorPO>
+  try {
+    return await baselineService.updateVendorPo(projectId, poId, data)
+  } catch (err) {
+    return rejectWithValue(baselineReject(err, 'Failed to update vendor PO'))
+  }
 })
-
-// ─── Delete vendor PO ─────────────────────────────────────────────────────────
 
 export const deleteVendorPO = createAsyncThunk<
   string,
   { projectId: string; poId: string },
   { rejectValue: string }
 >('baseline/deleteVendorPO', async ({ projectId, poId }, { rejectWithValue }) => {
-  const res = await fetch(`${BASE}/${projectId}/vendor-pos/${poId}`, {
-    method: 'DELETE',
-  })
-  if (!res.ok) return rejectWithValue('Failed to delete vendor PO')
-  return poId
+  try {
+    await baselineService.deleteVendorPo(projectId, poId)
+    return poId
+  } catch (err) {
+    return rejectWithValue(baselineReject(err, 'Failed to delete vendor PO'))
+  }
 })
-
-// ─── Update baseline ──────────────────────────────────────────────────────────
 
 export const updateBaseline = createAsyncThunk<
   Baseline,
   { projectId: string; baselineId: string; data: Partial<Baseline> },
   { rejectValue: string }
 >('baseline/updateBaseline', async ({ projectId, baselineId, data }, { rejectWithValue }) => {
-  const res = await fetch(`${BASE}/${projectId}/baseline/${baselineId}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  })
-  if (!res.ok) return rejectWithValue('Failed to update baseline')
-  return res.json() as Promise<Baseline>
+  try {
+    return await baselineService.updateBaseline(projectId, baselineId, data)
+  } catch (err) {
+    return rejectWithValue(baselineReject(err, 'Failed to update baseline'))
+  }
 })

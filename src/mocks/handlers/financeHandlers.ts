@@ -18,7 +18,7 @@ function inDateRange(
 }
 
 export const financeHandlers = [
-  http.get('/api/expenses', ({ request }) => {
+  http.get('*/api/v1/expenses', ({ request }) => {
     const url = new URL(request.url)
     const projectId = url.searchParams.get('projectId')
     const type = url.searchParams.get('type')
@@ -38,7 +38,7 @@ export const financeHandlers = [
     return HttpResponse.json(rows)
   }),
 
-  http.post('/api/expenses', async ({ request }) => {
+  http.post('*/api/v1/expenses', async ({ request }) => {
     const body = await request.json() as Omit<Expense, 'id'> & { projectId: string }
     if (!body.projectId) {
       return HttpResponse.json({ message: 'projectId is required' }, { status: 400 })
@@ -53,7 +53,7 @@ export const financeHandlers = [
     return HttpResponse.json(newExp, { status: 201 })
   }),
 
-  http.get('/api/payments', ({ request }) => {
+  http.get('*/api/v1/payments', ({ request }) => {
     const url = new URL(request.url)
     const projectId = url.searchParams.get('projectId')
     const vendorId = url.searchParams.get('vendorId')
@@ -69,7 +69,7 @@ export const financeHandlers = [
     return HttpResponse.json(rows)
   }),
 
-  http.get('/api/reimbursements', ({ request }) => {
+  http.get('*/api/v1/reimbursements', ({ request }) => {
     const url = new URL(request.url)
     const projectId = url.searchParams.get('projectId')
     const vendorId = url.searchParams.get('vendorId')

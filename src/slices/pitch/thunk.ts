@@ -1,4 +1,6 @@
 import { createAsyncThunk } from '@reduxjs/toolkit'
+import { pitchService } from '@/modules/projects/pitch.service'
+import { parseSettingsApiError } from '@/modules/system-settings/shared/api-errors'
 import type {
   PitchVersion,
   PitchCategory,
@@ -9,19 +11,14 @@ import type {
 } from './reducer'
 import { normalizeVendorMapping } from '@/utils/vendorMilestones'
 
-const BASE = '/api/projects'
-
 /** API may still send legacy `splits`; store uses `vendorSplits`. */
 type PlannedExpenseIncoming = PlannedExpense & { splits?: PlannedExpense['vendorSplits'] }
 
 function normalizePlannedExpense(raw: PlannedExpenseIncoming): PlannedExpense {
   const vendorSplits = raw.vendorSplits ?? raw.splits
+  const { splits: _legacySplits, ...rest } = raw
   return {
-    id: raw.id,
-    type: raw.type,
-    name: raw.name,
-    amount: raw.amount,
-    vendorId: raw.vendorId,
+    ...rest,
     vendorSplits,
   }
 }
@@ -31,14 +28,18 @@ function normalizePitchVersion(v: PitchVersion & { plannedExpenses?: PlannedExpe
   return {
     ...v,
     plannedExpenses: (v.plannedExpenses ?? []).map((e) => normalizePlannedExpense(e as PlannedExpenseIncoming)),
-    categories: v.categories.map((cat) => ({
+    categories: (v.categories ?? []).map((cat) => ({
       ...cat,
-      services: cat.services.map((s) => ({
+      services: (cat.services ?? []).map((s) => ({
         ...s,
-        vendorMappings: s.vendorMappings.map((vm) => normalizeVendorMapping(vm)),
+        vendorMappings: (s.vendorMappings ?? []).map((vm) => normalizeVendorMapping(vm)),
       })),
     })),
   }
+}
+
+function rejectPitch(err: unknown, fallback: string): string {
+  return parseSettingsApiError(err, fallback).message
 }
 
 // ─── Fetch all versions for a project ────────────────────────────────────────
@@ -48,10 +49,12 @@ export const fetchVersions = createAsyncThunk<
   string,
   { rejectValue: string }
 >('pitch/fetchVersions', async (projectId, { rejectWithValue }) => {
-  const res = await fetch(`${BASE}/${projectId}/pitch/versions`)
-  if (!res.ok) return rejectWithValue('Failed to fetch pitch versions')
-  const data = (await res.json()) as PitchVersion[]
-  return data.map(normalizePitchVersion)
+  try {
+    const data = await pitchService.listVersions(projectId)
+    return data.map(normalizePitchVersion)
+  } catch (err) {
+    return rejectWithValue(rejectPitch(err, 'Failed to fetch pitch versions'))
+  }
 })
 
 // ─── Fetch single version ─────────────────────────────────────────────────────
@@ -61,10 +64,12 @@ export const fetchVersionById = createAsyncThunk<
   { projectId: string; versionId: string },
   { rejectValue: string }
 >('pitch/fetchVersionById', async ({ projectId, versionId }, { rejectWithValue }) => {
-  const res = await fetch(`${BASE}/${projectId}/pitch/versions/${versionId}`)
-  if (!res.ok) return rejectWithValue('Failed to fetch version')
-  const data = (await res.json()) as PitchVersion
-  return normalizePitchVersion(data)
+  try {
+    const data = await pitchService.getVersion(projectId, versionId)
+    return normalizePitchVersion(data)
+  } catch (err) {
+    return rejectWithValue(rejectPitch(err, 'Failed to fetch version'))
+  }
 })
 
 // ─── Create version ───────────────────────────────────────────────────────────
@@ -74,14 +79,12 @@ export const createVersion = createAsyncThunk<
   { projectId: string; data: { label: string; copyFromVersionId?: string } },
   { rejectValue: string }
 >('pitch/createVersion', async ({ projectId, data }, { rejectWithValue }) => {
-  const res = await fetch(`${BASE}/${projectId}/pitch/versions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  })
-  if (!res.ok) return rejectWithValue('Failed to create version')
-  const created = (await res.json()) as PitchVersion
-  return normalizePitchVersion(created)
+  try {
+    const created = await pitchService.createVersion(projectId, data)
+    return normalizePitchVersion(created)
+  } catch (err) {
+    return rejectWithValue(rejectPitch(err, 'Failed to create version'))
+  }
 })
 
 // ─── Update version ───────────────────────────────────────────────────────────
@@ -91,14 +94,12 @@ export const updateVersion = createAsyncThunk<
   { projectId: string; versionId: string; data: Partial<PitchVersion> },
   { rejectValue: string }
 >('pitch/updateVersion', async ({ projectId, versionId, data }, { rejectWithValue }) => {
-  const res = await fetch(`${BASE}/${projectId}/pitch/versions/${versionId}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  })
-  if (!res.ok) return rejectWithValue('Failed to update version')
-  const updated = (await res.json()) as PitchVersion
-  return normalizePitchVersion(updated)
+  try {
+    const updated = await pitchService.updateVersion(projectId, versionId, data)
+    return normalizePitchVersion(updated)
+  } catch (err) {
+    return rejectWithValue(rejectPitch(err, 'Failed to update version'))
+  }
 })
 
 // ─── Add category ─────────────────────────────────────────────────────────────
@@ -108,14 +109,12 @@ export const addCategory = createAsyncThunk<
   { projectId: string; versionId: string; category: Omit<PitchCategory, 'services' | 'totalValue'> },
   { rejectValue: string }
 >('pitch/addCategory', async ({ projectId, versionId, category }, { rejectWithValue }) => {
-  const res = await fetch(`${BASE}/${projectId}/pitch/versions/${versionId}/categories`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(category),
-  })
-  if (!res.ok) return rejectWithValue('Failed to add category')
-  const data = (await res.json()) as PitchVersion
-  return normalizePitchVersion(data)
+  try {
+    const data = await pitchService.addCategory(projectId, versionId, category)
+    return normalizePitchVersion(data)
+  } catch (err) {
+    return rejectWithValue(rejectPitch(err, 'Failed to add category'))
+  }
 })
 
 // ─── Delete category ───────────────────────────────────────────────────────────
@@ -125,13 +124,12 @@ export const deleteCategory = createAsyncThunk<
   { projectId: string; versionId: string; categoryId: string },
   { rejectValue: string }
 >('pitch/deleteCategory', async ({ projectId, versionId, categoryId }, { rejectWithValue }) => {
-  const res = await fetch(
-    `${BASE}/${projectId}/pitch/versions/${versionId}/categories/${categoryId}`,
-    { method: 'DELETE' }
-  )
-  if (!res.ok) return rejectWithValue('Failed to delete category')
-  const data = (await res.json()) as PitchVersion
-  return normalizePitchVersion(data)
+  try {
+    const data = await pitchService.deleteCategory(projectId, versionId, categoryId)
+    return normalizePitchVersion(data)
+  } catch (err) {
+    return rejectWithValue(rejectPitch(err, 'Failed to delete category'))
+  }
 })
 
 // ─── Add service ──────────────────────────────────────────────────────────────
@@ -141,17 +139,12 @@ export const addService = createAsyncThunk<
   { projectId: string; versionId: string; categoryId: string; service: Partial<PitchService> },
   { rejectValue: string }
 >('pitch/addService', async ({ projectId, versionId, categoryId, service }, { rejectWithValue }) => {
-  const res = await fetch(
-    `${BASE}/${projectId}/pitch/versions/${versionId}/categories/${categoryId}/services`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(service),
-    }
-  )
-  if (!res.ok) return rejectWithValue('Failed to add service')
-  const data = (await res.json()) as PitchVersion
-  return normalizePitchVersion(data)
+  try {
+    const data = await pitchService.addService(projectId, versionId, categoryId, service)
+    return normalizePitchVersion(data)
+  } catch (err) {
+    return rejectWithValue(rejectPitch(err, 'Failed to add service'))
+  }
 })
 
 // ─── Update service ───────────────────────────────────────────────────────────
@@ -169,18 +162,19 @@ export const updateService = createAsyncThunk<
 >(
   'pitch/updateService',
   async ({ projectId, versionId, categoryId, serviceId, data }, { rejectWithValue }) => {
-    const res = await fetch(
-      `${BASE}/${projectId}/pitch/versions/${versionId}/categories/${categoryId}/services/${serviceId}`,
-      {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      }
-    )
-    if (!res.ok) return rejectWithValue('Failed to update service')
-    const updatedVersion = (await res.json()) as PitchVersion
-    return normalizePitchVersion(updatedVersion)
-  }
+    try {
+      const updatedVersion = await pitchService.updateService(
+        projectId,
+        versionId,
+        categoryId,
+        serviceId,
+        data,
+      )
+      return normalizePitchVersion(updatedVersion)
+    } catch (err) {
+      return rejectWithValue(rejectPitch(err, 'Failed to update service'))
+    }
+  },
 )
 
 // ─── Delete service ───────────────────────────────────────────────────────────
@@ -192,14 +186,13 @@ export const deleteService = createAsyncThunk<
 >(
   'pitch/deleteService',
   async ({ projectId, versionId, categoryId, serviceId }, { rejectWithValue }) => {
-    const res = await fetch(
-      `${BASE}/${projectId}/pitch/versions/${versionId}/categories/${categoryId}/services/${serviceId}`,
-      { method: 'DELETE' }
-    )
-    if (!res.ok) return rejectWithValue('Failed to delete service')
-    const data = (await res.json()) as PitchVersion
-    return normalizePitchVersion(data)
-  }
+    try {
+      const data = await pitchService.deleteService(projectId, versionId, categoryId, serviceId)
+      return normalizePitchVersion(data)
+    } catch (err) {
+      return rejectWithValue(rejectPitch(err, 'Failed to delete service'))
+    }
+  },
 )
 
 // ─── Update milestones ────────────────────────────────────────────────────────
@@ -211,18 +204,13 @@ export const updateMilestones = createAsyncThunk<
 >(
   'pitch/updateMilestones',
   async ({ projectId, versionId, serviceId, milestones }, { rejectWithValue }) => {
-    const res = await fetch(
-      `${BASE}/${projectId}/pitch/versions/${versionId}/services/${serviceId}/milestones`,
-      {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ milestones }),
-      }
-    )
-    if (!res.ok) return rejectWithValue('Failed to update milestones')
-    const data = (await res.json()) as PitchVersion
-    return normalizePitchVersion(data)
-  }
+    try {
+      const data = await pitchService.updateMilestones(projectId, versionId, serviceId, milestones)
+      return normalizePitchVersion(data)
+    } catch (err) {
+      return rejectWithValue(rejectPitch(err, 'Failed to update milestones'))
+    }
+  },
 )
 
 // ─── Update vendor mapping ────────────────────────────────────────────────────
@@ -234,18 +222,18 @@ export const updateVendorMapping = createAsyncThunk<
 >(
   'pitch/updateVendorMapping',
   async ({ projectId, versionId, serviceId, mappings }, { rejectWithValue }) => {
-    const res = await fetch(
-      `${BASE}/${projectId}/pitch/versions/${versionId}/services/${serviceId}/vendors`,
-      {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mappings }),
-      }
-    )
-    if (!res.ok) return rejectWithValue('Failed to update vendor mappings')
-    const data = (await res.json()) as PitchVersion
-    return normalizePitchVersion(data)
-  }
+    try {
+      const data = await pitchService.updateVendorMappings(
+        projectId,
+        versionId,
+        serviceId,
+        mappings,
+      )
+      return normalizePitchVersion(data)
+    } catch (err) {
+      return rejectWithValue(rejectPitch(err, 'Failed to update vendor mappings'))
+    }
+  },
 )
 
 // ─── Update planned expenses (version-level) ────────────────────────────────
@@ -257,16 +245,11 @@ export const updatePlannedExpenses = createAsyncThunk<
 >(
   'pitch/updatePlannedExpenses',
   async ({ projectId, versionId, expenses }, { rejectWithValue }) => {
-    const res = await fetch(
-      `${BASE}/${projectId}/pitch/versions/${versionId}/planned-expenses`,
-      {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ expenses }),
-      }
-    )
-    if (!res.ok) return rejectWithValue('Failed to update planned expenses')
-    const data = (await res.json()) as PitchVersion
-    return normalizePitchVersion(data)
-  }
+    try {
+      const data = await pitchService.updatePlannedExpenses(projectId, versionId, expenses)
+      return normalizePitchVersion(data)
+    } catch (err) {
+      return rejectWithValue(rejectPitch(err, 'Failed to update planned expenses'))
+    }
+  },
 )

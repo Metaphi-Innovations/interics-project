@@ -3,6 +3,7 @@ import {
   Box, Typography, Chip, TextField, MenuItem,
   Table, TableHead, TableRow, TableCell, TableBody, TableContainer,
   IconButton, Divider,
+  Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions,
 } from '@mui/material'
 import { Edit, ToggleOff, ToggleOn } from '@mui/icons-material'
 import { Plus } from 'lucide-react'
@@ -21,6 +22,15 @@ import {
   SETTINGS_TABLE_SX,
   settingsDataColWidth,
 } from '../components/settingsTableStyles'
+import {
+  requiredAlphabeticName,
+  requiredEntityId,
+  serviceGstRate,
+  collectErrors,
+  hasErrors,
+  firstErrorMessage,
+} from '@/modules/system-settings/shared/settings-validation'
+import { parseSettingsApiError, clearFieldError } from '@/modules/system-settings/shared/api-errors'
 
 const SERVICE_DATA_COL_COUNT = 5
 const serviceDataColWidth = settingsDataColWidth(SERVICE_DATA_COL_COUNT)
@@ -58,32 +68,46 @@ export default function ServicesSection() {
   const error = useToast((s) => s.error)
   const { services, categories, sacCodes, gstRates, saving } = useAppSelector(s => s.settings)
   const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('all')
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [editingRow, setEditingRow] = useState<Service | null>(null)
   const [form, setForm] = useState<ServiceForm>(defaultForm)
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [resolvedGSTRate, setResolvedGSTRate] = useState(0)
+  const [toggleTarget, setToggleTarget] = useState<Service | null>(null)
+  const [toggling, setToggling] = useState(false)
 
   useEffect(() => {
-    dispatch(fetchServices())
-    dispatch(fetchCategories())
-    dispatch(fetchSACCodes())
-    dispatch(fetchGSTRates())
+    const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 300)
+    return () => window.clearTimeout(timer)
+  }, [search])
+
+  useEffect(() => {
+    void Promise.all([
+      dispatch(fetchCategories()),
+      dispatch(fetchSACCodes()),
+      dispatch(fetchGSTRates()),
+    ])
   }, [dispatch])
+
+  useEffect(() => {
+    void dispatch(
+      fetchServices({
+        search: debouncedSearch || undefined,
+        categoryId: categoryFilter === 'all' ? undefined : categoryFilter,
+        force: true,
+      }),
+    )
+  }, [dispatch, debouncedSearch, categoryFilter])
 
   const activeCategories = categories.filter(c => c.status === 'active')
   const activeSACCodes = sacCodes.filter(s => s.status === 'active')
 
-  const filtered = services.filter(s => {
-    const matchSearch =
-      s.name.toLowerCase().includes(search.toLowerCase())
-    const matchCat = categoryFilter === 'all' || s.categoryId === categoryFilter
-    return matchSearch && matchCat
-  })
-
   const openAdd = () => {
     setEditingRow(null)
     setForm(defaultForm)
+    setFieldErrors({})
     setResolvedGSTRate(0)
     setDrawerOpen(true)
   }
@@ -103,6 +127,7 @@ export default function ServicesSection() {
       tags: row.tags,
       status: row.status,
     })
+    setFieldErrors({})
     setResolvedGSTRate(rateFromSac)
     setDrawerOpen(true)
   }
@@ -117,12 +142,26 @@ export default function ServicesSection() {
       sacCodeId: sacId,
       gstRate: rate,
     }))
+    setFieldErrors(errors => clearFieldError(errors, 'sacCodeId'))
   }
 
   const handleSave = () => {
     const sac = sacCodes.find(s => s.id === form.sacCodeId)
     const linked = gstRates.find(g => g.id === sac?.gstRateId)
     const gstRate = linked?.rate ?? form.gstRate
+    
+    const next = collectErrors([
+      ['name', requiredAlphabeticName(form.name, 'Service Name', 150)],
+      ['categoryId', requiredEntityId(form.categoryId, 'Category')],
+      ['sacCodeId', requiredEntityId(form.sacCodeId, 'SAC code')],
+      ['gstRate', serviceGstRate(gstRate)],
+    ])
+    setFieldErrors(next)
+    if (hasErrors(next)) {
+      error(firstErrorMessage(next, 'Please fix the highlighted fields'))
+      return
+    }
+    
     const payload: ServiceForm = {
       ...form,
       allowGSTOverride: false,
@@ -137,8 +176,35 @@ export default function ServicesSection() {
         setDrawerOpen(false)
         success(editingRow ? 'Service updated' : 'Service added')
       })
-      .catch(() => error('Failed to save service'))
+      .catch((err) => {
+        const parsed = parseSettingsApiError(err, 'Failed to save service', {
+          sacCode: 'sacCodeId',
+        })
+        if (Object.keys(parsed.fieldErrors).length) setFieldErrors(parsed.fieldErrors)
+        error(parsed.message)
+      })
   }
+
+  const confirmToggle = async () => {
+    if (!toggleTarget) return
+    setToggling(true)
+    try {
+      await dispatch(toggleServiceStatus(toggleTarget.id)).unwrap()
+      success(
+        toggleTarget.status === 'active'
+          ? 'Service deactivated'
+          : 'Service activated',
+      )
+      setToggleTarget(null)
+    } catch (err) {
+      const parsed = parseSettingsApiError(err, 'Failed to update status')
+      error(parsed.message)
+    } finally {
+      setToggling(false)
+    }
+  }
+
+  const toggleNextActive = toggleTarget?.status !== 'active'
 
   return (
     <Box>
@@ -196,7 +262,7 @@ export default function ServicesSection() {
           </TableRow>
         </TableHead>
         <TableBody>
-          {filtered.map(row => {
+          {services.map(row => {
             const cat = categories.find(c => c.id === row.categoryId)
             const sac = sacCodes.find(s => s.id === row.sacCodeId)
             return (
@@ -216,10 +282,10 @@ export default function ServicesSection() {
                   <IconButton size="small" onClick={() => openEdit(row)}>
                     <Edit sx={{ fontSize: 14 }} />
                   </IconButton>
-                  <IconButton size="small" onClick={() => dispatch(toggleServiceStatus(row.id))}>
+                  <IconButton size="small" onClick={() => setToggleTarget(row)}>
                     {row.status === 'active'
-                      ? <ToggleOff sx={{ fontSize: 14, color: 'warning.main' }} />
-                      : <ToggleOn sx={{ fontSize: 14, color: 'success.main' }} />}
+                      ? <ToggleOn sx={{ fontSize: 14, color: 'success.main' }} />
+                      : <ToggleOff sx={{ fontSize: 14, color: 'error.main' }} />}
                   </IconButton>
                 </TableCell>
               </TableRow>
@@ -253,7 +319,12 @@ export default function ServicesSection() {
             fullWidth
             placeholder="e.g. Interior Design"
             value={form.name}
-            onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+            onChange={e => {
+              setForm(f => ({ ...f, name: e.target.value }))
+              setFieldErrors(errors => clearFieldError(errors, 'name'))
+            }}
+            error={!!fieldErrors.name}
+            helperText={fieldErrors.name}
           />
           <TextField
             select
@@ -262,7 +333,12 @@ export default function ServicesSection() {
             required
             fullWidth
             value={form.categoryId}
-            onChange={e => setForm(f => ({ ...f, categoryId: e.target.value }))}
+            onChange={e => {
+              setForm(f => ({ ...f, categoryId: e.target.value }))
+              setFieldErrors(errors => clearFieldError(errors, 'categoryId'))
+            }}
+            error={!!fieldErrors.categoryId}
+            helperText={fieldErrors.categoryId}
           >
             {activeCategories.map(c => (
               <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>
@@ -279,6 +355,8 @@ export default function ServicesSection() {
             fullWidth
             value={form.sacCodeId ?? ''}
             onChange={e => handleSACChange(e.target.value)}
+            error={!!fieldErrors.sacCodeId}
+            helperText={fieldErrors.sacCodeId}
           >
             {activeSACCodes.map(s => (
               <MenuItem key={s.id} value={s.id}>{s.code} — {s.description}</MenuItem>
@@ -290,6 +368,11 @@ export default function ServicesSection() {
             <Chip size="small" label={`${resolvedGSTRate}%`} sx={{ bgcolor: '#E8F5F2', color: '#107E68', fontSize: 11, height: 20 }} />
             <Typography variant="caption" color="text.disabled">Auto-applied</Typography>
           </Box>
+          {fieldErrors.gstRate && (
+            <Typography variant="caption" color="error" sx={{ mt: -1 }}>
+              {fieldErrors.gstRate}
+            </Typography>
+          )}
         </FormSection>
 
         <TextField
@@ -304,6 +387,25 @@ export default function ServicesSection() {
           <MenuItem value="inactive">Inactive</MenuItem>
         </TextField>
       </Modal>
+
+      <Dialog open={!!toggleTarget} onClose={() => !toggling && setToggleTarget(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>{toggleNextActive ? 'Activate' : 'Deactivate'}?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            {toggleNextActive
+              ? `Activate "${toggleTarget?.name}"?`
+              : `Deactivate "${toggleTarget?.name}"? It will no longer be available for new records.`}
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button size="sm" variant="outlined" color="secondary" onClick={() => setToggleTarget(null)} disabled={toggling}>
+            Cancel
+          </Button>
+          <Button size="sm" variant="contained" color="primary" onClick={() => void confirmToggle()} disabled={toggling}>
+            {toggling ? 'Updating...' : 'Confirm'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   )
 }

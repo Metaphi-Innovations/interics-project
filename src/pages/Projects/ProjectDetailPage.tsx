@@ -780,7 +780,11 @@ export default function ProjectDetailPage() {
             )}
           </Stack>
         }
-        metaItems={[]}
+        metaItems={
+          project.customerName?.trim()
+            ? [{ label: project.customerName.trim() }]
+            : []
+        }
         primaryAction={{
           label: 'Edit Project',
           icon: <Edit sx={{ fontSize: 14 }} />,

@@ -24,7 +24,7 @@ import type { PitchVersion, PlannedExpense, PitchService, VendorMapping } from '
 import type { Baseline, VendorPO } from '@/slices/baseline/reducer'
 import type { ExpenseType } from '@/slices/live/types'
 import type { CreateExpenseBody } from '@/api/liveApi'
-import { Input, FileUpload, DatePicker, dateFromIso, isoFromDate } from '@/design-system/components'
+import { Input, FileUpload, DatePicker, dateFromIso, isoFromDate, useToast } from '@/design-system/components'
 import { FormField, FormSection } from '@/components/templates/DrawerForm'
 import { tokens } from '@/design-system/tokens'
 import { formatCurrency } from '@/utils/formatters'
@@ -127,6 +127,7 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
 ) {
   const isPitch = context === 'pitch'
   const isLiveOrGlobal = context === 'live' || context === 'global'
+  const toast = useToast()
 
   const effectiveProjectId =
     context === 'global' ? (selectedProjectId ?? '') : (projectId ?? '')
@@ -145,6 +146,15 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
 
   const [paidByVendorId, setPaidByVendorId] = useState('')
   const [allocatedVendorIds, setAllocatedVendorIds] = useState<string[]>([])
+  const [fieldErrors, setFieldErrors] = useState<{
+    projectId?: string
+    description?: string
+    amount?: string
+    date?: string
+    serviceId?: string
+    mappingId?: string
+    commonVendors?: string
+  }>({})
 
   const liveTypeOptions: { value: ExpenseType; label: string }[] = [
     { value: 'additional', label: EXPENSE_TYPE_OPTIONS.additional },
@@ -282,6 +292,12 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
     setMilestoneId('')
     setPaidByVendorId('')
     setAllocatedVendorIds([])
+    setFieldErrors((prev) => ({
+      ...prev,
+      serviceId: undefined,
+      mappingId: undefined,
+      commonVendors: undefined,
+    }))
     void next
   }, [])
 
@@ -291,6 +307,12 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
     setMilestoneId('')
     setPaidByVendorId('')
     setAllocatedVendorIds([])
+    setFieldErrors((prev) => ({
+      ...prev,
+      serviceId: undefined,
+      mappingId: undefined,
+      commonVendors: undefined,
+    }))
     void next
   }, [])
 
@@ -358,6 +380,7 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
       setPaidByVendorId('')
       setAllocatedVendorIds([])
     }
+    setFieldErrors({})
   }, [open, isPitch, pitchVersion, editingPlannedExpense, pitchBuildVendors])
 
   useEffect(() => {
@@ -372,6 +395,7 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
     setMilestoneId('')
     setPaidByVendorId('')
     setAllocatedVendorIds([])
+    setFieldErrors({})
   }, [open, isPitch, effectiveProjectId, buildVendors])
 
   useEffect(() => {
@@ -414,6 +438,7 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
     }
 
     if (amountNum <= 0) return false
+    if (!date.trim()) return false
     if (liveType === 'vendor_linked' || liveType === 'reimbursable_expenses') {
       return Boolean(serviceId && selectedMappingLive)
     }
@@ -445,8 +470,85 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
     onValidityChange?.(canSubmit)
   }, [canSubmit, onValidityChange])
 
+  const validateForm = useCallback((): boolean => {
+    const next: typeof fieldErrors = {}
+
+    if (context === 'global' && !selectedProjectId) {
+      next.projectId = 'Project is required'
+    }
+    if (isLiveOrGlobal && !effectiveProjectId) {
+      next.projectId = 'Project is required'
+    }
+    if (isPitch && !pitchVersion) {
+      toast.error('No active pitch version available')
+      return false
+    }
+
+    if (isPitch) {
+      if (!description.trim()) next.description = 'Expense name is required'
+      if (!amount.trim()) next.amount = 'Amount is required'
+      else if (!(amountNum > 0)) next.amount = 'Enter a valid amount greater than 0'
+
+      if (pitchType === 'vendor' || pitchType === 'reimbursable_expenses') {
+        if (!serviceId) next.serviceId = 'Service is required'
+        if (!selectedMappingPitch) next.mappingId = 'Vendor is required'
+      }
+      if (pitchType === 'common') {
+        if (pitchBuildVendors.length === 0) {
+          next.commonVendors = 'No mapped vendors on this version. Add vendor mappings first.'
+        } else if (totalCommonWeight <= 0) {
+          next.commonVendors = 'No vendor PO values for proportional split. Add vendor PO values first.'
+        }
+      }
+    } else {
+      if (!amount.trim()) next.amount = 'Amount is required'
+      else if (!(amountNum > 0)) next.amount = 'Enter a valid amount greater than 0'
+      if (!date.trim()) next.date = 'Date is required'
+
+      if (liveType === 'vendor_linked' || liveType === 'reimbursable_expenses') {
+        if (!serviceId) next.serviceId = 'Service is required'
+        if (!selectedMappingLive) next.mappingId = 'Vendor is required'
+      }
+      if (liveType === 'common') {
+        if (buildVendors.length === 0) {
+          next.commonVendors = 'No mapped build vendors for this project. Add vendor POs first.'
+        } else if (totalCommonWeight <= 0) {
+          next.commonVendors = 'No vendor PO values for proportional split. Add vendor PO values first.'
+        }
+      }
+    }
+
+    setFieldErrors(next)
+    const keys = Object.keys(next)
+    if (keys.length > 0) {
+      toast.error(next.commonVendors ?? 'Please fill in all required fields')
+      return false
+    }
+    return true
+  }, [
+    context,
+    selectedProjectId,
+    isLiveOrGlobal,
+    effectiveProjectId,
+    isPitch,
+    pitchVersion,
+    description,
+    amount,
+    amountNum,
+    date,
+    pitchType,
+    liveType,
+    serviceId,
+    selectedMappingPitch,
+    selectedMappingLive,
+    pitchBuildVendors.length,
+    buildVendors.length,
+    totalCommonWeight,
+    toast,
+  ])
+
   const submit = useCallback(() => {
-    if (!canSubmit) return
+    if (!validateForm()) return
 
     if (isPitch && pitchVersion) {
       const baseId = editingPlannedExpense?.id ?? `pe-${Date.now()}`
@@ -577,7 +679,7 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
     }
     onSubmit({ mode: 'live_expense', projectId: pid, data })
   }, [
-    canSubmit,
+    validateForm,
     isPitch,
     pitchVersion,
     pitchType,
@@ -670,13 +772,17 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
 
       <FormSection title="Expense Details" columns={2}>
         {context === 'global' && (
-          <FormField label="Project" required>
+          <FormField label="Project" required error={fieldErrors.projectId}>
             <Select
               size="small"
               displayEmpty
               value={selectedProjectId ?? ''}
-              onChange={(e) => onSelectedProjectIdChange?.(e.target.value)}
+              onChange={(e) => {
+                onSelectedProjectIdChange?.(e.target.value)
+                setFieldErrors((prev) => ({ ...prev, projectId: undefined }))
+              }}
               fullWidth
+              error={Boolean(fieldErrors.projectId)}
               sx={{ fontSize: 12 }}
             >
               <MenuItem value="" sx={{ fontSize: 12 }}>
@@ -690,27 +796,49 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
             </Select>
           </FormField>
         )}
-        <FormField label={isPitch ? 'Expense name' : 'Description'} required={isPitch}>
-          <Input value={description} onChange={setDescription} size="sm" />
+        <FormField
+          label={isPitch ? 'Expense name' : 'Description'}
+          required={isPitch}
+          error={fieldErrors.description}
+        >
+          <Input
+            value={description}
+            onChange={(v) => {
+              setDescription(v)
+              setFieldErrors((prev) => ({ ...prev, description: undefined }))
+            }}
+            size="sm"
+            error={Boolean(fieldErrors.description)}
+          />
         </FormField>
-        <FormField label="Amount" required>
+        <FormField label="Amount" required error={fieldErrors.amount}>
           <Input
             type="number"
             value={amount}
-            onChange={setAmount}
+            onChange={(v) => {
+              setAmount(v)
+              setFieldErrors((prev) => ({ ...prev, amount: undefined }))
+            }}
             size="sm"
+            error={Boolean(fieldErrors.amount)}
             startAdornment={<Typography sx={{ fontSize: 12 }}>₹</Typography>}
           />
         </FormField>
         {(showLiveDateDoc || showDateDoc) && (
           <FormField
             label={isReimbursable || isPitchReimbursable ? 'Date vendor made the payment' : 'Date'}
+            required={isLiveOrGlobal}
+            error={fieldErrors.date}
           >
             <DatePicker
               value={dateFromIso(date)}
-              onChange={(d) => setDate(isoFromDate(d))}
+              onChange={(d) => {
+                setDate(isoFromDate(d))
+                setFieldErrors((prev) => ({ ...prev, date: undefined }))
+              }}
               fullWidth
               size="sm"
+              error={Boolean(fieldErrors.date)}
             />
           </FormField>
         )}
@@ -718,7 +846,7 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
 
       {isPitch && (pitchType === 'vendor' || pitchType === 'reimbursable_expenses') && pitchVersion && (
         <FormSection title="Scope" columns={1}>
-          <FormField label="Service" required>
+          <FormField label="Service" required error={fieldErrors.serviceId}>
             <Select
               size="small"
               displayEmpty
@@ -727,8 +855,14 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
                 setServiceId(e.target.value)
                 setMappingId('')
                 setMilestoneId('')
+                setFieldErrors((prev) => ({
+                  ...prev,
+                  serviceId: undefined,
+                  mappingId: undefined,
+                }))
               }}
               fullWidth
+              error={Boolean(fieldErrors.serviceId)}
               sx={{ fontSize: 12 }}
             >
               <MenuItem value="" sx={{ fontSize: 12 }}>
@@ -741,14 +875,18 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
               ))}
             </Select>
           </FormField>
-          <FormField label="Vendor" required>
+          <FormField label="Vendor" required error={fieldErrors.mappingId}>
             <Select
               size="small"
               displayEmpty
               value={mappingId}
-              onChange={(e) => setMappingId(e.target.value)}
+              onChange={(e) => {
+                setMappingId(e.target.value)
+                setFieldErrors((prev) => ({ ...prev, mappingId: undefined }))
+              }}
               fullWidth
               disabled={!serviceId || vendorMappingOptionsPitch.length === 0}
+              error={Boolean(fieldErrors.mappingId)}
               sx={{ fontSize: 12 }}
             >
               <MenuItem value="" sx={{ fontSize: 12 }}>
@@ -793,7 +931,7 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
 
       {!isPitch && (liveType === 'vendor_linked' || liveType === 'reimbursable_expenses') && (
         <FormSection title="Scope" columns={1}>
-          <FormField label="Service" required>
+          <FormField label="Service" required error={fieldErrors.serviceId}>
             <Select
               size="small"
               displayEmpty
@@ -802,8 +940,14 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
                 setServiceId(e.target.value)
                 setMappingId('')
                 setMilestoneId('')
+                setFieldErrors((prev) => ({
+                  ...prev,
+                  serviceId: undefined,
+                  mappingId: undefined,
+                }))
               }}
               fullWidth
+              error={Boolean(fieldErrors.serviceId)}
               sx={{ fontSize: 12 }}
             >
               <MenuItem value="" sx={{ fontSize: 12 }}>
@@ -816,14 +960,18 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
               ))}
             </Select>
           </FormField>
-          <FormField label="Vendor" required>
+          <FormField label="Vendor" required error={fieldErrors.mappingId}>
             <Select
               size="small"
               displayEmpty
               value={mappingId}
-              onChange={(e) => setMappingId(e.target.value)}
+              onChange={(e) => {
+                setMappingId(e.target.value)
+                setFieldErrors((prev) => ({ ...prev, mappingId: undefined }))
+              }}
               fullWidth
               disabled={!serviceId || vendorMappingOptionsLive.length === 0}
+              error={Boolean(fieldErrors.mappingId)}
               sx={{ fontSize: 12 }}
             >
               <MenuItem value="" sx={{ fontSize: 12 }}>
@@ -888,6 +1036,12 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
             <Typography variant="caption" sx={{ fontSize: 11, display: 'block', mb: 1, color: 'text.secondary' }}>
               Check vendors to recover from. PO shares stay fixed; Paid By is not auto-selected.
             </Typography>
+
+            {fieldErrors.commonVendors ? (
+              <Typography variant="body2" sx={{ fontSize: 12, color: 'error.main', mb: 1 }}>
+                {fieldErrors.commonVendors}
+              </Typography>
+            ) : null}
 
             {commonVendors.length === 0 ? (
               <Typography variant="body2" sx={{ fontSize: 12, color: 'error.main' }}>

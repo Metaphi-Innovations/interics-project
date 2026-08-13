@@ -1,6 +1,7 @@
 import { Box, Stack, Typography } from '@mui/material'
 import { FileText } from 'lucide-react'
 import { tokens } from '@/design-system/tokens'
+import { openAuthenticatedDocument, resolveApiAssetUrl } from '@/utils/openAuthenticatedDocument'
 
 export interface UploadedDocumentLinkProps {
   fileName: string
@@ -18,16 +19,22 @@ export function UploadedDocumentLink({
   onOpenFailed,
   compact = true,
 }: UploadedDocumentLinkProps) {
-  function handleOpen(): void {
+  async function handleOpen(): Promise<void> {
     if (onOpen) {
       onOpen()
       return
     }
-    if (documentUrl) {
-      window.open(documentUrl, '_blank', 'noopener,noreferrer')
+    const resolved = resolveApiAssetUrl(documentUrl)
+    if (!resolved) {
+      onOpenFailed?.()
       return
     }
-    onOpenFailed?.()
+    // API file routes require auth — open via authenticated fetch + blob tab
+    if (resolved.includes('/files/') && (resolved.includes('/view') || resolved.includes('/download'))) {
+      await openAuthenticatedDocument(resolved, onOpenFailed)
+      return
+    }
+    window.open(resolved, '_blank', 'noopener,noreferrer')
   }
 
   return (
@@ -43,11 +50,13 @@ export function UploadedDocumentLink({
           textDecoration: 'underline',
         },
       }}
-      onClick={handleOpen}
+      onClick={() => {
+        void handleOpen()
+      }}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault()
-          handleOpen()
+          void handleOpen()
         }
       }}
       role="button"

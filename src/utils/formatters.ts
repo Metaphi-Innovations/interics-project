@@ -5,6 +5,15 @@ export const formatCurrency = (amount: number): string => {
   return amount.toString()
 }
 
+/** Compact ₹ amount for overview-style tables (K / L / Cr) with configurable decimals. */
+export const formatCurrencyCompact = (amount: number, decimals = 2): string => {
+  const fixed = (value: number) => value.toFixed(decimals)
+  if (amount >= 10000000) return `₹${fixed(amount / 10000000)} Cr`
+  if (amount >= 100000) return `₹${fixed(amount / 100000)} L`
+  if (amount >= 1000) return `₹${fixed(amount / 1000)}K`
+  return `₹${fixed(amount)}`
+}
+
 const inrFormatter = new Intl.NumberFormat('en-IN', {
   minimumFractionDigits: 0,
   maximumFractionDigits: 2,
@@ -13,15 +22,16 @@ const inrFormatter = new Intl.NumberFormat('en-IN', {
 /** Full Indian-grouped amount (e.g. listing invoice lines and totals). */
 export const formatInr = (amount: number): string => inrFormatter.format(amount)
 
-export const getInitials = (name: string): string =>
-  name
+export const getInitials = (name: string | null | undefined): string =>
+  (name ?? '')
     .split(' ')
+    .filter(Boolean)
     .slice(0, 2)
     .map((w) => w[0])
     .join('')
-    .toUpperCase()
+    .toUpperCase() || '?'
 
-export const getAvatarColor = (name: string): { bg: string; text: string } => {
+export const getAvatarColor = (name: string | null | undefined): { bg: string; text: string } => {
   const colors = [
     { bg: '#DBEAFE', text: '#1D4ED8' }, // blue
     { bg: '#EDE9FE', text: '#7C3AED' }, // purple
@@ -32,8 +42,9 @@ export const getAvatarColor = (name: string): { bg: string; text: string } => {
     { bg: '#FCE7F3', text: '#BE185D' }, // pink
     { bg: '#FFEDD5', text: '#C2410C' }, // orange
   ]
+  const safeName = name ?? ''
   const index =
-    name.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % colors.length
+    safeName.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % colors.length
   return colors[index]
 }
 

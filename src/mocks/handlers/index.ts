@@ -1,31 +1,14 @@
 import { authHandlers } from './authHandlers'
-import { customersHandlers } from './customersHandlers'
-import { vendorsHandlers } from './vendorsHandlers'
 import { projectsHandlers } from './projectsHandlers'
-import { pitchHandlers } from './pitchHandlers'
-import { baselineHandlers } from './baselineHandlers'
-import { usersHandlers } from './usersHandlers'
-import { rolesHandlers } from './rolesHandlers'
 import { settingsHandlers } from './settingsHandlers'
 import { categoriesHandlers } from './categoriesHandlers'
-import { liveHandlers } from './liveHandlers'
-import { financeHandlers } from './financeHandlers'
-import { receivablesHandlers } from './receivablesHandlers'
 import { complianceHandlers } from './complianceHandlers'
 
 export const handlers = [
   ...authHandlers,
-  ...customersHandlers,
-  ...vendorsHandlers,
+  // Customers, Vendors, Projects, Pitch, Live finance, and Invoices use the real backend.
   ...projectsHandlers,
-  ...pitchHandlers,
-  ...baselineHandlers,
-  ...usersHandlers,
-  ...rolesHandlers,
   ...settingsHandlers,
   ...categoriesHandlers,
-  ...liveHandlers,
-  ...financeHandlers,
-  ...receivablesHandlers,
   ...complianceHandlers,
 ]

@@ -22,6 +22,7 @@ import type { Baseline } from '@/slices/baseline/reducer'
 import { formatCurrency } from '@/utils/formatters'
 import { contractedDesignFee } from './dashboardMappings'
 import { fetchJsonArray, fetchJsonObject } from './dashboardHelpers'
+import { API_BASE_URL } from '@/api/config'
 import {
   averageProjectDuration,
   computeExecutiveKpis,
@@ -94,7 +95,7 @@ export default function DashboardPage() {
     void (async () => {
       const results = await Promise.all(
         projects.map(async (p) => {
-          const base = `/api/projects/${p.id}`
+          const base = `${API_BASE_URL}/projects/${p.id}`
           const [vr, er] = await Promise.all([
             fetchJsonArray(`${base}/vendor-invoices`),
             fetchJsonArray(`${base}/expenses`),

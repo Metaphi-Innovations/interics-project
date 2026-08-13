@@ -23,12 +23,12 @@ import { nextExpenseStatusAfterInvoiceLink } from '@/utils/commonExpensePayables
 // Client invoices: use global GET/POST /api/invoices (receivablesHandlers).
 
 export const liveHandlers = [
-  http.get('/api/projects/:id/vendor-invoices', ({ params }) => {
+  http.get('*/api/v1/projects/:id/vendor-invoices', ({ params }) => {
     const id = params.id as string
     return HttpResponse.json(vendorInvoices.filter((v) => v.projectId === id))
   }),
 
-  http.post('/api/projects/:id/vendor-invoices', async ({ params, request }) => {
+  http.post('*/api/v1/projects/:id/vendor-invoices', async ({ params, request }) => {
     const id = params.id as string
     const body = await request.json() as Omit<VendorInvoice, 'id' | 'projectId'>
     const newVI: VendorInvoice = {
@@ -52,7 +52,7 @@ export const liveHandlers = [
     return HttpResponse.json(newVI, { status: 201 })
   }),
 
-  http.put('/api/projects/:id/vendor-invoices/:invoiceId', async ({ params, request }) => {
+  http.put('*/api/v1/projects/:id/vendor-invoices/:invoiceId', async ({ params, request }) => {
     const projectId = params.id as string
     const invoiceId = params.invoiceId as string
     const body = await request.json() as Partial<Omit<VendorInvoice, 'id' | 'projectId'>>
@@ -99,17 +99,17 @@ export const liveHandlers = [
     return HttpResponse.json(updated)
   }),
 
-  http.get('/api/projects/:id/payments', ({ params }) => {
+  http.get('*/api/v1/projects/:id/payments', ({ params }) => {
     const id = params.id as string
     return HttpResponse.json(payments.filter((p) => p.projectId === id))
   }),
 
-  http.get('/api/projects/:id/vendor-payable-controls', ({ params }) => {
+  http.get('*/api/v1/projects/:id/vendor-payable-controls', ({ params }) => {
     const id = params.id as string
     return HttpResponse.json(vendorPayableControls.filter((c) => c.projectId === id))
   }),
 
-  http.put('/api/projects/:id/vendor-payable-controls', async ({ params, request }) => {
+  http.put('*/api/v1/projects/:id/vendor-payable-controls', async ({ params, request }) => {
     const projectId = params.id as string
     const body = await request.json() as VendorPayableControl
     const idx = vendorPayableControls.findIndex(
@@ -136,7 +136,7 @@ export const liveHandlers = [
     return HttpResponse.json(merged)
   }),
 
-  http.post('/api/projects/:id/payments', async ({ params, request }) => {
+  http.post('*/api/v1/projects/:id/payments', async ({ params, request }) => {
     const id = params.id as string
     const body = await request.json() as Omit<VendorPayment, 'id' | 'projectId'>
     const newP: VendorPayment = {
@@ -172,12 +172,12 @@ export const liveHandlers = [
     return HttpResponse.json(newP, { status: 201 })
   }),
 
-  http.get('/api/projects/:id/expenses', ({ params }) => {
+  http.get('*/api/v1/projects/:id/expenses', ({ params }) => {
     const id = params.id as string
     return HttpResponse.json(expenses.filter((e) => e.projectId === id))
   }),
 
-  http.post('/api/projects/:id/expenses', async ({ params, request }) => {
+  http.post('*/api/v1/projects/:id/expenses', async ({ params, request }) => {
     const id = params.id as string
     const body = await request.json() as Omit<Expense, 'id' | 'projectId'>
     const newExp: Expense = {
@@ -189,7 +189,7 @@ export const liveHandlers = [
     return HttpResponse.json(newExp, { status: 201 })
   }),
 
-  http.delete('/api/projects/:id/expenses/:expenseId', ({ params }) => {
+  http.delete('*/api/v1/projects/:id/expenses/:expenseId', ({ params }) => {
     const projectId = params.id as string
     const expenseId = params.expenseId as string
     const idx = expenses.findIndex((e) => e.id === expenseId && e.projectId === projectId)
@@ -202,12 +202,12 @@ export const liveHandlers = [
     return new HttpResponse(null, { status: 204 })
   }),
 
-  http.get('/api/projects/:id/reimbursements', ({ params }) => {
+  http.get('*/api/v1/projects/:id/reimbursements', ({ params }) => {
     const id = params.id as string
     return HttpResponse.json(reimbursements.filter((r) => r.projectId === id))
   }),
 
-  http.post('/api/projects/:id/reimbursements', async ({ params, request }) => {
+  http.post('*/api/v1/projects/:id/reimbursements', async ({ params, request }) => {
     const id = params.id as string
     const body = await request.json() as Omit<Reimbursement, 'id' | 'projectId'>
     const newR: Reimbursement = {
@@ -223,7 +223,7 @@ export const liveHandlers = [
     return HttpResponse.json(newR, { status: 201 })
   }),
 
-  http.delete('/api/projects/:id/reimbursements/:reimbursementId', ({ params }) => {
+  http.delete('*/api/v1/projects/:id/reimbursements/:reimbursementId', ({ params }) => {
     const projectId = params.id as string
     const reimbursementId = params.reimbursementId as string
     const idx = reimbursements.findIndex(
@@ -241,7 +241,7 @@ export const liveHandlers = [
     return new HttpResponse(null, { status: 204 })
   }),
 
-  http.get('/api/projects/:id/compliance', () => {
+  http.get('*/api/v1/projects/:id/compliance', () => {
     return HttpResponse.json({
       gstSummary: {
         collected: 405000,

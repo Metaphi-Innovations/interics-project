@@ -3,6 +3,7 @@ import {
   Box, Typography, TextField, MenuItem,
   Table, TableHead, TableRow, TableCell, TableBody, TableContainer,
   IconButton, Chip,
+  Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions,
 } from '@mui/material'
 import { Edit, ToggleOff, ToggleOn } from '@mui/icons-material'
 import { Plus } from 'lucide-react'
@@ -39,6 +40,8 @@ export default function StatusesSection() {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [editingRow, setEditingRow] = useState<StatusMaster | null>(null)
   const [form, setForm] = useState<StatusForm>(defaultForm)
+  const [toggleTarget, setToggleTarget] = useState<StatusMaster | null>(null)
+  const [toggling, setToggling] = useState(false)
 
   useEffect(() => {
     dispatch(fetchStatuses())
@@ -75,6 +78,26 @@ export default function StatusesSection() {
       })
       .catch(() => error('Failed to save status'))
   }
+
+  const confirmToggle = async () => {
+    if (!toggleTarget) return
+    setToggling(true)
+    try {
+      await dispatch(toggleStatusMaster(toggleTarget.id)).unwrap()
+      success(
+        toggleTarget.status === 'active'
+          ? 'Status deactivated'
+          : 'Status activated',
+      )
+      setToggleTarget(null)
+    } catch {
+      error('Failed to update status')
+    } finally {
+      setToggling(false)
+    }
+  }
+
+  const toggleNextActive = toggleTarget?.status !== 'active'
 
   const chipMode = theme.palette.mode === 'dark' ? 'dark' : 'light'
 
@@ -142,10 +165,10 @@ export default function StatusesSection() {
                     <IconButton size="small" onClick={() => openEdit(row)}>
                       <Edit sx={{ fontSize: 14 }} />
                     </IconButton>
-                    <IconButton size="small" onClick={() => dispatch(toggleStatusMaster(row.id))}>
+                    <IconButton size="small" onClick={() => setToggleTarget(row)}>
                       {row.status === 'active'
-                        ? <ToggleOff sx={{ fontSize: 14, color: 'warning.main' }} />
-                        : <ToggleOn sx={{ fontSize: 14, color: 'success.main' }} />}
+                        ? <ToggleOn sx={{ fontSize: 14, color: 'success.main' }} />
+                        : <ToggleOff sx={{ fontSize: 14, color: 'error.main' }} />}
                     </IconButton>
                   </TableCell>
                 </TableRow>
@@ -194,6 +217,25 @@ export default function StatusesSection() {
           </TextField>
         </Box>
       </Modal>
+
+      <Dialog open={!!toggleTarget} onClose={() => !toggling && setToggleTarget(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>{toggleNextActive ? 'Activate' : 'Deactivate'}?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            {toggleNextActive
+              ? `Activate "${toggleTarget?.name}"?`
+              : `Deactivate "${toggleTarget?.name}"? It will no longer be available for new records.`}
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button size="sm" variant="outlined" color="secondary" onClick={() => setToggleTarget(null)} disabled={toggling}>
+            Cancel
+          </Button>
+          <Button size="sm" variant="contained" color="primary" onClick={() => void confirmToggle()} disabled={toggling}>
+            {toggling ? 'Updating...' : 'Confirm'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   )
 }

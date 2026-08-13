@@ -28,6 +28,7 @@ export interface ProjectDocumentSection {
 
 /** Canonical Create Project → Project Documents categories. */
 export const PROJECT_DOCUMENT_CATEGORY_TITLES = [
+  'Requirements',
   'Final Layout',
   'Final RCP',
   'Final Views',
@@ -38,6 +39,17 @@ export const PROJECT_DOCUMENT_CATEGORY_TITLES = [
 export type ProjectDocumentCategoryTitle = (typeof PROJECT_DOCUMENT_CATEGORY_TITLES)[number]
 
 const HANDOVER_SECTION_TITLE: ProjectDocumentCategoryTitle = 'Final Handover Documents'
+
+/** Map list-API doctypes into Project Documents section titles. */
+export const PROJECT_DOCTYPE_SECTION_TITLE: Record<string, ProjectDocumentCategoryTitle> = {
+  requirement: 'Requirements',
+  final_layout: 'Final Layout',
+  final_rcp: 'Final RCP',
+  final_views: 'Final Views',
+  final_photographs: 'Final Photographs',
+  handover: 'Final Handover Documents',
+  project_documents: 'Final Handover Documents',
+}
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -250,9 +262,27 @@ export function mergeLegacyInternalUploadRows(
 
   return sections.map((section) =>
     section.title === HANDOVER_SECTION_TITLE
-      ? { ...section, rows: [...section.rows, ...legacyRows] }
+      ? { ...section, rows: mergeDocumentRows(section.rows, legacyRows) }
       : section,
   )
+}
+
+/**
+ * Merge documents list API rows (requirement / final_* / handover / project_documents)
+ * into the Project Documents category sections so All + Project tabs both show them.
+ */
+export function mergeApiRowsIntoProjectDocumentSections(
+  sections: ProjectDocumentSection[],
+  rowsBySectionTitle: Partial<
+    Record<ProjectDocumentCategoryTitle, ProjectDocumentColumnRow[]>
+  >,
+): ProjectDocumentSection[] {
+  return sections.map((section) => {
+    const title = section.title as ProjectDocumentCategoryTitle
+    const extra = rowsBySectionTitle[title]
+    if (!extra?.length) return section
+    return { ...section, rows: mergeDocumentRows(section.rows, extra) }
+  })
 }
 
 export function countProjectDocumentRows(sections: ProjectDocumentSection[]): number {
@@ -268,7 +298,10 @@ export function filterProjectDocumentSectionsBySearch(
   return sections.map((section) => ({
     ...section,
     rows: section.rows.filter((row) =>
-      matchesSearch(`${row.name} ${row.typeLabel} ${section.title}`, q),
+      matchesSearch(
+        `${row.name} ${row.typeLabel} ${row.uploadedBy} ${section.title}`,
+        q,
+      ),
     ),
   }))
 }
@@ -284,7 +317,8 @@ function openExternalDocument(url: string): void {
 
 /** Client PO file from Live / Transition baseline. */
 export function clientPOToDocumentRow(po: ClientPO): ProjectDocumentColumnRow | null {
-  if (!po.documentUrl) return null
+  if (!po.documentUrl && !po.fileName?.trim()) return null
+  const href = po.documentUrl ?? undefined
   return {
     id: `baseline-client-po-${po.id}`,
     name: poDocumentLabel(po.poNumber, po.fileName),
@@ -293,15 +327,18 @@ export function clientPOToDocumentRow(po: ClientPO): ProjectDocumentColumnRow | 
     dateStr: formatDate(po.uploadedAt ?? po.startDate),
     sizeStr: null,
     isUpload: false,
-    href: po.documentUrl,
+    href,
     canDelete: false,
-    onView: () => openExternalDocument(po.documentUrl!),
+    onView: () => {
+      if (po.documentUrl) openExternalDocument(po.documentUrl)
+    },
   }
 }
 
 /** Vendor PO file from Live baseline. */
 export function vendorPOToDocumentRow(po: VendorPO): ProjectDocumentColumnRow | null {
-  if (!po.documentUrl) return null
+  if (!po.documentUrl && !po.fileName?.trim()) return null
+  const href = po.documentUrl ?? undefined
   return {
     id: `baseline-vendor-po-${po.id}`,
     name: poDocumentLabel(po.poNumber, po.fileName),
@@ -310,9 +347,11 @@ export function vendorPOToDocumentRow(po: VendorPO): ProjectDocumentColumnRow | 
     dateStr: formatDate(po.poDate),
     sizeStr: null,
     isUpload: false,
-    href: po.documentUrl,
+    href,
     canDelete: false,
-    onView: () => openExternalDocument(po.documentUrl!),
+    onView: () => {
+      if (po.documentUrl) openExternalDocument(po.documentUrl)
+    },
   }
 }
 
@@ -376,5 +415,7 @@ export function filterDocumentRowsBySearch(
   search: string,
   matchesSearch: (text: string, q: string) => boolean,
 ): ProjectDocumentColumnRow[] {
-  return rows.filter((row) => matchesSearch(`${row.name} ${row.typeLabel}`, search))
+  return rows.filter((row) =>
+    matchesSearch(`${row.name} ${row.typeLabel} ${row.uploadedBy}`, search),
+  )
 }

@@ -117,6 +117,7 @@ export interface ProjectManagementCheckpoint {
 export interface ProjectManagementMasterCategory {
   id: string
   name: string
+  totalCheckpoints?: number
   checkpoints: ProjectManagementCheckpoint[]
   status: 'active' | 'inactive'
 }
@@ -161,6 +162,7 @@ interface SettingsState {
   companyProfile: CompanyProfile
   numberingSchemes: NumberingSchemes
   systemDefaults: SystemDefaults
+  systemDefaultsLoaded: boolean
   gstRates: GSTRate[]
   tdsSections: TDSSection[]
   sacCodes: SACCode[]
@@ -208,6 +210,7 @@ const initialState: SettingsState = {
     dateFormat: 'DD/MM/YYYY',
     autoArchiveDays: 0,
   },
+  systemDefaultsLoaded: false,
   gstRates: [],
   tdsSections: [],
   sacCodes: [],
@@ -508,12 +511,17 @@ const settingsSlice = createSlice({
       .addCase(fetchSystemDefaults.fulfilled, (state, action: PayloadAction<SystemDefaults>) => {
         state.loading = false
         state.systemDefaults = action.payload
+        state.systemDefaultsLoaded = true
       })
-      .addCase(fetchSystemDefaults.rejected, (state) => { state.loading = false })
+      .addCase(fetchSystemDefaults.rejected, (state) => {
+        state.loading = false
+        state.systemDefaultsLoaded = false
+      })
       .addCase(updateSystemDefaults.pending, (state) => { state.saving = true })
       .addCase(updateSystemDefaults.fulfilled, (state, action: PayloadAction<SystemDefaults>) => {
         state.saving = false
         state.systemDefaults = action.payload
+        state.systemDefaultsLoaded = true
       })
       .addCase(updateSystemDefaults.rejected, (state) => { state.saving = false })
   },

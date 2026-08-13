@@ -1,39 +1,32 @@
 import { useState, useEffect, useRef } from 'react'
-import { Box, Stack, TextField, MenuItem, Typography } from '@mui/material'
+import { Box, Stack, TextField, MenuItem, Typography, CircularProgress } from '@mui/material'
 import { DrawerForm, FormSection, FormField } from '../../components/templates'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { createCustomer, updateCustomer } from '../../slices/customers/thunk'
 import { useToast, Button } from '@/design-system/components'
 import type { Customer } from '../../slices/customers/reducer'
 import { fetchSectors } from '../../slices/settings/thunk'
+import {
+  customersService,
+  validateCustomerForm,
+  gstinRequired,
+  type CustomerFormInput,
+} from '@/modules/customers'
+import {
+  hasErrors,
+  firstErrorMessage,
+} from '@/modules/system-settings/shared/settings-validation'
+import { parseSettingsApiError, clearFieldError } from '@/modules/system-settings/shared/api-errors'
+import { INDIAN_STATES, digitsOnly } from '@/constants/locations'
+import { lookupPincodeLocation } from '@/utils/pincodeLookup'
+import { extractIndianMobileDigits, sanitizeMobileInput } from '@/utils/mobile'
 
 type GstStatus = Customer['gstStatus']
-
-// ─── Constants ────────────────────────────────────────────────────────────────
-
-const INDIAN_STATES = [
-  'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh',
-  'Goa', 'Gujarat', 'Haryana', 'Himachal Pradesh', 'Jharkhand',
-  'Karnataka', 'Kerala', 'Madhya Pradesh', 'Maharashtra', 'Manipur',
-  'Meghalaya', 'Mizoram', 'Nagaland', 'Odisha', 'Punjab',
-  'Rajasthan', 'Sikkim', 'Tamil Nadu', 'Telangana', 'Tripura',
-  'Uttar Pradesh', 'Uttarakhand', 'West Bengal',
-  'Andaman and Nicobar Islands', 'Chandigarh', 'Dadra and Nagar Haveli',
-  'Daman and Diu', 'Delhi', 'Jammu and Kashmir', 'Ladakh',
-  'Lakshadweep', 'Puducherry',
-]
-
-const GSTIN_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/
-
-function gstinRequired(status: GstStatus): boolean {
-  return status !== 'Unregistered'
-}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface FormState {
   name: string
-  type: 'Company' | 'Individual' | ''
   sector: string
   gstStatus: GstStatus
   gstin: string
@@ -52,7 +45,6 @@ interface FormState {
 
 const defaultForm: FormState = {
   name: '',
-  type: '',
   sector: '',
   gstStatus: 'Unregistered',
   gstin: '',
@@ -77,32 +69,12 @@ export interface CustomerDrawerProps {
   onSuccess?: (customer: Customer) => void
 }
 
-// ─── Validation ───────────────────────────────────────────────────────────────
-
-function validate(form: FormState): Record<string, string> {
-  const errors: Record<string, string> = {}
-  if (!form.name.trim()) errors.name = 'Name is required'
-  if (!form.sector) errors.sector = 'Sector is required'
-  if (form.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
-    errors.email = 'Invalid email format'
-  }
-  if (!form.city.trim()) errors.city = 'City is required'
-  if (!form.state) errors.state = 'State is required'
-  if (gstinRequired(form.gstStatus)) {
-    if (!form.gstin.trim()) {
-      errors.gstin = 'GSTIN is required for this GST status'
-    } else if (!GSTIN_REGEX.test(form.gstin)) {
-      errors.gstin = 'Invalid GSTIN (e.g. 29ABCDE1234F1Z5)'
-    }
-  }
-  return errors
-}
-
 // ─── CustomerDrawer ───────────────────────────────────────────────────────────
 
 export function CustomerDrawer({ open, onClose, mode, customer, onSuccess }: CustomerDrawerProps) {
   const dispatch = useAppDispatch()
   const saving = useAppSelector((s) => s.customers.saving)
+  const customers = useAppSelector((s) => s.customers.items)
   const sectors = useAppSelector((s) => s.settings.sectors)
   const { showToast } = useToast()
 
@@ -110,32 +82,36 @@ export function CustomerDrawer({ open, onClose, mode, customer, onSuccess }: Cus
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [gstCertFile, setGstCertFile] = useState<File | null>(null)
   const [panDocFile, setPanDocFile] = useState<File | null>(null)
+  const [pincodeLookupLoading, setPincodeLookupLoading] = useState(false)
   const gstFileInputRef = useRef<HTMLInputElement>(null)
   const panFileInputRef = useRef<HTMLInputElement>(null)
+  const submittingRef = useRef(false)
+  const pincodeLookupSeq = useRef(0)
 
   const activeSectors = sectors.filter((s) => s.status === 'active')
 
   useEffect(() => {
-    if (open) {
-      dispatch(fetchSectors())
-    }
-  }, [open, dispatch])
+    if (!open) return
+    dispatch(fetchSectors())
+    setGstCertFile(null)
+    setPanDocFile(null)
+    setErrors({})
+    setPincodeLookupLoading(false)
 
-  useEffect(() => {
-    if (open) {
-      setGstCertFile(null)
-      setPanDocFile(null)
+    let cancelled = false
+
+    async function hydrate() {
       if (customer && mode === 'edit') {
+        // Seed from list row immediately so the form is never blank while detail loads
         setForm({
           name: customer.name,
-          type: customer.type,
           sector: customer.sector ?? '',
           gstStatus: customer.gstStatus,
           gstin: customer.gstin ?? '',
           pan: customer.pan ?? '',
           contactPerson: customer.contactPerson,
           designation: customer.designation ?? '',
-          phone: customer.phone,
+          phone: extractIndianMobileDigits(customer.phone),
           email: customer.email,
           city: customer.city,
           state: customer.state,
@@ -144,58 +120,120 @@ export function CustomerDrawer({ open, onClose, mode, customer, onSuccess }: Cus
           tags: customer.tags,
           notes: customer.notes ?? '',
         })
+        try {
+          const full = await customersService.getById(customer.id)
+          if (cancelled) return
+          setForm({
+            name: full.name || customer.name,
+            sector: full.sector || customer.sector || '',
+            gstStatus: full.gstStatus || customer.gstStatus,
+            gstin: full.gstin ?? customer.gstin ?? '',
+            pan: full.pan ?? customer.pan ?? '',
+            contactPerson: full.contactPerson || customer.contactPerson,
+            designation: full.designation ?? customer.designation ?? '',
+            phone: extractIndianMobileDigits(full.phone || customer.phone),
+            email: full.email || customer.email,
+            city: full.city || customer.city,
+            state: full.state || customer.state,
+            address: full.address ?? customer.address ?? '',
+            pincode: full.pincode ?? customer.pincode ?? '',
+            tags: full.tags?.length ? full.tags : customer.tags,
+            notes: full.notes ?? customer.notes ?? '',
+          })
+        } catch {
+          // Keep the list-row seed already applied above
+        }
       } else {
         setForm(defaultForm)
       }
-      setErrors({})
     }
-  }, [open, customer, mode])
+
+    void hydrate()
+    return () => {
+      cancelled = true
+    }
+  }, [open, customer, mode, dispatch])
 
   function update<K extends keyof FormState>(field: K, value: FormState[K]) {
     setForm((f) => ({ ...f, [field]: value }))
+    setErrors((errs) => clearFieldError(errs, field))
+  }
+
+  async function resolvePincode(pin: string) {
+    const seq = ++pincodeLookupSeq.current
+    setPincodeLookupLoading(true)
+    setErrors((errs) =>
+      clearFieldError(clearFieldError(clearFieldError(errs, 'pincode'), 'city'), 'state'),
+    )
+    try {
+      const location = await lookupPincodeLocation(pin)
+      if (seq !== pincodeLookupSeq.current) return
+      setForm((f) => ({
+        ...f,
+        pincode: location.pincode,
+        city: location.city,
+        state: location.state,
+      }))
+    } catch {
+      if (seq !== pincodeLookupSeq.current) return
+      setErrors((errs) => ({
+        ...errs,
+        pincode: 'Could not resolve city/state for this pincode',
+      }))
+    } finally {
+      if (seq === pincodeLookupSeq.current) {
+        setPincodeLookupLoading(false)
+      }
+    }
+  }
+
+  function handlePincodeChange(raw: string) {
+    const pin = digitsOnly(raw).slice(0, 6)
+    update('pincode', pin)
+    if (pin.length < 6) {
+      pincodeLookupSeq.current += 1
+      setPincodeLookupLoading(false)
+      return
+    }
+    void resolvePincode(pin)
   }
 
   async function handleSubmit() {
-    const errs = validate(form)
-    setErrors(errs)
-    if (Object.keys(errs).length > 0) return
+    if (saving || submittingRef.current) return
+    submittingRef.current = true
 
-    const gstDocument =
-      gstCertFile !== null
-        ? { name: gstCertFile.name, url: URL.createObjectURL(gstCertFile) }
-        : mode === 'edit'
-          ? (customer?.gstDocument ?? null)
-          : null
-
-    const panDocument =
-      panDocFile !== null
-        ? { name: panDocFile.name, url: URL.createObjectURL(panDocFile) }
-        : mode === 'edit'
-          ? (customer?.panDocument ?? null)
-          : null
-
-    const payload = {
+    const payload: CustomerFormInput = {
       name: form.name.trim(),
-      type: form.type as 'Company' | 'Individual',
       sector: form.sector,
       gstStatus: form.gstStatus,
-      gstin: gstinRequired(form.gstStatus) ? form.gstin.trim() : null,
-      pan: form.pan.trim() || null,
-      gstDocument,
-      panDocument,
+      gstin: form.gstin.trim(),
+      pan: form.pan.trim(),
       contactPerson: form.contactPerson.trim(),
-      designation: form.designation.trim() || null,
+      designation: form.designation.trim(),
       phone: form.phone.trim(),
       email: form.email.trim(),
       city: form.city.trim(),
       state: form.state,
-      address: form.address.trim() || null,
-      pincode: form.pincode.trim() || null,
+      address: form.address.trim(),
+      pincode: form.pincode.trim(),
       tags: form.tags,
-      notes: form.notes.trim() || null,
-      status: (customer?.status ?? 'Active') as 'Active' | 'Inactive',
-      activeProjects: customer?.activeProjects ?? 0,
-      totalReceivables: customer?.totalReceivables ?? 0,
+      notes: form.notes.trim(),
+      gstCertificateFile: gstCertFile,
+      panDocumentFile: panDocFile,
+    }
+
+    const errs = validateCustomerForm(payload, {
+      existingCustomers: customers,
+      excludeId: mode === 'edit' ? customer?.id : undefined,
+    })
+    setErrors(errs)
+    if (hasErrors(errs)) {
+      submittingRef.current = false
+      showToast({
+        title: firstErrorMessage(errs, 'Please fix the highlighted fields'),
+        variant: 'error',
+      })
+      return
     }
 
     try {
@@ -206,12 +244,24 @@ export function CustomerDrawer({ open, onClose, mode, customer, onSuccess }: Cus
         onSuccess?.(result)
         return
       } else {
-        await dispatch(updateCustomer({ id: customer!.id, data: payload })).unwrap()
+        const result = await dispatch(updateCustomer({ id: customer!.id, data: payload })).unwrap()
+        showToast({ title: 'Customer saved', variant: 'success' })
+        onClose()
+        onSuccess?.(result)
+        return
       }
-      showToast({ title: 'Customer saved', variant: 'success' })
-      onClose()
-    } catch {
-      showToast({ title: 'Failed to save customer', variant: 'error' })
+    } catch (err) {
+      const parsed = parseSettingsApiError(
+        err,
+        'Failed to save customer',
+        customersService.fieldAliases,
+      )
+      if (Object.keys(parsed.fieldErrors).length) {
+        setErrors(parsed.fieldErrors)
+      }
+      showToast({ title: parsed.message, variant: 'error' })
+    } finally {
+      submittingRef.current = false
     }
   }
 
@@ -272,7 +322,7 @@ export function CustomerDrawer({ open, onClose, mode, customer, onSuccess }: Cus
 
       {/* ── Tax & Compliance ────────────────────────────────────────── */}
       <FormSection title="Tax & Compliance" columns={2}>
-        <FormField label="GST Status">
+        <FormField label="GST Status" error={errors.gstStatus}>
           <TextField
             fullWidth
             size="small"
@@ -281,8 +331,8 @@ export function CustomerDrawer({ open, onClose, mode, customer, onSuccess }: Cus
             onChange={(e) => {
               const val = e.target.value as GstStatus
               update('gstStatus', val)
-              if (val === 'Unregistered') update('gstin', '')
             }}
+            error={!!errors.gstStatus}
           >
             <MenuItem value="Registered">Registered</MenuItem>
             <MenuItem value="Unregistered">Unregistered</MenuItem>
@@ -303,7 +353,6 @@ export function CustomerDrawer({ open, onClose, mode, customer, onSuccess }: Cus
             value={form.gstin}
             onChange={(e) => update('gstin', e.target.value.toUpperCase())}
             placeholder="29ABCDE1234F1Z5"
-            disabled={form.gstStatus === 'Unregistered'}
             error={!!errors.gstin}
           />
         </FormField>
@@ -340,13 +389,14 @@ export function CustomerDrawer({ open, onClose, mode, customer, onSuccess }: Cus
           </FormField>
         </Box>
 
-        <FormField label="PAN Number" hint="10-character PAN">
+        <FormField label="PAN Number" hint="10-character PAN" error={errors.pan}>
           <TextField
             fullWidth
             size="small"
             value={form.pan}
             onChange={(e) => update('pan', e.target.value.toUpperCase())}
             placeholder="ABCDE1234F"
+            error={!!errors.pan}
           />
         </FormField>
 
@@ -385,34 +435,38 @@ export function CustomerDrawer({ open, onClose, mode, customer, onSuccess }: Cus
 
       {/* ── Primary Contact ──────────────────────────────────────────── */}
       <FormSection title="Primary Contact" columns={2}>
-        <FormField label="Contact Person">
+        <FormField label="Contact Person" error={errors.contactPerson}>
           <TextField
             fullWidth
             size="small"
             value={form.contactPerson}
             onChange={(e) => update('contactPerson', e.target.value)}
             placeholder="Full name"
+            error={!!errors.contactPerson}
           />
         </FormField>
 
-        <FormField label="Designation">
+        <FormField label="Designation" error={errors.designation}>
           <TextField
             fullWidth
             size="small"
             value={form.designation}
             onChange={(e) => update('designation', e.target.value)}
             placeholder="e.g. Director"
+            error={!!errors.designation}
           />
         </FormField>
 
-        <FormField label="Phone">
+        <FormField label="Phone" error={errors.phone} hint="10-digit mobile starting with 6–9">
           <TextField
             fullWidth
             size="small"
             type="tel"
             value={form.phone}
-            onChange={(e) => update('phone', e.target.value)}
-            placeholder="+91 98765 43210"
+            onChange={(e) => update('phone', sanitizeMobileInput(e.target.value))}
+            placeholder="9876543210"
+            inputProps={{ inputMode: 'numeric', maxLength: 10 }}
+            error={!!errors.phone}
           />
         </FormField>
 
@@ -430,9 +484,9 @@ export function CustomerDrawer({ open, onClose, mode, customer, onSuccess }: Cus
       </FormSection>
 
       {/* ── Address ─────────────────────────────────────────────────── */}
-      <FormSection title="Address" columns={2}>
-        <Box sx={{ gridColumn: 'span 2' }}>
-          <FormField label="Address">
+      <FormSection title="Address" columns={3}>
+        <Box sx={{ gridColumn: '1 / -1' }}>
+          <FormField label="Address" error={errors.address}>
             <TextField
               fullWidth
               size="small"
@@ -441,11 +495,33 @@ export function CustomerDrawer({ open, onClose, mode, customer, onSuccess }: Cus
               value={form.address}
               onChange={(e) => update('address', e.target.value)}
               placeholder="Building, Street"
+              error={!!errors.address}
             />
           </FormField>
         </Box>
 
-        <FormField label="City" required error={errors.city}>
+        <FormField
+          label="Pincode"
+          error={errors.pincode}
+          hint={pincodeLookupLoading ? 'Looking up city & state…' : 'City and state auto-fill'}
+        >
+          <TextField
+            fullWidth
+            size="small"
+            value={form.pincode}
+            onChange={(e) => handlePincodeChange(e.target.value)}
+            placeholder="560001"
+            inputProps={{ inputMode: 'numeric', maxLength: 6 }}
+            error={!!errors.pincode}
+            InputProps={{
+              endAdornment: pincodeLookupLoading ? (
+                <CircularProgress color="inherit" size={16} />
+              ) : undefined,
+            }}
+          />
+        </FormField>
+
+        <FormField label="City" error={errors.city}>
           <TextField
             fullWidth
             size="small"
@@ -456,7 +532,7 @@ export function CustomerDrawer({ open, onClose, mode, customer, onSuccess }: Cus
           />
         </FormField>
 
-        <FormField label="State" required error={errors.state}>
+        <FormField label="State" error={errors.state}>
           <TextField
             fullWidth
             size="small"
@@ -465,28 +541,24 @@ export function CustomerDrawer({ open, onClose, mode, customer, onSuccess }: Cus
             onChange={(e) => update('state', e.target.value)}
             error={!!errors.state}
           >
+            <MenuItem value="">
+              Select state…
+            </MenuItem>
             {INDIAN_STATES.map((s) => (
               <MenuItem key={s} value={s}>
                 {s}
               </MenuItem>
             ))}
+            {form.state && !(INDIAN_STATES as readonly string[]).includes(form.state) ? (
+              <MenuItem value={form.state}>{form.state}</MenuItem>
+            ) : null}
           </TextField>
-        </FormField>
-
-        <FormField label="Pincode">
-          <TextField
-            fullWidth
-            size="small"
-            value={form.pincode}
-            onChange={(e) => update('pincode', e.target.value)}
-            placeholder="560001"
-          />
         </FormField>
       </FormSection>
 
       {/* ── Additional ──────────────────────────────────────────────── */}
       <FormSection title="Additional" columns={1}>
-        <FormField label="Notes">
+        <FormField label="Notes" error={errors.notes}>
           <TextField
             fullWidth
             size="small"
@@ -495,6 +567,7 @@ export function CustomerDrawer({ open, onClose, mode, customer, onSuccess }: Cus
             value={form.notes}
             onChange={(e) => update('notes', e.target.value)}
             placeholder="Internal notes about this customer"
+            error={!!errors.notes}
           />
         </FormField>
       </FormSection>

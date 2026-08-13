@@ -1,9 +1,9 @@
 import client from './client'
 
 export const settingsApi = {
-  getCompanyProfile: () => client.get('/settings/company'),
+  getCompanyProfile: () => client.get('/system-settings'),
   updateCompanyProfile: (data: Record<string, unknown>) =>
-    client.put('/settings/company', data),
+    client.put('/system-settings', data),
 
   getGSTRates: () => client.get('/settings/gst-rates'),
   createGSTRate: (data: Record<string, unknown>) =>
@@ -70,15 +70,6 @@ export const settingsApi = {
     client.put(`/settings/ratings/${id}`, data),
   toggleRatingStatus: (id: string) =>
     client.patch(`/settings/ratings/${id}/toggle`),
-
-  getProjectManagementCategories: () =>
-    client.get('/settings/project-management-categories'),
-  createProjectManagementCategory: (data: Record<string, unknown>) =>
-    client.post('/settings/project-management-categories', data),
-  updateProjectManagementCategory: (id: string, data: Record<string, unknown>) =>
-    client.put(`/settings/project-management-categories/${id}`, data),
-  toggleProjectManagementCategoryStatus: (id: string) =>
-    client.patch(`/settings/project-management-categories/${id}/toggle`),
 
   getNumberingSchemes: () => client.get('/settings/numbering-schemes'),
   updateNumberingSchemes: (data: Record<string, unknown>) =>

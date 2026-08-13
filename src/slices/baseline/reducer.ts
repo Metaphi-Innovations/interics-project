@@ -32,8 +32,10 @@ export interface ClientPOMilestone {
   value: number
   /** Distinguishes retention rows saved from retention cards. */
   kind?: 'regular' | 'retention'
+  /** Payment status from GET /po/:poId (invoice-derived). */
+  status?: 'Paid' | 'Unpaid'
   /** Optional retention slice linked to this milestone (legacy). */
-  retention?: ClientPORetention
+  retention?: ClientPORetention & { status?: 'Paid' | 'Unpaid' }
 }
 
 export interface ClientPO {

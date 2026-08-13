@@ -32,7 +32,7 @@ import { Truck, Plus, MoreVertical, Eye, Pencil, Trash2, ChevronLeft, ChevronRig
 import { useNavigate } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { fetchVendors, deleteVendor } from '../../slices/vendors/thunk'
-import { setFilters, resetFilters, setPage, setSortConfig } from '../../slices/vendors/reducer'
+import { setFilters, resetFilters, setPage, setPageSize, setSortConfig } from '../../slices/vendors/reducer'
 import type { Vendor } from '../../slices/vendors/reducer'
 import { ListingTemplate } from '../../components/templates'
 import type { FilterField, ColumnItem } from '../../components/templates/ListingTemplate'
@@ -40,13 +40,13 @@ import { VendorDrawer } from './VendorDrawer'
 import { PendingVendorContactsTable } from './PendingVendorContactsTable'
 import { PendingVendorViewDrawer } from './PendingVendorViewDrawer'
 import { useToast, Modal, Button } from '@/design-system/components'
-import { vendorsApi } from '@/api/vendorsApi'
-import { normalizeListResponse } from '@/utils/normalizeListResponse'
+import { vendorsService } from '@/modules/vendors'
 import { isPendingVendor } from '@/utils/vendorProfileStatus'
-import { getInitials, getAvatarColor, toSlug } from '../../utils/formatters'
+import { getInitials, getAvatarColor } from '../../utils/formatters'
 import { getSpecializationTagSx } from '../../utils/specializationTagStyles'
 import { tokens } from '@/design-system/tokens'
 import { getRatingMasterChipColors } from '../../utils/masterChipStyles'
+import { useSystemDefaultPageSize } from '@/hooks/useSystemDefaultPageSize'
 
 const VENDOR_ACTION_WIDTH_PX = 60
 const VENDOR_CELL_PAD_X = '14px'
@@ -778,6 +778,7 @@ function ConfirmDeleteDialog({ vendor, onConfirm, onClose }: ConfirmDeleteProps)
 
 export default function VendorsPage() {
   const dispatch = useAppDispatch()
+  const defaultPageSize = useSystemDefaultPageSize()
   const { items: rawItems, loading, pagination, filters, sortConfig } = useAppSelector((s) => s.vendors)
   const items = rawItems ?? []
   const { showToast } = useToast()
@@ -804,43 +805,67 @@ export default function VendorsPage() {
 
   const refreshTabCounts = useCallback(async () => {
     try {
-      const [activeRes, pendingRes] = await Promise.all([
-        vendorsApi.getAll({ page: 1, pageSize: 1, profileStatus: 'complete' }),
-        vendorsApi.getAll({ page: 1, pageSize: 1, profileStatus: 'pending' }),
-      ])
+      const activeRes = await vendorsService.getAll({ page: 1, limit: 1 })
       setTabCounts({
-        active: normalizeListResponse<Vendor>(activeRes.data).total,
-        pending: normalizeListResponse<Vendor>(pendingRes.data).total,
+        active: activeRes.total,
+        // Backend has no pending profileStatus yet
+        pending: 0,
       })
     } catch {
       // Tab counts are non-blocking; listing fetch still drives the table.
     }
   }, [])
 
-  const profileStatusFilter = contactsTab === 'pending' ? 'pending' : 'complete'
+  function buildFetchParams(
+    page = pagination.page,
+    pageSize = pagination.pageSize,
+    overrides: {
+      search?: string
+      status?: string
+      gstStatus?: string
+      state?: string
+      profileStatus?: 'pending' | 'complete'
+    } = {},
+  ) {
+    const pick = (key: 'search' | 'status' | 'gstStatus' | 'state') => {
+      if (Object.prototype.hasOwnProperty.call(overrides, key)) {
+        return overrides[key]
+      }
+      return filters[key]
+    }
 
-  function buildFetchParams(page = pagination.page) {
+    const searchRaw = pick('search')
+    const search = searchRaw?.trim() || undefined
+    const profileStatus =
+      overrides.profileStatus ?? (contactsTab === 'pending' ? 'pending' : 'complete')
+
     return {
       page,
-      pageSize: pagination.pageSize,
-      search: filters.search || undefined,
-      profileStatus: profileStatusFilter as 'pending' | 'complete',
-      ...(contactsTab === 'active'
+      pageSize,
+      search,
+      profileStatus: profileStatus as 'pending' | 'complete',
+      ...(profileStatus === 'complete'
         ? {
-            status: filters.status || undefined,
-            gstStatus: filters.gstStatus || undefined,
-            state: filters.state || undefined,
+            status: pick('status') || undefined,
+            gstStatus: pick('gstStatus') || undefined,
+            state: pick('state') || undefined,
           }
         : {}),
     }
   }
 
+  useEffect(() => {
+    if (defaultPageSize == null) return
+    dispatch(setPageSize(defaultPageSize))
+  }, [dispatch, defaultPageSize])
+
   // ── Initial fetch ──────────────────────────────────────────────────
   useEffect(() => {
-    dispatch(fetchVendors(buildFetchParams(1)))
+    if (defaultPageSize == null) return
+    dispatch(fetchVendors(buildFetchParams(1, defaultPageSize)))
     void refreshTabCounts()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [defaultPageSize])
 
   useEffect(() => {
     return () => {
@@ -937,8 +962,10 @@ export default function VendorsPage() {
     dispatch(setFilters({ search: value }))
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
     searchTimeoutRef.current = setTimeout(() => {
+      const trimmed = value.trim()
       dispatch(setPage(1))
-      dispatch(fetchVendors(buildFetchParams(1)))
+      // Pass search explicitly so clearing the input does not reuse a stale filter value.
+      void dispatch(fetchVendors(buildFetchParams(1, pagination.pageSize, { search: trimmed })))
     }, 300)
   }
 
@@ -950,14 +977,32 @@ export default function VendorsPage() {
     }
     dispatch(setFilters(params as { search?: string; status?: string; gstStatus?: string; state?: string }))
     dispatch(setPage(1))
-    dispatch(fetchVendors({ ...buildFetchParams(1), ...params }))
+    void dispatch(
+      fetchVendors(
+        buildFetchParams(1, pagination.pageSize, {
+          search: params.search,
+          status: params.status,
+          gstStatus: params.gstStatus,
+          state: params.state,
+        }),
+      ),
+    )
   }
 
   function handleFilterReset() {
     setActiveFilters({})
     dispatch(resetFilters())
     dispatch(setPage(1))
-    dispatch(fetchVendors(buildFetchParams(1)))
+    void dispatch(
+      fetchVendors(
+        buildFetchParams(1, pagination.pageSize, {
+          search: filters.search,
+          status: '',
+          gstStatus: '',
+          state: '',
+        }),
+      ),
+    )
   }
 
   function handleSortChange(field: string, direction: 'asc' | 'desc') {
@@ -1032,14 +1077,14 @@ export default function VendorsPage() {
   function handleNavigateToVendor(id: string) {
     const vendor = items.find((v) => v.id === id)
     if (vendor) {
-      navigate(`/vendors/${toSlug(vendor.name)}`)
+      navigate(`/vendors/${vendor.id}`)
     }
   }
 
   function handleNavigateToVendorProjects(vendor: Vendor, e?: React.MouseEvent) {
     e?.preventDefault()
     e?.stopPropagation()
-    navigate(`/vendors/${toSlug(vendor.name)}?tab=projects`)
+    navigate(`/vendors/${vendor.id}?tab=projects`)
   }
 
   async function handleDelete() {

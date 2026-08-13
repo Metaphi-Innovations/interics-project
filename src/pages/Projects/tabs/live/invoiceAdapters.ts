@@ -92,6 +92,7 @@ export function invoiceToClientInvoice(inv: Invoice): ClientInvoice {
     status: mapInvoiceStatusToClient(inv.status),
     payments: inv.payments.map(paymentToClient),
     notes: inv.notes,
+    clientPoId: inv.clientPoId,
     documentUrl: inv.documentUrl ?? undefined,
     fileName: inv.fileName ?? undefined,
     uploadedAt: inv.createdAt,
@@ -134,5 +135,6 @@ export function clientInvoiceDraftToReceivablesPost(
     notes: data.notes,
     sendNow: options.sendNow,
     invoiceNo: data.invoiceNumber,
+    ...(data.clientPoId ? { clientPoId: data.clientPoId } : {}),
   }
 }

@@ -451,13 +451,13 @@ function baselinesForProject(projectId: string): Baseline[] {
 // ─── Handlers ─────────────────────────────────────────────────────────────────
 
 export const baselineHandlers = [
-  http.get('/api/projects/:projectId/po', ({ params }) => {
+  http.get('*/api/v1/projects/:projectId/po', ({ params }) => {
     const projectId = params.projectId as string
     const pos = clientPOs.filter((p) => p.projectId === projectId)
     return HttpResponse.json(pos)
   }),
 
-  http.post('/api/projects/:projectId/po', async ({ params, request }) => {
+  http.post('*/api/v1/projects/:projectId/po', async ({ params, request }) => {
     const projectId = params.projectId as string
     const body = await request.json() as Omit<ClientPO, 'id' | 'projectId'>
     const newPO: ClientPO = {
@@ -469,7 +469,7 @@ export const baselineHandlers = [
     return HttpResponse.json(newPO, { status: 201 })
   }),
 
-  http.put('/api/projects/:projectId/po/:poId', async ({ params, request }) => {
+  http.put('*/api/v1/projects/:projectId/po/:poId', async ({ params, request }) => {
     const poId = params.poId as string
     const idx = clientPOs.findIndex((p) => p.id === poId)
     if (idx === -1) return HttpResponse.json({ message: 'PO not found' }, { status: 404 })
@@ -483,7 +483,7 @@ export const baselineHandlers = [
     return HttpResponse.json(clientPOs[idx])
   }),
 
-  http.delete('/api/projects/:projectId/po/:poId', ({ params }) => {
+  http.delete('*/api/v1/projects/:projectId/po/:poId', ({ params }) => {
     const poId = params.poId as string
     const idx = clientPOs.findIndex((p) => p.id === poId)
     if (idx === -1) return HttpResponse.json({ message: 'PO not found' }, { status: 404 })
@@ -491,19 +491,19 @@ export const baselineHandlers = [
     return HttpResponse.json({ success: true })
   }),
 
-  http.get('/api/projects/:projectId/baseline', ({ params }) => {
+  http.get('*/api/v1/projects/:projectId/baseline', ({ params }) => {
     const projectId = params.projectId as string
     const baseline = activeBaseline(projectId)
     if (!baseline) return HttpResponse.json(null, { status: 404 })
     return HttpResponse.json(baseline)
   }),
 
-  http.get('/api/projects/:projectId/baseline/history', ({ params }) => {
+  http.get('*/api/v1/projects/:projectId/baseline/history', ({ params }) => {
     const projectId = params.projectId as string
     return HttpResponse.json(baselinesForProject(projectId))
   }),
 
-  http.post('/api/projects/:projectId/baseline', async ({ params, request }) => {
+  http.post('*/api/v1/projects/:projectId/baseline', async ({ params, request }) => {
     const projectId = params.projectId as string
     const body = await request.json() as Partial<Baseline>
     const now = new Date().toISOString().split('T')[0]
@@ -544,7 +544,7 @@ export const baselineHandlers = [
     return HttpResponse.json(newBaseline, { status: 201 })
   }),
 
-  http.put('/api/projects/:projectId/baseline/:baselineId', async ({ params, request }) => {
+  http.put('*/api/v1/projects/:projectId/baseline/:baselineId', async ({ params, request }) => {
     const baselineId = params.baselineId as string
     const idx = baselines.findIndex((b) => b.id === baselineId)
     if (idx === -1) return HttpResponse.json({ message: 'Baseline not found' }, { status: 404 })
@@ -571,13 +571,13 @@ export const baselineHandlers = [
     return HttpResponse.json(baselines[idx])
   }),
 
-  http.get('/api/projects/:projectId/vendor-pos', ({ params }) => {
+  http.get('*/api/v1/projects/:projectId/vendor-pos', ({ params }) => {
     const projectId = params.projectId as string
     const pos = vendorPOs.filter((p) => p.projectId === projectId)
     return HttpResponse.json(pos)
   }),
 
-  http.post('/api/projects/:projectId/vendor-pos', async ({ params, request }) => {
+  http.post('*/api/v1/projects/:projectId/vendor-pos', async ({ params, request }) => {
     const projectId = params.projectId as string
     const body = await request.json() as Omit<VendorPO, 'id' | 'projectId' | 'milestones'> & {
       milestones?: VendorPO['milestones']
@@ -594,7 +594,7 @@ export const baselineHandlers = [
     return HttpResponse.json(newVendorPO, { status: 201 })
   }),
 
-  http.put('/api/projects/:projectId/vendor-pos/:poId', async ({ params, request }) => {
+  http.put('*/api/v1/projects/:projectId/vendor-pos/:poId', async ({ params, request }) => {
     const poId = params.poId as string
     const idx = vendorPOs.findIndex((p) => p.id === poId)
     if (idx === -1) return HttpResponse.json({ message: 'Vendor PO not found' }, { status: 404 })
@@ -605,7 +605,7 @@ export const baselineHandlers = [
     return HttpResponse.json(vendorPOs[idx])
   }),
 
-  http.delete('/api/projects/:projectId/vendor-pos/:poId', ({ params }) => {
+  http.delete('*/api/v1/projects/:projectId/vendor-pos/:poId', ({ params }) => {
     const poId = params.poId as string
     const idx = vendorPOs.findIndex((p) => p.id === poId)
     if (idx === -1) return HttpResponse.json({ message: 'Vendor PO not found' }, { status: 404 })

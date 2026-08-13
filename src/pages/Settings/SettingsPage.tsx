@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { Box, Typography } from '@mui/material'
 import SettingsIcon from '@mui/icons-material/Settings'
 import BusinessIcon from '@mui/icons-material/Business'
@@ -12,8 +12,6 @@ import AccountTreeIcon from '@mui/icons-material/AccountTree'
 import TuneIcon from '@mui/icons-material/Tune'
 import type { SvgIconComponent } from '@mui/icons-material'
 import { useTheme, alpha } from '@mui/material/styles'
-import { useAppDispatch } from '@/store/hooks'
-import { fetchCompanyProfile } from '@/slices/settings/thunk'
 import GeneralSettingsSection from './sections/GeneralSettingsSection'
 import TaxConfigSection from './sections/TaxConfigSection'
 import SACCodesSection from './sections/SACCodesSection'
@@ -44,12 +42,7 @@ const NAV_ITEMS: NavItem[] = [
 
 export default function SettingsPage() {
   const theme = useTheme()
-  const dispatch = useAppDispatch()
   const [activeSection, setActiveSection] = useState('general')
-
-  useEffect(() => {
-    dispatch(fetchCompanyProfile())
-  }, [dispatch])
 
   return (
     <Box

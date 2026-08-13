@@ -173,9 +173,8 @@ export const recalculateVendorPOMilestonesForPoValue =
 export function buildClientPOExecutedValueUpdatePayload(
   executedValue: number,
   milestones: ClientPOMilestone[],
-): Pick<ClientPO, 'poValue' | 'executedValue' | 'executedValueLocked' | 'milestones'> {
+): Pick<ClientPO, 'executedValue' | 'executedValueLocked' | 'milestones'> {
   return {
-    poValue: executedValue,
     executedValue,
     executedValueLocked: true,
     milestones,
@@ -185,9 +184,8 @@ export function buildClientPOExecutedValueUpdatePayload(
 export function buildVendorPOExecutedValueUpdatePayload(
   executedValue: number,
   milestones: VendorPOMilestone[],
-): Pick<VendorPO, 'poValue' | 'executedValue' | 'executedValueLocked' | 'milestones'> {
+): Pick<VendorPO, 'executedValue' | 'executedValueLocked' | 'milestones'> {
   return {
-    poValue: executedValue,
     executedValue,
     executedValueLocked: true,
     milestones,

@@ -65,6 +65,7 @@ export interface ClientInvoice {
   status: ClientInvoiceStatus
   payments: ClientInvoicePayment[]
   notes?: string
+  clientPoId?: string
   documentUrl?: string
   fileName?: string
   /** When the invoice document was uploaded into the system. */

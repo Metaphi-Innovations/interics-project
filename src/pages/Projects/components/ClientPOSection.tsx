@@ -107,12 +107,20 @@ export function ClientPOSection({ clientPOs, onAddPO, onViewPO, caption }: Clien
                   <Typography variant="body2" sx={{ fontWeight: 600, fontFamily: 'monospace', fontSize: 12 }}>
                     {po.poNumber}
                   </Typography>
-                  <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
-                    {po.startDate === po.endDate
-                      ? formatDate(po.startDate)
-                      : `${formatDate(po.startDate)} – ${formatDate(po.endDate)}`}
-                    {po.fileName ? ` · ${po.fileName}` : null}
-                  </Typography>
+                  {(po.startDate || po.endDate || po.fileName) ? (
+                    <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
+                      {po.startDate || po.endDate
+                        ? po.startDate === po.endDate || !po.endDate || !po.startDate
+                          ? formatDate(po.startDate || po.endDate)
+                          : `${formatDate(po.startDate)} – ${formatDate(po.endDate)}`
+                        : null}
+                      {po.startDate || po.endDate
+                        ? po.fileName
+                          ? ` · ${po.fileName}`
+                          : null
+                        : po.fileName}
+                    </Typography>
+                  ) : null}
                 </Box>
                 <Typography variant="body2" sx={{ fontWeight: 700, color: 'primary.main', fontSize: 13 }}>
                   ₹{formatCurrency(po.poValue)}

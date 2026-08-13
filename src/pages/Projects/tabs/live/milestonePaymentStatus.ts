@@ -41,10 +41,18 @@ export function clientMilestonePaymentStatus(
   milestoneId: string,
   serviceId: string,
 ): MilestonePaymentStatusLabel {
-  const inv = invoices.find(
-    (i) => i.milestoneId === milestoneId && i.serviceId === serviceId,
-  )
+  const inv = invoices.find((i) => {
+    if (i.milestoneId === milestoneId && (!serviceId || i.serviceId === serviceId)) {
+      return true
+    }
+    return (i.lineItems ?? []).some(
+      (li) =>
+        li.milestoneId === milestoneId &&
+        (!serviceId || !li.serviceId || li.serviceId === serviceId),
+    )
+  })
   if (!inv) return 'Unpaid'
+  if (inv.status === 'paid') return 'Paid'
   return isInvoiceFullyPaid(inv) ? 'Paid' : 'Unpaid'
 }
 

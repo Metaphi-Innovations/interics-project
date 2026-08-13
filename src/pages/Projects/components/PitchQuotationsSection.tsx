@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Box,
   Button as MuiButton,
@@ -18,10 +18,13 @@ import { useToast, type Toast } from '@/design-system/components'
 import { DocumentUploadFormBody } from '@/components/forms/DocumentUploadFormBody'
 import { tokens } from '@/design-system/tokens'
 import { useAppSelector } from '@/store/hooks'
+import { pitchService, type ClientQuotationApi } from '@/modules/projects/pitch.service'
+import { parseSettingsApiError } from '@/modules/system-settings/shared/api-errors'
+import { openAuthenticatedDocument } from '@/utils/openAuthenticatedDocument'
 import {
-  openProjectUploadInNewTab,
-  registerClientQuotationUpload,
-  useProjectDocumentUploads,
+  addProjectUpload,
+  getProjectUploads,
+  removeProjectUpload,
   type UploadedProjectDocument,
 } from '../projectDocumentUploads'
 
@@ -46,18 +49,33 @@ const QUOTATION_GRID_SX = {
   mt: 1,
 } as const
 
+function toUploadDoc(q: ClientQuotationApi): UploadedProjectDocument {
+  return {
+    id: q.id,
+    projectId: q.projectId,
+    displayName: q.displayName,
+    category: 'client_quotation',
+    fileName: q.fileName,
+    sizeBytes: q.sizeBytes,
+    uploadedAt: q.uploadedAt,
+    uploadedBy: q.uploadedBy,
+    uploadedByUserId: q.uploadedByUserId,
+    notes: q.notes ?? '',
+    blobUrl: q.viewUrl,
+  }
+}
+
 function viewQuotationDocument(
-  doc: UploadedProjectDocument,
+  doc: ClientQuotationApi,
   showToast: (toast: Omit<Toast, 'id'>) => void,
 ): void {
-  const opened = openProjectUploadInNewTab(doc)
-  if (!opened) {
+  void openAuthenticatedDocument(doc.viewUrl, () => {
     showToast({
       title: 'Unable to open document',
-      description: 'The file is no longer available in this session. Upload it again.',
+      description: 'Could not load the quotation file. Try again.',
       variant: 'error',
     })
-  }
+  })
 }
 
 function quotationDocCardSx(theme: Theme) {
@@ -85,19 +103,51 @@ export function PitchQuotationsSection({ projectId }: PitchQuotationsSectionProp
   const theme = useTheme()
   const { showToast } = useToast()
   const authUser = useAppSelector((s) => s.auth.user)
-  const { uploads, removeUpload } = useProjectDocumentUploads(projectId)
 
+  const [quotations, setQuotations] = useState<ClientQuotationApi[]>([])
+  const [loading, setLoading] = useState(true)
+  const [uploading, setUploading] = useState(false)
   const [uploadOpen, setUploadOpen] = useState(false)
-  const [deleteTarget, setDeleteTarget] = useState<UploadedProjectDocument | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<ClientQuotationApi | null>(null)
   const [docName, setDocName] = useState('')
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const [uploadResetKey, setUploadResetKey] = useState(0)
 
+  const loadQuotations = useCallback(async () => {
+    setLoading(true)
+    try {
+      const items = await pitchService.listQuotations(projectId)
+      setQuotations(items)
+      const existing = getProjectUploads(projectId).filter((u) => u.category === 'client_quotation')
+      existing.forEach((u) => {
+        if (!items.some((q) => q.id === u.id) && !u.blobUrl.startsWith('blob:')) {
+          removeProjectUpload(u.id)
+        }
+      })
+      items.forEach((q) => {
+        if (!getProjectUploads(projectId).some((u) => u.id === q.id)) {
+          addProjectUpload(toUploadDoc(q))
+        }
+      })
+    } catch (err) {
+      showToast({
+        title: parseSettingsApiError(err, 'Failed to load quotations').message,
+        variant: 'error',
+      })
+    } finally {
+      setLoading(false)
+    }
+  }, [projectId, showToast])
+
+  useEffect(() => {
+    void loadQuotations()
+  }, [loadQuotations])
+
   const clientQuotations = useMemo(() => {
-    return uploads
-      .filter((u) => u.projectId === projectId && u.category === 'client_quotation')
-      .sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime())
-  }, [uploads, projectId])
+    return [...quotations].sort(
+      (a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime(),
+    )
+  }, [quotations])
 
   function resetUploadForm(): void {
     setDocName('')
@@ -115,37 +165,48 @@ export function PitchQuotationsSection({ projectId }: PitchQuotationsSectionProp
     resetUploadForm()
   }
 
-  function handleUploadSubmit(): void {
+  async function handleUploadSubmit(): Promise<void> {
     const file = selectedFiles[0]
     if (!file) {
       showToast({ title: 'Please select a file to upload', variant: 'error' })
       return
     }
 
-    const uid = authUser?.id ?? 'unknown'
-    const uname = authUser?.name ?? 'Unknown'
     const displayName = docName.trim() || file.name.replace(/\.[^/.]+$/, '') || file.name
-
-    registerClientQuotationUpload({
-      projectId,
-      file,
-      displayName,
-      uploadedBy: uname,
-      uploadedByUserId: uid,
-    })
-    showToast({ title: 'Quotation uploaded', variant: 'success' })
-
-    closeUploadDialog()
+    setUploading(true)
+    try {
+      const created = await pitchService.uploadQuotation(projectId, { file, displayName })
+      setQuotations((prev) => [created, ...prev])
+      addProjectUpload(toUploadDoc(created))
+      showToast({ title: 'Quotation uploaded', variant: 'success' })
+      closeUploadDialog()
+    } catch (err) {
+      showToast({
+        title: parseSettingsApiError(err, 'Failed to upload quotation').message,
+        variant: 'error',
+      })
+    } finally {
+      setUploading(false)
+    }
   }
 
-  function handleDelete(): void {
+  async function handleDelete(): Promise<void> {
     if (!deleteTarget) return
-    removeUpload(deleteTarget.id)
-    showToast({ title: 'Quotation deleted', variant: 'success' })
-    setDeleteTarget(null)
+    try {
+      await pitchService.deleteQuotation(projectId, deleteTarget.id)
+      setQuotations((prev) => prev.filter((q) => q.id !== deleteTarget.id))
+      removeProjectUpload(deleteTarget.id)
+      showToast({ title: 'Quotation deleted', variant: 'success' })
+      setDeleteTarget(null)
+    } catch (err) {
+      showToast({
+        title: parseSettingsApiError(err, 'Failed to delete quotation').message,
+        variant: 'error',
+      })
+    }
   }
 
-  function canDelete(doc: UploadedProjectDocument): boolean {
+  function canDelete(doc: ClientQuotationApi): boolean {
     if (!authUser?.id) return false
     return doc.uploadedByUserId === authUser.id
   }
@@ -168,6 +229,12 @@ export function PitchQuotationsSection({ projectId }: PitchQuotationsSectionProp
             Upload Quotation
           </MuiButton>
         </Stack>
+
+        {loading && clientQuotations.length === 0 ? (
+          <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+            Loading quotations…
+          </Typography>
+        ) : null}
 
         {clientQuotations.length > 0 ? (
           <Box sx={QUOTATION_GRID_SX}>
@@ -246,11 +313,16 @@ export function PitchQuotationsSection({ projectId }: PitchQuotationsSectionProp
           </Box>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
-          <MuiButton size="small" onClick={closeUploadDialog}>
+          <MuiButton size="small" onClick={closeUploadDialog} disabled={uploading}>
             Cancel
           </MuiButton>
-          <MuiButton size="small" variant="contained" onClick={handleUploadSubmit}>
-            Upload
+          <MuiButton
+            size="small"
+            variant="contained"
+            onClick={() => void handleUploadSubmit()}
+            disabled={uploading}
+          >
+            {uploading ? 'Uploading…' : 'Upload'}
           </MuiButton>
         </DialogActions>
       </Dialog>
@@ -266,7 +338,12 @@ export function PitchQuotationsSection({ projectId }: PitchQuotationsSectionProp
           <MuiButton size="small" onClick={() => setDeleteTarget(null)}>
             Cancel
           </MuiButton>
-          <MuiButton size="small" variant="contained" color="error" onClick={handleDelete}>
+          <MuiButton
+            size="small"
+            variant="contained"
+            color="error"
+            onClick={() => void handleDelete()}
+          >
             Delete
           </MuiButton>
         </DialogActions>

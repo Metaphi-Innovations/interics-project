@@ -26,10 +26,12 @@ import { READONLY_DISABLED_TEXTFIELD_SX } from './readOnlyFieldStyles'
 import { useTheme, alpha } from '@mui/material/styles'
 import { Button, useToast } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
+import { uploadProjectDocumentFile } from '@/api/uploadFileApi'
 import { DrawerForm, FormField } from '../../../../components/templates'
 import { useAppDispatch, useAppSelector } from '../../../../store/hooks'
 import {
   deleteClientPO,
+  fetchClientPoById,
   fetchClientPO,
   updateClientPO,
   uploadClientPO,
@@ -261,7 +263,11 @@ function ClientPOMilestonesTable({
           </TableRow>
         </TableHead>
         <TableBody>
-          {milestones.map((m) => (
+          {milestones.map((m) => {
+            const status =
+              m.status ??
+              clientMilestonePaymentStatus(projectInvoices, m.id, m.serviceId)
+            return (
             <Fragment key={m.id}>
               <TableRow hover>
                 <TableCell sx={TABLE_CELL_SX}>
@@ -278,13 +284,7 @@ function ClientPOMilestonesTable({
                   {m.percentage}%
                 </TableCell>
                 <TableCell sx={MILESTONE_STATUS_CELL_SX}>
-                  <MilestoneStatusCell
-                    status={clientMilestonePaymentStatus(
-                      projectInvoices,
-                      m.id,
-                      m.serviceId,
-                    )}
-                  />
+                  <MilestoneStatusCell status={status} />
                 </TableCell>
                 <TableCell align="right" sx={{ ...TABLE_CELL_SX, fontWeight: 600 }}>
                   ₹{formatCurrency(m.value)}
@@ -306,7 +306,16 @@ function ClientPOMilestonesTable({
                     {m.retention.percentage}%
                   </TableCell>
                   <TableCell sx={MILESTONE_STATUS_CELL_SX}>
-                    <MilestoneStatusCell status="Unpaid" />
+                    <MilestoneStatusCell
+                      status={
+                        m.retention.status ??
+                        clientMilestonePaymentStatus(
+                          projectInvoices,
+                          `${m.id}-retention`,
+                          m.serviceId,
+                        )
+                      }
+                    />
                   </TableCell>
                   <TableCell align="right" sx={{ ...TABLE_CELL_SX, fontWeight: 600 }}>
                     ₹{formatCurrency(m.retention.value)}
@@ -314,7 +323,8 @@ function ClientPOMilestonesTable({
                 </TableRow>
               ) : null}
             </Fragment>
-          ))}
+            )
+          })}
         </TableBody>
       </Table>
     </Box>
@@ -430,6 +440,16 @@ export function AddClientPODrawer({ open, onClose, projectId }: AddClientPODrawe
       : null
 
     try {
+      let documentUrl: string | null = null
+      let fileName: string | undefined
+      let uploadedAt: string | null = null
+      if (poFormData.file) {
+        const uploaded = await uploadProjectDocumentFile(poFormData.file)
+        documentUrl = uploaded.viewUrl
+        fileName = uploaded.originalName || poFormData.file.name
+        uploadedAt = new Date().toISOString()
+      }
+
       await dispatch(
         uploadClientPO({
           projectId,
@@ -439,8 +459,9 @@ export function AddClientPODrawer({ open, onClose, projectId }: AddClientPODrawe
             endDate: '',
             poValue: poValueNumber,
             executedValue: executedValueNumberSave,
-            documentUrl: null,
-            fileName: poFormData.file?.name,
+            documentUrl,
+            fileName,
+            uploadedAt,
             milestones: milestonePayload,
           },
         }),
@@ -448,8 +469,12 @@ export function AddClientPODrawer({ open, onClose, projectId }: AddClientPODrawe
       void dispatch(fetchClientPO(projectId))
       toast({ title: 'PO saved successfully', variant: 'success' })
       onClose()
-    } catch {
-      toast({ title: 'Failed to save PO', variant: 'error' })
+    } catch (err) {
+      const message =
+        typeof err === 'string' && err.trim()
+          ? err
+          : 'Failed to save PO'
+      toast({ title: message, variant: 'error' })
     }
   }
 
@@ -597,14 +622,25 @@ interface ViewClientPODrawerProps {
   open: boolean
   onClose: () => void
   projectId: string
-  po: ClientPO | null
+  /** Prefer poId so the drawer loads a fresh GET /po/:poId payload. */
+  poId: string | null
+  /** Optional seed while the detail request is in flight. */
+  poSeed?: ClientPO | null
 }
 
-export function ViewClientPODrawer({ open, onClose, projectId, po }: ViewClientPODrawerProps) {
+export function ViewClientPODrawer({
+  open,
+  onClose,
+  projectId,
+  poId,
+  poSeed = null,
+}: ViewClientPODrawerProps) {
   const dispatch = useAppDispatch()
   const { saving } = useAppSelector((s) => s.baseline)
   const { invoices } = useAppSelector((s) => s.live)
   const toast = useToast((s) => s.showToast)
+  const [po, setPo] = useState<ClientPO | null>(poSeed)
+  const [loadingPo, setLoadingPo] = useState(false)
   const [updatingExecutedValue, setUpdatingExecutedValue] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [executedValueDraft, setExecutedValueDraft] = useState('')
@@ -620,10 +656,37 @@ export function ViewClientPODrawer({ open, onClose, projectId, po }: ViewClientP
   const { categoryOptions, serviceOptions, cardServiceOptions } = useClientPOMasterOptions(open)
 
   useEffect(() => {
-    if (open) {
-      void dispatch(fetchInvoices(projectId))
+    if (!open || !poId) {
+      setPo(null)
+      setLoadingPo(false)
+      return
     }
-  }, [open, projectId, dispatch])
+    let cancelled = false
+    setPo((prev) => (prev?.id === poId ? prev : poSeed?.id === poId ? poSeed : null))
+    setLoadingPo(true)
+    void dispatch(fetchClientPoById({ projectId, poId }))
+      .unwrap()
+      .then((detail) => {
+        if (!cancelled) setPo(detail)
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          toast({
+            title: typeof err === 'string' ? err : 'Failed to load PO',
+            variant: 'error',
+          })
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingPo(false)
+      })
+    void dispatch(fetchInvoices(projectId))
+    return () => {
+      cancelled = true
+    }
+    // poSeed is only used for first paint; intentionally omit from deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, poId, projectId, dispatch, toast])
 
   useEffect(() => {
     if (!open || !po) {
@@ -633,7 +696,7 @@ export function ViewClientPODrawer({ open, onClose, projectId, po }: ViewClientP
       return
     }
     setExecutedValueDraft(String(effectiveExecutedValue(po)))
-  }, [open, po?.id])
+  }, [open, po?.id, po?.executedValue, po?.poValue])
 
   useEffect(() => {
     setMilestoneCardOverrides(null)
@@ -711,6 +774,10 @@ export function ViewClientPODrawer({ open, onClose, projectId, po }: ViewClientP
           data: buildClientPOExecutedValueUpdatePayload(nextValue, nextMilestones),
         }),
       ).unwrap()
+      const detail = await dispatch(
+        fetchClientPoById({ projectId, poId: po.id }),
+      ).unwrap()
+      setPo(detail)
       void dispatch(fetchClientPO(projectId))
       toast({ title: 'Executed value updated', variant: 'success' })
       setUpdatingExecutedValue(false)
@@ -809,6 +876,11 @@ export function ViewClientPODrawer({ open, onClose, projectId, po }: ViewClientP
           </Stack>
         }
       >
+        {loadingPo && !po ? (
+          <Typography variant="body2" color="text.secondary" sx={{ fontSize: 13, py: 4, textAlign: 'center' }}>
+            Loading PO…
+          </Typography>
+        ) : null}
         {po ? (
           <Stack spacing={2.5}>
             {updatingExecutedValue ? (

@@ -16,7 +16,13 @@ import { DrawerForm } from '../../../../components/templates/DrawerForm'
 import { Button, StatusBadge, useToast } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { useAppDispatch, useAppSelector } from '../../../../store/hooks'
-import { createExpense, fetchExpenses, fetchReimbursements } from '../../../../slices/live/thunk'
+import {
+  createExpense,
+  fetchExpenseSummary,
+  fetchExpenses,
+  fetchReimbursements,
+  type ExpenseSummary,
+} from '../../../../slices/live/thunk'
 import { isReimbursableExpenseType } from '@/utils/reimbursableSync'
 import { fetchBaseline, fetchVendorPOs } from '../../../../slices/baseline/thunk'
 import type { Expense, ExpenseType } from '../../../../slices/live/reducer'
@@ -62,19 +68,22 @@ function AddExpenseDrawer({
   projectId,
   baseline,
   vendorPOs,
+  filter,
   onClose,
+  onSaved,
 }: {
   open: boolean
   projectId: string
   baseline: import('../../../../slices/baseline/reducer').Baseline | null
   vendorPOs: import('../../../../slices/baseline/reducer').VendorPO[]
+  filter: ExpenseFilter
   onClose: () => void
+  onSaved: () => void
 }) {
   const dispatch = useAppDispatch()
   const { saving } = useAppSelector((s) => s.live)
   const toast = useToast()
   const formRef = useRef<ExpenseFormHandle>(null)
-  const [formValid, setFormValid] = useState(false)
 
   const handleSubmit = useCallback(
     async (data: ExpenseFormData) => {
@@ -90,16 +99,19 @@ function AddExpenseDrawer({
         toast.success(
           isReimbursableExpenseType(body.type) ? 'Reimbursement added for payables' : 'Expense added',
         )
-        await dispatch(fetchExpenses(pid)).unwrap()
+        await dispatch(
+          fetchExpenses({ projectId: pid, type: filter === 'all' ? undefined : filter }),
+        ).unwrap()
         if (isReimbursableExpenseType(body.type)) {
           await dispatch(fetchReimbursements(pid)).unwrap()
         }
+        onSaved()
         onClose()
       } catch {
         toast.error('Failed to add expense')
       }
     },
-    [dispatch, toast, onClose],
+    [dispatch, toast, onClose, onSaved, filter],
   )
 
   return (
@@ -111,7 +123,7 @@ function AddExpenseDrawer({
       onSubmit={() => formRef.current?.submit()}
       submitLabel="Add Expense"
       submitLoading={saving}
-      submitDisabled={!formValid || saving}
+      submitDisabled={saving}
     >
       <ExpenseForm
         ref={formRef}
@@ -119,16 +131,13 @@ function AddExpenseDrawer({
         projectId={projectId}
         baseline={baseline?.projectId === projectId ? baseline : null}
         vendorPOs={vendorPOs}
-        open={open}
         onSubmit={handleSubmit}
-        onCancel={onClose}
-        onValidityChange={setFormValid}
       />
     </DrawerForm>
   )
 }
 
-// ─── Main tab ─────────────────────────────────────────────────────────────────
+// ─── Main tab ───────────────────────────────────────────────────────────────────
 
 interface ExpensesTabProps {
   projectId: string
@@ -136,36 +145,61 @@ interface ExpensesTabProps {
 
 export default function ExpensesTab({ projectId }: ExpensesTabProps) {
   const dispatch = useAppDispatch()
-  const { expenses } = useAppSelector((s) => s.live)
   const { baseline, vendorPOs } = useAppSelector((s) => s.baseline)
-
   const [filter, setFilter] = useState<ExpenseFilter>('all')
-  const [sortBy, setSortBy] = useState<'date' | 'amount'>('date')
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [addOpen, setAddOpen] = useState(false)
   const [viewExpense, setViewExpense] = useState<Expense | null>(null)
+  const [sortBy, setSortBy] = useState<'date' | 'amount'>('date')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+  const [summary, setSummary] = useState<ExpenseSummary | null>(null)
+  const [listedExpenses, setListedExpenses] = useState<Expense[]>([])
+
+  const refreshSummary = useCallback(async () => {
+    try {
+      const next = await dispatch(fetchExpenseSummary(projectId)).unwrap()
+      setSummary(next)
+    } catch {
+      setSummary(null)
+    }
+  }, [dispatch, projectId])
+
+  const refreshList = useCallback(async () => {
+    try {
+      const rows = await dispatch(
+        fetchExpenses({
+          projectId,
+          type: filter === 'all' ? undefined : filter,
+        }),
+      ).unwrap()
+      setListedExpenses(rows)
+      // Keep full project expenses in Redux for other live tabs
+      if (filter !== 'all') {
+        void dispatch(fetchExpenses({ projectId }))
+      }
+    } catch {
+      setListedExpenses([])
+    }
+  }, [dispatch, projectId, filter])
 
   useEffect(() => {
     void dispatch(fetchBaseline(projectId))
     void dispatch(fetchVendorPOs(projectId))
-  }, [dispatch, projectId])
+    void refreshSummary()
+  }, [dispatch, projectId, refreshSummary])
 
-  const projectExpenses = useMemo(
-    () => expenses.filter((e) => e.projectId === projectId),
-    [expenses, projectId],
-  )
+  useEffect(() => {
+    void refreshList()
+  }, [refreshList])
 
   const filtered = useMemo(() => {
-    let rows = projectExpenses
-    if (filter !== 'all') rows = rows.filter((e) => e.type === filter)
-    return [...rows].sort((a, b) => {
+    return [...listedExpenses].sort((a, b) => {
       const mul = sortDir === 'asc' ? 1 : -1
       if (sortBy === 'amount') return (a.amount - b.amount) * mul
       const da = new Date(a.date).getTime()
       const db = new Date(b.date).getTime()
       return (da - db) * mul
     })
-  }, [projectExpenses, filter, sortBy, sortDir])
+  }, [listedExpenses, sortBy, sortDir])
 
   function handleSort(column: 'date' | 'amount') {
     if (sortBy === column) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
@@ -185,7 +219,7 @@ export default function ExpensesTab({ projectId }: ExpensesTabProps) {
 
   return (
     <>
-      <ExpenseSummaryStrip expenses={projectExpenses} />
+      <ExpenseSummaryStrip summary={summary} />
 
       <WorkspaceSection
         title="Project Expenses"
@@ -267,9 +301,7 @@ export default function ExpensesTab({ projectId }: ExpensesTabProps) {
               <TableRow>
                 <TableCell colSpan={8} sx={{ ...TABLE_CELL_SX, textAlign: 'center', py: 4 }}>
                   <Typography variant="body2" color="text.secondary">
-                    {projectExpenses.length === 0
-                      ? 'No expenses yet'
-                      : 'No expenses match this filter'}
+                    No expenses yet
                   </Typography>
                 </TableCell>
               </TableRow>
@@ -316,7 +348,12 @@ export default function ExpensesTab({ projectId }: ExpensesTabProps) {
         projectId={projectId}
         baseline={baseline?.projectId === projectId ? baseline : null}
         vendorPOs={vendorPOs}
+        filter={filter}
         onClose={() => setAddOpen(false)}
+        onSaved={() => {
+          void refreshSummary()
+          void refreshList()
+        }}
       />
 
       <ViewExpenseModal

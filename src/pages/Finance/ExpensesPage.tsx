@@ -200,7 +200,7 @@ export default function ExpensesPage() {
 
   const refetchAllExpenses = useCallback(async () => {
     if (projects.length === 0) return
-    await Promise.all(projects.map((p) => dispatch(fetchExpenses(p.id)).unwrap()))
+    await Promise.all(projects.map((p) => dispatch(fetchExpenses({ projectId: p.id })).unwrap()))
   }, [dispatch, projects])
 
   useEffect(() => {
@@ -214,7 +214,7 @@ export default function ExpensesPage() {
 
     void (async () => {
       try {
-        await Promise.all(projects.map((p) => dispatch(fetchExpenses(p.id)).unwrap()))
+        await Promise.all(projects.map((p) => dispatch(fetchExpenses({ projectId: p.id })).unwrap()))
       } finally {
         if (!cancelled) setFinanceLoaded(true)
       }

@@ -51,6 +51,7 @@ import {
   totalTdsFromPayments,
   type InvoiceLineRollups,
 } from './clientInvoiceUtils'
+import { downloadClientInvoiceDocument } from './downloadClientInvoice'
 
 function milestoneRowKey(m: Pick<BillableMilestone, 'milestoneId' | 'serviceId'>): string {
   return `${m.milestoneId}:${m.serviceId}`
@@ -356,6 +357,10 @@ function GenerateInvoiceDrawer({
   const [dueDate, setDueDate] = useState<Date | null>(null)
   const [notes, setNotes] = useState('')
   const [lines, setLines] = useState<DraftLineItem[]>([])
+  const [fieldErrors, setFieldErrors] = useState<{
+    invoiceNumber?: string
+    lines?: string
+  }>({})
 
   useEffect(() => {
     if (!open || !preset) return
@@ -363,6 +368,7 @@ function GenerateInvoiceDrawer({
     setInvoiceDate(new Date())
     setDueDate(null)
     setNotes('')
+    setFieldErrors({})
     const svc = services.find((s) => s.id === preset.serviceId)
     const sac = sacCodeForService(sacCodes, svc)
     const gstRate = svc?.gstRate ?? DEFAULT_GST_RATE
@@ -389,24 +395,55 @@ function GenerateInvoiceDrawer({
   const roll = useMemo(() => rollupsFromLineItems(lineItemsToPayload(lines)), [lines])
 
   function handleDownloadDraft() {
-    showToast({
-      title: 'Draft invoice download (placeholder)',
-      variant: 'info',
+    if (!preset) return
+    if (!lines.length) {
+      showToast({ title: 'Add line items before downloading', variant: 'error' })
+      return
+    }
+    downloadClientInvoiceDocument({
+      invoiceNumber: invoiceNumber.trim() || 'Draft Invoice',
+      invoiceDate: toIsoDate(invoiceDate),
+      dueDate: toIsoDate(dueDate),
+      projectName,
+      clientName,
+      notes: notes.trim() || undefined,
+      milestoneName: preset.milestoneName,
+      serviceName: preset.serviceName,
+      lineItems: lines.map((l) => ({
+        serviceName: l.serviceName,
+        amount: l.amount,
+        labourCessRate: l.labourCessRate,
+        gstRate: l.gstRate,
+        labourCessAmount: l.labourCessAmount,
+        taxableAmount: l.taxableAmount,
+        gstAmount: l.gstAmount,
+      })),
     })
+  }
+
+  function validateForm(): boolean {
+    const next: typeof fieldErrors = {}
+    if (!invoiceNumber.trim()) next.invoiceNumber = 'Invoice number is required'
+    if (!lines.length || lines.some((l) => !l.serviceId || l.amount <= 0)) {
+      next.lines = 'Add at least one valid line item'
+    }
+    setFieldErrors(next)
+    const keys = Object.keys(next)
+    if (keys.length > 0) {
+      showToast({
+        title: next.invoiceNumber ?? next.lines ?? 'Please fill in all required fields',
+        variant: 'error',
+      })
+      return false
+    }
+    return true
   }
 
   async function handleSubmit() {
     if (!preset) return
+    if (!validateForm()) return
     const invDate = toIsoDate(invoiceDate)
     const due = toIsoDate(dueDate)
-    if (!invoiceNumber.trim()) {
-      showToast({ title: 'Invoice number is required', variant: 'error' })
-      return
-    }
-    if (!lines.length || lines.some((l) => !l.serviceId || l.amount <= 0)) {
-      showToast({ title: 'Add at least one valid line item', variant: 'error' })
-      return
-    }
     try {
       await dispatch(
         createInvoice({
@@ -420,6 +457,7 @@ function GenerateInvoiceDrawer({
             milestoneName: preset.milestoneName,
             serviceId: preset.serviceId,
             serviceName: preset.serviceName,
+            clientPoId: preset.clientPoId,
             lineItems: lineItemsToPayload(lines),
             baseAmount: roll.baseAmount,
             labourCessAmount: roll.labourCessAmount,
@@ -510,12 +548,17 @@ function GenerateInvoiceDrawer({
               lines={lines}
               services={services}
               sacCodes={sacCodes}
-              onChange={setLines}
+              onChange={(next) => {
+                setLines(next)
+                setFieldErrors((prev) => ({ ...prev, lines: undefined }))
+              }}
               projectSourced
               allowEmpty={false}
               manualAddCollapsed
+              allowManualAdd={false}
               hideSacColumn
               showLabourCessColumn
+              error={fieldErrors.lines}
             />
           </Box>
         </Box>
@@ -523,12 +566,16 @@ function GenerateInvoiceDrawer({
         <Box>
           <SectionHeader>Invoice details</SectionHeader>
           <Stack spacing={2} sx={{ mt: 1 }}>
-            <FormField label="Invoice Number" required>
+            <FormField label="Invoice Number" required error={fieldErrors.invoiceNumber}>
               <Input
                 value={invoiceNumber}
-                onChange={setInvoiceNumber}
+                onChange={(v) => {
+                  setInvoiceNumber(v)
+                  setFieldErrors((prev) => ({ ...prev, invoiceNumber: undefined }))
+                }}
                 placeholder="e.g. INV-2026-001"
                 size="sm"
+                error={Boolean(fieldErrors.invoiceNumber)}
               />
             </FormField>
             <Stack direction={{ xs: 'column', sm: 'row' }} gap={2}>
@@ -1047,9 +1094,28 @@ export default function BillingTab({ projectId, projectName, clientId, clientNam
         onRecordPayment={() => {
           if (viewInvoice) openPayment(viewInvoice)
         }}
-        onDownloadPdf={() =>
-          showToast({ title: 'PDF download is not available in this demo', variant: 'info' })
-        }
+        onDownloadPdf={() => {
+          if (!viewInvoiceResolved) return
+          downloadClientInvoiceDocument({
+            invoiceNumber: viewInvoiceResolved.invoiceNumber,
+            invoiceDate: viewInvoiceResolved.invoiceDate,
+            dueDate: viewInvoiceResolved.dueDate,
+            projectName,
+            clientName: viewInvoiceResolved.clientName ?? clientName,
+            notes: viewInvoiceResolved.notes,
+            milestoneName: viewInvoiceResolved.milestoneName,
+            serviceName: viewInvoiceResolved.serviceName,
+            lineItems: viewInvoiceResolved.lineItems.map((l) => ({
+              serviceName: l.serviceName,
+              amount: l.amount,
+              labourCessRate: l.labourCessRate,
+              gstRate: l.gstRate,
+              labourCessAmount: l.labourCessAmount,
+              taxableAmount: l.taxableAmount,
+              gstAmount: l.gstAmount,
+            })),
+          })
+        }}
       />
     </>
   )

@@ -184,14 +184,14 @@ function recalcVersion(version: PitchVersion): PitchVersion {
 
 export const pitchHandlers = [
   // GET /api/projects/:projectId/pitch/versions
-  http.get('/api/projects/:projectId/pitch/versions', ({ params }) => {
+  http.get('*/api/v1/projects/:projectId/pitch/versions', ({ params }) => {
     const projectId = params.projectId as string
     const versions = pitchVersions.filter((v) => v.projectId === projectId)
     return HttpResponse.json(versions)
   }),
 
   // POST /api/projects/:projectId/pitch/versions
-  http.post('/api/projects/:projectId/pitch/versions', async ({ params, request }) => {
+  http.post('*/api/v1/projects/:projectId/pitch/versions', async ({ params, request }) => {
     const projectId = params.projectId as string
     const body = await request.json() as { label: string; copyFromVersionId?: string }
 
@@ -220,7 +220,7 @@ export const pitchHandlers = [
         projectId,
         versionNumber,
         label: body.label,
-        isActive: false,
+        isActive: true,
         createdAt: new Date().toISOString().split('T')[0],
         categories: [],
         plannedExpenses: [],
@@ -238,7 +238,7 @@ export const pitchHandlers = [
   }),
 
   // GET /api/projects/:projectId/pitch/versions/:versionId
-  http.get('/api/projects/:projectId/pitch/versions/:versionId', ({ params }) => {
+  http.get('*/api/v1/projects/:projectId/pitch/versions/:versionId', ({ params }) => {
     const version = pitchVersions.find((v) => v.id === params.versionId)
     if (!version) {
       return HttpResponse.json({ message: 'Version not found' }, { status: 404 })
@@ -247,7 +247,7 @@ export const pitchHandlers = [
   }),
 
   // PUT /api/projects/:projectId/pitch/versions/:versionId
-  http.put('/api/projects/:projectId/pitch/versions/:versionId', async ({ params, request }) => {
+  http.put('*/api/v1/projects/:projectId/pitch/versions/:versionId', async ({ params, request }) => {
     const idx = pitchVersions.findIndex((v) => v.id === params.versionId)
     if (idx === -1) {
       return HttpResponse.json({ message: 'Version not found' }, { status: 404 })
@@ -259,7 +259,7 @@ export const pitchHandlers = [
 
   // POST /api/projects/:projectId/pitch/versions/:versionId/categories
   http.post(
-    '/api/projects/:projectId/pitch/versions/:versionId/categories',
+    '*/api/v1/projects/:projectId/pitch/versions/:versionId/categories',
     async ({ params, request }) => {
       const idx = pitchVersions.findIndex((v) => v.id === params.versionId)
       if (idx === -1) {
@@ -277,7 +277,7 @@ export const pitchHandlers = [
 
   // DELETE /api/projects/:projectId/pitch/versions/:versionId/categories/:categoryId
   http.delete(
-    '/api/projects/:projectId/pitch/versions/:versionId/categories/:categoryId',
+    '*/api/v1/projects/:projectId/pitch/versions/:versionId/categories/:categoryId',
     ({ params }) => {
       const idx = pitchVersions.findIndex((v) => v.id === params.versionId)
       if (idx === -1) {
@@ -292,7 +292,7 @@ export const pitchHandlers = [
 
   // POST .../categories/:categoryId/services
   http.post(
-    '/api/projects/:projectId/pitch/versions/:versionId/categories/:categoryId/services',
+    '*/api/v1/projects/:projectId/pitch/versions/:versionId/categories/:categoryId/services',
     async ({ params, request }) => {
       const idx = pitchVersions.findIndex((v) => v.id === params.versionId)
       if (idx === -1) {
@@ -325,7 +325,7 @@ export const pitchHandlers = [
 
   // PUT .../categories/:categoryId/services/:serviceId
   http.put(
-    '/api/projects/:projectId/pitch/versions/:versionId/categories/:categoryId/services/:serviceId',
+    '*/api/v1/projects/:projectId/pitch/versions/:versionId/categories/:categoryId/services/:serviceId',
     async ({ params, request }) => {
       const idx = pitchVersions.findIndex((v) => v.id === params.versionId)
       if (idx === -1) {
@@ -345,7 +345,7 @@ export const pitchHandlers = [
 
   // DELETE .../categories/:categoryId/services/:serviceId
   http.delete(
-    '/api/projects/:projectId/pitch/versions/:versionId/categories/:categoryId/services/:serviceId',
+    '*/api/v1/projects/:projectId/pitch/versions/:versionId/categories/:categoryId/services/:serviceId',
     ({ params }) => {
       const idx = pitchVersions.findIndex((v) => v.id === params.versionId)
       if (idx === -1) {
@@ -362,7 +362,7 @@ export const pitchHandlers = [
 
   // PUT .../services/:serviceId/milestones
   http.put(
-    '/api/projects/:projectId/pitch/versions/:versionId/services/:serviceId/milestones',
+    '*/api/v1/projects/:projectId/pitch/versions/:versionId/services/:serviceId/milestones',
     async ({ params, request }) => {
       const idx = pitchVersions.findIndex((v) => v.id === params.versionId)
       if (idx === -1) {
@@ -384,7 +384,7 @@ export const pitchHandlers = [
 
   // PUT .../services/:serviceId/vendors
   http.put(
-    '/api/projects/:projectId/pitch/versions/:versionId/services/:serviceId/vendors',
+    '*/api/v1/projects/:projectId/pitch/versions/:versionId/services/:serviceId/vendors',
     async ({ params, request }) => {
       const idx = pitchVersions.findIndex((v) => v.id === params.versionId)
       if (idx === -1) {
@@ -406,7 +406,7 @@ export const pitchHandlers = [
 
   // PUT .../planned-expenses
   http.put(
-    '/api/projects/:projectId/pitch/versions/:versionId/planned-expenses',
+    '*/api/v1/projects/:projectId/pitch/versions/:versionId/planned-expenses',
     async ({ params, request }) => {
       const idx = pitchVersions.findIndex((v) => v.id === params.versionId)
       if (idx === -1) {

@@ -548,7 +548,7 @@ function filterInvoices(list: Invoice[], q: Record<string, string>): Invoice[] {
 }
 
 export const receivablesHandlers = [
-  http.get('/api/invoices', ({ request }) => {
+  http.get('*/api/v1/invoices', ({ request }) => {
     const url = new URL(request.url)
     const q = parseListUrl(url)
     const page = Math.max(1, Number(q.page) || 1)
@@ -560,13 +560,13 @@ export const receivablesHandlers = [
     return HttpResponse.json({ items, total })
   }),
 
-  http.get('/api/invoices/:id', ({ params }) => {
+  http.get('*/api/v1/invoices/:id', ({ params }) => {
     const inv = invoices.find((i) => i.id === params.id)
     if (!inv) return HttpResponse.json({ message: 'Not found' }, { status: 404 })
     return HttpResponse.json(inv)
   }),
 
-  http.post('/api/invoices', async ({ request }) => {
+  http.post('*/api/v1/invoices', async ({ request }) => {
     const body = (await request.json()) as Partial<Invoice> & { sendNow?: boolean; invoiceNo?: string }
     const lineItems = (body.lineItems ?? []) as LineItem[]
     if (lineItems.length === 0) {
@@ -639,7 +639,7 @@ export const receivablesHandlers = [
     return HttpResponse.json(inv)
   }),
 
-  http.put('/api/invoices/:id', async ({ params, request }) => {
+  http.put('*/api/v1/invoices/:id', async ({ params, request }) => {
     const idx = invoices.findIndex((i) => i.id === params.id)
     if (idx < 0) return HttpResponse.json({ message: 'Not found' }, { status: 404 })
     const body = (await request.json()) as Partial<Invoice> & { sendNow?: boolean }
@@ -679,7 +679,7 @@ export const receivablesHandlers = [
     return HttpResponse.json(merged)
   }),
 
-  http.post('/api/invoices/:id/payments', async ({ params, request }) => {
+  http.post('*/api/v1/invoices/:id/payments', async ({ params, request }) => {
     const idx = invoices.findIndex((i) => i.id === params.id)
     if (idx < 0) return HttpResponse.json({ message: 'Not found' }, { status: 404 })
     const body = (await request.json()) as {
@@ -711,7 +711,7 @@ export const receivablesHandlers = [
     return HttpResponse.json(inv)
   }),
 
-  http.patch('/api/invoices/:id/status', async ({ params, request }) => {
+  http.patch('*/api/v1/invoices/:id/status', async ({ params, request }) => {
     const idx = invoices.findIndex((i) => i.id === params.id)
     if (idx < 0) return HttpResponse.json({ message: 'Not found' }, { status: 404 })
     const body = (await request.json()) as { status: InvoiceStatus }

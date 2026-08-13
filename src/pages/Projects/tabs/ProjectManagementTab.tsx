@@ -20,6 +20,8 @@ import {
   type ProjectManagementCategory,
 } from './projectManagementCheckpoints'
 import { VendorPODocumentsSection } from './VendorPODocumentsSection'
+import { liveApi } from '@/api/liveApi'
+import { ProjectTabSkeleton } from '../components/ProjectTabSkeleton'
 
 export type { ProjectManagementCategory }
 
@@ -167,10 +169,52 @@ export default function ProjectManagementTab({ project }: ProjectManagementTabPr
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
   const [draft, setDraft] = useState<DraftMap>({})
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     void dispatch(fetchProjectManagementCategories())
   }, [dispatch])
+
+  useEffect(() => {
+    if (!project.id) return
+    if (masterCategories.length === 0) {
+      setLoading(false)
+      return
+    }
+    let cancelled = false
+    setLoading(true)
+    void (async () => {
+      try {
+        const selections = await liveApi.getProjectManagementSelections(project.id)
+        if (cancelled) return
+        const mapped: ProjectManagementCategory[] = selections
+          .map((selection) => {
+            const master = masterCategories.find((c) => c.id === selection.settingsCategoryId)
+            if (!master) return null
+            return {
+              id: selection.settingsCategoryId,
+              settingsCategoryId: selection.settingsCategoryId,
+              name: master.category,
+              selectedCheckpointIds: selection.selectedCheckpointIds,
+              checkpointProgress: selection.checkpointProgress ?? {},
+            }
+          })
+          .filter((row): row is ProjectManagementCategory => row != null)
+        setCategories(mapped)
+        setDraft(buildDraftFromCategories(mapped))
+      } catch {
+        if (!cancelled) {
+          setCategories([])
+          setDraft({})
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [project.id, masterCategories])
 
   // Reset project-scoped category selections when navigating between projects.
   useEffect(() => {
@@ -225,7 +269,7 @@ export default function ProjectManagementTab({ project }: ProjectManagementTabPr
     setDrawerOpen(false)
   }
 
-  function handleSave(payloads: CategoryDrawerSavePayload[]) {
+  async function handleSave(payloads: CategoryDrawerSavePayload[]) {
     const prevBySettingsId = new Map(categories.map((c) => [c.settingsCategoryId, c]))
     const next: ProjectManagementCategory[] = []
 
@@ -256,6 +300,14 @@ export default function ProjectManagementTab({ project }: ProjectManagementTabPr
     setDraft(buildDraftFromCategories(next))
     // Newly added checkpoints stay locked until Update is clicked.
     setIsEditing(false)
+    await liveApi.saveProjectManagementSelections(
+      project.id,
+      next.map((category) => ({
+        settingsCategoryId: category.settingsCategoryId,
+        selectedCheckpointIds: category.selectedCheckpointIds,
+        checkpointProgress: category.checkpointProgress,
+      })),
+    )
     success(payloads.length === 1 ? 'Category saved' : 'Categories saved')
     closeDrawer()
   }
@@ -276,7 +328,7 @@ export default function ProjectManagementTab({ project }: ProjectManagementTabPr
     setIsEditing(true)
   }
 
-  function handleSubmit() {
+  async function handleSubmit() {
     const now = new Date().toISOString()
 
     const next = categories.map((category) => {
@@ -304,7 +356,28 @@ export default function ProjectManagementTab({ project }: ProjectManagementTabPr
     setCategories(next)
     setDraft(buildDraftFromCategories(next))
     setIsEditing(false)
+    await liveApi.saveProjectManagementSelections(
+      project.id,
+      next.map((category) => ({
+        settingsCategoryId: category.settingsCategoryId,
+        selectedCheckpointIds: category.selectedCheckpointIds,
+        checkpointProgress: category.checkpointProgress,
+      })),
+    )
     success('Progress saved')
+  }
+
+  if (loading) {
+    return (
+      <Stack spacing={2}>
+        <WorkspaceSection title="Project Management">
+          <ProjectTabSkeleton rows={4} />
+        </WorkspaceSection>
+        <WorkspaceSection title="Vendor PO Documents">
+          <ProjectTabSkeleton rows={3} />
+        </WorkspaceSection>
+      </Stack>
+    )
   }
 
   return (
@@ -405,7 +478,7 @@ export default function ProjectManagementTab({ project }: ProjectManagementTabPr
                 color="primary"
                 size="sm"
                 label="Submit"
-                onClick={handleSubmit}
+                onClick={() => void handleSubmit()}
                 disabled={!isEditing || totalCheckpoints === 0 || !isDirty}
               />
             </Stack>
@@ -420,7 +493,7 @@ export default function ProjectManagementTab({ project }: ProjectManagementTabPr
         categoryOptions={activeMasterCategories}
         projectCategories={categories}
         onClose={closeDrawer}
-        onSave={handleSave}
+        onSave={(payloads) => void handleSave(payloads)}
       />
     </Stack>
   )

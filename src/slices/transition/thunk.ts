@@ -1,8 +1,9 @@
 import { createAsyncThunk } from '@reduxjs/toolkit'
+import { API_BASE_URL } from '@/api/config'
 import type { PitchCategory, PlannedExpense } from '@/slices/pitch/reducer'
 import { recalcTransitionDraft, type TransitionDraft } from '@/utils/transitionDraft'
 
-const BASE = '/api/projects'
+const BASE = `${API_BASE_URL}/projects`
 
 export type TransitionApiPayload = {
   versionId: string | null

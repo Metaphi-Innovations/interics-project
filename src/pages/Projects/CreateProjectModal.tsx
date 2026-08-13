@@ -32,7 +32,7 @@ import {
 } from '@mui/icons-material'
 import { useNavigate } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
-import { fetchCustomers, createCustomer } from '../../slices/customers/thunk'
+import { fetchCustomers, createCustomer, fetchCustomerById } from '../../slices/customers/thunk'
 import { fetchUsers } from '../../slices/users/thunk'
 import { fetchRoles } from '../../slices/roles/thunk'
 import { isProjectManagerRole } from './projectManagerRoles'
@@ -43,7 +43,7 @@ import { createProject } from '../../slices/projects/thunk'
 import type { User } from '../../slices/users/reducer'
 import { useToast, DatePicker, dateFromIso, isoFromDate, AutocompleteField } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
-import { toSlug, getInitials, getAvatarColor } from '../../utils/formatters'
+import { getInitials, getAvatarColor } from '../../utils/formatters'
 import { fetchSectors, fetchStatuses } from '../../slices/settings/thunk'
 import {
   COUNTRIES,
@@ -65,6 +65,7 @@ import {
   buildProjectSetupPayload,
   validateProjectSetupFields,
 } from './projectCreateHelpers'
+import { normalizeContacts } from '../../utils/entityContacts'
 import { buildAssignedTeamPayload } from '@/utils/projectAssignedTeam'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -211,7 +212,6 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
   const [savingCustomer, setSavingCustomer] = useState(false)
   const [newCustomerData, setNewCustomerData] = useState({
     name: '',
-    type: 'Company' as 'Company' | 'Individual',
     sector: '',
     contactPerson: '',
     phone: '',
@@ -240,7 +240,14 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
     }
   }, [open])
 
-  const managers = users.filter((u) => isProjectManagerRole(u.role))
+  const managersFiltered = users.filter(
+    (u) => u.status === 'active' && isProjectManagerRole(u.role, roles),
+  )
+  const managers =
+    managersFiltered.length > 0
+      ? managersFiltered
+      : users.filter((u) => u.status === 'active')
+  const activeUsers = users.filter((u) => u.status === 'active')
 
   function getRoleLabel(roleId: string) {
     return roles.find((r) => r.id === roleId)?.name ?? roleId
@@ -303,6 +310,7 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
     const payload = {
       customerId: formData.customerId,
       customerName: formData.customerName,
+      contactIds: formData.contactIds,
       name: formData.name,
       location,
       address: formData.address.trim(),
@@ -322,7 +330,7 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
       assignedTeam: buildAssignedTeamPayload(
         formData.projectManagerId,
         formData.projectManagerName,
-        formData.teamMembers,
+        formData.teamMembers.filter((m) => m.status === 'active'),
         getRoleLabel,
       ),
       startDate: formData.startDate || null,
@@ -341,9 +349,13 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
       const result = await dispatch(createProject(payload)).unwrap()
       showToast({ title: 'Project created successfully', variant: 'success' })
       onClose()
-      navigate(`/projects/${toSlug(result.name)}`)
-    } catch {
-      showToast({ title: 'Failed to create project', variant: 'error' })
+      navigate(`/projects/${result.id}`)
+    } catch (err: unknown) {
+      const message =
+        err && typeof err === 'object' && 'message' in err && typeof err.message === 'string'
+          ? err.message
+          : 'Failed to create project'
+      showToast({ title: message, variant: 'error' })
     }
   }
 
@@ -352,41 +364,51 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
       showToast({ title: 'Please fill in required fields', variant: 'error' })
       return
     }
+    if (!newCustomerData.sector?.trim()) {
+      showToast({ title: 'Sector is required', variant: 'error' })
+      return
+    }
     try {
       setSavingCustomer(true)
-      const result = await dispatch(
+      const created = await dispatch(
         createCustomer({
           name: newCustomerData.name,
-          type: newCustomerData.type,
-          sector: newCustomerData.sector || undefined,
+          sector: newCustomerData.sector.trim(),
           contactPerson: newCustomerData.contactPerson,
+          designation: '',
           phone: newCustomerData.phone,
-          email: newCustomerData.email,
-          city: newCustomerData.city,
-          state: newCustomerData.state,
+          email: newCustomerData.email || '',
+          city: newCustomerData.city || '',
+          state: newCustomerData.state || '',
           gstStatus: 'Unregistered',
-          gstin: null,
-          pan: null,
-          address: null,
+          gstin: '',
+          pan: '',
+          address: '',
+          pincode: '',
           tags: [],
-          notes: null,
-          status: 'Active',
-          activeProjects: 0,
-          totalReceivables: 0,
+          notes: '',
         })
       ).unwrap()
-      const contacts = getContactsForCustomer(result)
+      const full = await dispatch(fetchCustomerById(created.id)).unwrap()
+      void dispatch(fetchCustomers({}))
+      const contacts = getContactsForCustomer(full)
       setFormData((prev) => ({
         ...prev,
-        customerId: result.id,
-        customerName: result.name,
+        customerId: full.id,
+        customerName: full.name,
         contactIds: getDefaultContactIds(contacts),
       }))
       setShowInlineCustomer(false)
-      setNewCustomerData({ name: '', type: 'Company', sector: '', contactPerson: '', phone: '', email: '', city: '', state: '' })
+      setNewCustomerData({ name: '', sector: '', contactPerson: '', phone: '', email: '', city: '', state: '' })
       showToast({ title: 'Customer created', variant: 'success' })
-    } catch {
-      showToast({ title: 'Failed to create customer', variant: 'error' })
+    } catch (err: unknown) {
+      const message =
+        typeof err === 'string'
+          ? err
+          : err && typeof err === 'object' && 'message' in err && typeof err.message === 'string'
+            ? err.message
+            : 'Failed to create customer'
+      showToast({ title: message, variant: 'error' })
     } finally {
       setSavingCustomer(false)
     }
@@ -401,8 +423,9 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
   }
 
   const selectedCustomer = customers.find((c) => c.id === formData.customerId) ?? null
+  // Only real contact UUIDs from customer detail — never legacy list placeholders.
   const customerContacts = useMemo(
-    () => getContactsForCustomer(selectedCustomer),
+    () => normalizeContacts(selectedCustomer?.contacts ?? []),
     [selectedCustomer],
   )
 
@@ -477,15 +500,39 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
               isOptionEqualToValue={(a, b) => a.id === b.id}
               value={selectedCustomer}
               onChange={(_, val) => {
-                const contacts = getContactsForCustomer(val)
+                if (!val) {
+                  setFormData((prev) => ({
+                    ...prev,
+                    customerId: '',
+                    customerName: '',
+                    contactIds: [],
+                  }))
+                  if (errors.customerId) setErrors((e) => ({ ...e, customerId: undefined }))
+                  if (errors.contactId) setErrors((e) => ({ ...e, contactId: undefined }))
+                  return
+                }
                 setFormData((prev) => ({
                   ...prev,
-                  customerId: val?.id ?? '',
-                  customerName: val?.name ?? '',
-                  contactIds: getDefaultContactIds(contacts),
+                  customerId: val.id,
+                  customerName: val.name,
+                  contactIds: [],
                 }))
                 if (errors.customerId) setErrors((e) => ({ ...e, customerId: undefined }))
                 if (errors.contactId) setErrors((e) => ({ ...e, contactId: undefined }))
+                void dispatch(fetchCustomerById(val.id))
+                  .unwrap()
+                  .then((detail) => {
+                    const contacts = getContactsForCustomer(detail)
+                    setFormData((prev) => ({
+                      ...prev,
+                      customerId: detail.id,
+                      customerName: detail.name,
+                      contactIds: getDefaultContactIds(contacts),
+                    }))
+                  })
+                  .catch(() => {
+                    showToast({ title: 'Failed to load customer contacts', variant: 'error' })
+                  })
               }}
               renderOption={renderCustomerOption}
               renderInput={(params) => (
@@ -566,7 +613,7 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
               </Box>
               <Box>
                 <Typography variant="caption" sx={{ fontWeight: 500, display: 'block', mb: '4px', fontSize: 12 }}>
-                  Sector
+                  Sector <Box component="span" sx={{ color: 'error.main' }}>*</Box>
                 </Typography>
                 <FormControl fullWidth size="small">
                   <MuiSelect
@@ -637,7 +684,7 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
                 variant="outlined"
                 onClick={() => {
                   setShowInlineCustomer(false)
-                  setNewCustomerData({ name: '', type: 'Company', sector: '', contactPerson: '', phone: '', email: '', city: '', state: '' })
+                  setNewCustomerData({ name: '', sector: '', contactPerson: '', phone: '', email: '', city: '', state: '' })
                 }}
               >
                 Cancel
@@ -966,7 +1013,7 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
   // ─── Step 4: Team ──────────────────────────────────────────────────────────
 
   function renderStep4() {
-    const teamOptions = users.filter((u) => u.id !== formData.projectManagerId)
+    const teamOptions = activeUsers.filter((u) => u.id !== formData.projectManagerId)
 
     return (
       <Box>
@@ -1286,7 +1333,7 @@ export default function CreateProjectModal({ open, onClose }: CreateProjectModal
         open={createContactOpen}
         onClose={() => setCreateContactOpen(false)}
         customerId={formData.customerId}
-        existingCustomerContacts={getContactsForCustomer(selectedCustomer)}
+        existingCustomerContacts={normalizeContacts(selectedCustomer?.contacts ?? [])}
         onSaved={handleContactSaved}
       />
 

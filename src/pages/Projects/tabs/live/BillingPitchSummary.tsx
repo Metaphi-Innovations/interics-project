@@ -16,7 +16,7 @@ export function BillingPitchSummary({ projectId }: BillingPitchSummaryProps) {
   const { clientPOs } = useAppSelector((s) => s.baseline)
 
   const [addPOOpen, setAddPOOpen] = useState(false)
-  const [viewPO, setViewPO] = useState<ClientPO | null>(null)
+  const [viewPoId, setViewPoId] = useState<string | null>(null)
 
   useEffect(() => {
     void dispatch(fetchClientPO(projectId))
@@ -25,6 +25,11 @@ export function BillingPitchSummary({ projectId }: BillingPitchSummaryProps) {
   const projectClientPOs = useMemo(
     () => clientPOs.filter((po) => po.projectId === projectId),
     [clientPOs, projectId],
+  )
+
+  const viewPoSeed = useMemo(
+    () => projectClientPOs.find((po) => po.id === viewPoId) ?? null,
+    [projectClientPOs, viewPoId],
   )
 
   return (
@@ -51,17 +56,18 @@ export function BillingPitchSummary({ projectId }: BillingPitchSummaryProps) {
           <ClientPOSection
             clientPOs={projectClientPOs}
             onAddPO={() => setAddPOOpen(true)}
-            onViewPO={setViewPO}
+            onViewPO={(po: ClientPO) => setViewPoId(po.id)}
           />
         </Stack>
       </Box>
 
       <AddClientPODrawer open={addPOOpen} onClose={() => setAddPOOpen(false)} projectId={projectId} />
       <ViewClientPODrawer
-        open={!!viewPO}
-        onClose={() => setViewPO(null)}
+        open={!!viewPoId}
+        onClose={() => setViewPoId(null)}
         projectId={projectId}
-        po={viewPO}
+        poId={viewPoId}
+        poSeed={viewPoSeed}
       />
     </>
   )

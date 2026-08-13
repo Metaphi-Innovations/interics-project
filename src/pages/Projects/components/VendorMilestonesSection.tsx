@@ -21,11 +21,14 @@ import { deleteVendorPO, fetchVendorPOs } from '@/slices/baseline/thunk'
 import type { VendorInvoice } from '@/slices/live/types'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { fetchExpenses, fetchVendorInvoices } from '@/slices/live/thunk'
+import { fetchCategories, fetchServices } from '@/slices/settings/thunk'
 import { formatCurrency } from '@/utils/formatters'
+import { resolvePitchVersionForProject } from '@/store/selectors/pitchSelectors'
 import {
   buildVendorPOMilestoneOverviewRows,
   vendorMilestoneTypeLabel,
   type VendorPOMilestoneOverviewRow,
+  type VendorServiceNameCatalogEntry,
 } from '@/pages/Projects/tabs/live/vendorPOHelpers'
 import {
   UploadVendorInvoiceDrawer,
@@ -203,6 +206,8 @@ export function VendorMilestonesSection({
   const project = useAppSelector((s) =>
     (s.projects.items ?? []).find((p) => p.id === projectId),
   )
+  const settingsServices = useAppSelector((s) => s.settings.services)
+  const { activeVersion, versions } = useAppSelector((s) => s.pitch)
   const resolvedProjectName = projectName || project?.name || ''
 
   const [uploadOpen, setUploadOpen] = useState(false)
@@ -218,12 +223,53 @@ export function VendorMilestonesSection({
 
   useEffect(() => {
     void dispatch(fetchVendorInvoices(projectId))
-    void dispatch(fetchExpenses(projectId))
+    void dispatch(fetchExpenses({ projectId }))
+    void dispatch(fetchCategories())
+    void dispatch(fetchServices())
   }, [dispatch, projectId])
 
+  const serviceNameCatalog = useMemo((): VendorServiceNameCatalogEntry[] => {
+    const catalog: VendorServiceNameCatalogEntry[] = settingsServices.map((s) => ({
+      id: s.id,
+      name: s.name,
+    }))
+
+    const appendFromCategories = (
+      categories:
+        | {
+            services: {
+              id: string
+              name?: string | null
+              subcategoryId?: string | null
+              subcategoryName?: string | null
+              customName?: string | null
+            }[]
+          }[]
+        | undefined,
+    ) => {
+      for (const cat of categories ?? []) {
+        for (const svc of cat.services ?? []) {
+          const label = (svc.subcategoryName ?? svc.name ?? svc.customName ?? '').trim()
+          if (!label) continue
+          catalog.push({ id: svc.id, name: label })
+          if (svc.subcategoryId?.trim()) {
+            catalog.push({ id: svc.subcategoryId, name: label })
+          }
+        }
+      }
+    }
+
+    appendFromCategories(baseline?.categories)
+    const pitchVersion = resolvePitchVersionForProject(projectId, activeVersion, versions)
+    if (pitchVersion?.projectId === projectId) {
+      appendFromCategories(pitchVersion.categories)
+    }
+    return catalog
+  }, [settingsServices, baseline, projectId, activeVersion, versions])
+
   const milestoneRows = useMemo(
-    () => buildVendorPOMilestoneOverviewRows(vendorPOs, projectId, baseline),
-    [vendorPOs, projectId, baseline],
+    () => buildVendorPOMilestoneOverviewRows(vendorPOs, projectId, baseline, serviceNameCatalog),
+    [vendorPOs, projectId, baseline, serviceNameCatalog],
   )
   const payableFocusHandled = useRef(false)
 
@@ -536,7 +582,11 @@ export function VendorMilestonesSection({
 
                                   return (
                                     <TableRow key={row.key}>
-                                      <TableCell sx={NESTED_CELL_SX}>{row.service}</TableCell>
+                                      <TableCell sx={NESTED_CELL_SX}>
+                                        {row.serviceName && row.serviceName !== '—'
+                                          ? row.serviceName
+                                          : row.service}
+                                      </TableCell>
                                       <TableCell sx={NESTED_CELL_SX}>
                                         <Typography
                                           variant="body2"

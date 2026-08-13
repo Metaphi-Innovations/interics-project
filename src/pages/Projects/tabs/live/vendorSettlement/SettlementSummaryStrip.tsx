@@ -5,16 +5,24 @@ import { KpiStatCard } from '@/components/templates/KpiStatCard'
 import type { VendorPO } from '@/slices/baseline/reducer'
 import type { VendorPayment } from '@/slices/live/reducer'
 import { formatCurrency } from '@/utils/formatters'
-import { computePayableSummaryKpis } from '@/pages/Finance/utils/payableSummary'
+import {
+  computePayableSummaryKpis,
+  type PayableSummaryKpis,
+} from '@/pages/Finance/utils/payableSummary'
 
 export function SettlementSummaryStrip({
+  kpis: kpisProp,
   vendorPOs,
   payments,
 }: {
-  vendorPOs: VendorPO[]
-  payments: VendorPayment[]
+  /** Prefer server summary from GET /finance/payables/summary. */
+  kpis?: PayableSummaryKpis | null
+  vendorPOs?: VendorPO[]
+  payments?: VendorPayment[]
 }) {
-  const kpis = computePayableSummaryKpis(vendorPOs, payments)
+  const kpis =
+    kpisProp ??
+    computePayableSummaryKpis(vendorPOs ?? [], payments ?? [])
 
   const metrics: {
     label: string
@@ -23,7 +31,7 @@ export function SettlementSummaryStrip({
     icon: ReactNode
   }[] = [
     {
-      label: 'Total Vendor PO Value',
+      label: 'Total Vendor Offer',
       value: `₹${formatCurrency(kpis.totalVendorPoValue)}`,
       variant: 'default',
       icon: <Banknote size={24} strokeWidth={1.75} />,
@@ -35,7 +43,7 @@ export function SettlementSummaryStrip({
       icon: <CircleCheck size={24} strokeWidth={1.75} />,
     },
     {
-      label: 'Pending Payment',
+      label: 'Remaining',
       value: `₹${formatCurrency(kpis.pendingPayment)}`,
       variant: 'warning',
       icon: <Clock size={24} strokeWidth={1.75} />,

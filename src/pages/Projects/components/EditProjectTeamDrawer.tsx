@@ -49,10 +49,10 @@ export function EditProjectTeamDrawer({
   const [teamMembers, setTeamMembers] = useState<User[]>([])
   const [leadError, setLeadError] = useState<string | undefined>()
 
-  const managers = useMemo(
-    () => users.filter((u) => isProjectManagerRole(u.role)),
-    [users],
-  )
+  const managers = useMemo(() => {
+    const filtered = users.filter((u) => isProjectManagerRole(u.role, roles))
+    return filtered.length > 0 ? filtered : users.filter((u) => u.status === 'active')
+  }, [users, roles])
 
   const teamOptions = useMemo(
     () => users.filter((u) => u.id !== projectManagerId),

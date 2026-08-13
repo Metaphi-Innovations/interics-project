@@ -1,5 +1,5 @@
-import type { Baseline } from '@/slices/baseline/reducer'
-import type { PitchService } from '@/slices/pitch/reducer'
+import type { Baseline, ClientPO, VendorPO } from '@/slices/baseline/reducer'
+import type { PitchCategory, PitchService } from '@/slices/pitch/reducer'
 import type { ClientInvoice, Expense, VendorInvoice, VendorPayment } from '@/slices/live/types'
 import {
   balancePending,
@@ -47,7 +47,6 @@ export function aggregateServiceRevenue(invoices: ClientInvoice[]): {
   return { invoiced, received }
 }
 
-/** Read-only status label for a service’s client billing aggregate */
 export function revenueRowStatus(invoices: ClientInvoice[]): string {
   if (invoices.length === 0) return 'Not Invoiced'
   const { invoiced, received } = aggregateServiceRevenue(invoices)
@@ -103,7 +102,6 @@ export function buildRevenueBreakdown(
   return rows
 }
 
-
 export function aggregateVendorRow(
   row: VendorServiceRow,
   baseline: Baseline,
@@ -153,7 +151,6 @@ export function sumClientInvoicesGross(invoices: ClientInvoice[], projectId: str
     .reduce((s, i) => s + i.grossAmount, 0)
 }
 
-/** Actual vendor outflows: sum netPaid on completed payments for the project */
 export function sumVendorPaymentsNetPaid(payments: VendorPayment[], projectId: string): number {
   return payments.filter((p) => p.projectId === projectId).reduce((s, p) => s + p.netPaid, 0)
 }
@@ -175,7 +172,6 @@ export interface VarianceRow {
   actual: number
   variance: number
   variancePctLabel: string
-  /** For coloring variance cell */
   positiveIsGood: boolean
 }
 
@@ -249,7 +245,6 @@ export function buildVarianceRows(
   ]
 }
 
-/** Green/red for variance column; expenses treat overspend vs plan as error */
 export function varianceColorKey(row: VarianceRow): 'success' | 'error' | 'inherit' {
   if (Math.abs(row.variance) < FINANCIALS_EPS) return 'inherit'
   if (row.kind === 'expenses') {
@@ -261,3 +256,6 @@ export function varianceColorKey(row: VarianceRow): 'success' | 'error' | 'inher
   }
   return 'inherit'
 }
+
+// Re-export types used by variance/revenue helpers (overview math lives on backend).
+export type { ClientPO, VendorPO, PitchCategory }

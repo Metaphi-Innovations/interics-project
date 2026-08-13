@@ -9,7 +9,19 @@ import {
   deleteCustomer,
   createCustomerContact,
   updateCustomerContact,
+  setCustomerActive,
+  fetchCustomerFilters,
 } from './thunk'
+import type { CustomerFiltersApi } from '@/modules/customers'
+
+function payloadMessage(payload: unknown): string {
+  if (typeof payload === 'string') return payload
+  if (payload && typeof payload === 'object' && 'message' in payload) {
+    const message = (payload as { message?: unknown }).message
+    if (typeof message === 'string') return message
+  }
+  return 'Request failed'
+}
 
 export interface Contact {
   id: string
@@ -28,6 +40,7 @@ export type ActivityType =
   | 'primary_changed'
   | 'document_uploaded'
   | 'status_changed'
+  | 'financial'
 
 export interface ActivityEntry {
   id: string
@@ -54,7 +67,6 @@ export interface CustomerFinancialDetails {
 export interface Customer {
   id: string
   name: string
-  type: 'Company' | 'Individual'
   gstStatus: 'Registered' | 'Unregistered' | 'Composition' | 'SEZ'
   gstin: string | null
   pan: string | null
@@ -90,9 +102,9 @@ interface Pagination {
 interface Filters {
   search: string
   status: string
-  type?: string
   gstStatus?: string
   state?: string
+  sector?: string
 }
 
 interface SortConfig {
@@ -109,6 +121,7 @@ interface CustomersState {
   pagination: Pagination
   filters: Filters
   sortConfig: SortConfig
+  filterOptions: CustomerFiltersApi | null
 }
 
 const initialState: CustomersState = {
@@ -117,9 +130,10 @@ const initialState: CustomersState = {
   loading: false,
   saving: false,
   error: null,
-  pagination: { page: 1, pageSize: 10, total: 0 },
+  pagination: { page: 1, pageSize: 25, total: 0 },
   filters: { search: '', status: '' },
   sortConfig: { field: null, direction: 'asc' },
+  filterOptions: null,
 }
 
 const customersSlice = createSlice({
@@ -134,6 +148,10 @@ const customersSlice = createSlice({
     },
     setPage(state, action: PayloadAction<number>) {
       state.pagination.page = action.payload
+    },
+    setPageSize(state, action: PayloadAction<number>) {
+      state.pagination.pageSize = action.payload
+      state.pagination.page = 1
     },
     setSortConfig(state, action: PayloadAction<SortConfig>) {
       state.sortConfig = action.payload
@@ -155,13 +173,28 @@ const customersSlice = createSlice({
         state.loading = false
         state.items = action.payload.items ?? []
         state.pagination.total = action.payload.total ?? 0
+        if (action.payload.page) state.pagination.page = action.payload.page
+        if (action.payload.pageSize) state.pagination.pageSize = action.payload.pageSize
       })
       .addCase(fetchCustomers.rejected, (state, action) => {
         state.loading = false
-        state.error = action.payload as string
+        state.error = payloadMessage(action.payload)
+      })
+      .addCase(fetchCustomerFilters.fulfilled, (state, action) => {
+        state.filterOptions = action.payload
       })
       .addCase(fetchCustomerById.fulfilled, (state, action) => {
         state.selectedItem = action.payload
+        const idx = state.items.findIndex((c) => c.id === action.payload.id)
+        if (idx !== -1) {
+          const prev = state.items[idx]
+          state.items[idx] = {
+            ...prev,
+            ...action.payload,
+            activeProjects: action.payload.activeProjects || prev.activeProjects,
+            totalReceivables: action.payload.totalReceivables || prev.totalReceivables,
+          }
+        }
       })
       .addCase(createCustomer.pending, (state) => {
         state.saving = true
@@ -173,7 +206,7 @@ const customersSlice = createSlice({
       })
       .addCase(createCustomer.rejected, (state, action) => {
         state.saving = false
-        state.error = action.payload as string
+        state.error = payloadMessage(action.payload)
       })
       .addCase(updateCustomer.pending, (state) => {
         state.saving = true
@@ -183,12 +216,27 @@ const customersSlice = createSlice({
         const idx = state.items.findIndex((c) => c.id === action.payload.id)
         if (idx !== -1) state.items[idx] = action.payload
         if (state.selectedItem?.id === action.payload.id) {
-          state.selectedItem = action.payload
+          const prev = state.selectedItem
+          state.selectedItem = {
+            ...action.payload,
+            // Keep existing docs if update response omitted file metadata
+            gstDocument: action.payload.gstDocument ?? prev.gstDocument,
+            panDocument: action.payload.panDocument ?? prev.panDocument,
+            contacts: action.payload.contacts?.length ? action.payload.contacts : prev.contacts,
+            activeProjects: action.payload.activeProjects || prev.activeProjects,
+          }
         }
       })
       .addCase(updateCustomer.rejected, (state, action) => {
         state.saving = false
-        state.error = action.payload as string
+        state.error = payloadMessage(action.payload)
+      })
+      .addCase(setCustomerActive.fulfilled, (state, action) => {
+        const idx = state.items.findIndex((c) => c.id === action.payload.id)
+        if (idx !== -1) state.items[idx] = { ...state.items[idx], ...action.payload }
+        if (state.selectedItem?.id === action.payload.id) {
+          state.selectedItem = { ...state.selectedItem, ...action.payload }
+        }
       })
       .addCase(createCustomerContact.fulfilled, (state, action) => {
         const { customerId, contact } = action.payload
@@ -234,11 +282,11 @@ const customersSlice = createSlice({
         state.pagination.total -= 1
       })
       .addCase(deleteCustomer.rejected, (state, action) => {
-        state.error = action.payload as string
+        state.error = payloadMessage(action.payload)
       })
   },
 })
 
-export const { setFilters, resetFilters, setPage, setSortConfig, clearSelected, reset } =
+export const { setFilters, resetFilters, setPage, setPageSize, setSortConfig, clearSelected, reset } =
   customersSlice.actions
 export default customersSlice.reducer

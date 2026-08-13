@@ -1,18 +1,27 @@
-import { useState, type ReactNode } from 'react'
+import { useState, useEffect, type ReactNode } from 'react'
 import { Box, Typography, TextField, MenuItem, Divider } from '@mui/material'
 import { Edit } from '@mui/icons-material'
 import { Button, useToast } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
-import { useAppDispatch, useAppSelector } from '@/store/hooks'
-import { updateCompanyProfile } from '@/slices/settings/thunk'
+import {
+  useGeneralSettingsQuery,
+  useUpdateGeneralSettings,
+} from '@/modules/system-settings/general-settings'
 import type { CompanyProfile } from '@/slices/settings/reducer'
-
-interface FieldErrors {
-  gstin?: string
-  pan?: string
-  pincode?: string
-  email?: string
-}
+import {
+  optionalCompanyName,
+  optionalGstin,
+  optionalPan,
+  optionalEmail,
+  optionalPhone,
+  optionalWebsite,
+  optionalMaxLength,
+  optionalPincode,
+  collectErrors,
+  hasErrors,
+  firstErrorMessage,
+} from '@/modules/system-settings/shared/settings-validation'
+import { parseSettingsApiError, clearFieldError } from '@/modules/system-settings/shared/api-errors'
 
 const COMPANY_TYPE_OPTIONS = [
   { value: 'pvt_ltd', label: 'Private Limited' },
@@ -20,10 +29,6 @@ const COMPANY_TYPE_OPTIONS = [
   { value: 'proprietorship', label: 'Proprietorship' },
   { value: 'partnership', label: 'Partnership' },
 ]
-
-const GSTIN_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/
-const PAN_REGEX = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 function LabelValue({ label, value }: { label: string; value: string }) {
   return (
@@ -96,61 +101,71 @@ function CompanyDetailsContainer({ children }: { children: ReactNode }) {
 }
 
 export default function GeneralSettingsSection() {
-  const dispatch = useAppDispatch()
   const success = useToast((s) => s.success)
   const error = useToast((s) => s.error)
-  const { companyProfile, saving } = useAppSelector(s => s.settings)
+  const { data: companyProfile } = useGeneralSettingsQuery()
+  const { mutateAsync, saving } = useUpdateGeneralSettings()
   const [isEditing, setIsEditing] = useState(false)
   const [editForm, setEditForm] = useState<CompanyProfile>(companyProfile)
-  const [errors, setErrors] = useState<FieldErrors>({})
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
+
+  useEffect(() => {
+    if (!isEditing) {
+      setEditForm(companyProfile)
+    }
+  }, [companyProfile, isEditing])
 
   const handleEdit = () => {
     setEditForm(companyProfile)
-    setErrors({})
+    setFieldErrors({})
     setIsEditing(true)
   }
 
   const handleCancel = () => {
     setIsEditing(false)
     setEditForm(companyProfile)
-    setErrors({})
-  }
-
-  const validate = (): boolean => {
-    const newErrors: FieldErrors = {}
-    if (editForm.gstin && !GSTIN_REGEX.test(editForm.gstin)) {
-      newErrors.gstin = 'Invalid GSTIN format'
-    }
-    if (editForm.pan && !PAN_REGEX.test(editForm.pan)) {
-      newErrors.pan = 'Invalid PAN format (e.g. ABCDE1234F)'
-    }
-    if (editForm.pincode && !/^\d{6}$/.test(editForm.pincode)) {
-      newErrors.pincode = 'Pincode must be 6 digits'
-    }
-    if (editForm.email && !EMAIL_REGEX.test(editForm.email)) {
-      newErrors.email = 'Invalid email address'
-    }
-    setErrors(newErrors)
-    return Object.keys(newErrors).length === 0
+    setFieldErrors({})
   }
 
   const handleSave = () => {
-    if (!validate()) return
-    dispatch(updateCompanyProfile(editForm))
-      .unwrap()
+    const next = collectErrors([
+      ['companyName', optionalCompanyName(editForm.companyName)],
+      ['gstin', optionalGstin(editForm.gstin)],
+      ['pan', optionalPan(editForm.pan)],
+      ['email', optionalEmail(editForm.email)],
+      ['phone', optionalPhone(editForm.phone)],
+      ['website', optionalWebsite(editForm.website)],
+      ['addressLine1', optionalMaxLength(editForm.addressLine1, 'Address Line 1', 255)],
+      ['addressLine2', optionalMaxLength(editForm.addressLine2, 'Address Line 2', 255)],
+      ['city', optionalMaxLength(editForm.city, 'City', 100)],
+      ['state', optionalMaxLength(editForm.state, 'State', 100)],
+      ['pincode', optionalPincode(editForm.pincode)],
+    ])
+    setFieldErrors(next)
+    if (hasErrors(next)) {
+      error(firstErrorMessage(next, 'Please fix the highlighted fields'))
+      return
+    }
+    mutateAsync(editForm)
       .then(() => {
         setIsEditing(false)
         success('Company profile saved')
       })
-      .catch(() => {
-        error('Failed to save profile')
+      .catch((err) => {
+        const parsed = parseSettingsApiError(err, 'Failed to save profile')
+        if (Object.keys(parsed.fieldErrors).length) setFieldErrors(parsed.fieldErrors)
+        error(parsed.message)
       })
   }
 
   const field = (key: keyof CompanyProfile) => ({
     value: (editForm[key] as string) ?? '',
-    onChange: (e: React.ChangeEvent<HTMLInputElement>) =>
-      setEditForm(prev => ({ ...prev, [key]: e.target.value })),
+    onChange: (e: React.ChangeEvent<HTMLInputElement>) => {
+      setEditForm(prev => ({ ...prev, [key]: e.target.value }))
+      setFieldErrors(errors => clearFieldError(errors, key))
+    },
+    error: !!fieldErrors[key],
+    helperText: fieldErrors[key],
   })
 
   const companyTypeLabel =
@@ -214,34 +229,8 @@ export default function GeneralSettingsSection() {
             <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, p: 2 }}>
               <GroupTitle label="Company Identity" />
               <TextField size="small" label="Company Name" {...field('companyName')} />
-              <TextField
-                size="small"
-                label="GSTIN"
-                {...field('gstin')}
-                error={!!errors.gstin}
-                helperText={errors.gstin}
-                onBlur={() => {
-                  if (editForm.gstin && !GSTIN_REGEX.test(editForm.gstin)) {
-                    setErrors(e => ({ ...e, gstin: 'Invalid GSTIN format' }))
-                  } else {
-                    setErrors(e => ({ ...e, gstin: undefined }))
-                  }
-                }}
-              />
-              <TextField
-                size="small"
-                label="PAN"
-                {...field('pan')}
-                error={!!errors.pan}
-                helperText={errors.pan}
-                onBlur={() => {
-                  if (editForm.pan && !PAN_REGEX.test(editForm.pan)) {
-                    setErrors(e => ({ ...e, pan: 'Invalid PAN (e.g. ABCDE1234F)' }))
-                  } else {
-                    setErrors(e => ({ ...e, pan: undefined }))
-                  }
-                }}
-              />
+              <TextField size="small" label="GSTIN" {...field('gstin')} />
+              <TextField size="small" label="PAN" {...field('pan')} />
               <TextField
                 select
                 size="small"
@@ -257,20 +246,7 @@ export default function GeneralSettingsSection() {
               <SectionDivider />
 
               <GroupTitle label="Contact" />
-              <TextField
-                size="small"
-                label="Email"
-                {...field('email')}
-                error={!!errors.email}
-                helperText={errors.email}
-                onBlur={() => {
-                  if (editForm.email && !EMAIL_REGEX.test(editForm.email)) {
-                    setErrors(e => ({ ...e, email: 'Invalid email address' }))
-                  } else {
-                    setErrors(e => ({ ...e, email: undefined }))
-                  }
-                }}
-              />
+              <TextField size="small" label="Email" {...field('email')} />
               <TextField size="small" label="Phone" {...field('phone')} />
               <TextField size="small" label="Website" {...field('website')} sx={{ gridColumn: '1 / -1' }} />
 
@@ -281,20 +257,7 @@ export default function GeneralSettingsSection() {
               <TextField size="small" label="Address Line 2" {...field('addressLine2')} sx={{ gridColumn: '1 / -1' }} />
               <TextField size="small" label="City" {...field('city')} />
               <TextField size="small" label="State" {...field('state')} />
-              <TextField
-                size="small"
-                label="Pincode"
-                {...field('pincode')}
-                error={!!errors.pincode}
-                helperText={errors.pincode}
-                onBlur={() => {
-                  if (editForm.pincode && !/^\d{6}$/.test(editForm.pincode)) {
-                    setErrors(e => ({ ...e, pincode: 'Pincode must be 6 digits' }))
-                  } else {
-                    setErrors(e => ({ ...e, pincode: undefined }))
-                  }
-                }}
-              />
+              <TextField size="small" label="Pincode" {...field('pincode')} />
             </Box>
           </CompanyDetailsContainer>
 

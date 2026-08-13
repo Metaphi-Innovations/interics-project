@@ -11,8 +11,18 @@ import {
   deleteVendor,
   createVendorContact,
   updateVendorContact,
+  deleteVendorContact,
   createPendingVendor,
 } from './thunk'
+
+function payloadMessage(payload: unknown): string {
+  if (typeof payload === 'string') return payload
+  if (payload && typeof payload === 'object' && 'message' in payload) {
+    const message = (payload as { message?: unknown }).message
+    if (typeof message === 'string' && message.trim()) return message
+  }
+  return 'Something went wrong'
+}
 
 export interface VendorFinancialDetails {
   totalPayables: number
@@ -181,6 +191,10 @@ const vendorsSlice = createSlice({
     setPage(state, action: PayloadAction<number>) {
       state.pagination.page = action.payload
     },
+    setPageSize(state, action: PayloadAction<number>) {
+      state.pagination.pageSize = action.payload
+      state.pagination.page = 1
+    },
     setSortConfig(state, action: PayloadAction<SortConfig>) {
       state.sortConfig = action.payload
     },
@@ -214,10 +228,16 @@ const vendorsSlice = createSlice({
         state.loading = false
         state.items = action.payload.items ?? []
         state.pagination.total = action.payload.total ?? 0
+        if (typeof action.payload.page === 'number') {
+          state.pagination.page = action.payload.page
+        }
+        if (typeof action.payload.pageSize === 'number') {
+          state.pagination.pageSize = action.payload.pageSize
+        }
       })
       .addCase(fetchVendors.rejected, (state, action) => {
         state.loading = false
-        state.error = action.payload as string
+        state.error = payloadMessage(action.payload)
       })
       .addCase(fetchVendorById.fulfilled, (state, action) => {
         state.selectedItem = action.payload
@@ -232,7 +252,7 @@ const vendorsSlice = createSlice({
       })
       .addCase(createVendor.rejected, (state, action) => {
         state.saving = false
-        state.error = action.payload as string
+        state.error = payloadMessage(action.payload)
       })
       .addCase(updateVendor.pending, (state) => {
         state.saving = true
@@ -242,45 +262,55 @@ const vendorsSlice = createSlice({
         const updated = action.payload
         const idx = state.items.findIndex((v) => v.id === updated.id)
         if (idx !== -1) {
-          state.items[idx] = updated
+          const prev = state.items[idx]
+          state.items[idx] = {
+            ...updated,
+            rating: updated.rating ?? prev.rating,
+          }
         }
         if (state.selectedItem?.id === updated.id) {
-          state.selectedItem = updated
+          const prev = state.selectedItem
+          state.selectedItem = {
+            ...updated,
+            rating: updated.rating ?? prev.rating,
+            gstDocument: updated.gstDocument ?? prev.gstDocument,
+            panDocument: updated.panDocument ?? prev.panDocument,
+            bankChequeDocument: updated.bankChequeDocument ?? prev.bankChequeDocument,
+            insuranceDocument: updated.insuranceDocument ?? prev.insuranceDocument,
+          }
         }
       })
       .addCase(updateVendor.rejected, (state, action) => {
         state.saving = false
-        state.error = action.payload as string
+        state.error = payloadMessage(action.payload)
       })
       .addCase(deleteVendor.fulfilled, (state, action) => {
         state.items = state.items.filter((v) => v.id !== action.payload)
         state.pagination.total -= 1
       })
       .addCase(deleteVendor.rejected, (state, action) => {
-        state.error = action.payload as string
+        state.error = payloadMessage(action.payload)
       })
       .addCase(createVendorContact.fulfilled, (state, action) => {
         const { vendorId, contact } = action.payload
-        const idx = state.items.findIndex((v) => v.id === vendorId)
-        if (idx !== -1) {
-          const vendor = state.items[idx]
-          const baseContacts = vendor.contacts?.length
-            ? vendor.contacts
-            : getVendorContactsList(vendor)
-          state.items[idx] = { ...vendor, contacts: [...baseContacts, contact] }
+        const applyContacts = (vendor: Vendor, baseContacts: Contact[]): Vendor => {
+          const nextContacts = contact.isPrimary
+            ? [...baseContacts.map((c) => ({ ...c, isPrimary: false })), contact]
+            : [...baseContacts, contact]
+          const primary = nextContacts.find((c) => c.isPrimary) ?? nextContacts[0]
+          return {
+            ...vendor,
+            contacts: nextContacts,
+            ...(primary
+              ? {
+                  contactPerson: primary.name,
+                  designation: primary.designation || null,
+                  phone: primary.phone,
+                  email: primary.email,
+                }
+              : {}),
+          }
         }
-        if (state.selectedItem?.id === vendorId) {
-          const vendor = state.selectedItem
-          const baseContacts = vendor.contacts?.length
-            ? vendor.contacts
-            : getVendorContactsList(vendor)
-          state.selectedItem = { ...vendor, contacts: [...baseContacts, contact] }
-        }
-      })
-      .addCase(updateVendorContact.fulfilled, (state, action) => {
-        const { vendorId, contact } = action.payload
-        const patchContacts = (contacts: Contact[]) =>
-          contacts.map((c) => (c.id === contact.id ? contact : c))
 
         const idx = state.items.findIndex((v) => v.id === vendorId)
         if (idx !== -1) {
@@ -288,14 +318,72 @@ const vendorsSlice = createSlice({
           const baseContacts = vendor.contacts?.length
             ? vendor.contacts
             : getVendorContactsList(vendor)
-          state.items[idx] = { ...vendor, contacts: patchContacts(baseContacts) }
+          state.items[idx] = applyContacts(vendor, baseContacts)
         }
         if (state.selectedItem?.id === vendorId) {
           const vendor = state.selectedItem
           const baseContacts = vendor.contacts?.length
             ? vendor.contacts
             : getVendorContactsList(vendor)
-          state.selectedItem = { ...vendor, contacts: patchContacts(baseContacts) }
+          state.selectedItem = applyContacts(vendor, baseContacts)
+        }
+      })
+      .addCase(updateVendorContact.fulfilled, (state, action) => {
+        const { vendorId, contact } = action.payload
+        const patchContacts = (contacts: Contact[]) =>
+          contacts.map((c) => {
+            if (c.id === contact.id) return contact
+            if (contact.isPrimary) return { ...c, isPrimary: false }
+            return c
+          })
+
+        const applyPrimaryListing = (vendor: Vendor, nextContacts: Contact[]): Vendor => {
+          const primary = nextContacts.find((c) => c.isPrimary) ?? nextContacts[0]
+          if (!primary) return { ...vendor, contacts: nextContacts }
+          return {
+            ...vendor,
+            contacts: nextContacts,
+            contactPerson: primary.name,
+            designation: primary.designation || null,
+            phone: primary.phone,
+            email: primary.email,
+          }
+        }
+
+        const idx = state.items.findIndex((v) => v.id === vendorId)
+        if (idx !== -1) {
+          const vendor = state.items[idx]
+          const baseContacts = vendor.contacts?.length
+            ? vendor.contacts
+            : getVendorContactsList(vendor)
+          state.items[idx] = applyPrimaryListing(vendor, patchContacts(baseContacts))
+        }
+        if (state.selectedItem?.id === vendorId) {
+          const vendor = state.selectedItem
+          const baseContacts = vendor.contacts?.length
+            ? vendor.contacts
+            : getVendorContactsList(vendor)
+          state.selectedItem = applyPrimaryListing(vendor, patchContacts(baseContacts))
+        }
+      })
+      .addCase(deleteVendorContact.fulfilled, (state, action) => {
+        const { vendorId, contactId } = action.payload
+        const removeContact = (contacts: Contact[]) => contacts.filter((c) => c.id !== contactId)
+
+        const idx = state.items.findIndex((v) => v.id === vendorId)
+        if (idx !== -1) {
+          const vendor = state.items[idx]
+          const baseContacts = vendor.contacts?.length
+            ? vendor.contacts
+            : getVendorContactsList(vendor)
+          state.items[idx] = { ...vendor, contacts: removeContact(baseContacts) }
+        }
+        if (state.selectedItem?.id === vendorId) {
+          const vendor = state.selectedItem
+          const baseContacts = vendor.contacts?.length
+            ? vendor.contacts
+            : getVendorContactsList(vendor)
+          state.selectedItem = { ...vendor, contacts: removeContact(baseContacts) }
         }
       })
       .addCase(createPendingVendor.pending, (state) => {
@@ -317,6 +405,7 @@ export const {
   setFilters,
   resetFilters,
   setPage,
+  setPageSize,
   setSortConfig,
   clearSelected,
   applyVendorPatch,

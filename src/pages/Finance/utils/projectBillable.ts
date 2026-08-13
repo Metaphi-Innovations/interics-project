@@ -42,10 +42,11 @@ export function resolveServiceForBaseline(
 
 export function flattenBaselineMilestones(baseline: Baseline | null): FlatMilestone[] {
   if (!baseline) return []
+  const categories = Array.isArray(baseline.categories) ? baseline.categories : []
   const out: FlatMilestone[] = []
-  for (const cat of baseline.categories) {
-    for (const svc of cat.services) {
-      for (const m of svc.clientMilestones) {
+  for (const cat of categories) {
+    for (const svc of cat.services ?? []) {
+      for (const m of svc.clientMilestones ?? []) {
         out.push({
           milestoneId: m.id,
           milestoneName: m.name,
@@ -61,9 +62,10 @@ export function flattenBaselineMilestones(baseline: Baseline | null): FlatMilest
 
 export function flattenBaselineServices(baseline: Baseline | null): FlatBaselineServiceRow[] {
   if (!baseline) return []
+  const categories = Array.isArray(baseline.categories) ? baseline.categories : []
   const out: FlatBaselineServiceRow[] = []
-  for (const cat of baseline.categories) {
-    for (const svc of cat.services) {
+  for (const cat of categories) {
+    for (const svc of cat.services ?? []) {
       out.push({
         baselineServiceId: svc.id,
         name: svc.name,

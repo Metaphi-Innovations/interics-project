@@ -4,26 +4,27 @@ import { Provider } from 'react-redux'
 import { store } from './store'
 import { FoundationThemeProvider } from './design-system/ThemeContext'
 import App from './App.tsx'
+import { API_BASE_URL } from './api/config'
 
 /**
- * MSW runs in dev and production so deploys (e.g. Vercel) use mock APIs without env flags or a backend.
- *
- * - Axios uses `VITE_API_URL` or defaults to `/api` (see `src/api/client.ts`). If MSW is not running,
- *   unhandled `/api/*` requests may hit the static host and return HTML — log warnings in dev below.
- * - Ensure `public/mockServiceWorker.js` is registered (Application → Service Workers). If startup
- *   fails, the catch handler warns and API calls are not mocked.
+ * MSW still mocks modules that are not backend-integrated yet.
+ * Customers, Vendors, and Project CRUD call the real backend via `API_BASE_URL`.
+ * Unhandled requests bypass MSW so they reach the backend directly.
  */
 async function enableMocking() {
   try {
     const { worker } = await import('./mocks/browser')
     await worker.start({
-      onUnhandledRequest: import.meta.env.DEV ? 'warn' : 'bypass',
+      onUnhandledRequest: 'bypass',
       quiet: !import.meta.env.DEV,
       serviceWorker: { url: '/mockServiceWorker.js' },
       waitUntilReady: true,
     })
+    if (import.meta.env.DEV) {
+      console.info(`[API] base URL: ${API_BASE_URL}`)
+    }
   } catch (e) {
-    console.warn('[MSW] Service worker failed to start; API calls may 404 until refresh.', e)
+    console.warn('[MSW] Service worker failed to start; API calls may fail until refresh.', e)
   }
 }
 

@@ -46,6 +46,7 @@ import {
   renderContactAutocompleteOption,
 } from './ContactPersonAutocomplete'
 import { QuickAddVendorModal } from './QuickAddVendorModal'
+import { parseSettingsApiError } from '@/modules/system-settings/shared/api-errors'
 
 interface CreateContactPersonModalProps {
   open: boolean
@@ -91,6 +92,10 @@ interface NewPersonForm {
   phone: string
   email: string
   designation: string
+}
+
+function phoneDigits(value: string): string {
+  return value.replace(/\D/g, '').slice(0, 10)
 }
 
 const EMPTY_FORM: FormState = {
@@ -167,6 +172,8 @@ function validateForm(
   const trimmedPhone = form.phone.trim()
   if (!trimmedPhone) {
     errors.phone = 'Mobile number is required'
+  } else if (!/^\d{10}$/.test(trimmedPhone)) {
+    errors.phone = 'Mobile number must be exactly 10 digits'
   } else {
     const peers =
       form.contactType === 'vendor'
@@ -193,11 +200,6 @@ function validateForm(
     }
   }
 
-  const email = form.email.trim()
-  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    errors.email = 'Enter a valid email address'
-  }
-
   return errors
 }
 
@@ -213,6 +215,8 @@ function validateNewPerson(
   const trimmedPhone = form.phone.trim()
   if (!trimmedPhone) {
     errors.phone = 'Mobile number is required'
+  } else if (!/^\d{10}$/.test(trimmedPhone)) {
+    errors.phone = 'Mobile number must be exactly 10 digits'
   } else {
     const phoneTaken = contactPhoneExists(peers, trimmedPhone)
     if (isVendor) {
@@ -226,11 +230,6 @@ function validateNewPerson(
       errors.phone =
         'A contact with this mobile number already exists for this customer'
     }
-  }
-
-  const email = form.email.trim()
-  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    errors.email = 'Enter a valid email address'
   }
 
   return errors
@@ -439,7 +438,7 @@ export function CreateContactPersonModal({
 
     const payload = {
       name: person.name.trim(),
-      phone: person.phone.trim(),
+      phone: phoneDigits(person.phone),
       email: person.email.trim(),
       designation: person.designation.trim(),
     }
@@ -511,7 +510,7 @@ export function CreateContactPersonModal({
 
     const payload = {
       name: form.name.trim(),
-      phone: form.phone.trim(),
+      phone: phoneDigits(form.phone),
       email: form.email.trim(),
       designation: form.designation.trim(),
     }
@@ -617,13 +616,13 @@ export function CreateContactPersonModal({
       showToast({ title: 'Contact person saved', variant: 'success' })
       onClose()
     } catch (err: unknown) {
-      const message =
-        typeof err === 'string' ? err : 'Failed to save contact person'
-      if (message.toLowerCase().includes('mobile')) {
-        setErrors((prev) => ({ ...prev, phone: message }))
-      } else {
-        showToast({ title: message, variant: 'error' })
-      }
+      const parsed = parseSettingsApiError(err, 'Failed to save contact person')
+      setErrors((prev) => ({
+        ...prev,
+        phone: parsed.fieldErrors.phone ?? parsed.fieldErrors.mobile ?? prev.phone,
+        email: parsed.fieldErrors.email ?? prev.email,
+      }))
+      showToast({ title: parsed.message, variant: 'error' })
     } finally {
       setSaving(false)
     }
@@ -685,9 +684,9 @@ export function CreateContactPersonModal({
                     label="Mobile Number"
                     required
                     value={form.phone}
-                    onChange={(v) => setField('phone', v)}
+                    onChange={(v) => setField('phone', phoneDigits(v))}
                     error={errors.phone}
-                    placeholder="+91 98765 43210"
+                    placeholder="9876543210"
                   />
                   <TypographyField
                     label="Email Address"
@@ -932,9 +931,9 @@ function AddNewPersonModal({
           label="Mobile Number"
           required
           value={form.phone}
-          onChange={(v) => setField('phone', v)}
+          onChange={(v) => setField('phone', phoneDigits(v))}
           error={errors.phone}
-          placeholder="+91 98765 43210"
+          placeholder="9876543210"
         />
         <TypographyField
           label="Email Address"

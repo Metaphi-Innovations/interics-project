@@ -728,7 +728,7 @@ let idCounter = 7
 let contactIdCounter = 100
 
 export const vendorsHandlers = [
-  http.get('/api/vendors', ({ request }) => {
+  http.get('/api/v1/vendors', ({ request }) => {
     const url = new URL(request.url)
     const search = url.searchParams.get('search')?.toLowerCase() ?? ''
     const status = url.searchParams.get('status') ?? ''
@@ -774,7 +774,7 @@ export const vendorsHandlers = [
     return HttpResponse.json({ items, total })
   }),
 
-  http.get('/api/vendors/:id', ({ params }) => {
+  http.get('/api/v1/vendors/:id', ({ params }) => {
     const idOrSlug = params.id as string
     const vendor =
       vendors.find((v) => v.id === idOrSlug) ??
@@ -785,7 +785,7 @@ export const vendorsHandlers = [
     return HttpResponse.json({ ...vendor, contacts: contactsStore[vendor.id] ?? vendor.contacts })
   }),
 
-  http.post('/api/vendors', async ({ request }) => {
+  http.post('/api/v1/vendors', async ({ request }) => {
     const data = await request.json() as Omit<Vendor, 'id' | 'createdAt'>
     const normalizePhone = (phone: string) => phone.replace(/\D/g, '')
     const nextPhone = normalizePhone(data.phone ?? '')
@@ -838,7 +838,7 @@ export const vendorsHandlers = [
     return HttpResponse.json(newVendor, { status: 201 })
   }),
 
-  http.put('/api/vendors/:id', async ({ params, request }) => {
+  http.put('/api/v1/vendors/:id', async ({ params, request }) => {
     const idx = vendors.findIndex((v) => v.id === params.id)
     if (idx === -1) {
       return HttpResponse.json({ message: 'Vendor not found' }, { status: 404 })
@@ -868,7 +868,7 @@ export const vendorsHandlers = [
     return HttpResponse.json(vendors[idx])
   }),
 
-  http.delete('/api/vendors/:id', ({ params }) => {
+  http.delete('/api/v1/vendors/:id', ({ params }) => {
     const vendor = vendors.find((v) => v.id === params.id)
     if (!vendor) {
       return HttpResponse.json({ message: 'Vendor not found' }, { status: 404 })
@@ -886,7 +886,7 @@ export const vendorsHandlers = [
 
   // ── Contacts sub-resource ─────────────────────────────────────────────────
 
-  http.get('/api/vendors/:id/contacts', ({ params }) => {
+  http.get('/api/v1/vendors/:id/contacts', ({ params }) => {
     const id = params.id as string
     const contacts = contactsStore[id]
     if (!contacts) {
@@ -895,7 +895,7 @@ export const vendorsHandlers = [
     return HttpResponse.json(contacts)
   }),
 
-  http.post('/api/vendors/:id/contacts', async ({ params, request }) => {
+  http.post('/api/v1/vendors/:id/contacts', async ({ params, request }) => {
     const id = params.id as string
     if (!contactsStore[id]) {
       return HttpResponse.json({ message: 'Vendor not found' }, { status: 404 })
@@ -936,7 +936,7 @@ export const vendorsHandlers = [
     return HttpResponse.json(newContact, { status: 201 })
   }),
 
-  http.put('/api/vendors/:id/contacts/:contactId', async ({ params, request }) => {
+  http.put('/api/v1/vendors/:id/contacts/:contactId', async ({ params, request }) => {
     const { id, contactId } = params as { id: string; contactId: string }
     if (!contactsStore[id]) {
       return HttpResponse.json({ message: 'Vendor not found' }, { status: 404 })
@@ -953,7 +953,7 @@ export const vendorsHandlers = [
     return HttpResponse.json(contactsStore[id][idx])
   }),
 
-  http.delete('/api/vendors/:id/contacts/:contactId', ({ params }) => {
+  http.delete('/api/v1/vendors/:id/contacts/:contactId', ({ params }) => {
     const { id, contactId } = params as { id: string; contactId: string }
     if (!contactsStore[id]) {
       return HttpResponse.json({ message: 'Vendor not found' }, { status: 404 })

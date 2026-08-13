@@ -12,7 +12,7 @@ import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import {
   fetchCategories, createCategory, updateCategory, toggleCategoryStatus,
 } from '@/slices/settings/thunk'
-import { settingsApi } from '@/api/settingsApi'
+import { categoriesService } from '@/modules/system-settings/category/category.service'
 import type { Category } from '@/slices/settings/reducer'
 import {
   SETTINGS_TABLE_CELL_ACTION_SX,
@@ -22,6 +22,14 @@ import {
   SETTINGS_TABLE_SX,
   settingsDataColWidth,
 } from '../components/settingsTableStyles'
+import {
+  requiredAlphabeticName,
+  optionalMaxLength,
+  collectErrors,
+  hasErrors,
+  firstErrorMessage,
+} from '@/modules/system-settings/shared/settings-validation'
+import { parseSettingsApiError, clearFieldError } from '@/modules/system-settings/shared/api-errors'
 
 const CATEGORY_DATA_COL_COUNT = 4
 const categoryDataColWidth = settingsDataColWidth(CATEGORY_DATA_COL_COUNT)
@@ -37,7 +45,10 @@ export default function CategoriesSection() {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [editingRow, setEditingRow] = useState<Category | null>(null)
   const [form, setForm] = useState<CategoryForm>(defaultForm)
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [deleteTarget, setDeleteTarget] = useState<Category | null>(null)
+  const [toggleTarget, setToggleTarget] = useState<Category | null>(null)
+  const [toggling, setToggling] = useState(false)
 
   useEffect(() => {
     dispatch(fetchCategories())
@@ -46,16 +57,27 @@ export default function CategoriesSection() {
   const openAdd = () => {
     setEditingRow(null)
     setForm(defaultForm)
+    setFieldErrors({})
     setDrawerOpen(true)
   }
 
   const openEdit = (row: Category) => {
     setEditingRow(row)
     setForm({ name: row.name, description: row.description, status: row.status })
+    setFieldErrors({})
     setDrawerOpen(true)
   }
 
   const handleSave = () => {
+    const next = collectErrors([
+      ['name', requiredAlphabeticName(form.name, 'Category Name', 100)],
+      ['description', optionalMaxLength(form.description, 'Description', 500)],
+    ])
+    setFieldErrors(next)
+    if (hasErrors(next)) {
+      error(firstErrorMessage(next, 'Please fix the highlighted fields'))
+      return
+    }
     const action = editingRow
       ? dispatch(updateCategory({ id: editingRow.id, servicesCount: editingRow.servicesCount, ...form }))
       : dispatch(createCategory(form))
@@ -64,21 +86,47 @@ export default function CategoriesSection() {
         setDrawerOpen(false)
         success(editingRow ? 'Category updated' : 'Category added')
       })
-      .catch(() => error('Failed to save category'))
+      .catch((err) => {
+        const parsed = parseSettingsApiError(err, 'Failed to save category')
+        if (Object.keys(parsed.fieldErrors).length) setFieldErrors(parsed.fieldErrors)
+        error(parsed.message)
+      })
   }
 
   const handleDelete = async () => {
     if (!deleteTarget) return
     try {
-      await settingsApi.deleteCategory(deleteTarget.id)
-      dispatch(fetchCategories())
+      await categoriesService.remove(deleteTarget.id)
+      dispatch(fetchCategories({ force: true }))
       success('Category deleted')
-    } catch {
-      error('Failed to delete category')
+    } catch (err) {
+      const parsed = parseSettingsApiError(err, 'Failed to delete category')
+      error(parsed.message)
     } finally {
       setDeleteTarget(null)
     }
   }
+
+  const confirmToggle = async () => {
+    if (!toggleTarget) return
+    setToggling(true)
+    try {
+      await dispatch(toggleCategoryStatus(toggleTarget.id)).unwrap()
+      success(
+        toggleTarget.status === 'active'
+          ? 'Category deactivated'
+          : 'Category activated',
+      )
+      setToggleTarget(null)
+    } catch (err) {
+      const parsed = parseSettingsApiError(err, 'Failed to update status')
+      error(parsed.message)
+    } finally {
+      setToggling(false)
+    }
+  }
+
+  const toggleNextActive = toggleTarget?.status !== 'active'
 
   return (
     <Box>
@@ -134,10 +182,10 @@ export default function CategoriesSection() {
                 <IconButton size="small" onClick={() => openEdit(row)}>
                   <Edit sx={{ fontSize: 14 }} />
                 </IconButton>
-                <IconButton size="small" onClick={() => dispatch(toggleCategoryStatus(row.id))}>
+                <IconButton size="small" onClick={() => setToggleTarget(row)}>
                   {row.status === 'active'
-                    ? <ToggleOff sx={{ fontSize: 14, color: 'warning.main' }} />
-                    : <ToggleOn sx={{ fontSize: 14, color: 'success.main' }} />}
+                    ? <ToggleOn sx={{ fontSize: 14, color: 'success.main' }} />
+                    : <ToggleOff sx={{ fontSize: 14, color: 'error.main' }} />}
                 </IconButton>
                 <Tooltip title={row.servicesCount > 0 ? 'Cannot delete — has services linked' : 'Delete'}>
                   <span>
@@ -182,7 +230,12 @@ export default function CategoriesSection() {
             fullWidth
             placeholder="e.g. Design & Diligence"
             value={form.name}
-            onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+            onChange={e => {
+              setForm(f => ({ ...f, name: e.target.value }))
+              setFieldErrors(errors => clearFieldError(errors, 'name'))
+            }}
+            error={!!fieldErrors.name}
+            helperText={fieldErrors.name}
           />
           <TextField
             size="small"
@@ -191,7 +244,12 @@ export default function CategoriesSection() {
             rows={2}
             fullWidth
             value={form.description}
-            onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+            onChange={e => {
+              setForm(f => ({ ...f, description: e.target.value }))
+              setFieldErrors(errors => clearFieldError(errors, 'description'))
+            }}
+            error={!!fieldErrors.description}
+            helperText={fieldErrors.description}
           />
           <TextField
             select
@@ -220,6 +278,25 @@ export default function CategoriesSection() {
           <Button size="sm" variant="contained" color="primary" onClick={handleDelete}
             sx={{ bgcolor: 'error.main', '&:hover': { bgcolor: 'error.dark' } }}>
             Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={!!toggleTarget} onClose={() => !toggling && setToggleTarget(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>{toggleNextActive ? 'Activate' : 'Deactivate'}?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            {toggleNextActive
+              ? `Activate "${toggleTarget?.name}"?`
+              : `Deactivate "${toggleTarget?.name}"? It will no longer be available for new records.`}
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button size="sm" variant="outlined" color="secondary" onClick={() => setToggleTarget(null)} disabled={toggling}>
+            Cancel
+          </Button>
+          <Button size="sm" variant="contained" color="primary" onClick={() => void confirmToggle()} disabled={toggling}>
+            {toggling ? 'Updating...' : 'Confirm'}
           </Button>
         </DialogActions>
       </Dialog>

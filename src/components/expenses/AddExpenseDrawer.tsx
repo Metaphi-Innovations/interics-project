@@ -44,7 +44,6 @@ export function AddExpenseDrawer({
   const dispatch = useAppDispatch()
   const vendorPOs = useAppSelector((s) => s.baseline.vendorPOs)
   const formRef = useRef<ExpenseFormHandle>(null)
-  const [formValid, setFormValid] = useState(false)
   const [submitLabel, setSubmitLabel] = useState('Save')
 
   useEffect(() => {
@@ -63,16 +62,21 @@ export function AddExpenseDrawer({
         : [...list, payload]
       if (onCommit) {
         onCommit(next)
-      } else {
-        await dispatch(
-          updatePlannedExpenses({
-            projectId,
-            versionId: version.id,
-            expenses: next,
-          }),
-        ).unwrap()
+        onClose()
+        return
+      }
 
-        const expenseList = await dispatch(fetchExpenses(projectId)).unwrap()
+      await dispatch(
+        updatePlannedExpenses({
+          projectId,
+          versionId: version.id,
+          expenses: next,
+        }),
+      ).unwrap()
+
+      // Live expense sync is best-effort — pitch persistence is the source of truth on Pitch.
+      try {
+        const expenseList = await dispatch(fetchExpenses({ projectId })).unwrap()
         await dispatch(fetchReimbursements(projectId)).unwrap()
         const existingLive = expenseList.find((e) => e.sourcePlannedExpenseId === payload.id)
         if (existingLive) {
@@ -88,10 +92,12 @@ export function AddExpenseDrawer({
             data: plannedExpenseToLiveCreateBody(payload, version),
           }),
         ).unwrap()
-        await dispatch(fetchExpenses(projectId)).unwrap()
+        await dispatch(fetchExpenses({ projectId })).unwrap()
         if (isReimbursableExpenseType(payload.type)) {
           await dispatch(fetchReimbursements(projectId)).unwrap()
         }
+      } catch {
+        // Pitch expense already saved; ignore live-tab sync failures.
       }
       onClose()
     },
@@ -142,7 +148,6 @@ export function AddExpenseDrawer({
             open={open}
             onSubmit={handleSubmit}
             onCancel={onClose}
-            onValidityChange={setFormValid}
             onSubmitLabelChange={setSubmitLabel}
           />
         ) : (
@@ -164,7 +169,7 @@ export function AddExpenseDrawer({
         <MuiButton
           variant="contained"
           size="small"
-          disabled={!canInteract || !formValid}
+          disabled={!canInteract}
           onClick={() => formRef.current?.submit()}
           sx={{ height: 32, minWidth: 90 }}
         >

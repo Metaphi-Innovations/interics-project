@@ -73,6 +73,8 @@ export interface InvoiceLineItemsProps {
   hideSacColumn?: boolean
   /** Show Labour cess % column between Amount and GST % */
   showLabourCessColumn?: boolean
+  /** Disable adding manual lines from UI actions. */
+  allowManualAdd?: boolean
 }
 
 export function emptyDraftLine(): DraftLineItem {
@@ -103,6 +105,7 @@ export function InvoiceLineItems({
   manualAddCollapsed = false,
   hideSacColumn = false,
   showLabourCessColumn = false,
+  allowManualAdd = true,
 }: InvoiceLineItemsProps) {
   const activeServices = services.filter((s) => s.status === 'active')
   const [manualOpen, setManualOpen] = useState(!manualAddCollapsed)
@@ -221,7 +224,7 @@ export function InvoiceLineItems({
               <TableRow>
                 <TableCell colSpan={emptyColSpan}>
                   <Typography variant="body2" color="text.secondary">
-                    No lines yet — select milestones or services above, or add a manual line.
+                    No lines yet — select milestones or services above.
                   </Typography>
                 </TableCell>
               </TableRow>
@@ -328,12 +331,12 @@ export function InvoiceLineItems({
           </TableBody>
         </Table>
       </TableContainer>
-      {mode === 'edit' && projectSourced && manualAddCollapsed && !manualOpen ? (
+      {mode === 'edit' && allowManualAdd && projectSourced && manualAddCollapsed && !manualOpen ? (
         <Box sx={{ mt: 2 }}>
           <Button variant="outlined" size="sm" color="primary" onClick={() => setManualOpen(true)} label="Add manual line" />
         </Box>
       ) : null}
-      {mode === 'edit' && (!projectSourced || !manualAddCollapsed || manualOpen) ? (
+      {mode === 'edit' && allowManualAdd && (!projectSourced || !manualAddCollapsed || manualOpen) ? (
         <Box sx={{ mt: 2 }}>
           <Button variant="outlined" size="sm" color="primary" startIcon={<Plus size={14} />} onClick={addManualLine}>
             Add manual line

@@ -11,14 +11,19 @@ import {
 import { Add, Upload } from '@mui/icons-material'
 import { useTheme, alpha } from '@mui/material/styles'
 import { useToast, DatePicker, dateFromIso, isoFromDate } from '@/design-system/components'
+import { parseSettingsApiError } from '@/modules/system-settings/shared/api-errors'
+import { uploadProjectDocumentFile } from '@/api/uploadFileApi'
 import { DrawerForm, FormField } from '../../../../components/templates'
 import { useAppDispatch, useAppSelector } from '../../../../store/hooks'
 import { fetchVendors } from '../../../../slices/vendors/thunk'
-import { fetchVersions, updateVendorMapping } from '../../../../slices/pitch/thunk'
-import { createVendorPO, fetchVendorPOs } from '../../../../slices/baseline/thunk'
+import { createVendorPO, fetchBaseline, fetchVendorPOs } from '../../../../slices/baseline/thunk'
+import { fetchVersions } from '../../../../slices/pitch/thunk'
 import { fetchCategories, fetchServices } from '../../../../slices/settings/thunk'
-import type { PitchService, VendorMapping, VendorMilestone } from '../../../../slices/pitch/reducer'
-import { resolveOfferVersionForProject } from './vendorPOHelpers'
+import type { PitchService } from '../../../../slices/pitch/reducer'
+import {
+  resolveOfferVersionForProject,
+  resolvePitchServiceForMasterSelection,
+} from './vendorPOHelpers'
 import { masterCategoryOptions, masterServiceOptions } from './clientPOServiceOptions'
 import {
   VendorOfferMilestoneCardEditor,
@@ -60,34 +65,6 @@ function listServiceTargets(
     }
   }
   return targets
-}
-
-function pct(value: number, total: number): number {
-  if (!total) return 0
-  return Math.round((value / total) * 100)
-}
-
-function pitchMappingFromGroup(group: GroupedServiceMilestones): {
-  milestones: VendorMilestone[]
-  retention?: VendorMapping['retention']
-} {
-  const milestones = group.milestones
-    .filter((m) => m.name.trim())
-    .map((m) => ({
-      id: m.id,
-      name: m.name,
-      percentage: m.percentage,
-      value: m.value,
-    }))
-
-  const firstRetention = group.retentions.find((r) => r.name.trim())
-
-  return {
-    milestones,
-    retention: firstRetention
-      ? { percentage: firstRetention.percentage, amount: firstRetention.value }
-      : undefined,
-  }
 }
 
 function generatePoNumber(): string {
@@ -168,7 +145,6 @@ export interface AddVendorOfferDrawerProps {
 export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOfferDrawerProps) {
   const dispatch = useAppDispatch()
   const toast = useToast((s) => s.showToast)
-  const { saving } = useAppSelector((s) => s.pitch)
   const { saving: baselineSaving } = useAppSelector((s) => s.baseline)
   const vendorItems = useAppSelector((s) => s.vendors.items ?? [])
   const { activeVersion, versions } = useAppSelector((s) => s.pitch)
@@ -186,10 +162,17 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
   })
   const [milestoneCards, setMilestoneCards] = useState<VendorOfferMilestoneCard[]>([])
   const [retentionCards, setRetentionCards] = useState<VendorOfferRetentionCard[]>([])
+  const [fieldErrors, setFieldErrors] = useState<{
+    poNumber?: string
+    poDate?: string
+    poValue?: string
+    vendorId?: string
+    milestones?: string
+  }>({})
 
   const baselineForProject = baseline?.projectId === projectId ? baseline : null
 
-  const pitchVersion = useMemo(
+  const offerSnapshot = useMemo(
     () =>
       resolveOfferVersionForProject(
         projectId,
@@ -200,13 +183,24 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
     [activeVersion, versions, projectId, baselineForProject],
   )
 
-  const serviceTargets = useMemo(() => listServiceTargets(pitchVersion), [pitchVersion])
+  /** Prefer baseline categories for Live service linking; fall back to pitch-shaped snapshot. */
+  const serviceCatalog = useMemo(() => {
+    if (baselineForProject?.categories?.length) {
+      return { categories: baselineForProject.categories }
+    }
+    return offerSnapshot
+  }, [baselineForProject, offerSnapshot])
+
+  const serviceTargets = useMemo(() => listServiceTargets(serviceCatalog), [serviceCatalog])
 
   const categoryOptions = useMemo(() => masterCategoryOptions(categories), [categories])
   const serviceOptions = useMemo(() => masterServiceOptions(services), [services])
 
   const vendorOptions = useMemo(
-    () => vendorItems.map((v) => ({ id: v.id, label: v.name })),
+    () =>
+      vendorItems
+        .filter((v) => v.status === 'Active')
+        .map((v) => ({ id: v.id, label: v.name })),
     [vendorItems],
   )
 
@@ -233,7 +227,8 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
 
   useEffect(() => {
     if (open) {
-      void dispatch(fetchVendors({ pageSize: 500 }))
+      void dispatch(fetchVendors({ pageSize: 100, status: 'Active' }))
+      void dispatch(fetchBaseline(projectId))
       void dispatch(fetchVersions(projectId))
       void dispatch(fetchCategories())
       void dispatch(fetchServices())
@@ -252,6 +247,7 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
       })
       setMilestoneCards([])
       setRetentionCards([])
+      setFieldErrors({})
     }
   }, [open])
 
@@ -302,6 +298,14 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
 
   function setField<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
     setForm((prev) => ({ ...prev, [key]: value }))
+    if (
+      key === 'poNumber' ||
+      key === 'poDate' ||
+      key === 'poValue' ||
+      key === 'vendorId'
+    ) {
+      setFieldErrors((prev) => ({ ...prev, [key]: undefined }))
+    }
   }
 
   function handlePoValueChange(value: string) {
@@ -315,78 +319,108 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
         executedValue: syncExec ? value : prev.executedValue,
       }
     })
+    setFieldErrors((prev) => ({ ...prev, poValue: undefined }))
   }
 
-  function findServiceTarget(serviceId: string): ServiceTarget | undefined {
-    return serviceTargets.find(
-      (t) => t.service.id === serviceId || t.service.subcategoryId === serviceId,
+  function resolveServiceTarget(group: GroupedServiceMilestones): ServiceTarget | undefined {
+    const masterCat = categoryOptions.find((c) => c.id === group.categoryId)
+    const masterSvc = serviceOptions.find((s) => s.id === group.serviceId)
+
+    const fromMaster = resolvePitchServiceForMasterSelection(serviceCatalog, {
+      masterCategoryId: group.categoryId,
+      masterServiceId: group.serviceId,
+      masterCategoryName: masterCat?.label,
+      masterServiceName: masterSvc?.label,
+    })
+    if (fromMaster) return fromMaster
+
+    const fromTargets = serviceTargets.find(
+      (t) => t.service.id === group.serviceId || t.service.subcategoryId === group.serviceId,
     )
+    if (fromTargets) return fromTargets
+
+    // Live offers are independent of Pitch — fall back to master service ids for linking.
+    if (!group.serviceId.trim()) return undefined
+    const label = masterSvc?.label ?? group.serviceId
+    return {
+      categoryId: group.categoryId,
+      categoryName: masterCat?.label ?? '',
+      service: {
+        id: group.serviceId,
+        name: label,
+        subcategoryId: group.serviceId,
+        subcategoryName: label,
+        customName: null,
+        value: 0,
+        clientMilestones: [],
+        vendorMappings: [],
+        milestonesTotal: 0,
+      },
+    }
+  }
+
+  function validateForm(): boolean {
+    const next: typeof fieldErrors = {}
+    if (!form.poNumber.trim()) next.poNumber = 'PO number is required'
+    if (!form.poDate) next.poDate = 'PO date is required'
+    const offerValue = Number(form.poValue)
+    if (!form.poValue.trim()) next.poValue = 'PO value is required'
+    else if (!Number.isFinite(offerValue) || offerValue <= 0) {
+      next.poValue = 'Enter a valid PO value greater than 0'
+    }
+    if (!form.vendorId) next.vendorId = 'Vendor is required'
+    if (!hasConfiguredEntries || groupedForSave.length === 0) {
+      next.milestones = 'Add at least one milestone or retention entry'
+    }
+    setFieldErrors(next)
+    const keys = Object.keys(next)
+    if (keys.length > 0) {
+      toast({
+        title: next.milestones ?? 'Please fill in all required fields',
+        variant: 'error',
+      })
+      return false
+    }
+    return true
   }
 
   async function handleSubmit() {
-    if (!form.poNumber.trim() || !form.poDate || !form.poValue) {
-      toast({ title: 'Please fill in all required fields', variant: 'error' })
-      return
-    }
-    if (!form.vendorId) {
-      toast({ title: 'Please select a vendor', variant: 'error' })
-      return
-    }
-    if (!hasConfiguredEntries || groupedForSave.length === 0) {
-      toast({ title: 'Add at least one milestone or retention entry', variant: 'error' })
-      return
-    }
+    if (!validateForm()) return
 
     const offerValue = Number(form.poValue)
-    if (!Number.isFinite(offerValue) || offerValue <= 0) {
-      toast({ title: 'Enter a valid offer amount', variant: 'error' })
-      return
-    }
     const executedValue = Number(form.executedValue) || offerValue
     const vendor = vendorItems.find((v) => v.id === form.vendorId)
-    const documentUrl = form.file ? URL.createObjectURL(form.file) : null
-    const quotation = form.file
-      ? {
-          fileName: form.file.name,
-          fileUrl: documentUrl!,
-          uploadedAt: new Date().toISOString(),
-        }
-      : undefined
+    let documentUrl: string | null = null
+    let fileName: string | null = null
+    if (form.file) {
+      try {
+        const uploaded = await uploadProjectDocumentFile(form.file)
+        documentUrl = uploaded.viewUrl
+        fileName = uploaded.originalName || form.file.name
+      } catch (err) {
+        const parsed = parseSettingsApiError(err, 'Failed to upload offer document')
+        toast({ title: parsed.message, variant: 'error' })
+        return
+      }
+    }
 
     try {
       for (const [index, group] of groupedForSave.entries()) {
-        const target = findServiceTarget(group.serviceId)
-        const milestonePayload = buildVendorPOMilestonePayloadFromGroup(group)
-        let mappingId: string | undefined
-
-        if (target && pitchVersion) {
-          const existing = target.service.vendorMappings ?? []
-          const { milestones: pitchMilestones, retention } = pitchMappingFromGroup(group)
-          mappingId = `vm-${Date.now()}-${index}-${group.serviceId}`
-
-          await dispatch(
-            updateVendorMapping({
-              projectId,
-              versionId: pitchVersion.id,
-              serviceId: target.service.id,
-              mappings: [
-                ...existing,
-                {
-                  id: mappingId,
-                  vendorId: form.vendorId,
-                  vendorName: vendor?.name ?? '',
-                  value: offerValue,
-                  executedValue,
-                  percentage: pct(offerValue, target.service.value),
-                  milestones: pitchMilestones,
-                  retention,
-                  isMeasurable: false,
-                  ...(quotation ? { quotation } : {}),
-                },
-              ],
-            }),
-          ).unwrap()
+        const target = resolveServiceTarget(group)
+        if (!target) {
+          toast({
+            title: 'Select a category and service on each milestone or retention entry',
+            variant: 'error',
+          })
+          return
         }
+
+        const milestonePayload = buildVendorPOMilestonePayloadFromGroup(group)
+        // Prefer master service id so receivable/payable overview rows share one identity.
+        const linkedServiceId =
+          target.service.subcategoryId?.trim() ||
+          group.serviceId.trim() ||
+          target.service.id
 
         await dispatch(
           createVendorPO({
@@ -399,17 +433,16 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
               poValue: offerValue,
               executedValue,
               milestones: milestonePayload,
-              linkedBaselineServiceIds: [group.serviceId],
-              linkedVendorMappingId: mappingId,
+              linkedBaselineServiceIds: [linkedServiceId],
               status: 'Draft',
               documentUrl,
-              fileName: form.file?.name ?? null,
+              fileName,
             },
           }),
         ).unwrap()
       }
 
-      void dispatch(fetchVersions(projectId))
+      await dispatch(fetchBaseline(projectId)).unwrap()
       await dispatch(fetchVendorPOs(projectId)).unwrap()
       toast({
         title:
@@ -419,8 +452,17 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
         variant: 'success',
       })
       onClose()
-    } catch {
-      toast({ title: 'Failed to save vendor offer', variant: 'error' })
+    } catch (err) {
+      const parsed = parseSettingsApiError(err, 'Failed to save vendor offer')
+      setFieldErrors((prev) => ({
+        ...prev,
+        poNumber: parsed.fieldErrors.poNumber ?? prev.poNumber,
+        poDate: parsed.fieldErrors.poDate ?? prev.poDate,
+        poValue: parsed.fieldErrors.poValue ?? prev.poValue,
+        vendorId: parsed.fieldErrors.vendorId ?? prev.vendorId,
+        milestones: parsed.fieldErrors.milestones ?? prev.milestones,
+      }))
+      toast({ title: parsed.message, variant: 'error' })
     }
   }
 
@@ -433,7 +475,7 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
       title="Add Vendor Offer"
       subtitle="Record vendor offer details"
       onSubmit={handleSubmit}
-      submitLoading={saving || baselineSaving}
+      submitLoading={baselineSaving}
       submitLabel="Save Offer"
     >
       <Box>
@@ -478,24 +520,26 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
             gap: 1.5,
           }}
         >
-          <FormField label="PO Number" required>
+          <FormField label="PO Number" required error={fieldErrors.poNumber}>
             <TextField
               fullWidth
               size="small"
               value={form.poNumber}
               onChange={(e) => setField('poNumber', e.target.value)}
               placeholder="PO-VND-…"
+              error={Boolean(fieldErrors.poNumber)}
             />
           </FormField>
-          <FormField label="PO Date" required>
+          <FormField label="PO Date" required error={fieldErrors.poDate}>
             <DatePicker
               value={dateFromIso(form.poDate)}
               onChange={(d) => setField('poDate', isoFromDate(d))}
               fullWidth
               size="sm"
+              error={Boolean(fieldErrors.poDate)}
             />
           </FormField>
-          <FormField label="PO Value (₹)" required>
+          <FormField label="PO Value (₹)" required error={fieldErrors.poValue}>
             <TextField
               fullWidth
               size="small"
@@ -503,6 +547,7 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
               value={form.poValue}
               onChange={(e) => handlePoValueChange(e.target.value)}
               placeholder="0"
+              error={Boolean(fieldErrors.poValue)}
             />
           </FormField>
           <FormField label="Executed Value (₹)">
@@ -516,7 +561,7 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
             />
           </FormField>
           <Box sx={{ gridColumn: '1 / -1' }}>
-            <FormField label="Vendor" required>
+            <FormField label="Vendor" required error={fieldErrors.vendorId}>
               <Autocomplete
                 size="small"
                 fullWidth
@@ -526,7 +571,12 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
                 getOptionLabel={(opt) => opt.label}
                 isOptionEqualToValue={(opt, val) => opt.id === val.id}
                 renderInput={(params) => (
-                  <TextField {...params} placeholder="Search vendor…" sx={{ '& input': { fontSize: 12 } }} />
+                  <TextField
+                    {...params}
+                    placeholder="Search vendor…"
+                    error={Boolean(fieldErrors.vendorId)}
+                    sx={{ '& input': { fontSize: 12 } }}
+                  />
                 )}
               />
             </FormField>
@@ -536,15 +586,22 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
 
       <Divider sx={{ my: 2 }} />
 
+      {fieldErrors.milestones ? (
+        <Typography variant="caption" color="error.main" sx={{ display: 'block', mb: 1 }}>
+          {fieldErrors.milestones}
+        </Typography>
+      ) : null}
+
       <MilestoneSectionPanel
         title="Milestones"
         addLabel="Add Milestone"
-        onAdd={() =>
+        onAdd={() => {
+          setFieldErrors((prev) => ({ ...prev, milestones: undefined }))
           setMilestoneCards((prev) => [
             ...prev,
             createVendorOfferMilestoneCard(categoryOptions, serviceOptions),
           ])
-        }
+        }}
         addDisabled={cardsDisabled}
         isEmpty={milestoneCards.length === 0}
       >
@@ -568,11 +625,12 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
       <MilestoneSectionPanel
         title="Retention"
         addLabel="Add Retention"
-        onAdd={() =>
+        onAdd={() => {
+          setFieldErrors((prev) => ({ ...prev, milestones: undefined }))
           setRetentionCards([
             createVendorOfferRetentionCard(categoryOptions, serviceOptions),
           ])
-        }
+        }}
         addDisabled={cardsDisabled}
         isEmpty={retentionCards.length === 0}
         showAddButton={retentionCards.length === 0}

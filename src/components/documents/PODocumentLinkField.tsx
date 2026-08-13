@@ -1,9 +1,9 @@
 import { Box, Typography } from '@mui/material'
 import { UploadedDocumentLink } from './UploadedDocumentLink'
+import { resolveApiAssetUrl } from '@/utils/openAuthenticatedDocument'
 
 export function poDocumentOpenUrl(documentUrl?: string | null): string | null {
-  if (!documentUrl?.trim() || documentUrl.startsWith('local://')) return null
-  return documentUrl
+  return resolveApiAssetUrl(documentUrl)
 }
 
 export function poDocumentDisplayFileName(fileName?: string | null): string | null {
@@ -32,22 +32,22 @@ export function PODocumentLinkField({
   const displayName = poDocumentDisplayFileName(fileName)
   const openUrl = poDocumentOpenUrl(documentUrl)
 
-  const valueContent =
-    displayName && openUrl ? (
-      <UploadedDocumentLink
-        fileName={displayName}
-        documentUrl={openUrl}
-        onOpenFailed={onOpenFailed}
-        compact={false}
-      />
-    ) : (
-      <Typography
-        variant="body2"
-        sx={{ fontSize: 13, fontWeight: 500, color: 'text.secondary' }}
-      >
-        {emptyLabel}
-      </Typography>
-    )
+  // Keep the filename visible even if URL resolution fails — click still reports failure.
+  const valueContent = displayName ? (
+    <UploadedDocumentLink
+      fileName={displayName}
+      documentUrl={openUrl}
+      onOpenFailed={onOpenFailed}
+      compact={false}
+    />
+  ) : (
+    <Typography
+      variant="body2"
+      sx={{ fontSize: 13, fontWeight: 500, color: 'text.secondary' }}
+    >
+      {emptyLabel}
+    </Typography>
+  )
 
   if (alignWithInput) {
     return (

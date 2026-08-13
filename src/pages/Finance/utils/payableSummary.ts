@@ -3,24 +3,41 @@ import type { VendorPayment } from '@/slices/live/types'
 import { vendorPoEffectiveValue } from '@/pages/Projects/tabs/live/vendorPOHelpers'
 
 export interface PayableSummaryKpis {
-  /** Sum of Vendor PO values across projects. */
+  /** Sum of Live Vendor PO / offer values across projects. */
   totalVendorPoValue: number
-  /** Sum of net amounts paid to vendors. */
+  /** Sum of Vendor PO milestone values marked Paid. */
   paidTillDate: number
-  /** Remaining payable: Total Vendor PO Value − Paid Till Date. */
+  /** Remaining: Total Vendor Offer − Paid Till Date. */
   pendingPayment: number
 }
 
 /**
- * Payable dashboard summary KPIs from Vendor POs and payment records.
- * Pending Payment always equals Total Vendor PO Value − Paid Till Date.
+ * Client-side fallback KPI rollup (prefer GET /finance/payables/summary).
+ * Paid Till Date uses paid milestone values on Vendor POs when present;
+ * otherwise falls back to payment netPaid (legacy).
  */
 export function computePayableSummaryKpis(
-  vendorPOs: Array<Pick<VendorPO, 'poValue' | 'executedValue'>>,
-  payments: Array<Pick<VendorPayment, 'netPaid'>>,
+  vendorPOs: Array<
+    Pick<VendorPO, 'poValue' | 'executedValue'> & { milestones?: VendorPO['milestones'] }
+  >,
+  payments: Array<Pick<VendorPayment, 'netPaid'>> = [],
 ): PayableSummaryKpis {
   const totalVendorPoValue = vendorPOs.reduce((s, po) => s + vendorPoEffectiveValue(po), 0)
-  const paidTillDate = payments.reduce((s, p) => s + (p.netPaid ?? 0), 0)
+
+  let paidFromMilestones = 0
+  let hasMilestoneStatuses = false
+  for (const po of vendorPOs) {
+    for (const m of po.milestones ?? []) {
+      hasMilestoneStatuses = true
+      if (String(m.status).toLowerCase() === 'paid') {
+        paidFromMilestones += Number(m.value ?? 0)
+      }
+    }
+  }
+
+  const paidTillDate = hasMilestoneStatuses
+    ? paidFromMilestones
+    : payments.reduce((s, p) => s + (p.netPaid ?? 0), 0)
   const pendingPayment = Math.max(0, totalVendorPoValue - paidTillDate)
 
   return {

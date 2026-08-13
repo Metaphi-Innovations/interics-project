@@ -139,14 +139,21 @@ export function activityMatchesFilter(
   if (filter === 'documents') return type === 'document_uploaded'
   if (filter === 'contacts')
     return type === 'contact_added' || type === 'contact_removed' || type === 'primary_changed'
-  if (filter === 'financial') return false
-  if (filter === 'system') return type === 'record_created'
+  if (filter === 'financial') return type === 'financial'
+  if (filter === 'system')
+    return type === 'record_created' || type === 'profile_edited' || type === 'status_changed'
   return true
 }
 
 export function formatActivityTimestamp(timestamp: string): string {
   const d = dayjs(timestamp)
-  return d.isValid() ? d.format('DD MMM YYYY, h:mm A') : 'Date unknown'
+  if (!d.isValid()) return 'Date unknown'
+
+  const now = dayjs()
+  if (d.isSame(now, 'day')) return `Today, ${d.format('h:mm A')}`
+  if (d.isSame(now.subtract(1, 'day'), 'day')) return `Yesterday, ${d.format('h:mm A')}`
+  if (d.isAfter(now.subtract(6, 'day').startOf('day'))) return d.format('ddd, h:mm A')
+  return d.format('DD MMM YYYY, h:mm A')
 }
 
 export interface ActivityTimelineVisual {
@@ -171,6 +178,8 @@ function activityBucket(type: ActivityType): ActivityIconBucket {
       return 'contact'
     case 'status_changed':
       return 'status'
+    case 'financial':
+      return 'financial'
     default:
       return 'system'
   }
@@ -206,6 +215,8 @@ export function getActivityTimelineVisual(type: ActivityType, theme: Theme): Act
       return { Icon: User, bg, iconColor }
     case 'status_changed':
       return { Icon: RefreshCw, bg, iconColor }
+    case 'financial':
+      return { Icon: IndianRupee, bg, iconColor }
     default:
       return { Icon: IndianRupee, bg, iconColor }
   }

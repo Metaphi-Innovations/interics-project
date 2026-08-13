@@ -1,7 +1,5 @@
 import { createAsyncThunk } from '@reduxjs/toolkit'
 import { liveApi, type RecordClientInvoicePaymentBody } from '@/api/liveApi'
-import { normalizeArrayResponse } from '@/utils/normalizeListResponse'
-import type { Invoice } from '@/slices/receivables/reducer'
 import {
   clientInvoiceDraftToReceivablesPost,
   invoiceToClientInvoice,
@@ -33,8 +31,7 @@ export const fetchInvoices = createAsyncThunk<
 >('live/fetchInvoices', async (projectId, { rejectWithValue }) => {
   try {
     const res = await liveApi.getInvoices(projectId)
-    const rows = res.data.items ?? []
-    return rows.map(invoiceToClientInvoice)
+    return (res.items ?? []).map(invoiceToClientInvoice)
   } catch (err) {
     return rejectWithValue(errMessage(err, 'Failed to fetch invoices'))
   }
@@ -66,8 +63,8 @@ export const createInvoice = createAsyncThunk<
         data,
         { sendNow },
       )
-      const res = await liveApi.createInvoice(body)
-      return invoiceToClientInvoice(res.data)
+      const invoice = await liveApi.createInvoice(body)
+      return invoiceToClientInvoice(invoice)
     } catch (err) {
       return rejectWithValue(errMessage(err, 'Failed to create invoice'))
     }
@@ -80,8 +77,12 @@ export const updateInvoice = createAsyncThunk<
   { rejectValue: string }
 >('live/updateInvoice', async ({ projectId, invoiceId, data }, { rejectWithValue }) => {
   try {
-    const res = await liveApi.updateInvoice(projectId, invoiceId, data as unknown as Record<string, unknown>)
-    return invoiceToClientInvoice(res.data as Invoice)
+    const invoice = await liveApi.updateInvoice(
+      projectId,
+      invoiceId,
+      data as unknown as Record<string, unknown>,
+    )
+    return invoiceToClientInvoice(invoice)
   } catch (err) {
     return rejectWithValue(errMessage(err, 'Failed to update invoice'))
   }
@@ -100,8 +101,8 @@ export const recordInvoicePayment = createAsyncThunk<
       paymentMode: data.paymentMode === 'cash' ? 'other' : data.paymentMode,
       reference: data.reference,
     }
-    const res = await liveApi.recordInvoicePayment(projectId, invoiceId, payload)
-    return invoiceToClientInvoice(res.data)
+    const invoice = await liveApi.recordInvoicePayment(projectId, invoiceId, payload)
+    return invoiceToClientInvoice(invoice)
   } catch (err) {
     return rejectWithValue(errMessage(err, 'Failed to record payment'))
   }
@@ -113,8 +114,7 @@ export const fetchVendorInvoices = createAsyncThunk<
   { rejectValue: string }
 >('live/fetchVendorInvoices', async (projectId, { rejectWithValue }) => {
   try {
-    const res = await liveApi.getVendorInvoices(projectId)
-    return normalizeArrayResponse<VendorInvoice>(res.data)
+    return await liveApi.getVendorInvoices(projectId)
   } catch (err) {
     return rejectWithValue(errMessage(err, 'Failed to fetch vendor invoices'))
   }
@@ -126,8 +126,7 @@ export const uploadVendorInvoice = createAsyncThunk<
   { rejectValue: string }
 >('live/uploadVendorInvoice', async ({ projectId, data }, { rejectWithValue }) => {
   try {
-    const res = await liveApi.uploadVendorInvoice(projectId, data)
-    return res.data
+    return await liveApi.uploadVendorInvoice(projectId, data)
   } catch (err) {
     return rejectWithValue(errMessage(err, 'Failed to upload vendor invoice'))
   }
@@ -139,8 +138,7 @@ export const updateVendorInvoice = createAsyncThunk<
   { rejectValue: string }
 >('live/updateVendorInvoice', async ({ projectId, invoiceId, data }, { rejectWithValue }) => {
   try {
-    const res = await liveApi.updateVendorInvoice(projectId, invoiceId, data)
-    return res.data
+    return await liveApi.updateVendorInvoice(projectId, invoiceId, data)
   } catch (err) {
     return rejectWithValue(errMessage(err, 'Failed to update vendor invoice'))
   }
@@ -152,8 +150,7 @@ export const fetchVendorPayableControls = createAsyncThunk<
   { rejectValue: string }
 >('live/fetchVendorPayableControls', async (projectId, { rejectWithValue }) => {
   try {
-    const res = await liveApi.getVendorPayableControls(projectId)
-    return normalizeArrayResponse<VendorPayableControl>(res.data)
+    return await liveApi.getVendorPayableControls(projectId)
   } catch (err) {
     return rejectWithValue(errMessage(err, 'Failed to fetch payable controls'))
   }
@@ -165,8 +162,7 @@ export const updateVendorPayableControl = createAsyncThunk<
   { rejectValue: string }
 >('live/updateVendorPayableControl', async ({ projectId, data }, { rejectWithValue }) => {
   try {
-    const res = await liveApi.updateVendorPayableControl(projectId, data)
-    return res.data
+    return await liveApi.updateVendorPayableControl(projectId, data)
   } catch (err) {
     return rejectWithValue(errMessage(err, 'Failed to update payable controls'))
   }
@@ -178,8 +174,7 @@ export const fetchPayments = createAsyncThunk<
   { rejectValue: string }
 >('live/fetchPayments', async (projectId, { rejectWithValue }) => {
   try {
-    const res = await liveApi.getPayments(projectId)
-    return normalizeArrayResponse<VendorPayment>(res.data)
+    return await liveApi.getPayments(projectId)
   } catch (err) {
     return rejectWithValue(errMessage(err, 'Failed to fetch payments'))
   }
@@ -191,8 +186,7 @@ export const createPayment = createAsyncThunk<
   { rejectValue: string }
 >('live/createPayment', async ({ projectId, data }, { rejectWithValue }) => {
   try {
-    const res = await liveApi.createPayment(projectId, data)
-    return res.data
+    return await liveApi.createPayment(projectId, data)
   } catch (err) {
     return rejectWithValue(errMessage(err, 'Failed to create payment'))
   }
@@ -200,14 +194,32 @@ export const createPayment = createAsyncThunk<
 
 export const fetchExpenses = createAsyncThunk<
   Expense[],
-  string,
+  { projectId: string; type?: string },
   { rejectValue: string }
->('live/fetchExpenses', async (projectId, { rejectWithValue }) => {
+>('live/fetchExpenses', async ({ projectId, type }, { rejectWithValue }) => {
   try {
-    const res = await liveApi.getExpenses(projectId)
-    return normalizeArrayResponse<Expense>(res.data)
+    return await liveApi.getExpenses(projectId, type)
   } catch (err) {
     return rejectWithValue(errMessage(err, 'Failed to fetch expenses'))
+  }
+})
+
+export type ExpenseSummary = {
+  total: number
+  additional: number
+  vendorLinked: number
+  common: number
+}
+
+export const fetchExpenseSummary = createAsyncThunk<
+  ExpenseSummary,
+  string,
+  { rejectValue: string }
+>('live/fetchExpenseSummary', async (projectId, { rejectWithValue }) => {
+  try {
+    return await liveApi.getExpenseSummary(projectId)
+  } catch (err) {
+    return rejectWithValue(errMessage(err, 'Failed to fetch expense summary'))
   }
 })
 
@@ -217,8 +229,7 @@ export const createExpense = createAsyncThunk<
   { rejectValue: string }
 >('live/createExpense', async ({ projectId, data }, { rejectWithValue, dispatch }) => {
   try {
-    const res = await liveApi.createExpense(projectId, data)
-    const expense = res.data
+    const expense = await liveApi.createExpense(projectId, data)
     if (isReimbursableExpenseType(data.type)) {
       await dispatch(
         createReimbursement({
@@ -260,8 +271,7 @@ export const fetchReimbursements = createAsyncThunk<
   { rejectValue: string }
 >('live/fetchReimbursements', async (projectId, { rejectWithValue }) => {
   try {
-    const res = await liveApi.getReimbursements(projectId)
-    return normalizeArrayResponse<Reimbursement>(res.data)
+    return await liveApi.getReimbursements(projectId)
   } catch (err) {
     return rejectWithValue(errMessage(err, 'Failed to fetch reimbursements'))
   }
@@ -273,8 +283,7 @@ export const createReimbursement = createAsyncThunk<
   { rejectValue: string }
 >('live/createReimbursement', async ({ projectId, data }, { rejectWithValue }) => {
   try {
-    const res = await liveApi.createReimbursement(projectId, data)
-    return res.data
+    return await liveApi.createReimbursement(projectId, data)
   } catch (err) {
     return rejectWithValue(errMessage(err, 'Failed to create reimbursement'))
   }

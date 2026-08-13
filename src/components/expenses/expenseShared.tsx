@@ -163,13 +163,31 @@ function ExpenseSection({ title, children }: { title: string; children: ReactNod
   )
 }
 
-export function ExpenseSummaryStrip({ expenses }: { expenses: Expense[] }) {
-  const total = expenses.reduce((s, e) => s + e.amount, 0)
-  const additional = expenses.filter((e) => e.type === 'additional').reduce((s, e) => s + e.amount, 0)
-  const vendorLinked = expenses
-    .filter((e) => e.type === 'vendor_linked')
-    .reduce((s, e) => s + e.amount, 0)
-  const common = expenses.filter((e) => e.type === 'common').reduce((s, e) => s + e.amount, 0)
+export function ExpenseSummaryStrip({
+  expenses,
+  summary,
+}: {
+  expenses?: Expense[]
+  summary?: {
+    total: number
+    additional: number
+    vendorLinked: number
+    common: number
+  } | null
+}) {
+  const total = summary?.total ?? expenses?.reduce((s, e) => s + e.amount, 0) ?? 0
+  const additional =
+    summary?.additional ??
+    expenses?.filter((e) => e.type === 'additional').reduce((s, e) => s + e.amount, 0) ??
+    0
+  const vendorLinked =
+    summary?.vendorLinked ??
+    expenses?.filter((e) => e.type === 'vendor_linked').reduce((s, e) => s + e.amount, 0) ??
+    0
+  const common =
+    summary?.common ??
+    expenses?.filter((e) => e.type === 'common').reduce((s, e) => s + e.amount, 0) ??
+    0
 
   const metrics = [
     { label: 'Total Expenses', value: total },

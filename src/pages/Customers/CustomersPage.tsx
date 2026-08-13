@@ -30,17 +30,19 @@ import { useTheme, alpha } from '@mui/material/styles'
 import { Building2, Plus, MoreVertical, Eye, Pencil, FolderPlus, Receipt, Archive, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
-import { fetchCustomers, updateCustomer } from '../../slices/customers/thunk'
-import { setFilters, resetFilters, setPage, setSortConfig } from '../../slices/customers/reducer'
+import { fetchCustomers, setCustomerActive, fetchCustomerFilters } from '../../slices/customers/thunk'
+import { setFilters, resetFilters, setPage, setPageSize, setSortConfig } from '../../slices/customers/reducer'
 import type { Customer } from '../../slices/customers/reducer'
 import { ListingTemplate } from '../../components/templates'
 import type { FilterField, ColumnItem } from '../../components/templates/ListingTemplate'
 import { CustomerDrawer } from './CustomerDrawer'
 import { useToast, Modal, Button } from '@/design-system/components'
-import { getInitials, getAvatarColor, toSlug } from '../../utils/formatters'
+import { getInitials, getAvatarColor } from '../../utils/formatters'
 import { getPrimaryContact } from '../../utils/customerContacts'
 import { tokens } from '@/design-system/tokens'
 import { getSectorTagSx } from '../../utils/sectorTagStyles'
+import { fetchSectors } from '../../slices/settings/thunk'
+import { useSystemDefaultPageSize } from '@/hooks/useSystemDefaultPageSize'
 
 const TABLE_CELL_SX = {
   py: '8px',
@@ -650,8 +652,10 @@ function ConfirmArchiveDialog({ customer, onConfirm, onClose }: ConfirmArchivePr
 
 export default function CustomersPage() {
   const dispatch = useAppDispatch()
-  const { items: rawItems, loading, pagination, filters, sortConfig } = useAppSelector((s) => s.customers)
+  const defaultPageSize = useSystemDefaultPageSize()
+  const { items: rawItems, loading, pagination, filters, sortConfig, filterOptions } = useAppSelector((s) => s.customers)
   const items = rawItems ?? []
+  const sectors = useAppSelector((s) => s.settings.sectors)
   const { showToast } = useToast()
   const navigate = useNavigate()
 
@@ -669,17 +673,81 @@ export default function CustomersPage() {
 
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  function buildListParams(overrides: Record<string, unknown> = {}) {
+    const columns = [
+      'id',
+      'initials',
+      'customerName',
+      'phone',
+      'email',
+      'gstStatus',
+      'isActive',
+      'statusLabel',
+      'city',
+      'state',
+      'createdAt',
+      ...(visibleColumns.contactPerson
+        ? ['contactPerson', 'designation', 'contactPersonLabel']
+        : []),
+      ...(visibleColumns.sector ? ['sector', 'sectorLabel'] : []),
+      ...(visibleColumns.projects ? ['projectCount', 'outstandingAmount'] : []),
+    ]
+
+    const pickFilter = (key: 'gstStatus' | 'state' | 'sector' | 'search') => {
+      if (Object.prototype.hasOwnProperty.call(overrides, key)) {
+        return overrides[key] as string | undefined
+      }
+      if (key === 'search') return filters.search
+      return (filters[key] ?? activeFilters[key]) as string | undefined
+    }
+
+    const gstRaw = pickFilter('gstStatus')
+    const stateRaw = pickFilter('state')
+    const sectorRaw = pickFilter('sector')
+    const searchRaw = pickFilter('search')
+    const search = searchRaw?.trim() || undefined
+
+    return {
+      page: (overrides.page as number | undefined) ?? pagination.page,
+      pageSize: (overrides.pageSize as number | undefined) ?? pagination.pageSize,
+      search,
+      gstStatus: gstRaw || undefined,
+      state: stateRaw || undefined,
+      sector: sectorRaw || undefined,
+      columns,
+    }
+  }
+
+  useEffect(() => {
+    if (defaultPageSize == null) return
+    dispatch(setPageSize(defaultPageSize))
+  }, [dispatch, defaultPageSize])
+
   // ── Initial fetch ──────────────────────────────────────────────────
   useEffect(() => {
-    dispatch(fetchCustomers({ page: 1, pageSize: pagination.pageSize }))
+    if (defaultPageSize == null) return
+    void dispatch(fetchCustomerFilters())
+    void dispatch(fetchSectors())
+    void dispatch(fetchCustomers(buildListParams({ page: 1, pageSize: defaultPageSize })))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [defaultPageSize])
 
   useEffect(() => {
     return () => {
       if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
     }
   }, [])
+
+  const columnsBootstrapped = useRef(false)
+  // Refetch when column visibility changes (server column projection)
+  useEffect(() => {
+    if (!columnsBootstrapped.current) {
+      columnsBootstrapped.current = true
+      return
+    }
+    void dispatch(fetchCustomers(buildListParams()))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibleColumns.contactPerson, visibleColumns.sector, visibleColumns.projects])
 
   // Sort items client-side
   const sortedItems = [...items].sort((a, b) => {
@@ -711,27 +779,18 @@ export default function CustomersPage() {
 
   const filterConfig: FilterField[] = [
     {
-      field: 'type',
-      label: 'Customer Type',
-      type: 'select',
-      icon: <Business sx={{ fontSize: 12 }} />,
-      options: [
-        { label: 'All', value: '' },
-        { label: 'Company', value: 'Company' },
-        { label: 'Individual', value: 'Individual' },
-      ],
-    },
-    {
       field: 'gstStatus',
       label: 'GST Status',
       type: 'select',
       icon: <VerifiedUser sx={{ fontSize: 12 }} />,
       options: [
         { label: 'All', value: '' },
-        { label: 'Registered', value: 'Registered' },
-        { label: 'Unregistered', value: 'Unregistered' },
-        { label: 'Composition', value: 'Composition' },
-        { label: 'SEZ', value: 'SEZ' },
+        ...(filterOptions?.gstStatuses?.map((t) => ({ label: t.label, value: t.value })) ?? [
+          { label: 'Registered', value: 'REGISTERED' },
+          { label: 'Unregistered', value: 'UNREGISTERED' },
+          { label: 'Composition', value: 'COMPOSITION' },
+          { label: 'SEZ', value: 'SEZ' },
+        ]),
       ],
     },
     {
@@ -741,11 +800,19 @@ export default function CustomersPage() {
       icon: <LocationOn sx={{ fontSize: 12 }} />,
       options: [
         { label: 'All', value: '' },
-        { label: 'Karnataka', value: 'Karnataka' },
-        { label: 'Maharashtra', value: 'Maharashtra' },
-        { label: 'Delhi', value: 'Delhi' },
-        { label: 'Telangana', value: 'Telangana' },
-        { label: 'Tamil Nadu', value: 'Tamil Nadu' },
+        ...(filterOptions?.states?.map((t) => ({ label: t.label, value: t.value })) ?? []),
+      ],
+    },
+    {
+      field: 'sector',
+      label: 'Sector',
+      type: 'select',
+      icon: <Business sx={{ fontSize: 12 }} />,
+      options: [
+        { label: 'All', value: '' },
+        ...sectors
+          .filter((s) => s.status === 'active')
+          .map((s) => ({ label: s.name, value: s.name })),
       ],
     },
   ]
@@ -755,12 +822,13 @@ export default function CustomersPage() {
     dispatch(setFilters({ search: value }))
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
     searchTimeoutRef.current = setTimeout(() => {
+      const trimmed = value.trim()
       dispatch(setPage(1))
-      dispatch(fetchCustomers({
-        page: 1,
-        pageSize: pagination.pageSize,
-        search: value || undefined,
-      }))
+      void dispatch(
+        // Pass empty string (not undefined) so buildListParams clears search instead of
+        // falling back to the previous filter via `??`.
+        fetchCustomers(buildListParams({ page: 1, search: trimmed })),
+      )
     }, 300)
   }
 
@@ -770,20 +838,22 @@ export default function CustomersPage() {
     for (const [k, v] of Object.entries(newFilters)) {
       params[k] = (v as string) || undefined
     }
-    dispatch(setFilters(params as { search?: string; type?: string; gstStatus?: string; state?: string }))
+    dispatch(setFilters(params as { search?: string; gstStatus?: string; state?: string; sector?: string }))
     dispatch(setPage(1))
-    dispatch(fetchCustomers({ page: 1, pageSize: pagination.pageSize, search: filters.search || undefined, ...params }))
+    void dispatch(fetchCustomers(buildListParams({ page: 1, ...params })))
   }
 
   function handleFilterReset() {
     setActiveFilters({})
     dispatch(resetFilters())
     dispatch(setPage(1))
-    dispatch(fetchCustomers({
+    void dispatch(fetchCustomers(buildListParams({
       page: 1,
-      pageSize: pagination.pageSize,
-      search: filters.search || undefined,
-    }))
+      search: filters.search,
+      gstStatus: '',
+      state: '',
+      sector: '',
+    })))
   }
 
   function handleSortChange(field: string, direction: 'asc' | 'desc') {
@@ -792,11 +862,7 @@ export default function CustomersPage() {
 
   function handlePageChange(page: number) {
     dispatch(setPage(page))
-    dispatch(fetchCustomers({
-      page,
-      pageSize: pagination.pageSize,
-      search: filters.search || undefined,
-    }))
+    void dispatch(fetchCustomers(buildListParams({ page })))
   }
 
   function handleColumnVisibilityChange(field: string, visible: boolean) {
@@ -821,13 +887,15 @@ export default function CustomersPage() {
   }
 
   function customerDetailPath(customer: Customer) {
-    return `/customers/${toSlug(customer.name)}`
+    return `/customers/${customer.id}`
   }
 
   function handleNavigateToCustomer(id: string) {
     const customer = items.find((c) => c.id === id)
     if (customer) {
       navigate(customerDetailPath(customer))
+    } else {
+      navigate(`/customers/${id}`)
     }
   }
 
@@ -846,15 +914,15 @@ export default function CustomersPage() {
   async function handleArchive() {
     if (!archiveTarget) return
     try {
-      await dispatch(updateCustomer({ id: archiveTarget.id, data: { status: 'Inactive' } })).unwrap()
+      await dispatch(setCustomerActive({ id: archiveTarget.id, isActive: false })).unwrap()
       showToast({ title: 'Customer archived', variant: 'success' })
-      dispatch(fetchCustomers({
-        page: pagination.page,
-        pageSize: pagination.pageSize,
-        search: filters.search || undefined,
-      }))
+      void dispatch(fetchCustomers(buildListParams()))
     } catch (err) {
-      showToast({ title: (err as string) || 'Failed to archive customer', variant: 'error' })
+      const message =
+        err && typeof err === 'object' && 'message' in err
+          ? String((err as { message: string }).message)
+          : 'Failed to archive customer'
+      showToast({ title: message, variant: 'error' })
     }
     setArchiveTarget(null)
   }

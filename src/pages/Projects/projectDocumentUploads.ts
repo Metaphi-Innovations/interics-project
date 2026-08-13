@@ -1,4 +1,5 @@
 import { useCallback, useSyncExternalStore, type Dispatch, type SetStateAction } from 'react'
+import { openAuthenticatedDocument } from '@/utils/openAuthenticatedDocument'
 
 /** Document upload categories (aligned with Documents tab). */
 export type UploadCategory =
@@ -114,7 +115,9 @@ function resolveViewUrl(doc: UploadedProjectDocument): string | null {
     }
     return createBlobUrlForFile(cachedFile, doc.id)
   }
-  return doc.blobUrl?.startsWith('blob:') ? doc.blobUrl : null
+  if (doc.blobUrl?.startsWith('blob:')) return doc.blobUrl
+  if (doc.blobUrl?.trim()) return doc.blobUrl.trim()
+  return null
 }
 
 function escapeHtml(text: string): string {
@@ -179,12 +182,18 @@ function openInEmbeddedViewer(url: string, fileName: string, title: string): boo
 /**
  * Open an uploaded project document in a new browser tab.
  * Blob URLs must not be passed to window.open() directly — Chrome may treat them as search queries.
+ * API file URLs require auth and are opened via authenticated fetch.
  */
 export function openProjectUploadInNewTab(doc: UploadedProjectDocument): boolean {
   const url = resolveViewUrl(doc)
   if (!url) return false
 
   const title = doc.displayName || doc.fileName
+
+  if (url.includes('/files/') && (url.includes('/view') || url.includes('/download'))) {
+    void openAuthenticatedDocument(url)
+    return true
+  }
 
   if (isBrowserViewableDoc(doc)) {
     if (openInEmbeddedViewer(url, doc.fileName, title)) {
@@ -291,7 +300,7 @@ export function removeProjectUpload(id: string): UploadedProjectDocument | undef
   for (const [projectId, list] of uploadsByProject.entries()) {
     const found = list.find((u) => u.id === id)
     if (!found) continue
-    if (found.blobUrl) URL.revokeObjectURL(found.blobUrl)
+    if (found.blobUrl?.startsWith('blob:')) URL.revokeObjectURL(found.blobUrl)
     discardUploadFile(found.id)
     uploadsByProject.set(
       projectId,
@@ -369,12 +378,14 @@ export interface RegisterVendorQuotationInput {
   notes?: string
   uploadedBy: string
   uploadedByUserId: string
+  /** When provided (API-persisted file), prefer this over a session blob URL. */
+  viewUrl?: string
 }
 
 /** Register a vendor quotation file for the Documents tab (Vendor Quotations subsection). */
 export function registerVendorQuotationUpload(input: RegisterVendorQuotationInput): UploadedProjectDocument {
   const id = crypto.randomUUID()
-  const blobUrl = createBlobUrlForFile(input.file, id)
+  const blobUrl = input.viewUrl?.trim() || createBlobUrlForFile(input.file, id)
   const doc: UploadedProjectDocument = {
     id,
     projectId: input.projectId,
@@ -388,7 +399,7 @@ export function registerVendorQuotationUpload(input: RegisterVendorQuotationInpu
     notes: input.notes?.trim() ?? '',
     blobUrl,
   }
-  addProjectUpload(doc, input.file)
+  addProjectUpload(doc, input.viewUrl ? null : input.file)
   return doc
 }
 

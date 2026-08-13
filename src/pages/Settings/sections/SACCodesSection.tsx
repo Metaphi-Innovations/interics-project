@@ -3,6 +3,7 @@ import {
   Box, Typography, TextField, Chip,
   Table, TableHead, TableRow, TableCell, TableBody, TableContainer,
   MenuItem, IconButton,
+  Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions,
 } from '@mui/material'
 import { Edit, ToggleOff, ToggleOn } from '@mui/icons-material'
 import { Plus } from 'lucide-react'
@@ -21,6 +22,15 @@ import {
   SETTINGS_TABLE_SX,
   settingsDataColWidth,
 } from '../components/settingsTableStyles'
+import {
+  sacCode,
+  optionalMaxLength,
+  requiredEntityId,
+  collectErrors,
+  hasErrors,
+  firstErrorMessage,
+} from '@/modules/system-settings/shared/settings-validation'
+import { parseSettingsApiError, clearFieldError } from '@/modules/system-settings/shared/api-errors'
 
 const SAC_DATA_COL_COUNT = 4
 const sacDataColWidth = settingsDataColWidth(SAC_DATA_COL_COUNT)
@@ -35,44 +45,59 @@ export default function SACCodesSection() {
   const error = useToast((s) => s.error)
   const { sacCodes, gstRates, saving } = useAppSelector(s => s.settings)
   const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [editingRow, setEditingRow] = useState<SACCode | null>(null)
   const [form, setForm] = useState<SACForm>(defaultForm)
-  const [codeError, setCodeError] = useState('')
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
+  const [toggleTarget, setToggleTarget] = useState<SACCode | null>(null)
+  const [toggling, setToggling] = useState(false)
 
   useEffect(() => {
-    dispatch(fetchSACCodes())
+    const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 300)
+    return () => window.clearTimeout(timer)
+  }, [search])
+
+  useEffect(() => {
+    dispatch(fetchSACCodes({ search: debouncedSearch || undefined, force: true }))
     dispatch(fetchGSTRates())
-  }, [dispatch])
+  }, [dispatch, debouncedSearch])
 
   const activeGST = gstRates.filter(g => g.status === 'active')
-
-  const filtered = sacCodes.filter(s =>
-    s.code.toLowerCase().includes(search.toLowerCase()) ||
-    s.description.toLowerCase().includes(search.toLowerCase())
-  )
 
   const openAdd = () => {
     setEditingRow(null)
     setForm(defaultForm)
-    setCodeError('')
+    setFieldErrors({})
     setDrawerOpen(true)
   }
 
   const openEdit = (row: SACCode) => {
     setEditingRow(row)
     setForm({ code: row.code, description: row.description, gstRateId: row.gstRateId, status: row.status })
-    setCodeError('')
+    setFieldErrors({})
     setDrawerOpen(true)
   }
 
   const handleSave = () => {
-    // Validate uniqueness
+    const next = collectErrors([
+      ['code', sacCode(form.code)],
+      ['description', optionalMaxLength(form.description, 'Description', 500)],
+      ['gstRateId', requiredEntityId(form.gstRateId, 'GST rate')],
+    ])
+    
+    // Client-side uniqueness check as extra UX
     const duplicate = sacCodes.find(s => s.code === form.code && s.id !== editingRow?.id)
     if (duplicate) {
-      setCodeError('SAC code must be unique')
+      next.code = 'SAC code must be unique'
+    }
+    
+    setFieldErrors(next)
+    if (hasErrors(next)) {
+      error(firstErrorMessage(next, 'Please fix the highlighted fields'))
       return
     }
+    
     const linkedGST = gstRates.find(g => g.id === form.gstRateId)
     const payload = { ...form, gstRate: linkedGST?.rate }
 
@@ -84,8 +109,33 @@ export default function SACCodesSection() {
         setDrawerOpen(false)
         success(editingRow ? 'SAC code updated' : 'SAC code added')
       })
-      .catch(() => error('Failed to save SAC code'))
+      .catch((err) => {
+        const parsed = parseSettingsApiError(err, 'Failed to save SAC code')
+        if (Object.keys(parsed.fieldErrors).length) setFieldErrors(parsed.fieldErrors)
+        error(parsed.message)
+      })
   }
+
+  const confirmToggle = async () => {
+    if (!toggleTarget) return
+    setToggling(true)
+    try {
+      await dispatch(toggleSACCodeStatus(toggleTarget.id)).unwrap()
+      success(
+        toggleTarget.status === 'active'
+          ? 'SAC code deactivated'
+          : 'SAC code activated',
+      )
+      setToggleTarget(null)
+    } catch (err) {
+      const parsed = parseSettingsApiError(err, 'Failed to update status')
+      error(parsed.message)
+    } finally {
+      setToggling(false)
+    }
+  }
+
+  const toggleNextActive = toggleTarget?.status !== 'active'
 
   return (
     <Box>
@@ -126,7 +176,7 @@ export default function SACCodesSection() {
           </TableRow>
         </TableHead>
         <TableBody>
-          {filtered.map(row => {
+          {sacCodes.map(row => {
             const linkedGST = gstRates.find(g => g.id === row.gstRateId)
             return (
               <TableRow key={row.id} sx={{ height: 44 }}>
@@ -151,10 +201,10 @@ export default function SACCodesSection() {
                   <IconButton size="small" onClick={() => openEdit(row)}>
                     <Edit sx={{ fontSize: 14 }} />
                   </IconButton>
-                  <IconButton size="small" onClick={() => dispatch(toggleSACCodeStatus(row.id))}>
+                  <IconButton size="small" onClick={() => setToggleTarget(row)}>
                     {row.status === 'active'
-                      ? <ToggleOff sx={{ fontSize: 14, color: 'warning.main' }} />
-                      : <ToggleOn sx={{ fontSize: 14, color: 'success.main' }} />}
+                      ? <ToggleOn sx={{ fontSize: 14, color: 'success.main' }} />
+                      : <ToggleOff sx={{ fontSize: 14, color: 'error.main' }} />}
                   </IconButton>
                 </TableCell>
               </TableRow>
@@ -189,9 +239,12 @@ export default function SACCodesSection() {
             placeholder="e.g. 998391"
             inputProps={{ maxLength: 6 }}
             value={form.code}
-            onChange={e => { setForm(f => ({ ...f, code: e.target.value })); setCodeError('') }}
-            error={!!codeError}
-            helperText={codeError}
+            onChange={e => {
+              setForm(f => ({ ...f, code: e.target.value }))
+              setFieldErrors(errors => clearFieldError(errors, 'code'))
+            }}
+            error={!!fieldErrors.code}
+            helperText={fieldErrors.code}
           />
           <Box sx={{ display: 'flex', gap: 2 }}>
             <TextField
@@ -201,8 +254,13 @@ export default function SACCodesSection() {
               required
               fullWidth
               value={form.gstRateId}
-              onChange={e => setForm(f => ({ ...f, gstRateId: e.target.value }))}
+              onChange={e => {
+                setForm(f => ({ ...f, gstRateId: e.target.value }))
+                setFieldErrors(errors => clearFieldError(errors, 'gstRateId'))
+              }}
               sx={{ flex: 1, minWidth: 0 }}
+              error={!!fieldErrors.gstRateId}
+              helperText={fieldErrors.gstRateId}
             >
               {activeGST.map(g => (
                 <MenuItem key={g.id} value={g.id}>{g.slabName} ({g.rate}%)</MenuItem>
@@ -224,14 +282,37 @@ export default function SACCodesSection() {
           <TextField
             size="small"
             label="Description"
-            required
             fullWidth
             placeholder="e.g. Interior Design Services"
             value={form.description}
-            onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+            onChange={e => {
+              setForm(f => ({ ...f, description: e.target.value }))
+              setFieldErrors(errors => clearFieldError(errors, 'description'))
+            }}
+            error={!!fieldErrors.description}
+            helperText={fieldErrors.description}
           />
         </Box>
       </Modal>
+
+      <Dialog open={!!toggleTarget} onClose={() => !toggling && setToggleTarget(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>{toggleNextActive ? 'Activate' : 'Deactivate'}?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            {toggleNextActive
+              ? `Activate "${toggleTarget?.code}"?`
+              : `Deactivate "${toggleTarget?.code}"? It will no longer be available for new records.`}
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button size="sm" variant="outlined" color="secondary" onClick={() => setToggleTarget(null)} disabled={toggling}>
+            Cancel
+          </Button>
+          <Button size="sm" variant="contained" color="primary" onClick={() => void confirmToggle()} disabled={toggling}>
+            {toggling ? 'Updating...' : 'Confirm'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   )
 }

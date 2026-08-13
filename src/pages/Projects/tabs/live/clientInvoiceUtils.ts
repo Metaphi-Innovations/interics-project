@@ -1,4 +1,9 @@
+import { DEFAULT_GST_RATE } from '@/config/billingRates'
+import type { Baseline, ClientPOMilestone } from '@/slices/baseline/reducer'
 import type { ClientInvoice, ClientInvoiceLineItem, ClientInvoicePayment } from '@/slices/live/types'
+import type { PitchService } from '@/slices/pitch/reducer'
+import type { Service } from '@/slices/settings/reducer'
+import { resolvePitchServiceGstRate } from './pitchGstDisplay'
 
 export const MONEY_EPS = 0.01
 
@@ -113,6 +118,64 @@ export function effectiveLabourCessPercent(inv: ClientInvoice): string {
   const roll = rollupsFromLineItems(inv.lineItems)
   if (roll.labourCessRatePercent == null) return '—'
   return `${roll.labourCessRatePercent}%`
+}
+
+function findBaselineService(
+  baseline: Baseline | null,
+  serviceId: string,
+): PitchService | null {
+  if (!baseline || !serviceId.trim()) return null
+  for (const cat of baseline.categories ?? []) {
+    for (const svc of cat.services ?? []) {
+      if (svc.id === serviceId || svc.subcategoryId === serviceId) return svc
+    }
+  }
+  return null
+}
+
+/** GST % for a client PO milestone service (baseline → settings master → default). */
+export function resolveClientServiceGstRate(
+  serviceId: string,
+  baseline: Baseline | null,
+  settingsServices: Service[] = [],
+): number {
+  const svc = findBaselineService(baseline, serviceId)
+  if (svc) return resolvePitchServiceGstRate(svc, settingsServices)
+  return DEFAULT_GST_RATE
+}
+
+/** Tax-inclusive gross for a pre-tax milestone base amount. */
+export function clientMilestoneBaseGross(
+  baseAmount: number,
+  serviceId: string,
+  baseline: Baseline | null,
+  settingsServices: Service[] = [],
+): number {
+  const gstRate = resolveClientServiceGstRate(serviceId, baseline, settingsServices)
+  return computeLineItemTaxBreakdown(baseAmount, 0, gstRate).grossAmount
+}
+
+/** Gross (base + GST) for a client PO milestone including retention. */
+export function clientMilestoneGross(
+  milestone: ClientPOMilestone,
+  baseline: Baseline | null,
+  settingsServices: Service[] = [],
+): number {
+  let gross = clientMilestoneBaseGross(
+    milestone.value,
+    milestone.serviceId,
+    baseline,
+    settingsServices,
+  )
+  if (milestone.retention?.value) {
+    gross += clientMilestoneBaseGross(
+      milestone.retention.value,
+      milestone.serviceId,
+      baseline,
+      settingsServices,
+    )
+  }
+  return roundMoney(gross)
 }
 
 export function invoiceLabourCessAmount(inv: {
