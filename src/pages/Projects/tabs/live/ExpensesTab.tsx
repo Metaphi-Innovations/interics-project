@@ -132,6 +132,7 @@ function AddExpenseDrawer({
         baseline={baseline?.projectId === projectId ? baseline : null}
         vendorPOs={vendorPOs}
         onSubmit={handleSubmit}
+        onCancel={onClose}
       />
     </DrawerForm>
   )

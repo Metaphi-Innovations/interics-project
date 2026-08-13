@@ -864,7 +864,6 @@ export default function BillingTab({ projectId, projectName, clientId, clientNam
   const dispatch = useAppDispatch()
   const { invoices } = useAppSelector((s) => s.live)
   const clientPOs = useAppSelector((s) => s.baseline.clientPOs)
-  const showToast = useToast((s) => s.showToast)
 
   const [generateOpen, setGenerateOpen] = useState(false)
   const [generatePreset, setGeneratePreset] = useState<BillableMilestone | null>(null)

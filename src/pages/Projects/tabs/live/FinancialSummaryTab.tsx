@@ -17,7 +17,6 @@ import { ChevronDown, ChevronRight } from 'lucide-react'
 import { tokens } from '@/design-system/tokens'
 import { liveApi } from '@/api/liveApi'
 import type {
-  LiveOverviewCategoryGroup,
   LiveOverviewDto,
   LiveOverviewMetrics,
   LiveOverviewWorkstreamRow,

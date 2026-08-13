@@ -443,7 +443,7 @@ export function AddClientPODrawer({ open, onClose, projectId }: AddClientPODrawe
     try {
       let documentUrl: string | null = null
       let fileName: string | undefined
-      let uploadedAt: string | null = null
+      let uploadedAt: string | undefined
       if (poFormData.file) {
         const uploaded = await uploadProjectDocumentFile(poFormData.file)
         documentUrl = uploaded.viewUrl

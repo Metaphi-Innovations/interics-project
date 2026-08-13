@@ -315,7 +315,7 @@ export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: Vendo
                   name: contactName,
                   phone: contactPhone,
                   email: contactEmail,
-                  designation: contactDesignation || null,
+                  designation: contactDesignation || undefined,
                   isPrimary: true,
                 },
               }),

@@ -194,7 +194,7 @@ export default function ProjectManagementTab({ project }: ProjectManagementTabPr
             return {
               id: selection.settingsCategoryId,
               settingsCategoryId: selection.settingsCategoryId,
-              name: master.category,
+              name: master.name,
               selectedCheckpointIds: selection.selectedCheckpointIds,
               checkpointProgress: selection.checkpointProgress ?? {},
             }

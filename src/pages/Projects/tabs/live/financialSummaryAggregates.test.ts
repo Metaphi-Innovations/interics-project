@@ -219,7 +219,9 @@ describe('financialSummaryAggregates (live PO driven)', () => {
         categories: [
           {
             id: 'cat-build',
+            categoryId: 'cat-build',
             categoryName: 'Build',
+            totalValue: 0,
             services: [
               {
                 id: 'pitch-svc-row',

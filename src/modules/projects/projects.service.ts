@@ -130,7 +130,7 @@ export const projectsService = {
   async create(data: ProjectCreateFormInput | Record<string, unknown>): Promise<Project> {
     const payload = isCreateFormInput(data)
       ? toCreatePayload(data)
-      : toCreatePayload(data as ProjectCreateFormInput)
+      : toCreatePayload(data as unknown as ProjectCreateFormInput)
     const res = await client.post(BASE, payload)
     return toProjectFromDetail(unwrapApiData<ProjectDetailApi>(res.data))
   },

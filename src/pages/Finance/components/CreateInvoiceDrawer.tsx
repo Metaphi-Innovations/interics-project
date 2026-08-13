@@ -263,8 +263,7 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved }: C
     void receivablesApi
       .getAll({ projectId: project.id, pageSize: 500 })
       .then((r) => {
-        const data = r.data as { items: Invoice[] }
-        setProjectInvoices(data.items ?? [])
+        setProjectInvoices(r.items ?? [])
       })
       .catch(() => setProjectInvoices([]))
   }, [open, project?.id, dispatch])

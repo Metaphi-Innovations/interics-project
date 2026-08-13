@@ -291,10 +291,6 @@ export const MOCK_ACTIVITY_P001: ActivityEntry[] = [
   },
 ]
 
-const ACTIVITY_BY_PROJECT_ID: Record<string, ActivityEntry[]> = {
-  'p-001': MOCK_ACTIVITY_P001,
-}
-
 function categoryAccentColor(category: ActivityCategory): string {
   switch (category) {
     case 'status':

@@ -562,14 +562,19 @@ export default function PaymentsPage() {
         entry: {
           projectId: item.projectId,
           projectName: item.projectName,
-          milestone: { id: item.milestoneId ?? item.id, name: item.milestone, status: 'Pending', value: 0 },
+          milestone: {
+            id: item.milestoneId ?? item.id,
+            name: item.milestone,
+            percentage: 0,
+            value: 0,
+          },
           row: {
             vendorId: item.vendorId,
             vendorName: item.vendorName,
             serviceId: item.service ?? '',
             serviceName: item.service ?? '',
           },
-        } as VendorMilestoneEntry,
+        },
         payableSt,
         invoiceNumber: item.invoiceNo,
         invoiceDate: item.invoiceDate,

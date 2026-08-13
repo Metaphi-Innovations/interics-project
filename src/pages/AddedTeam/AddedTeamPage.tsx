@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useCallback, type MouseEvent } from 'react'
+import { useState, useEffect, useCallback, type MouseEvent } from 'react'
 import {
   Box,
   Stack,
@@ -444,7 +444,6 @@ export default function AddedTeamPage() {
   const [pageSize, setPageSize] = useState(20)
   const [total, setTotal] = useState(0)
   const [summary, setSummary] = useState({ assignments: 0, teamMembers: 0, projectsWithTeam: 0 })
-  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 300)

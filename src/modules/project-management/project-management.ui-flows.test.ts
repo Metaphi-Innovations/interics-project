@@ -60,7 +60,7 @@ describe('Project Management UI flows', () => {
   it('status toggle flow: API failure retains previous status intent', async () => {
     const previous = 'active' as const
     const setStatus = vi.fn().mockRejectedValue(new Error('network'))
-    let uiStatus = previous
+    let uiStatus: 'active' | 'inactive' = previous
     try {
       await setStatus('pm-1', 'inactive')
       uiStatus = 'inactive'

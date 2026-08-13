@@ -75,10 +75,6 @@ function sumMetrics(rows: FinancialSummaryWorkstreamRow[]): FinancialSummaryMetr
   )
 }
 
-function milestoneAmount(milestone: ClientPOMilestone): number {
-  return milestone.value + (milestone.retention?.value ?? 0)
-}
-
 /** Gross of unpaid portions of a client PO milestone (regular + retention separately). */
 function pendingClientMilestoneGross(
   milestone: ClientPOMilestone,

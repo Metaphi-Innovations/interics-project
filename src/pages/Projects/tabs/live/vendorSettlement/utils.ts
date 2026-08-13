@@ -496,7 +496,7 @@ export function computeMilestonePayableStatus(
 ): PayablePaymentStatus {
   if (!inv) return 'awaiting_invoice'
   if (inv.status === 'paid') return 'settled'
-  if (inv.status === 'partially_paid' || inv.status === 'partial_payment') return 'partial_payment'
+  if (inv.status === 'partially_paid') return 'partial_payment'
   return 'not_paid'
 }
 
