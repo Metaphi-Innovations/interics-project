@@ -1,4 +1,4 @@
-name: Deploy Frontend
+name: Frontend Deploy - interics.metaphi.in
 
 on:
   push:
@@ -9,67 +9,49 @@ jobs:
   deploy:
     runs-on: self-hosted
 
+    env:
+      PATH: /home/runner/.nvm/versions/node/v20.19.6/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      PM2_HOME: /home/runner/.pm2
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-
-      - name: Create temp workspace
+      - name: Verify runner user
         run: |
-          rm -rf /var/www/.interics-work
-          mkdir -p /var/www/.interics-work
+          whoami
+          id
+          echo "HOME=$HOME"
 
-      - name: Copy dev site code
+      - name: Verify node, npm and pm2
         run: |
-          mkdir -p /var/www/.interics-work/interics.dev.metaphi.in
-          cp -r . /var/www/.interics-work/interics.dev.metaphi.in/
+          node -v
+          npm -v
+          pm2 -v
 
-      - name: Copy prod site code
+      - name: Ensure deployment directory exists
         run: |
-          mkdir -p /var/www/.interics-work/interics.metaphi.in
-          cp -r . /var/www/.interics-work/interics.metaphi.in/
+          mkdir -p /var/www/interics.metaphi.in
 
-      - name: Build dev site
-        working-directory: /var/www/.interics-work/interics.dev.metaphi.in
+      - name: Copy files to deployment directory
         run: |
-          npm ci
-          npm run build
-          cat > dist/.htaccess <<'EOF'
-          RewriteEngine On
-          RewriteBase /
-          RewriteRule ^index\.html$ - [L]
-          RewriteCond %{REQUEST_FILENAME} !-f
-          RewriteCond %{REQUEST_FILENAME} !-d
-          RewriteRule . /index.html [L]
-          EOF
+          rsync -av --delete \
+            --exclude='.git' \
+            --exclude='node_modules' \
+            --exclude='.env' \
+            ./ /var/www/interics.metaphi.in/
 
-      - name: Build prod site
-        working-directory: /var/www/.interics-work/interics.metaphi.in
+      - name: Install dependencies
+        working-directory: /var/www/interics.metaphi.in
         run: |
-          npm ci
-          npm run build
-          cat > dist/.htaccess <<'EOF'
-          RewriteEngine On
-          RewriteBase /
-          RewriteRule ^index\.html$ - [L]
-          RewriteCond %{REQUEST_FILENAME} !-f
-          RewriteCond %{REQUEST_FILENAME} !-d
-          RewriteRule . /index.html [L]
-          EOF
+          npm install
 
-      - name: Deploy dev site
+      - name: Stop existing PM2 process
+        working-directory: /var/www/interics.metaphi.in
         run: |
-          rsync -av --delete /var/www/.interics-work/interics.dev.metaphi.in/dist/ /var/www/interics.dev.metaphi.in/
-
-      - name: Deploy prod site
+          pm2 restart 11
+          sleep 2
+  
+      - name: Show PM2 logs
         run: |
-          rsync -av --delete /var/www/.interics-work/interics.metaphi.in/dist/ /var/www/interics.metaphi.in/
-
-      - name: Cleanup temp workspace
-        if: always()
-        run: rm -rf /var/www/.interics-work
+          pm2 logs interics.metaphi.in --lines 30 --nostream
