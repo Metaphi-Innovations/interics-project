@@ -10,7 +10,7 @@ jobs:
     runs-on: self-hosted
 
     env:
-      PATH: /root/.nvm/versions/node/v22.21.1/bin/node:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      PATH: /root/.nvm/versions/node/v22.21.1/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
       PM2_HOME: /home/runner/.pm2
 
     steps:
