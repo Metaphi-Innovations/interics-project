@@ -49,7 +49,8 @@ jobs:
       - name: Stop existing PM2 process
         working-directory: /var/www/interics.metaphi.in
         run: |
-          pm2 restart 4
+          pm2 start npm --name "interics.metaphi.in" -- start
+          pm2 save
           sleep 2
   
       - name: Show PM2 logs
