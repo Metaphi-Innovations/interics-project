@@ -307,13 +307,13 @@ export default function FilingSummaryPage() {
         id: `v-${e.paymentId}`,
         sortDate: e.paymentDate,
         date: e.paymentDate,
-        ref: e.referenceNumber ?? e.paymentId,
+        ref: e.invoiceNumber?.trim() || e.referenceNumber?.trim() || '—',
         projectName: e.projectName,
         party: e.vendorName,
         type: 'vendorTds',
         base: e.invoiceTotal,
         tax: e.tdsAmount,
-        status: '—',
+        status: e.status || 'paid',
       })
     }
     out.sort((a, b) => b.sortDate.localeCompare(a.sortDate))
@@ -387,15 +387,16 @@ export default function FilingSummaryPage() {
     } else {
       const rows = tdsData?.vendorEntries ?? []
       downloadCsv(`filing-vendor-tds-${stamp}.csv`, [
-        ['Payment ref', 'Project', 'Vendor', 'Payment date', 'Invoice total', 'TDS rate', 'TDS amount'],
+        ['Invoice/Ref', 'Project', 'Vendor', 'Payment date', 'Invoice total', 'TDS rate', 'TDS amount', 'Status'],
         ...rows.map((e) => [
-          e.referenceNumber ?? e.paymentId,
+          e.invoiceNumber?.trim() || e.referenceNumber?.trim() || '—',
           e.projectName,
           e.vendorName,
           e.paymentDate,
           e.invoiceTotal,
           e.tdsRate,
           e.tdsAmount,
+          e.status || 'paid',
         ]),
       ])
     }
@@ -769,15 +770,11 @@ export default function FilingSummaryPage() {
                         ₹{formatInr(r.tax)}
                       </TableCell>
                       <TableCell sx={TABLE_CELL_SX}>
-                        {r.type === 'vendorTds' ? (
-                          '—'
-                        ) : (
-                          <StatusBadge
-                            status={invoiceStatusToBadgeType(r.status as ClientInvoice['status'])}
-                            label={r.status}
-                            size="small"
-                          />
-                        )}
+                        <StatusBadge
+                          status={invoiceStatusToBadgeType(r.status as ClientInvoice['status'])}
+                          label={r.status}
+                          size="small"
+                        />
                       </TableCell>
                     </TableRow>
                   ))}
@@ -958,7 +955,7 @@ export default function FilingSummaryPage() {
             <>
               <TableHead>
                 <TableRow>
-                  <TableCell sx={TABLE_HEADER_SX}>Payment ref</TableCell>
+                  <TableCell sx={TABLE_HEADER_SX}>Invoice/Ref</TableCell>
                   <TableCell sx={TABLE_HEADER_SX}>Project</TableCell>
                   <TableCell sx={TABLE_HEADER_SX}>Vendor</TableCell>
                   <TableCell sx={TABLE_HEADER_SX}>Payment date</TableCell>
@@ -971,12 +968,15 @@ export default function FilingSummaryPage() {
                   <TableCell sx={TABLE_HEADER_SX} align="right">
                     TDS amount
                   </TableCell>
+                  <TableCell sx={TABLE_HEADER_SX}>Status</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {(tdsData?.vendorEntries ?? []).map((e) => (
                   <TableRow key={e.paymentId} hover>
-                    <TableCell sx={TABLE_CELL_SX}>{e.referenceNumber ?? e.paymentId}</TableCell>
+                    <TableCell sx={TABLE_CELL_SX}>
+                      {e.invoiceNumber?.trim() || e.referenceNumber?.trim() || '—'}
+                    </TableCell>
                     <TableCell sx={TABLE_CELL_SX}>{e.projectName}</TableCell>
                     <TableCell sx={TABLE_CELL_SX}>{e.vendorName}</TableCell>
                     <TableCell sx={TABLE_CELL_SX}>{formatDate(e.paymentDate)}</TableCell>
@@ -989,6 +989,13 @@ export default function FilingSummaryPage() {
                     <TableCell sx={TABLE_CELL_SX} align="right">
                       ₹{formatInr(e.tdsAmount)}
                     </TableCell>
+                    <TableCell sx={TABLE_CELL_SX}>
+                      <StatusBadge
+                        status={invoiceStatusToBadgeType((e.status || 'paid') as ClientInvoice['status'])}
+                        label={e.status || 'paid'}
+                        size="small"
+                      />
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -1000,6 +1007,7 @@ export default function FilingSummaryPage() {
                   <TableCell sx={{ ...TABLE_CELL_SX, fontWeight: 700 }} align="right">
                     ₹{formatInr(vendorTdsTotalFooter)}
                   </TableCell>
+                  <TableCell sx={TABLE_CELL_SX} />
                 </TableRow>
               </TableFooter>
             </>

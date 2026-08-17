@@ -43,12 +43,13 @@ import {
 } from './VendorAdditionalComplianceSection'
 import type { UploadedCompliancePreview } from './VendorAdditionalComplianceSection'
 import { StatusBadge, useToast, Button } from '@/design-system/components'
-import type { StatusType } from '@/design-system/components'
 import { vendorsService, toActivityEntry, type VendorFormInput } from '@/modules/vendors'
+import type { VendorLinkedProject } from '@/modules/vendors/vendors.service'
 import { downloadAuthenticatedDocument } from '@/utils/openAuthenticatedDocument'
 import {
   getInitials,
   getAvatarColor,
+  formatInr,
 } from '../../utils/formatters'
 import {
   normalizeContacts,
@@ -190,12 +191,6 @@ const ACTIVITY_FILTER_OPTIONS: { id: ActivityFilterCategory; label: string }[] =
 
 const VENDOR_DETAIL_TAB_VALUES = ['overview', 'contacts', 'documents-compliance', 'projects', 'activity'] as const
 
-function getTotalVendorProjects(vendor: Vendor): number {
-  const fd = vendor.financialDetails
-  if (fd) return fd.activeProjects + fd.completedProjects
-  return vendor.activeProjects
-}
-
 // ── VendorDetailPage ──────────────────────────────────────────────────────────
 
 export default function VendorDetailPage() {
@@ -219,6 +214,8 @@ export default function VendorDetailPage() {
   const [activityFilter, setActivityFilter] = useState<ActivityFilterCategory>('all')
   const [activityItems, setActivityItems] = useState<ActivityEntry[]>([])
   const [activityLoading, setActivityLoading] = useState(false)
+  const [linkedProjects, setLinkedProjects] = useState<VendorLinkedProject[]>([])
+  const [linkedProjectsLoading, setLinkedProjectsLoading] = useState(false)
   const [uploadModalOpen, setUploadModalOpen] = useState(false)
   const [localUploadedDocs, setLocalUploadedDocs] = useState<UploadedCompliancePreview[]>([])
   const [ratingModalOpen, setRatingModalOpen] = useState(false)
@@ -274,6 +271,28 @@ export default function VendorDetailPage() {
       cancelled = true
     }
   }, [vendor, activeTab, activityFilter])
+
+  useEffect(() => {
+    if (!vendor || activeTab !== 'projects') return
+    let cancelled = false
+    setLinkedProjectsLoading(true)
+    void vendorsService
+      .getLinkedProjects(vendor.id)
+      .then((items) => {
+        if (!cancelled) setLinkedProjects(items)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setLinkedProjects([])
+        showToast({ title: 'Failed to load linked projects', variant: 'error' })
+      })
+      .finally(() => {
+        if (!cancelled) setLinkedProjectsLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [vendor, activeTab])
 
   useEffect(() => {
     setLocalUploadedDocs([])
@@ -1008,37 +1027,56 @@ export default function VendorDetailPage() {
   // ── renderProjects ─────────────────────────────────────────────────────────
 
   function renderProjects() {
-    const totalProj = getTotalVendorProjects(vendor!)
+    if (linkedProjectsLoading) {
+      return (
+        <WorkspaceSection title="Linked Projects">
+          <Stack gap={1}>
+            {[0, 1, 2].map((i) => (
+              <Skeleton key={i} variant="rectangular" height={40} sx={{ borderRadius: 1 }} />
+            ))}
+          </Stack>
+        </WorkspaceSection>
+      )
+    }
 
-    if (totalProj === 0) {
+    if (linkedProjects.length === 0) {
       return (
         <WorkspaceSection title="Linked Projects">
           <Box sx={{ py: 5, textAlign: 'center' }}>
             <FolderOpen sx={{ fontSize: 36, color: tokens.color.neutral[300], mb: 1 }} />
             <Typography variant="body2" fontWeight={500}>No linked projects</Typography>
-            <Typography variant="caption" color="text.secondary">Projects linked to this vendor will appear here</Typography>
+            <Typography variant="caption" color="text.secondary">
+              Projects where this vendor is mapped to services will appear here
+            </Typography>
           </Box>
         </WorkspaceSection>
       )
     }
+
     return (
-      <WorkspaceSection title={`Linked Projects (${totalProj})`}>
+      <WorkspaceSection title={`Linked Projects (${linkedProjects.length})`}>
         <Table size="small">
           <TableHead>
             <TableRow>
               <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary' }}>Project Name</TableCell>
               <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary' }}>Status</TableCell>
+              <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary' }}>Services</TableCell>
               <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary' }}>Value</TableCell>
-              <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary' }}>Role</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {[...Array(totalProj)].map((_, i) => (
-              <TableRow key={i}>
-                <TableCell sx={{ fontSize: 12 }}>Project {i + 1}</TableCell>
-                <TableCell><StatusBadge status="active" /></TableCell>
-                <TableCell sx={{ fontSize: 12 }}>-</TableCell>
-                <TableCell sx={{ fontSize: 12 }}>-</TableCell>
+            {linkedProjects.map((project) => (
+              <TableRow key={project.id}>
+                <TableCell sx={{ fontSize: 12, fontWeight: 600 }}>{project.projectName}</TableCell>
+                <TableCell>
+                  <StatusBadge status={project.status.toLowerCase() === 'live' ? 'active' : 'draft'} />
+                </TableCell>
+                <TableCell sx={{ fontSize: 12 }}>
+                  {project.services.length
+                    ? project.services.map((service) => service.name).join(', ')
+                    : '—'}
+                </TableCell>
+                <TableCell sx={{ fontSize: 12 }}>₹{formatInr(project.value)}</TableCell>
               </TableRow>
             ))}
           </TableBody>

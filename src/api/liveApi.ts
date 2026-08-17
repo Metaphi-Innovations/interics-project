@@ -99,12 +99,14 @@ export type TaxComplianceDto = {
     }>
     tdsDeductedOnVendors: Array<{
       id: string
+      invoiceNumber: string
       referenceNumber: string | null
       vendorName: string
       paymentDate: string
       invoiceTotal: number
       tdsRateLabel: string
       tdsAmount: number
+      status: string
     }>
   }
   totals: {
@@ -469,12 +471,14 @@ export const liveApi = {
       }>
       tdsDeductedOnVendors: Array<{
         id: string
+        invoiceNumber: string
         referenceNumber: string | null
         vendorName: string
         paymentDate: string
         invoiceTotal: number
         tdsRateLabel: string
         tdsAmount: number
+        status: string
       }>
     }>(res.data)
   },

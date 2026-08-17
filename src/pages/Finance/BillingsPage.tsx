@@ -71,6 +71,30 @@ const KPI_PERIOD_OPTIONS: { label: string; value: ReceivableKpiPeriod }[] = [
   { label: 'Custom Date Range', value: 'Custom Date Range' },
 ]
 
+function isPendingGeneration(inv: Pick<Invoice, 'id' | 'pendingGeneration'>): boolean {
+  return Boolean(inv.pendingGeneration) || inv.id.startsWith('pending:')
+}
+
+function invoiceMilestoneLabel(inv: Invoice): string {
+  if (inv.milestoneName?.trim()) return inv.milestoneName.trim()
+  const fromLines = (inv.lineItems ?? [])
+    .map((li) => {
+      const raw = (li.serviceName ?? '').trim()
+      if (!raw) return ''
+      const parts = raw.split(' — ')
+      return (parts[0] || raw).trim()
+    })
+    .filter(Boolean)
+  const unique = [...new Set(fromLines)]
+  return unique.length ? unique.slice(0, 2).join(', ') : '—'
+}
+
+function formatListingDate(value: string | undefined): string {
+  if (!value?.trim()) return '—'
+  const parsed = dayjs(value)
+  return parsed.isValid() ? parsed.format('DD MMM YYYY') : '—'
+}
+
 function isDueOverdue(inv: Invoice): boolean {
   if (inv.balance <= 0) return false
   return dayjs(inv.dueDate).isBefore(dayjs(), 'day')
@@ -80,6 +104,7 @@ function isDueOverdue(inv: Invoice): boolean {
 type ReceivablesVisibleColumns = {
   clientName: boolean
   projectName: boolean
+  milestoneName: boolean
   invoiceDate: boolean
   dueDate: boolean
   baseAmount: boolean
@@ -298,6 +323,14 @@ export default function BillingsPage() {
   const [filterOptions, setFilterOptions] = useState<Record<string, Array<{ value: string; label: string }>> | null>(null)
 
   const [drawerCreate, setDrawerCreate] = useState(false)
+  const [generatePreset, setGeneratePreset] = useState<{
+    projectId: string
+    projectName?: string
+    clientId?: string
+    clientName?: string
+    clientPoId?: string
+    milestoneId?: string
+  } | null>(null)
   const [drawerEdit, setDrawerEdit] = useState<Invoice | null>(null)
   const [detailId, setDetailId] = useState<string | null>(null)
   const [paymentInv, setPaymentInv] = useState<Invoice | null>(null)
@@ -331,6 +364,7 @@ export default function BillingsPage() {
   const [visibleColumns, setVisibleColumns] = useState<ReceivablesVisibleColumns>({
     clientName: true,
     projectName: true,
+    milestoneName: true,
     invoiceDate: true,
     dueDate: true,
     baseAmount: false,
@@ -346,6 +380,7 @@ export default function BillingsPage() {
     () => [
       { field: 'clientName', label: 'Client', visible: visibleColumns.clientName },
       { field: 'projectName', label: 'Project', visible: visibleColumns.projectName },
+      { field: 'milestoneName', label: 'Milestone', visible: visibleColumns.milestoneName },
       { field: 'invoiceDate', label: 'Invoice date', visible: visibleColumns.invoiceDate },
       { field: 'dueDate', label: 'Due date', visible: visibleColumns.dueDate },
       { field: 'baseAmount', label: 'Base', visible: visibleColumns.baseAmount },
@@ -392,9 +427,42 @@ export default function BillingsPage() {
     )
   }
 
+  function openGenerateInvoice(inv: Invoice) {
+    setGeneratePreset({
+      projectId: inv.projectId,
+      projectName: inv.projectName,
+      clientId: inv.clientId,
+      clientName: inv.clientName,
+      clientPoId: inv.clientPoId,
+      milestoneId: inv.milestoneId,
+    })
+    setDrawerCreate(true)
+  }
+
+  function handleInvoiceRowClick(inv: Invoice) {
+    if (isPendingGeneration(inv)) {
+      openGenerateInvoice(inv)
+      return
+    }
+    setDetailId(inv.id)
+  }
+
+  const actionColSx = {
+    ...HEADER_ACTION_SX,
+    ...(filters.statusTab === 'draft'
+      ? { width: 148, minWidth: 148, maxWidth: 148 }
+      : {}),
+  }
+  const actionBodySx = {
+    ...BODY_ACTION_SX,
+    ...(filters.statusTab === 'draft'
+      ? { width: 148, minWidth: 148, maxWidth: 148 }
+      : {}),
+  }
+
   useEffect(() => {
     dispatch(fetchCustomers({}))
-    dispatch(fetchProjects({}))
+    dispatch(fetchProjects({ pageSize: 500, limit: 500 }))
     void receivablesApi.getFilters().then(setFilterOptions).catch(() => setFilterOptions(null))
     setActiveFilters({
       clientId: '',
@@ -790,7 +858,14 @@ export default function BillingsPage() {
         icon={<TrendingUp size={20} />}
         title="Receivable"
         subtitle="Cross-project client invoices and payments"
-        primaryAction={{ label: 'Create Invoice', onClick: () => setDrawerCreate(true), startIcon: <Plus size={16} /> }}
+        primaryAction={{
+          label: 'Create Invoice',
+          onClick: () => {
+            setGeneratePreset(null)
+            setDrawerCreate(true)
+          },
+          startIcon: <Plus size={16} />,
+        }}
         customSummary={kpiSummary}
         tabs={tabs}
         activeTab={filters.statusTab}
@@ -853,6 +928,9 @@ export default function BillingsPage() {
                       onFilter={(value) => handleColumnFilter('projectId', value)}
                       sx={HEADER_CELL_SX}
                     />
+                  )}
+                  {visibleColumns.milestoneName && (
+                    <TableCell sx={HEADER_CELL_SX}>Milestone</TableCell>
                   )}
                   {visibleColumns.invoiceDate && (
                     <FilterableSortHeader
@@ -958,7 +1036,7 @@ export default function BillingsPage() {
                       sx={HEADER_CELL_SX}
                     />
                   )}
-                  <TableCell sx={HEADER_ACTION_SX}>
+                  <TableCell sx={actionColSx}>
                     <Box sx={CENTER_CELL_CONTENT_SX}>Action</Box>
                   </TableCell>
                 </TableRow>
@@ -974,8 +1052,18 @@ export default function BillingsPage() {
                         ))}
                       </TableRow>
                     ))
+                  : items.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={mainColCount} sx={{ ...BODY_CELL_SX, textAlign: 'center', color: 'text.secondary', py: 4 }}>
+                          {filters.statusTab === 'draft'
+                            ? 'No pending milestones or draft invoices.'
+                            : 'No invoices found.'}
+                        </TableCell>
+                      </TableRow>
+                    )
                   : items.map((inv) => {
-                      const dueRed = inv.status === 'overdue' || isDueOverdue(inv)
+                      const pendingRow = isPendingGeneration(inv)
+                      const dueRed = !pendingRow && (inv.status === 'overdue' || isDueOverdue(inv))
                       return (
                         <TableRow
                           key={inv.id}
@@ -986,29 +1074,35 @@ export default function BillingsPage() {
                             '&:hover': { bgcolor: hoverBg },
                             '&:hover td': { bgcolor: hoverBg },
                           }}
-                          onClick={() => setDetailId(inv.id)}
+                          onClick={() => handleInvoiceRowClick(inv)}
                         >
-                          <TableCell sx={{ ...BODY_CELL_SX, fontFamily: 'monospace' }}>
-                            <Typography
-                              component="button"
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                setDetailId(inv.id)
-                              }}
-                              sx={{
-                                border: 'none',
-                                background: 'none',
-                                p: 0,
-                                cursor: 'pointer',
-                                color: 'primary.main',
-                                fontFamily: 'monospace',
-                                fontSize: 12,
-                                textAlign: 'left',
-                              }}
-                            >
-                              {inv.invoiceNo}
-                            </Typography>
+                          <TableCell sx={{ ...BODY_CELL_SX, fontFamily: pendingRow ? 'inherit' : 'monospace' }}>
+                            {pendingRow ? (
+                              <Typography variant="body2" color="text.secondary">
+                                —
+                              </Typography>
+                            ) : (
+                              <Typography
+                                component="button"
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setDetailId(inv.id)
+                                }}
+                                sx={{
+                                  border: 'none',
+                                  background: 'none',
+                                  p: 0,
+                                  cursor: 'pointer',
+                                  color: 'primary.main',
+                                  fontFamily: 'monospace',
+                                  fontSize: 12,
+                                  textAlign: 'left',
+                                }}
+                              >
+                                {inv.invoiceNo}
+                              </Typography>
+                            )}
                           </TableCell>
                           {visibleColumns.clientName && <TableCell sx={BODY_CELL_SX}>{inv.clientName}</TableCell>}
                           {visibleColumns.projectName && (
@@ -1018,12 +1112,15 @@ export default function BillingsPage() {
                               </Typography>
                             </TableCell>
                           )}
+                          {visibleColumns.milestoneName && (
+                            <TableCell sx={BODY_CELL_SX}>{invoiceMilestoneLabel(inv)}</TableCell>
+                          )}
                           {visibleColumns.invoiceDate && (
-                            <TableCell sx={BODY_CELL_SX}>{dayjs(inv.invoiceDate).format('DD MMM YYYY')}</TableCell>
+                            <TableCell sx={BODY_CELL_SX}>{formatListingDate(inv.invoiceDate)}</TableCell>
                           )}
                           {visibleColumns.dueDate && (
                             <TableCell sx={{ ...BODY_CELL_SX, color: dueRed ? 'error.main' : 'text.primary' }}>
-                              {dayjs(inv.dueDate).format('DD MMM YYYY')}
+                              {formatListingDate(inv.dueDate)}
                             </TableCell>
                           )}
                           {visibleColumns.baseAmount && (
@@ -1036,7 +1133,9 @@ export default function BillingsPage() {
                             <TableCell sx={{ ...BODY_CELL_SX, fontWeight: 700 }}>₹{formatCurrency(inv.totalAmount)}</TableCell>
                           )}
                           {visibleColumns.totalReceived && (
-                            <TableCell sx={{ ...BODY_CELL_SX, color: 'success.main' }}>₹{formatCurrency(inv.totalReceived)}</TableCell>
+                            <TableCell sx={{ ...BODY_CELL_SX, color: pendingRow ? 'text.secondary' : 'success.main' }}>
+                              {pendingRow ? '—' : `₹${formatCurrency(inv.totalReceived)}`}
+                            </TableCell>
                           )}
                           {visibleColumns.balance && (
                             <TableCell sx={{ ...BODY_CELL_SX, color: inv.balance > 0 ? 'error.main' : 'text.primary' }}>
@@ -1046,23 +1145,40 @@ export default function BillingsPage() {
                           {visibleColumns.status && (
                             <TableCell sx={BODY_CELL_SX}>
                               <Stack direction="row" gap={0.5} flexWrap="wrap" useFlexGap alignItems="center">
-                                <StatusBadge status={invoiceStatusToBadgeType(inv.status) as StatusType} />
-                                {inv.showPartialPaid ? <StatusBadge status="partially_paid" /> : null}
+                                {pendingRow ? (
+                                  <StatusBadge status="invoice_draft" label="Pending invoice" />
+                                ) : (
+                                  <>
+                                    <StatusBadge status={invoiceStatusToBadgeType(inv.status) as StatusType} />
+                                    {inv.showPartialPaid ? <StatusBadge status="partially_paid" /> : null}
+                                  </>
+                                )}
                               </Stack>
                             </TableCell>
                           )}
                           <TableCell
-                            sx={BODY_ACTION_SX}
+                            sx={actionBodySx}
                             onClick={(e) => e.stopPropagation()}
                           >
-                            <RowActions
-                              inv={inv}
-                              onView={() => setDetailId(inv.id)}
-                              onPay={() => setPaymentInv(inv)}
-                              onSend={() => setSendTarget(inv)}
-                              onConvertTax={() => setConvertTaxTarget(inv)}
-                              onPdf={() => showToast({ title: 'PDF download (placeholder)', variant: 'success' })}
-                            />
+                            {pendingRow ? (
+                              <Box sx={CENTER_CELL_CONTENT_SX}>
+                                <Button
+                                  size="sm"
+                                  variant="contained"
+                                  label="Generate Invoice"
+                                  onClick={() => openGenerateInvoice(inv)}
+                                />
+                              </Box>
+                            ) : (
+                              <RowActions
+                                inv={inv}
+                                onView={() => setDetailId(inv.id)}
+                                onPay={() => setPaymentInv(inv)}
+                                onSend={() => setSendTarget(inv)}
+                                onConvertTax={() => setConvertTaxTarget(inv)}
+                                onPdf={() => showToast({ title: 'PDF download (placeholder)', variant: 'success' })}
+                              />
+                            )}
                           </TableCell>
                         </TableRow>
                       )
@@ -1121,9 +1237,16 @@ export default function BillingsPage() {
 
       <CreateInvoiceDrawer
         open={drawerCreate}
-        onClose={() => setDrawerCreate(false)}
+        onClose={() => {
+          setDrawerCreate(false)
+          setGeneratePreset(null)
+        }}
         mode="create"
-        onSaved={reload}
+        preset={generatePreset}
+        onSaved={() => {
+          setGeneratePreset(null)
+          reload()
+        }}
       />
       <CreateInvoiceDrawer
         open={!!drawerEdit}

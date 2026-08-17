@@ -99,12 +99,14 @@ export function makeViewerUserPermissions(): UserPermissions {
   }
 }
 
-export function cloneUserPermissions(p: UserPermissions): UserPermissions {
+export function cloneUserPermissions(p?: Partial<UserPermissions> | null): UserPermissions {
+  const base = makeEmptyUserPermissions()
+  if (!p) return base
   return {
-    projects: { ...p.projects },
-    financial: { ...p.financial },
-    compliance: { ...p.compliance },
-    userManagement: { ...p.userManagement },
-    settings: { ...p.settings },
+    projects: { ...base.projects, ...(p.projects ?? {}) },
+    financial: { ...base.financial, ...(p.financial ?? {}) },
+    compliance: { ...base.compliance, ...(p.compliance ?? {}) },
+    userManagement: { ...base.userManagement, ...(p.userManagement ?? {}) },
+    settings: { ...base.settings, ...(p.settings ?? {}) },
   }
 }

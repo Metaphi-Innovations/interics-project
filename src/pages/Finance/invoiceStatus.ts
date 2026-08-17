@@ -29,5 +29,6 @@ export function showPartialPaidAlongsideTabStatus(inv: Invoice): boolean {
 
 export function invoiceStatusToBadgeType(status: Invoice['status'] | string): StatusType {
   if (status === 'draft') return 'invoice_draft'
+  if (status === 'not_paid') return 'unpaid'
   return status as StatusType
 }

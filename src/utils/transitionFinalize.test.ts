@@ -132,7 +132,7 @@ describe('pitchHasVendorOffer', () => {
 })
 
 describe('validateGoLiveMinimum', () => {
-  it('passes when both client and vendor offers exist', () => {
+  it('allows go-live with client and vendor offers', () => {
     const result = validateGoLiveMinimum({
       projectId: 'p-1',
       clientPOs: [],
@@ -143,37 +143,21 @@ describe('validateGoLiveMinimum', () => {
     expect(result.messages).toHaveLength(0)
   })
 
-  it('returns client offer message when missing', () => {
-    const result = validateGoLiveMinimum({
+  it('allows go-live without pitch offers or a pitch version', () => {
+    const withoutOffers = validateGoLiveMinimum({
       projectId: 'p-1',
       clientPOs: [],
       selectedVersionId: 'pv-1',
-      draft: makeDraft(vendorOfferOnly),
+      draft: makeDraft(emptyCategories),
     })
-    expect(result.ok).toBe(false)
-    expect(result.messages).toContain('Add at least one client offer service on the Pitch tab.')
-  })
-
-  it('returns vendor offer message when missing', () => {
-    const result = validateGoLiveMinimum({
-      projectId: 'p-1',
-      clientPOs: [],
-      selectedVersionId: 'pv-1',
-      draft: makeDraft(clientOfferOnly),
-    })
-    expect(result.ok).toBe(false)
-    expect(result.messages).toContain('Add at least one vendor offer on the Pitch tab.')
-  })
-
-  it('requires an active pitch version', () => {
-    const result = validateGoLiveMinimum({
+    const withoutVersion = validateGoLiveMinimum({
       projectId: 'p-1',
       clientPOs: [],
       selectedVersionId: null,
       draft: null,
     })
-    expect(result.ok).toBe(false)
-    expect(result.messages).toContain('An active pitch version is required.')
+    expect(withoutOffers.ok).toBe(true)
+    expect(withoutVersion.ok).toBe(true)
   })
 })
 

@@ -98,8 +98,11 @@ export interface GlobalTdsVendorEntry {
   tdsRate: number
   tdsAmount: number
   paymentDate: string
+  /** Linked vendor invoice numbers, else payment reference */
+  invoiceNumber?: string
   /** Bank / payment reference when present on vendor payment */
   referenceNumber?: string
+  status: string
 }
 
 export interface GlobalTdsResponse {

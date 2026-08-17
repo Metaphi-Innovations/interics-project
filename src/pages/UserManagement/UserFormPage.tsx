@@ -12,7 +12,7 @@ import {
   CircularProgress,
 } from '@mui/material'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
-import { createUser, updateUser, fetchUsers } from '@/slices/users/thunk'
+import { createUser, updateUser, fetchUsers, toUiUser } from '@/slices/users/thunk'
 import { fetchRoles } from '@/slices/roles/thunk'
 import type { User } from '@/slices/users/reducer'
 import { FormSection, FormField } from '@/components/templates'
@@ -20,6 +20,7 @@ import PageHeader from '@/components/layout/PageHeader'
 import { Button, useToast } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { usersApi } from '@/api/usersApi'
+import { unwrapApiData } from '@/modules/system-settings/shared/api'
 import type { UserPermissions } from '@/types/permissions'
 import { cloneUserPermissions, makeEmptyUserPermissions } from '@/types/permissions'
 import { MODULE_DEFS, RolePermissionsPanel } from './components/RolePermissionsPanel'
@@ -30,6 +31,7 @@ interface FormState {
   phone: string
   employeeId: string
   role: string
+  password: string
 }
 
 const defaultForm: FormState = {
@@ -38,6 +40,7 @@ const defaultForm: FormState = {
   phone: '',
   employeeId: '',
   role: '',
+  password: '',
 }
 
 const LEVEL_LABELS: Record<0 | 1 | 2 | 3, string> = {
@@ -47,18 +50,38 @@ const LEVEL_LABELS: Record<0 | 1 | 2 | 3, string> = {
   3: 'Viewer',
 }
 
-function validateForm(form: FormState, allUsers: User[], editId?: string): Record<string, string> {
+function validatePassword(password: string): string | undefined {
+  if (!password) return 'Password is required'
+  if (password.length < 8) return 'Password must be at least 8 characters'
+  if (!/[A-Z]/.test(password)) return 'Password must contain an uppercase letter'
+  if (!/[a-z]/.test(password)) return 'Password must contain a lowercase letter'
+  if (!/[0-9]/.test(password)) return 'Password must contain a number'
+  if (!/[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/.test(password)) {
+    return 'Password must contain a special character'
+  }
+  return undefined
+}
+
+function validateForm(
+  form: FormState,
+  allUsers: User[],
+  options: { editId?: string; requirePassword?: boolean } = {},
+): Record<string, string> {
   const errors: Record<string, string> = {}
-  if (!form.name.trim() || form.name.trim().length < 2) errors.name = 'Name must be at least 2 characters'
+  if (!form.name.trim()) errors.name = 'Name is required'
   if (!form.email.trim()) {
     errors.email = 'Email is required'
   } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
     errors.email = 'Enter a valid email address'
   } else {
-    const dup = allUsers.find((u) => u.email.toLowerCase() === form.email.toLowerCase() && u.id !== editId)
+    const dup = allUsers.find((u) => u.email.toLowerCase() === form.email.toLowerCase() && u.id !== options.editId)
     if (dup) errors.email = 'Email is already in use'
   }
   if (!form.role) errors.role = 'Role is required'
+  if (options.requirePassword) {
+    const passwordError = validatePassword(form.password)
+    if (passwordError) errors.password = passwordError
+  }
   return errors
 }
 
@@ -110,7 +133,7 @@ export default function UserFormPage() {
       .getById(editId)
       .then((res) => {
         if (cancelled) return
-        const user = res.data as User
+        const user = toUiUser(unwrapApiData(res.data))
         setLoadedUser(user)
         setLoadUserState('ready')
       })
@@ -133,6 +156,7 @@ export default function UserFormPage() {
       phone: loadedUser.phone ?? '',
       employeeId: loadedUser.employeeId ?? '',
       role: loadedUser.role,
+      password: '',
     })
     setPermissions(cloneUserPermissions(loadedUser.permissions))
     setStatus(loadedUser.status)
@@ -147,7 +171,10 @@ export default function UserFormPage() {
 
   function handleBlur(field: keyof FormState) {
     setTouched((prev) => ({ ...prev, [field]: true }))
-    const newErrors = validateForm(form, allUsers, loadedUser?.id)
+    const newErrors = validateForm(form, allUsers, {
+      editId: loadedUser?.id,
+      requirePassword: isCreate,
+    })
     setErrors((prev) => ({ ...prev, [field]: newErrors[field] ?? '' }))
   }
 
@@ -160,9 +187,13 @@ export default function UserFormPage() {
       name: true,
       email: true,
       role: true,
+      ...(isCreate ? { password: true } : {}),
     }
     setTouched(allTouched)
-    const errs = validateForm(form, allUsers, loadedUser?.id)
+    const errs = validateForm(form, allUsers, {
+      editId: loadedUser?.id,
+      requirePassword: isCreate,
+    })
     setErrors(errs)
     if (Object.keys(errs).length > 0) return
 
@@ -182,7 +213,7 @@ export default function UserFormPage() {
     }
 
     if (isCreate) {
-      dispatch(createUser(payload))
+      dispatch(createUser({ ...payload, password: form.password }))
         .unwrap()
         .then(() => {
           showToast({ title: 'User created successfully', variant: 'success' })
@@ -275,6 +306,27 @@ export default function UserFormPage() {
                   inputProps={{ style: { fontSize: 13 } }}
                 />
               </FormField>
+              {isCreate && (
+                <FormField
+                  label="Password"
+                  required
+                  error={touched.password ? errors.password : undefined}
+                  hint="Min 8 characters, with uppercase, lowercase, number, and special character"
+                >
+                  <TextField
+                    size="small"
+                    fullWidth
+                    type="password"
+                    autoComplete="new-password"
+                    placeholder="Set a login password"
+                    value={form.password}
+                    onChange={(e) => handleChange('password', e.target.value)}
+                    onBlur={() => handleBlur('password')}
+                    error={Boolean(touched.password && errors.password)}
+                    inputProps={{ style: { fontSize: 13 } }}
+                  />
+                </FormField>
+              )}
               <FormField label="Email" required error={touched.email ? errors.email : undefined} hint="Used for login">
                 <TextField
                   size="small"

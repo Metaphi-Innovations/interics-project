@@ -4,11 +4,9 @@ import {
   Box,
   Button as MuiButton,
   Divider,
-  FormControlLabel,
   IconButton as MuiIconButton,
   InputAdornment,
   Stack,
-  Switch,
   Table,
   TableBody,
   TableCell,
@@ -453,36 +451,17 @@ export function VendorOfferDrawer({
                         />
                       </TableCell>
                       <TableCell sx={AMOUNT_CELL_SX}>
-                        <Stack gap={0.75}>
-                          <TextField
-                            size="small"
-                            fullWidth
-                            type="number"
-                            value={row.amount}
-                            onChange={(e) => updateRow(row.id, { amount: e.target.value })}
-                            InputProps={{
-                              startAdornment: <InputAdornment position="start">₹</InputAdornment>,
-                            }}
-                            sx={{ '& input': { fontSize: 12, textAlign: 'right' } }}
-                          />
-                          <FormControlLabel
-                            control={(
-                              <Switch
-                                checked={row.isMeasurable}
-                                onChange={(e) =>
-                                  updateRow(row.id, { isMeasurable: e.target.checked })
-                                }
-                                size="small"
-                              />
-                            )}
-                            label="Measurable"
-                            sx={{
-                              m: 0,
-                              alignItems: 'center',
-                              '& .MuiFormControlLabel-label': { fontSize: 11 },
-                            }}
-                          />
-                        </Stack>
+                        <TextField
+                          size="small"
+                          fullWidth
+                          type="number"
+                          value={row.amount}
+                          onChange={(e) => updateRow(row.id, { amount: e.target.value })}
+                          InputProps={{
+                            startAdornment: <InputAdornment position="start">₹</InputAdornment>,
+                          }}
+                          sx={{ '& input': { fontSize: 12, textAlign: 'right' } }}
+                        />
                       </TableCell>
                       <TableCell align="center" sx={UPLOAD_CELL_SX}>
                         {fileLabel ? (

@@ -78,6 +78,7 @@ interface PaymentTableRow {
   vendorKey: string
   entry: VendorMilestoneEntry
   payableSt: PayablePaymentStatus
+  invoiceId: string
   invoiceNumber: string
   invoiceDate: string
   invoiceAmount: number
@@ -309,6 +310,8 @@ export default function PaymentsPage() {
     entry: VendorMilestoneEntry
     focus: VendorPayableDrawerFocus
     readOnly: boolean
+    invoiceId: string
+    paymentStatus: PayablePaymentStatus
   } | null>(null)
   const [uploadOpen, setUploadOpen] = useState(false)
   const [uploadInitialSelection, setUploadInitialSelection] =
@@ -451,6 +454,7 @@ export default function PaymentsPage() {
         vendorKey: globalVendorContextKey(m.projectId, m.row),
         entry: m,
         payableSt,
+        invoiceId: milestoneInv.id,
         invoiceNumber: milestoneInv.invoiceNumber,
         invoiceDate: milestoneInv.invoiceDate,
         invoiceAmount: milestoneInv.baseAmount,
@@ -535,12 +539,15 @@ export default function PaymentsPage() {
 
   const listingRows = useMemo((): PaymentTableRow[] => {
     return listItems.map((item) => {
-      const match = allMilestones.find(
-        (m) =>
-          m.projectId === item.projectId &&
-          m.row.vendorId === item.vendorId &&
-          (m.milestone.id === item.milestoneId || m.milestone.name === item.milestone),
-      )
+      const match = allMilestones.find((m) => {
+        if (m.projectId !== item.projectId || m.row.vendorId !== item.vendorId) return false
+        const milestoneOk =
+          (item.milestoneId != null && m.milestone.id === item.milestoneId) ||
+          m.milestone.name === item.milestone
+        if (!milestoneOk) return false
+        if (!item.service) return true
+        return m.row.serviceId === item.service || m.row.serviceName === item.service
+      })
       const payableSt = (item.paymentStatus === 'settled' || item.paymentStatus === 'partial_payment' || item.paymentStatus === 'not_paid'
         ? item.paymentStatus
         : 'not_paid') as PayablePaymentStatus
@@ -550,6 +557,7 @@ export default function PaymentsPage() {
           vendorKey: globalVendorContextKey(item.projectId, match.row),
           entry: match,
           payableSt,
+          invoiceId: item.id,
           invoiceNumber: item.invoiceNo,
           invoiceDate: item.invoiceDate,
           invoiceAmount: item.invoiceAmount,
@@ -576,6 +584,7 @@ export default function PaymentsPage() {
           },
         },
         payableSt,
+        invoiceId: item.id,
         invoiceNumber: item.invoiceNo,
         invoiceDate: item.invoiceDate,
         invoiceAmount: item.invoiceAmount,
@@ -713,11 +722,23 @@ export default function PaymentsPage() {
 
     switch (label) {
       case 'Release Payment':
-        setWorkflowDrawer({ entry, focus: 'payment', readOnly: false })
+        setWorkflowDrawer({
+          entry,
+          focus: 'payment',
+          readOnly: false,
+          invoiceId: menuContext.invoiceId,
+          paymentStatus: menuContext.payableSt,
+        })
         break
       case 'View Details':
       default:
-        setWorkflowDrawer({ entry, focus: 'details', readOnly: true })
+        setWorkflowDrawer({
+          entry,
+          focus: 'details',
+          readOnly: true,
+          invoiceId: menuContext.invoiceId,
+          paymentStatus: menuContext.payableSt,
+        })
         break
     }
   }
@@ -998,7 +1019,11 @@ export default function PaymentsPage() {
         </Menu>
 
         <VendorPayableWorkflowDrawer
-          key={workflowDrawer ? `${workflowDrawer.entry.milestone.id}-${workflowDrawer.focus}` : 'closed'}
+          key={
+            workflowDrawer
+              ? `${workflowDrawer.invoiceId}-${workflowDrawer.entry.milestone.id}-${workflowDrawer.focus}`
+              : 'closed'
+          }
           open={workflowDrawer != null}
           onClose={() => {
             setWorkflowDrawer(null)
@@ -1016,6 +1041,8 @@ export default function PaymentsPage() {
           }
           focus={workflowDrawer?.focus}
           readOnly={workflowDrawer?.readOnly}
+          invoiceId={workflowDrawer?.invoiceId}
+          paymentStatus={workflowDrawer?.paymentStatus}
           onUploadInvoice={openUploadInvoiceFromWorkflow}
         />
 

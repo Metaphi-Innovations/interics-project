@@ -77,6 +77,7 @@ export interface Invoice {
   serviceName?: string
   documentUrl?: string | null
   fileName?: string | null
+  pendingGeneration?: boolean
   createdAt: string
   updatedAt: string
 }

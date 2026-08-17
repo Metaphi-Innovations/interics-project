@@ -172,6 +172,7 @@ function entryStatusToBadge(status: string): StatusType {
   if (s === 'draft') return 'invoice_draft'
   if (s === 'sent') return 'sent'
   if (s === 'partially_paid') return 'partially_paid'
+  if (s === 'unpaid' || s === 'not_paid') return 'unpaid'
   return 'pending'
 }
 
@@ -284,15 +285,16 @@ export default function TDSPage() {
       ])
     } else {
       downloadCsv(`tds-vendor-${stamp}.csv`, [
-        ['Payment ref', 'Project', 'Vendor name', 'Payment date', 'Invoice total', 'TDS rate %', 'TDS amount'],
+        ['Invoice/Ref', 'Project', 'Vendor name', 'Payment date', 'Invoice total', 'TDS rate %', 'TDS amount', 'Status'],
         ...vendorRows.map((e) => [
-          e.referenceNumber ?? e.paymentId,
+          e.invoiceNumber?.trim() || e.referenceNumber?.trim() || '—',
           e.projectName,
           e.vendorName,
           e.paymentDate,
           e.invoiceTotal,
           e.tdsRate,
           e.tdsAmount,
+          e.status || 'paid',
         ]),
       ])
     }
@@ -626,38 +628,44 @@ export default function TDSPage() {
             <>
               <TableHead>
                 <TableRow>
-                  <TableCell sx={TABLE_HEADER_SX}>Payment ref</TableCell>
+                  <TableCell sx={TABLE_HEADER_SX}>Invoice/Ref</TableCell>
                   <TableCell sx={TABLE_HEADER_SX}>Project</TableCell>
                   <TableCell sx={TABLE_HEADER_SX}>Vendor name</TableCell>
                   <TableCell sx={TABLE_HEADER_SX}>Payment date</TableCell>
                   <TableCell sx={{ ...TABLE_HEADER_SX, textAlign: 'right' }}>Invoice total</TableCell>
                   <TableCell sx={{ ...TABLE_HEADER_SX, textAlign: 'right' }}>TDS rate</TableCell>
                   <TableCell sx={{ ...TABLE_HEADER_SX, textAlign: 'right' }}>TDS amount</TableCell>
+                  <TableCell sx={TABLE_HEADER_SX}>Status</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={7} sx={{ ...TABLE_CELL_SX, py: 4 }}>
+                    <TableCell colSpan={8} sx={{ ...TABLE_CELL_SX, py: 4 }}>
                       Loading…
                     </TableCell>
                   </TableRow>
                 ) : vendorRows.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} sx={{ ...TABLE_CELL_SX, py: 4, textAlign: 'center' }}>
+                    <TableCell colSpan={8} sx={{ ...TABLE_CELL_SX, py: 4, textAlign: 'center' }}>
                       No vendor TDS rows.
                     </TableCell>
                   </TableRow>
                 ) : (
                   vendorRows.map((e) => (
                     <TableRow key={e.paymentId} hover>
-                      <TableCell sx={TABLE_CELL_SX}>{e.referenceNumber ?? e.paymentId}</TableCell>
+                      <TableCell sx={TABLE_CELL_SX}>
+                        {e.invoiceNumber?.trim() || e.referenceNumber?.trim() || '—'}
+                      </TableCell>
                       <TableCell sx={TABLE_CELL_SX}>{e.projectName}</TableCell>
                       <TableCell sx={TABLE_CELL_SX}>{e.vendorName}</TableCell>
                       <TableCell sx={TABLE_CELL_SX}>{formatDate(e.paymentDate)}</TableCell>
                       <TableCell sx={{ ...TABLE_CELL_SX, textAlign: 'right' }}>₹{formatInr(e.invoiceTotal)}</TableCell>
                       <TableCell sx={{ ...TABLE_CELL_SX, textAlign: 'right' }}>{e.tdsRate}%</TableCell>
                       <TableCell sx={{ ...TABLE_CELL_SX, textAlign: 'right' }}>₹{formatInr(e.tdsAmount)}</TableCell>
+                      <TableCell sx={TABLE_CELL_SX}>
+                        <StatusBadge status={entryStatusToBadge(e.status || 'paid')} />
+                      </TableCell>
                     </TableRow>
                   ))
                 )}
@@ -670,6 +678,7 @@ export default function TDSPage() {
                   <TableCell sx={{ ...TABLE_CELL_SX, fontWeight: 700, textAlign: 'right' }}>
                     ₹{formatInr(footerVendorTds)}
                   </TableCell>
+                  <TableCell sx={TABLE_CELL_SX} />
                 </TableRow>
               </TableFooter>
             </>

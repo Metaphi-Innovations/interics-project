@@ -165,36 +165,12 @@ export function pitchHasVendorOffer(categories: PitchCategory[]): boolean {
     .some((s) => (s.vendorMappings ?? []).some((vm) => Boolean(vm.vendorId)))
 }
 
-function hasClientOfferService(draft: TransitionDraft): boolean {
-  return pitchHasClientOfferService(draft.categories)
-}
-
-function hasVendorOffer(draft: TransitionDraft): boolean {
-  return pitchHasVendorOffer(draft.categories)
-}
-
 /**
- * Minimum requirements to create a baseline and convert Pitch → Live.
- * Client PO is added after conversion on Live → Receivables (not required here).
+ * Convert Pitch → Live is allowed with or without pitch/PO data.
+ * Client PO and pitch offers can be added after the project is live.
  */
-export function validateGoLiveMinimum(input: GoLiveMinimumInput): { ok: boolean; messages: string[] } {
-  const messages: string[] = []
-  const { selectedVersionId, draft } = input
-
-  if (!selectedVersionId || !draft) {
-    messages.push('An active pitch version is required.')
-    return { ok: false, messages }
-  }
-
-  if (!hasClientOfferService(draft)) {
-    messages.push('Add at least one client offer service on the Pitch tab.')
-  }
-
-  if (!hasVendorOffer(draft)) {
-    messages.push('Add at least one vendor offer on the Pitch tab.')
-  }
-
-  return { ok: messages.length === 0, messages }
+export function validateGoLiveMinimum(_input: GoLiveMinimumInput): { ok: boolean; messages: string[] } {
+  return { ok: true, messages: [] }
 }
 
 export function formatGoLiveBlockMessage(messages: string[]): string {

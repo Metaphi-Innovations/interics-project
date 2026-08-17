@@ -451,7 +451,7 @@ export function TaxComplianceSection({ projectId }: TaxComplianceSectionProps) {
             <Table size="small">
               <TableHead>
                 <TableRow>
-                  <TableCell sx={TABLE_HEADER_SX}>Payment Reference</TableCell>
+                  <TableCell sx={TABLE_HEADER_SX}>Invoice / Ref</TableCell>
                   <TableCell sx={TABLE_HEADER_SX}>Vendor Name</TableCell>
                   <TableCell sx={TABLE_HEADER_SX}>Payment Date</TableCell>
                   <TableCell sx={TABLE_HEADER_SX}>Invoice Total</TableCell>
@@ -474,7 +474,7 @@ export function TaxComplianceSection({ projectId }: TaxComplianceSectionProps) {
                     <TableRow key={p.id} hover>
                       <TableCell sx={TABLE_CELL_SX}>
                         <Typography variant="body2" sx={{ fontSize: 12 }}>
-                          {p.referenceNumber ?? '—'}
+                          {p.invoiceNumber?.trim() || p.referenceNumber?.trim() || '—'}
                         </Typography>
                       </TableCell>
                       <TableCell sx={TABLE_CELL_SX}>

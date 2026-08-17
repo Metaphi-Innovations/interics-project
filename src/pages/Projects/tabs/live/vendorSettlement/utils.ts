@@ -147,10 +147,13 @@ export function findInvoiceForMilestone(
   scopedInvoices: VendorInvoice[],
   vm: VendorMilestone,
 ): VendorInvoice | undefined {
-  return (
-    scopedInvoices.find((inv) => inv.milestoneId === vm.id) ??
-    scopedInvoices.find((inv) => inv.milestoneName.trim() === vm.name.trim())
-  )
+  const byId = scopedInvoices.find((inv) => inv.milestoneId && inv.milestoneId === vm.id)
+  if (byId) return byId
+  const wanted = vm.name.trim()
+  if (!wanted) return undefined
+  const byName = scopedInvoices.filter((inv) => inv.milestoneName.trim() === wanted)
+  if (byName.length === 1) return byName[0]
+  return undefined
 }
 
 export type MilestoneRowState = 1 | 2 | 3
@@ -495,8 +498,11 @@ export function computeMilestonePayableStatus(
   _control?: VendorPayableControl,
 ): PayablePaymentStatus {
   if (!inv) return 'awaiting_invoice'
-  if (inv.status === 'paid') return 'settled'
-  if (inv.status === 'partially_paid') return 'partial_payment'
+  const status = String(inv.status ?? '').trim().toLowerCase()
+  if (status === 'paid' || status === 'settled') return 'settled'
+  if (status === 'partially_paid' || status === 'partial_payment' || status === 'partial') {
+    return 'partial_payment'
+  }
   return 'not_paid'
 }
 

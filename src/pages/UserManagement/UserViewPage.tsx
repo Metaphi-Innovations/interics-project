@@ -15,7 +15,8 @@ import {
 } from '@mui/material'
 import { useTheme, alpha } from '@mui/material/styles'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
-import { fetchUsers } from '@/slices/users/thunk'
+import { fetchUsers, toUiUser } from '@/slices/users/thunk'
+import { unwrapApiData } from '@/modules/system-settings/shared/api'
 import { fetchRoles } from '@/slices/roles/thunk'
 import type { User } from '@/slices/users/reducer'
 import type { ModuleCrudAction, UserPermissions, UserPermissionModuleKey } from '@/types/permissions'
@@ -145,7 +146,7 @@ export default function UserViewPage() {
       .getById(userId)
       .then((res) => {
         if (cancelled) return
-        setUser(res.data as User)
+        setUser(toUiUser(unwrapApiData(res.data)))
         setLoadState('ready')
       })
       .catch(() => {

@@ -40,7 +40,7 @@ export interface FetchUsersParams {
   sortOrder?: 'asc' | 'desc'
 }
 
-function toUiUser(api: ApiUser): User {
+export function toUiUser(api: ApiUser): User {
   const name =
     api.name?.trim() ||
     `${api.firstName ?? ''} ${api.lastName ?? ''}`.trim() ||
@@ -90,11 +90,29 @@ export const fetchUsers = createAsyncThunk(
   },
 )
 
+function toApiUserPayload(
+  data: Omit<User, 'id' | 'createdAt' | 'lastLogin'> & { password?: string },
+): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    firstName: data.name.trim(),
+    email: data.email.trim(),
+    roleId: data.role,
+    status: data.status === 'inactive' ? 'INACTIVE' : 'ACTIVE',
+  }
+  if (data.phone?.trim()) payload.phone = data.phone.trim()
+  if (data.employeeId?.trim()) payload.employeeCode = data.employeeId.trim()
+  if (data.password) payload.password = data.password
+  return payload
+}
+
 export const createUser = createAsyncThunk(
   'users/create',
-  async (data: Omit<User, 'id' | 'createdAt' | 'lastLogin'>, { rejectWithValue }) => {
+  async (
+    data: Omit<User, 'id' | 'createdAt' | 'lastLogin'> & { password: string },
+    { rejectWithValue },
+  ) => {
     try {
-      const response = await usersApi.create(data as unknown as Record<string, unknown>)
+      const response = await usersApi.create(toApiUserPayload(data))
       return toUiUser(unwrapApiData<ApiUser>(response.data))
     } catch (err: unknown) {
       const error = err as { response?: { data?: { message?: string } } }
@@ -107,7 +125,19 @@ export const updateUser = createAsyncThunk(
   'users/update',
   async ({ id, data }: { id: string; data: Partial<User> }, { rejectWithValue }) => {
     try {
-      const response = await usersApi.update(id, data as Record<string, unknown>)
+      const payload = toApiUserPayload({
+        name: data.name ?? '',
+        email: data.email ?? '',
+        phone: data.phone,
+        employeeId: data.employeeId,
+        role: data.role ?? '',
+        permissions: data.permissions ?? makeEmptyUserPermissions(),
+        projectAccess: data.projectAccess ?? 'all',
+        assignedProjects: data.assignedProjects ?? [],
+        status: data.status ?? 'active',
+      })
+      delete payload.password
+      const response = await usersApi.update(id, payload)
       return toUiUser(unwrapApiData<ApiUser>(response.data))
     } catch (err: unknown) {
       const error = err as { response?: { data?: { message?: string } } }

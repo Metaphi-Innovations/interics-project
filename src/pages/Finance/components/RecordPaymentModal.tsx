@@ -188,6 +188,14 @@ export function RecordPaymentModal({ open, onClose, invoice, onRecorded }: Recor
           </Stack>
           <Stack direction="row" justifyContent="space-between">
             <Typography variant="body2" color="text.secondary">
+              Previously deducted TDS
+            </Typography>
+            <Typography variant="body2" fontWeight={600}>
+              ₹{formatInr(invoice.tdsDeducted)}
+            </Typography>
+          </Stack>
+          <Stack direction="row" justifyContent="space-between">
+            <Typography variant="body2" color="text.secondary">
               Balance Pending
             </Typography>
             <Typography variant="body2" fontWeight={700} sx={{ color: balancePendingColor }}>
@@ -208,13 +216,13 @@ export function RecordPaymentModal({ open, onClose, invoice, onRecorded }: Recor
         />
 
         <Input
-          label="TDS Deducted"
+          label="TDS on this payment"
           type="number"
           fullWidth
           size="sm"
           value={tdsDeducted}
           onChange={setTdsDeducted}
-          helperText="Optional. TDS withheld by client (default 0)."
+          helperText="Optional. TDS withheld by client on this payment (default 0)."
         />
 
         <Stack

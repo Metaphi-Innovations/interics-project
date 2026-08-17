@@ -1,4 +1,4 @@
-import type { Baseline } from '@/slices/baseline/reducer'
+import type { Baseline, ClientPO } from '@/slices/baseline/reducer'
 import type { Invoice, LineItem } from '@/slices/receivables/reducer'
 import type { Service, SACCode } from '@/slices/settings/reducer'
 
@@ -38,6 +38,68 @@ export function resolveServiceForBaseline(
       s.name.toLowerCase().includes(n) ||
       n.includes(s.name.toLowerCase()),
   )
+}
+
+export function resolveServiceForLine(
+  serviceId: string | undefined,
+  serviceName: string | undefined,
+  services: Service[],
+): Service | undefined {
+  if (serviceId) {
+    const byId = services.find((s) => s.id === serviceId)
+    if (byId) return byId
+  }
+  if (serviceName?.trim()) return resolveServiceForBaseline(serviceName, services)
+  return undefined
+}
+
+export function flattenClientPoMilestones(po: ClientPO | null | undefined): FlatMilestone[] {
+  if (!po) return []
+  const out: FlatMilestone[] = []
+  for (const m of po.milestones ?? []) {
+    if (!m.name?.trim()) continue
+    const serviceId = m.serviceId?.trim() || m.serviceName?.trim() || ''
+    const serviceName = m.serviceName?.trim() || m.serviceId || ''
+    const pushRow = (milestoneId: string, milestoneName: string, value: number) => {
+      out.push({
+        milestoneId,
+        milestoneName,
+        baselineServiceId: serviceId,
+        baselineServiceName: serviceName,
+        value,
+      })
+    }
+
+    if (m.kind === 'retention' || m.id.startsWith('cli-ret-')) {
+      pushRow(m.id, m.name, m.value)
+      continue
+    }
+
+    pushRow(m.id, m.name, m.value)
+    if (m.retention && (m.retention.value > 0 || m.retention.percentage > 0)) {
+      pushRow(`${m.id}-retention`, `${m.name} — Retention`, m.retention.value)
+    }
+  }
+  return out
+}
+
+export function flattenPoServicesFromMilestones(milestones: FlatMilestone[]): FlatBaselineServiceRow[] {
+  const seen = new Map<string, FlatBaselineServiceRow>()
+  for (const m of milestones) {
+    const key = m.baselineServiceId || m.baselineServiceName
+    if (!key) continue
+    const existing = seen.get(key)
+    if (!existing) {
+      seen.set(key, {
+        baselineServiceId: key,
+        name: m.baselineServiceName || key,
+        adjustedValue: m.value,
+      })
+    } else {
+      existing.adjustedValue += m.value
+    }
+  }
+  return [...seen.values()]
 }
 
 export function flattenBaselineMilestones(baseline: Baseline | null): FlatMilestone[] {

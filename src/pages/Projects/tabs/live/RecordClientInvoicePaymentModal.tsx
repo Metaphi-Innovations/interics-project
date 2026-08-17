@@ -209,7 +209,7 @@ export function RecordClientInvoicePaymentModal({
           </Stack>
           <Stack direction="row" justifyContent="space-between">
             <Typography variant="body2" color="text.secondary">
-              TDS Deducted
+              Previously deducted TDS
             </Typography>
             <Typography variant="body2" fontWeight={600}>
               ₹{formatInr(priorTds)}
@@ -237,13 +237,13 @@ export function RecordClientInvoicePaymentModal({
         />
 
         <Input
-          label="TDS Deducted"
+          label="TDS on this payment"
           type="number"
           fullWidth
           size="sm"
           value={tdsDeducted}
           onChange={setTdsDeducted}
-          helperText="TDS withheld by client (optional). Default 0."
+          helperText="TDS withheld by client on this payment (optional). Default 0."
         />
 
         <Stack

@@ -3,6 +3,7 @@ import type { PayloadAction } from '@reduxjs/toolkit'
 import type { PitchCategory, PlannedExpense } from '@/slices/pitch/reducer'
 import {
   fetchClientPO,
+  fetchClientPoById,
   uploadClientPO,
   updateClientPO,
   deleteClientPO,
@@ -171,11 +172,28 @@ const baselineSlice = createSlice({
       })
       .addCase(fetchClientPO.fulfilled, (state, action) => {
         state.loading = false
-        state.clientPOs = action.payload
+        const previous = new Map(state.clientPOs.map((po) => [po.id, po]))
+        state.clientPOs = action.payload.map((po) => {
+          const prev = previous.get(po.id)
+          const incoming = po.milestones ?? []
+          const existing = prev?.milestones ?? []
+          if (incoming.length === 0 && existing.length > 0) {
+            return { ...po, milestones: existing }
+          }
+          return po
+        })
       })
       .addCase(fetchClientPO.rejected, (state) => {
         state.loading = false
         state.clientPOs = []
+      })
+      .addCase(fetchClientPoById.fulfilled, (state, action) => {
+        const idx = state.clientPOs.findIndex((p) => p.id === action.payload.id)
+        if (idx !== -1) {
+          state.clientPOs[idx] = { ...state.clientPOs[idx], ...action.payload }
+        } else {
+          state.clientPOs.push(action.payload)
+        }
       })
 
       // uploadClientPO

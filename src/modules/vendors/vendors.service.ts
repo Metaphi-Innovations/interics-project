@@ -352,6 +352,21 @@ export const vendorsService = {
       total: number
     }>(res.data)
   },
+
+  async getLinkedProjects(vendorId: string): Promise<VendorLinkedProject[]> {
+    const res = await client.get(`${BASE}/${vendorId}/projects`)
+    const data = unwrapApiData<{ items?: VendorLinkedProject[] } | VendorLinkedProject[]>(res.data)
+    if (Array.isArray(data)) return data
+    return Array.isArray(data?.items) ? data.items : []
+  },
+}
+
+export type VendorLinkedProject = {
+  id: string
+  projectName: string
+  status: string
+  services: Array<{ id: string; name: string; value: number }>
+  value: number
 }
 
 export type { VendorFormInput }

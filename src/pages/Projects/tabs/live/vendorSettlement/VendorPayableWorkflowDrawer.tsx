@@ -44,6 +44,7 @@ import {
   TDS_RATE_OPTIONS,
   vendorInvoiceDocumentFileName,
   vendorInvoiceDocumentOpenUrl,
+  type PayablePaymentStatus,
   type VendorMilestoneEntry,
 } from './utils'
 
@@ -70,6 +71,10 @@ export interface VendorPayableWorkflowDrawerProps {
   baseline: Baseline | null
   focus?: VendorPayableDrawerFocus
   readOnly?: boolean
+  /** Payables list invoice id — view this invoice, not a name-matched sibling. */
+  invoiceId?: string
+  /** Payment status from the payables row so View matches the listing. */
+  paymentStatus?: PayablePaymentStatus
   onUploadInvoice?: (milestoneId: string) => void
 }
 
@@ -90,8 +95,10 @@ export function VendorPayableWorkflowDrawer({
   open,
   onClose,
   entry,
-  focus: _focus = 'details',
+  focus = 'details',
   readOnly = false,
+  invoiceId,
+  paymentStatus: listPaymentStatus,
   onUploadInvoice,
 }: VendorPayableWorkflowDrawerProps) {
   const dispatch = useAppDispatch()
@@ -145,14 +152,20 @@ export function VendorPayableWorkflowDrawer({
   }, [projectInvoices, row])
 
   const milestoneInvoice = useMemo(() => {
+    if (invoiceId) {
+      return (
+        projectInvoices.find((inv) => inv.id === invoiceId) ??
+        invoicesForRow.find((inv) => inv.id === invoiceId)
+      )
+    }
     if (!milestone) return undefined
     return findInvoiceForMilestone(invoicesForRow, milestone)
-  }, [invoicesForRow, milestone])
+  }, [invoiceId, projectInvoices, invoicesForRow, milestone])
 
-  const payableStatus = useMemo(
-    () => computeMilestonePayableStatus(milestoneInvoice),
-    [milestoneInvoice],
-  )
+  const payableStatus = useMemo(() => {
+    if (listPaymentStatus) return listPaymentStatus
+    return computeMilestonePayableStatus(milestoneInvoice)
+  }, [listPaymentStatus, milestoneInvoice])
 
   const linkedExpenses = useMemo(() => {
     if (!milestoneInvoice) return [] as Expense[]
@@ -303,12 +316,13 @@ export function VendorPayableWorkflowDrawer({
   const documentUrl = milestoneInvoice?.documentUrl
     ? vendorInvoiceDocumentOpenUrl(milestoneInvoice.documentUrl)
     : null
+  const isPaymentFocus = focus === 'payment'
 
   return (
     <DrawerForm
       open={open}
       onClose={onClose}
-      title={milestoneInvoice?.invoiceNumber ?? 'Vendor milestone'}
+      title={isPaymentFocus ? 'Release Payment' : (milestoneInvoice?.invoiceNumber ?? 'Vendor milestone')}
       width={560}
       hideFooter
       headerSx={{ alignItems: 'center' }}
@@ -337,6 +351,60 @@ export function VendorPayableWorkflowDrawer({
 
         <Divider />
 
+        {isPaymentFocus ? (
+          <Box>
+            <Typography
+              variant="overline"
+              sx={{ fontSize: 10, letterSpacing: 0.6, display: 'block', mb: 1.5 }}
+            >
+              Invoice
+            </Typography>
+            {milestoneInvoice ? (
+              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 1.5 }}>
+                <ReadOnlyField
+                  label="Invoice no."
+                  value={milestoneInvoice.invoiceNumber || '—'}
+                />
+                <ReadOnlyField
+                  label="Invoice amount"
+                  value={`₹${formatCurrency(milestoneInvoice.baseAmount)}`}
+                />
+                <ReadOnlyField
+                  label="Net payable"
+                  value={`₹${formatCurrency(invoiceNetPayable)}`}
+                />
+                <Box>
+                  <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
+                    Payment status
+                  </Typography>
+                  <Box sx={{ mt: 0.5 }}>
+                    <Badge
+                      label={payableStatusLabel(payableStatus)}
+                      variant="soft"
+                      color={payableStatusBadgeColor(payableStatus)}
+                      size="sm"
+                    />
+                  </Box>
+                </Box>
+              </Box>
+            ) : (
+              <Stack gap={1}>
+                <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12 }}>
+                  No vendor invoice uploaded for this milestone.
+                </Typography>
+                {onUploadInvoice ? (
+                  <Button
+                    size="sm"
+                    variant="outlined"
+                    color="primary"
+                    label="Upload Invoice"
+                    onClick={() => onUploadInvoice(milestone.id)}
+                  />
+                ) : null}
+              </Stack>
+            )}
+          </Box>
+        ) : (
         <Box>
           <Typography
             variant="overline"
@@ -535,6 +603,7 @@ export function VendorPayableWorkflowDrawer({
             </Stack>
           )}
         </Box>
+        )}
 
         {showReleasePayment ? (
           <>
