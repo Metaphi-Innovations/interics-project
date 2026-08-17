@@ -43,6 +43,7 @@ import {
 } from './VendorAdditionalComplianceSection'
 import type { UploadedCompliancePreview } from './VendorAdditionalComplianceSection'
 import { StatusBadge, useToast, Button } from '@/design-system/components'
+import type { StatusType } from '@/design-system/components'
 import { vendorsService, toActivityEntry, type VendorFormInput } from '@/modules/vendors'
 import type { VendorLinkedProject } from '@/modules/vendors/vendors.service'
 import { downloadAuthenticatedDocument } from '@/utils/openAuthenticatedDocument'
