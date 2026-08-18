@@ -11,7 +11,6 @@ jobs:
 
     env:
       PATH: /root/.nvm/versions/node/v22.21.1/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-      PM2_HOME: /home/runner/.pm2
 
     steps:
       - name: Checkout code
@@ -23,11 +22,10 @@ jobs:
           id
           echo "HOME=$HOME"
 
-      - name: Verify node, npm and pm2
+      - name: Verify Node and npm
         run: |
           node -v
           npm -v
-          pm2 -v
 
       - name: Ensure deployment directory exists
         run: |
@@ -46,13 +44,18 @@ jobs:
         run: |
           npm install
 
-      - name: Stop existing PM2 process
+      - name: Build application
         working-directory: /var/www/interics.metaphi.in
         run: |
-          pm2 start npm --name "interics.metaphi.in" -- start
-          pm2 save
-          sleep 2
-  
-      - name: Show PM2 logs
+          npm run build
+
+      - name: Verify build
+        working-directory: /var/www/interics.metaphi.in
         run: |
-          pm2 logs interics.metaphi.in --lines 30 --nostream
+          if [ -d "dist" ]; then
+            echo "Build successful. dist directory found."
+            ls -lah dist
+          else
+            echo "ERROR: dist directory not found after build."
+            exit 1
+          fi
