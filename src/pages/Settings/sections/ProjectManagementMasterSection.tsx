@@ -21,7 +21,7 @@ import {
   DialogContentText,
   DialogActions,
 } from '@mui/material'
-import { Add, Delete as DeleteIcon, Edit } from '@mui/icons-material'
+import { Add, Delete as DeleteIcon } from '@mui/icons-material'
 import { Plus } from 'lucide-react'
 import { Button, useToast } from '@/design-system/components'
 import { DrawerForm, FormField } from '@/components/templates/DrawerForm'
@@ -57,6 +57,10 @@ import {
   SETTINGS_TABLE_SX,
   settingsDataColWidth,
 } from '../components/settingsTableStyles'
+import {
+  SettingsEditAction,
+  SettingsTableActionsCell,
+} from '../components/SettingsTableActions'
 
 const DATA_COL_COUNT = 3
 const dataColWidth = settingsDataColWidth(DATA_COL_COUNT)
@@ -377,11 +381,9 @@ export default function ProjectManagementMasterSection() {
                     onToggle={() => setToggleTarget(row)}
                   />
                 </TableCell>
-                <TableCell sx={SETTINGS_TABLE_CELL_ACTION_SX}>
-                  <IconButton size="small" onClick={() => openEdit(row)} aria-label="Edit">
-                    <Edit sx={{ fontSize: 14 }} />
-                  </IconButton>
-                </TableCell>
+                <SettingsTableActionsCell>
+                  <SettingsEditAction onClick={() => openEdit(row)} />
+                </SettingsTableActionsCell>
               </TableRow>
             ))}
             {projectManagementCategories.length === 0 ? (

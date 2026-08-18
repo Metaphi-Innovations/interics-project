@@ -28,6 +28,7 @@ import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { formatDate, formatInr } from '@/utils/formatters'
 import { downloadCsv } from '@/api/downloadCsv'
 import { fetchProjects } from '@/slices/projects/thunk'
+import { dropdownsApi } from '@/api/dropdownsApi'
 import {
   payablesService,
   toPayableSummaryKpis,
@@ -277,7 +278,12 @@ export default function PaymentsPage() {
   const theme = useTheme()
   const { showToast } = useToast()
   const { items: rawProjects, loading: projectsLoading } = useAppSelector((s) => s.projects)
-  const projects = rawProjects ?? []
+  const [liveProjectIds, setLiveProjectIds] = useState<string[] | null>(null)
+  const liveProjectIdSet = useMemo(() => new Set(liveProjectIds ?? []), [liveProjectIds])
+  const projects = useMemo(
+    () => (rawProjects ?? []).filter((p) => liveProjectIdSet.has(p.id)),
+    [rawProjects, liveProjectIdSet],
+  )
   const vendorInvoices = useAppSelector((s) => s.live.vendorInvoices ?? [])
 
   const [baselinesByProject, setBaselinesByProject] = useState<Record<string, Baseline | null>>({})
@@ -319,6 +325,10 @@ export default function PaymentsPage() {
 
   useEffect(() => {
     void dispatch(fetchProjects({ pageSize: 100 }))
+    void dropdownsApi
+      .getLiveProjects()
+      .then((options) => setLiveProjectIds(options.map((o) => o.value)))
+      .catch(() => setLiveProjectIds([]))
     void payablesService.getFilters().then((data) => {
       setPayableFilterOptions({
         vendorId: data.vendors ?? [],
@@ -601,7 +611,7 @@ export default function PaymentsPage() {
     [tabCounts],
   )
 
-  const isDataLoading = projectsLoading || !financeLoaded || listLoading
+  const isDataLoading = projectsLoading || liveProjectIds === null || !financeLoaded || listLoading
 
   const paginatedRows = listingRows
 

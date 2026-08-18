@@ -2,10 +2,9 @@ import { useState, useEffect } from 'react'
 import {
   Box, Typography, Chip, TextField, MenuItem,
   Table, TableHead, TableRow, TableCell, TableBody, TableContainer,
-  IconButton, Divider,
+  Divider,
   Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions,
 } from '@mui/material'
-import { Edit } from '@mui/icons-material'
 import { Plus } from 'lucide-react'
 import { Button, Modal, useToast } from '@/design-system/components'
 import {
@@ -30,6 +29,10 @@ import {
   SETTINGS_TABLE_SX,
   settingsDataColWidth,
 } from '../components/settingsTableStyles'
+import {
+  SettingsEditAction,
+  SettingsTableActionsCell,
+} from '../components/SettingsTableActions'
 import {
   requiredAlphabeticName,
   requiredEntityId,
@@ -379,11 +382,9 @@ export default function ServicesSection() {
                     onToggle={() => setToggleTarget(row)}
                   />
                 </TableCell>
-                <TableCell sx={SETTINGS_TABLE_CELL_ACTION_SX}>
-                  <IconButton size="small" onClick={() => openEdit(row)}>
-                    <Edit sx={{ fontSize: 14 }} />
-                  </IconButton>
-                </TableCell>
+                <SettingsTableActionsCell>
+                  <SettingsEditAction onClick={() => openEdit(row)} />
+                </SettingsTableActionsCell>
               </TableRow>
             )
           })}

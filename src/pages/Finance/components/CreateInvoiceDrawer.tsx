@@ -13,9 +13,9 @@ import {
   useToast,
 } from '@/design-system/components'
 import { receivablesApi } from '@/api/receivablesApi'
+import { dropdownsApi, type ProjectDropdownOption } from '@/api/dropdownsApi'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { createInvoice, updateInvoice, sendInvoice } from '@/slices/receivables/thunk'
-import { fetchProjects } from '@/slices/projects/thunk'
 import { fetchClientPO, fetchClientPoById, fetchBaseline } from '@/slices/baseline/thunk'
 import { fetchServices, fetchSACCodes } from '@/slices/settings/thunk'
 import type { Invoice } from '@/slices/receivables/reducer'
@@ -160,18 +160,29 @@ function invoiceLinesToDraft(items: Invoice['lineItems']): DraftLineItem[] {
   })
 }
 
+function dropdownOptionToProject(option: ProjectDropdownOption): Project {
+  return stubProject({
+    id: option.value,
+    name: option.projectName || option.label,
+    customerId: option.customerId,
+    customerName: option.customerName,
+    projectCode: option.projectCode,
+  })
+}
+
 function stubProject(opts: {
   id: string
   name: string
   customerId: string
   customerName: string
+  projectCode?: string
 }): Project {
   return {
     id: opts.id,
     name: opts.name,
     customerId: opts.customerId,
     customerName: opts.customerName,
-    projectCode: '',
+    projectCode: opts.projectCode ?? '',
     projectTypes: [],
     status: 'Live',
     progress: '',
@@ -213,12 +224,12 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved, pre
   const dispatch = useAppDispatch()
   const { showToast } = useToast()
   const saving = useAppSelector((s) => s.receivables.saving)
-  const projects = useAppSelector((s) => s.projects.items ?? [])
   const { services, sacCodes } = useAppSelector((s) => s.settings)
   const clientPOs = useAppSelector((s) => s.baseline.clientPOs)
   const baseline = useAppSelector((s) => s.baseline.baseline)
   const baselineLoading = useAppSelector((s) => s.baseline.loading)
 
+  const [liveProjects, setLiveProjects] = useState<Project[]>([])
   const [project, setProject] = useState<Project | null>(null)
   const [selectedPoId, setSelectedPoId] = useState('')
   const [pickerAxis, setPickerAxis] = useState<'milestones' | 'services' | null>(null)
@@ -255,8 +266,6 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved, pre
     setDueDate(next)
     if (errors.dueDate) setErrors((prev) => ({ ...prev, dueDate: '' }))
   }
-
-  const liveProjects = useMemo(() => projects.filter((p) => p.status === 'Live'), [projects])
 
   const presetProject = useMemo<Project | null>(() => {
     if (!preset?.projectId) return null
@@ -301,7 +310,10 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved, pre
 
   useEffect(() => {
     if (!open) return
-    dispatch(fetchProjects({ pageSize: 500, limit: 500, status: 'Live' }))
+    void dropdownsApi
+      .getLiveProjects()
+      .then((options) => setLiveProjects(options.map(dropdownOptionToProject)))
+      .catch(() => setLiveProjects([]))
     dispatch(fetchServices())
     dispatch(fetchSACCodes())
   }, [open, dispatch])
@@ -358,30 +370,13 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved, pre
   useEffect(() => {
     if (!open || mode !== 'edit' || !invoice) return
     const p =
-      projects.find((x) => x.id === invoice.projectId) ??
-      ({
+      liveProjects.find((x) => x.id === invoice.projectId) ??
+      stubProject({
         id: invoice.projectId,
         name: invoice.projectName,
         customerId: invoice.clientId,
         customerName: invoice.clientName,
-        projectCode: '',
-        projectTypes: [],
-        status: 'Live',
-        progress: '',
-        location: '',
-        carpetArea: null,
-        headcount: null,
-        projectManager: '',
-        projectManagerId: '',
-        startDate: null,
-        expectedEndDate: null,
-        projectValue: 0,
-        totalClientPOValue: 0,
-        totalVendorPOValue: 0,
-        invoicedAmount: 0,
-        paidVendorAmount: 0,
-        createdAt: '',
-      } as Project)
+      })
     setProject(p)
     setSelectedPoId(invoice.clientPoId ?? '')
     const nextInvoiceDate = invoice.invoiceDate ? new Date(invoice.invoiceDate) : new Date()
@@ -415,7 +410,7 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved, pre
     }
     setErrors({})
     setLineError('')
-  }, [open, mode, invoice?.id, projects])
+  }, [open, mode, invoice?.id, liveProjects])
 
   const milestoneKey = selectedMilestoneIds.slice().sort().join(',')
   const serviceKey = selectedServiceIds.slice().sort().join(',')

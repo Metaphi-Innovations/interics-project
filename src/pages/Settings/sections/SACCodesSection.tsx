@@ -2,10 +2,9 @@ import { useState, useEffect } from 'react'
 import {
   Box, Typography, TextField, Chip,
   Table, TableHead, TableRow, TableCell, TableBody, TableContainer,
-  MenuItem, IconButton,
+  MenuItem,
   Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions,
 } from '@mui/material'
-import { Edit } from '@mui/icons-material'
 import { Plus } from 'lucide-react'
 import { Button, Modal, useToast } from '@/design-system/components'
 import {
@@ -30,6 +29,8 @@ import {
   SETTINGS_TABLE_SX,
   settingsDataColWidth,
 } from '../components/settingsTableStyles'
+import SettingsDescriptionCell from '../components/SettingsDescriptionCell'
+import { SettingsEditAction, SettingsTableActionsCell } from '../components/SettingsTableActions'
 import {
   sacCode,
   optionalMaxLength,
@@ -287,7 +288,7 @@ export default function SACCodesSection() {
             return (
               <TableRow key={row.id} sx={{ height: 44 }}>
                 <TableCell sx={{ ...SETTINGS_TABLE_CELL_SX, fontWeight: 600, fontFamily: 'monospace' }}>{row.code}</TableCell>
-                <TableCell sx={SETTINGS_TABLE_CELL_SX}>{row.description}</TableCell>
+                <SettingsDescriptionCell value={row.description} />
                 <TableCell sx={SETTINGS_TABLE_CELL_SX}>
                   <Box display="flex" alignItems="center" gap={0.5}>
                     <Chip
@@ -306,11 +307,9 @@ export default function SACCodesSection() {
                     onToggle={() => setToggleTarget(row)}
                   />
                 </TableCell>
-                <TableCell sx={SETTINGS_TABLE_CELL_ACTION_SX}>
-                  <IconButton size="small" onClick={() => openEdit(row)}>
-                    <Edit sx={{ fontSize: 14 }} />
-                  </IconButton>
-                </TableCell>
+                <SettingsTableActionsCell>
+                  <SettingsEditAction onClick={() => openEdit(row)} />
+                </SettingsTableActionsCell>
               </TableRow>
             )
           })}

@@ -55,4 +55,8 @@ export const receivablesApi = {
     const res = await client.patch(`/invoices/${id}/status`, data)
     return unwrapApiData<Invoice>(res.data)
   },
+  convertDraftToTax: async (id: string) => {
+    const res = await client.post(`/invoices/${id}/convert-to-tax`)
+    return unwrapApiData<Invoice>(res.data)
+  },
 }

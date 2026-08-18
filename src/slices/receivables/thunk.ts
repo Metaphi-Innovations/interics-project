@@ -100,3 +100,15 @@ export const sendInvoice = createAsyncThunk(
     }
   },
 )
+
+export const convertDraftToTax = createAsyncThunk(
+  'receivables/convertDraftToTax',
+  async (id: string, { rejectWithValue }) => {
+    try {
+      return await receivablesApi.convertDraftToTax(id)
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { message?: string } } }
+      return rejectWithValue(error.response?.data?.message ?? 'Failed to convert draft invoice')
+    }
+  },
+)

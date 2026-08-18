@@ -40,9 +40,8 @@ import {
   setPage,
   setPageSize,
 } from '@/slices/receivables/reducer'
-import { fetchInvoices, sendInvoice } from '@/slices/receivables/thunk'
+import { convertDraftToTax, fetchInvoices, sendInvoice } from '@/slices/receivables/thunk'
 import { fetchCustomers } from '@/slices/customers/thunk'
-import { fetchProjects } from '@/slices/projects/thunk'
 import type { Invoice } from '@/slices/receivables/reducer'
 import { formatCurrency } from '@/utils/formatters'
 import { tokens } from '@/design-system/tokens'
@@ -52,6 +51,7 @@ import { RecordPaymentModal } from './components/RecordPaymentModal'
 import type { ReceivableSummaryKpis } from './utils/receivableSummary'
 import { financeApi } from '@/api/financeApi'
 import { receivablesApi } from '@/api/receivablesApi'
+import { dropdownsApi } from '@/api/dropdownsApi'
 import { unwrapApiData } from '@/modules/system-settings/shared/api'
 import { downloadCsv } from '@/api/downloadCsv'
 import { invoiceStatusToBadgeType, mapInvoiceStatus, showPartialPaidAlongsideTabStatus } from './invoiceStatus'
@@ -319,7 +319,7 @@ export default function BillingsPage() {
     [rawItems],
   )
   const customers = useAppSelector((s) => s.customers.items ?? [])
-  const projects = useAppSelector((s) => s.projects.items ?? [])
+  const [liveProjectOptions, setLiveProjectOptions] = useState<Array<{ value: string; label: string }>>([])
   const [filterOptions, setFilterOptions] = useState<Record<string, Array<{ value: string; label: string }>> | null>(null)
 
   const [drawerCreate, setDrawerCreate] = useState(false)
@@ -462,7 +462,10 @@ export default function BillingsPage() {
 
   useEffect(() => {
     dispatch(fetchCustomers({}))
-    dispatch(fetchProjects({ pageSize: 500, limit: 500 }))
+    void dropdownsApi
+      .getLiveProjects()
+      .then((options) => setLiveProjectOptions(options.map((o) => ({ value: o.value, label: o.label }))))
+      .catch(() => setLiveProjectOptions([]))
     void receivablesApi.getFilters().then(setFilterOptions).catch(() => setFilterOptions(null))
     setActiveFilters({
       clientId: '',
@@ -533,11 +536,8 @@ export default function BillingsPage() {
     [customers],
   )
   const projectOpts = useMemo(
-    () => [
-      { label: 'All projects', value: '' },
-      ...projects.filter((p) => p.status === 'Live').map((p) => ({ label: p.name, value: p.id })),
-    ],
-    [projects],
+    () => [{ label: 'All projects', value: '' }, ...liveProjectOptions],
+    [liveProjectOptions],
   )
 
   const filterConfig: FilterField[] = useMemo(
@@ -813,7 +813,7 @@ export default function BillingsPage() {
   async function confirmConvertTax() {
     if (!convertTaxTarget) return
     try {
-      await dispatch(sendInvoice(convertTaxTarget.id)).unwrap()
+      await dispatch(convertDraftToTax(convertTaxTarget.id)).unwrap()
       showToast({ title: 'Converted to tax invoice', variant: 'success' })
       reload()
     } catch (e) {
@@ -1056,7 +1056,7 @@ export default function BillingsPage() {
                       <TableRow>
                         <TableCell colSpan={mainColCount} sx={{ ...BODY_CELL_SX, textAlign: 'center', color: 'text.secondary', py: 4 }}>
                           {filters.statusTab === 'draft'
-                            ? 'No pending milestones or draft invoices.'
+                            ? 'No draft invoices found.'
                             : 'No invoices found.'}
                         </TableCell>
                       </TableRow>

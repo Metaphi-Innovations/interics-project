@@ -2,10 +2,9 @@ import { useEffect, useState } from 'react'
 import {
   Box, Typography, Tabs, Tab,
   Table, TableHead, TableRow, TableCell, TableBody, TableContainer,
-  TextField, MenuItem, IconButton,
+  TextField, MenuItem,
   Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions,
 } from '@mui/material'
-import { Edit } from '@mui/icons-material'
 import { Plus } from 'lucide-react'
 import { Button, Modal, useToast } from '@/design-system/components'
 import {
@@ -30,6 +29,8 @@ import {
   SETTINGS_TABLE_SX,
   settingsDataColWidth,
 } from '../components/settingsTableStyles'
+import SettingsDescriptionCell from '../components/SettingsDescriptionCell'
+import { SettingsEditAction, SettingsTableActionsCell } from '../components/SettingsTableActions'
 import {
   requiredText,
   optionalMaxLength,
@@ -448,18 +449,16 @@ export default function TaxConfigSection() {
                 <TableRow key={row.id} sx={{ height: 44 }}>
                   <TableCell sx={SETTINGS_TABLE_CELL_SX}>{row.slabName}</TableCell>
                   <TableCell sx={SETTINGS_TABLE_CELL_SX}>{row.rate}%</TableCell>
-                  <TableCell sx={SETTINGS_TABLE_CELL_SX}>{row.description}</TableCell>
+                  <SettingsDescriptionCell value={row.description} />
                   <TableCell sx={SETTINGS_TABLE_CELL_SX}>
                     <StatusColumnToggle
                       active={row.status === 'active'}
                       onToggle={() => setToggleTarget({ kind: 'gst', row })}
                     />
                   </TableCell>
-                  <TableCell sx={SETTINGS_TABLE_CELL_ACTION_SX}>
-                    <IconButton size="small" onClick={() => openEditGST(row)}>
-                      <Edit sx={{ fontSize: 14 }} />
-                    </IconButton>
-                  </TableCell>
+                  <SettingsTableActionsCell>
+                    <SettingsEditAction onClick={() => openEditGST(row)} />
+                  </SettingsTableActionsCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -556,7 +555,7 @@ export default function TaxConfigSection() {
               {tdsSections.map(row => (
                 <TableRow key={row.id} sx={{ height: 44 }}>
                   <TableCell sx={{ ...SETTINGS_TABLE_CELL_SX, fontWeight: 600 }}>{row.section}</TableCell>
-                  <TableCell sx={SETTINGS_TABLE_CELL_SX}>{row.description}</TableCell>
+                  <SettingsDescriptionCell value={row.description} />
                   <TableCell sx={SETTINGS_TABLE_CELL_SX}>{row.defaultRate}%</TableCell>
                   <TableCell sx={{ ...SETTINGS_TABLE_CELL_SX, textTransform: 'capitalize' }}>{row.appliesTo}</TableCell>
                   <TableCell sx={SETTINGS_TABLE_CELL_SX}>
@@ -565,11 +564,9 @@ export default function TaxConfigSection() {
                       onToggle={() => setToggleTarget({ kind: 'tds', row })}
                     />
                   </TableCell>
-                  <TableCell sx={SETTINGS_TABLE_CELL_ACTION_SX}>
-                    <IconButton size="small" onClick={() => openEditTDS(row)}>
-                      <Edit sx={{ fontSize: 14 }} />
-                    </IconButton>
-                  </TableCell>
+                  <SettingsTableActionsCell>
+                    <SettingsEditAction onClick={() => openEditTDS(row)} />
+                  </SettingsTableActionsCell>
                 </TableRow>
               ))}
             </TableBody>

@@ -5,6 +5,7 @@ import {
   fetchInvoiceById,
   createInvoice,
   updateInvoice,
+  convertDraftToTax,
   recordPayment,
   sendInvoice,
 } from './thunk'
@@ -251,6 +252,21 @@ const receivablesSlice = createSlice({
         if (state.selectedItem?.id === inv.id) state.selectedItem = inv
       })
       .addCase(sendInvoice.rejected, (state, action) => {
+        state.saving = false
+        state.error = action.payload as string
+      })
+      .addCase(convertDraftToTax.pending, (state) => {
+        state.saving = true
+        state.error = null
+      })
+      .addCase(convertDraftToTax.fulfilled, (state, action) => {
+        state.saving = false
+        const inv = action.payload
+        const i = state.items.findIndex((x) => x.id === inv.id)
+        if (i >= 0) state.items[i] = inv
+        if (state.selectedItem?.id === inv.id) state.selectedItem = inv
+      })
+      .addCase(convertDraftToTax.rejected, (state, action) => {
         state.saving = false
         state.error = action.payload as string
       })

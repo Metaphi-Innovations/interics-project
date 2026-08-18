@@ -2,10 +2,9 @@ import { useState, useEffect } from 'react'
 import {
   Box, Typography, TextField, MenuItem,
   Table, TableHead, TableRow, TableCell, TableBody, TableContainer,
-  IconButton, Chip,
+  Chip,
   Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions,
 } from '@mui/material'
-import { Edit, ToggleOff, ToggleOn } from '@mui/icons-material'
 import { Plus } from 'lucide-react'
 import { useTheme } from '@mui/material/styles'
 import { Button, Modal, StatusBadge, useToast } from '@/design-system/components'
@@ -23,6 +22,11 @@ import {
   SETTINGS_TABLE_SX,
   settingsDataColWidth,
 } from '../components/settingsTableStyles'
+import {
+  SettingsEditAction,
+  SettingsTableActionsCell,
+  SettingsToggleAction,
+} from '../components/SettingsTableActions'
 
 const DATA_COL_COUNT = 2
 const dataColWidth = settingsDataColWidth(DATA_COL_COUNT)
@@ -161,16 +165,13 @@ export default function StatusesSection() {
                   <TableCell sx={SETTINGS_TABLE_CELL_SX}>
                     <StatusBadge status={row.status} />
                   </TableCell>
-                  <TableCell sx={SETTINGS_TABLE_CELL_ACTION_SX}>
-                    <IconButton size="small" onClick={() => openEdit(row)}>
-                      <Edit sx={{ fontSize: 14 }} />
-                    </IconButton>
-                    <IconButton size="small" onClick={() => setToggleTarget(row)}>
-                      {row.status === 'active'
-                        ? <ToggleOn sx={{ fontSize: 14, color: 'success.main' }} />
-                        : <ToggleOff sx={{ fontSize: 14, color: 'error.main' }} />}
-                    </IconButton>
-                  </TableCell>
+                  <SettingsTableActionsCell>
+                    <SettingsEditAction onClick={() => openEdit(row)} />
+                    <SettingsToggleAction
+                      active={row.status === 'active'}
+                      onClick={() => setToggleTarget(row)}
+                    />
+                  </SettingsTableActionsCell>
                 </TableRow>
               )
             })}

@@ -2,10 +2,9 @@ import { useEffect, useState } from 'react'
 import {
   Box, Typography, Chip,
   Table, TableHead, TableRow, TableCell, TableBody, TableContainer,
-  TextField, MenuItem, IconButton, Tooltip,
+  TextField, MenuItem,
   Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions,
 } from '@mui/material'
-import { Edit, DeleteOutline } from '@mui/icons-material'
 import { Plus } from 'lucide-react'
 import { Button, Modal, useToast } from '@/design-system/components'
 import {
@@ -29,6 +28,12 @@ import {
   SETTINGS_TABLE_SX,
   settingsDataColWidth,
 } from '../components/settingsTableStyles'
+import SettingsDescriptionCell from '../components/SettingsDescriptionCell'
+import {
+  SettingsDeleteAction,
+  SettingsEditAction,
+  SettingsTableActionsCell,
+} from '../components/SettingsTableActions'
 import {
   requiredAlphabeticName,
   optionalMaxLength,
@@ -282,7 +287,7 @@ export default function CategoriesSection() {
           {categories.map(row => (
             <TableRow key={row.id} sx={{ height: 44 }}>
               <TableCell sx={{ ...SETTINGS_TABLE_CELL_SX, fontWeight: 500 }}>{row.name}</TableCell>
-              <TableCell sx={{ ...SETTINGS_TABLE_CELL_SX, color: 'text.secondary' }}>{row.description}</TableCell>
+              <SettingsDescriptionCell value={row.description} textSx={{ color: 'text.secondary' }} />
               <TableCell sx={SETTINGS_TABLE_CELL_SX}>
                 <Chip
                   size="small"
@@ -301,23 +306,14 @@ export default function CategoriesSection() {
                   onToggle={() => setToggleTarget(row)}
                 />
               </TableCell>
-              <TableCell sx={SETTINGS_TABLE_CELL_ACTION_SX}>
-                <IconButton size="small" onClick={() => openEdit(row)}>
-                  <Edit sx={{ fontSize: 14 }} />
-                </IconButton>
-                <Tooltip title={row.servicesCount > 0 ? 'Cannot delete — has services linked' : 'Delete'}>
-                  <span>
-                    <IconButton
-                      size="small"
-                      disabled={row.servicesCount > 0}
-                      onClick={() => setDeleteTarget(row)}
-                      sx={{ color: 'error.main', '&.Mui-disabled': { opacity: 0.3 } }}
-                    >
-                      <DeleteOutline sx={{ fontSize: 14 }} />
-                    </IconButton>
-                  </span>
-                </Tooltip>
-              </TableCell>
+              <SettingsTableActionsCell>
+                <SettingsEditAction onClick={() => openEdit(row)} />
+                <SettingsDeleteAction
+                  onClick={() => setDeleteTarget(row)}
+                  disabled={row.servicesCount > 0}
+                  disabledReason="Cannot delete — has services linked"
+                />
+              </SettingsTableActionsCell>
             </TableRow>
           ))}
         </TableBody>
