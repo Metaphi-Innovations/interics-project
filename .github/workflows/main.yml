@@ -49,7 +49,7 @@ jobs:
         run: |
           npm run build
       - name: Create .htaccess
-        working-directory: /var/www/interics.metaphi.in/dist
+        working-directory: /var/www/interics.metaphi.in
         run: |
           cat > dist/.htaccess <<'EOF'
           <IfModule mod_rewrite.c>
@@ -63,7 +63,10 @@ jobs:
               # Redirect all other routes to index.html
               RewriteRule ^ index.html [L]
           </IfModule>
-          EOF    
+          EOF
+
+          echo "Created dist/.htaccess:"
+          cat dist/.htaccess    
 
       - name: Verify build
         working-directory: /var/www/interics.metaphi.in
