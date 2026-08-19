@@ -7,6 +7,8 @@ export interface BillableMilestone {
   serviceName: string
   baseAmount: number
   clientPoId: string
+  /** TDS rate (%) from the Client PO — used to pre-fill TDS in GenerateInvoiceDrawer. */
+  tdsRate: number | null
   /** Uploaded Client PO document for this milestone row. */
   poDocumentUrl: string | null
   poFileName: string | null
@@ -30,6 +32,7 @@ export function buildBillableFromClientPOs(
           serviceName: m.serviceName?.trim() || m.serviceId,
           baseAmount: m.value,
           clientPoId: po.id,
+          tdsRate: po.tdsRate ?? null,
           poDocumentUrl: po.documentUrl,
           poFileName: po.fileName ?? null,
         })
@@ -43,6 +46,7 @@ export function buildBillableFromClientPOs(
         serviceName: m.serviceName?.trim() || m.serviceId,
         baseAmount: m.value,
         clientPoId: po.id,
+        tdsRate: po.tdsRate ?? null,
         poDocumentUrl: po.documentUrl,
         poFileName: po.fileName ?? null,
       })
@@ -54,6 +58,7 @@ export function buildBillableFromClientPOs(
           serviceName: m.serviceName?.trim() || m.serviceId,
           baseAmount: m.retention.value,
           clientPoId: po.id,
+          tdsRate: po.tdsRate ?? null,
           poDocumentUrl: po.documentUrl,
           poFileName: po.fileName ?? null,
         })

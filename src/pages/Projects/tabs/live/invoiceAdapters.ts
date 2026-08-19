@@ -94,6 +94,7 @@ export function invoiceToClientInvoice(inv: Invoice): ClientInvoice {
     gstAmount: inv.gstAmount ?? roll.gstAmount,
     grossAmount: inv.totalAmount > 0 ? inv.totalAmount : roll.grossAmount,
     tdsAmount: inv.tdsDeducted,
+    tdsRate: inv.tdsRate ?? null,
     netReceivable: inv.balance,
     invoiceNumber: inv.invoiceNo,
     invoiceDate: inv.invoiceDate,
@@ -149,6 +150,8 @@ export function clientInvoiceDraftToReceivablesPost(
     milestoneName: data.milestoneName,
     serviceId: data.serviceId,
     serviceName: data.serviceName,
+    tdsRate: data.tdsRate ?? null,
+    tdsDeducted: data.tdsAmount ?? 0,
     ...(data.clientPoId ? { clientPoId: data.clientPoId } : {}),
   }
 }

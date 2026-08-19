@@ -59,6 +59,8 @@ export interface ClientInvoice {
   grossAmount: number
   /** Cumulative TDS withheld (from payments) */
   tdsAmount: number
+  /** TDS rate (%) taken from Client PO. */
+  tdsRate?: number | null
   /** Balance pending = grossAmount − Σ(amountReceived + tdsDeducted) */
   netReceivable: number
   invoiceNumber: string

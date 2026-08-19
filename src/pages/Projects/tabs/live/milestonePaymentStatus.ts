@@ -129,6 +129,29 @@ export function vendorMilestonePaymentStatus(
   return inv.status === 'paid' ? 'Paid' : 'Billed'
 }
 
+/**
+ * Determine payment status for a retention sub-milestone.
+ * Only matches invoices whose milestoneId is exactly `${parentMilestoneId}-retention`.
+ * Does NOT fall back to parent milestone name matching.
+ */
+export function clientRetentionPaymentStatus(
+  invoices: ClientInvoice[],
+  parentMilestoneId: string,
+): MilestonePaymentStatusLabel {
+  const retentionId = `${parentMilestoneId}-retention`
+  const inv = invoices.find((invoice) => invoiceCoversMilestoneId(invoice, retentionId))
+  if (!inv) return 'Unpaid'
+  return isInvoiceFullyPaid(inv) ? 'Paid' : 'Billed'
+}
+
+export function clientRetentionIsLocked(
+  invoices: ClientInvoice[],
+  parentMilestoneId: string,
+): boolean {
+  const status = clientRetentionPaymentStatus(invoices, parentMilestoneId)
+  return status === 'Paid' || status === 'Billed'
+}
+
 export function clientMilestoneIsLocked(
   invoices: ClientInvoice[],
   milestoneId: string,

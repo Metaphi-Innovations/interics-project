@@ -58,7 +58,6 @@ export interface TDSSection {
   section: string
   description: string
   defaultRate: number
-  appliesTo: 'vendors' | 'clients' | 'both'
   status: 'active' | 'inactive'
 }
 

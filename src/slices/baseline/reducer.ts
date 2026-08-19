@@ -55,6 +55,8 @@ export interface ClientPO {
   fileName?: string
   uploadedAt?: string
   milestones?: ClientPOMilestone[]
+  tdsSectionId?: string | null
+  tdsRate?: number | null
 }
 
 /** Payment milestone on a vendor PO (execution tracking). */

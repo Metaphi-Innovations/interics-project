@@ -92,8 +92,11 @@ function milestoneBillPhase(inv: ClientInvoice | undefined): MilestoneBillPhase 
   if (!inv) return 'not_invoiced'
   const pending = balancePending(inv)
   if (pending <= MONEY_EPS) return 'paid'
-  const settled = inv.grossAmount - pending
-  if (settled > MONEY_EPS || inv.status === 'partially_paid') return 'partially_paid'
+  // TDS is reflected in `balancePending()`, so using `gross - pending` would
+  // incorrectly treat TDS as a "payment settlement". We only mark partially paid
+  // after at least one payment has been recorded (bank amount > 0).
+  const received = totalReceivedBank(inv.payments)
+  if (received > MONEY_EPS) return 'partially_paid'
   if (isDueDateOverdue(inv.dueDate)) return 'overdue'
   return 'invoiced'
 }
@@ -189,16 +192,25 @@ function SectionHeader({ children }: { children: string }) {
   )
 }
 
+function calcTdsAmount(base: number, tdsRate: number | null | undefined): number {
+  if (!tdsRate) return 0
+  return Math.round((base * tdsRate) / 100)
+}
+
 function AmountBreakdownColumn({
   base,
   gstRate,
   gstAmount,
-  gross,
+  tdsRate,
+  tdsAmount,
+  net,
 }: {
   base: number
   gstRate: number
   gstAmount: number
-  gross: number
+  tdsRate?: number | null
+  tdsAmount: number
+  net: number
 }) {
   return (
     <Stack gap={0.25}>
@@ -208,8 +220,13 @@ function AmountBreakdownColumn({
       <Typography variant="caption" sx={{ color: 'text.secondary' }}>
         GST ({gstRate}%): ₹{formatInr(gstAmount)}
       </Typography>
+      {tdsAmount > 0 ? (
+        <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+          TDS ({tdsRate ?? 0}%): −₹{formatInr(tdsAmount)}
+        </Typography>
+      ) : null}
       <Typography variant="body2" sx={{ fontWeight: 600 }}>
-        Gross: ₹{formatInr(gross)}
+        Net: ₹{formatInr(net)}
       </Typography>
     </Stack>
   )
@@ -456,6 +473,7 @@ function GenerateInvoiceDrawer({
     const invDate = toIsoDate(invoiceDate)
     const due = toIsoDate(dueDate)
     try {
+      const tdsAmt = calcTdsAmount(roll.baseAmount, preset.tdsRate)
       await dispatch(
         createInvoice({
           projectId,
@@ -475,8 +493,9 @@ function GenerateInvoiceDrawer({
             taxableAmount: roll.taxableAmount,
             gstAmount: roll.gstAmount,
             grossAmount: roll.grossAmount,
-            tdsAmount: 0,
-            netReceivable: roll.grossAmount,
+            tdsAmount: tdsAmt,
+            tdsRate: preset.tdsRate ?? null,
+            netReceivable: roll.grossAmount - tdsAmt,
             invoiceNumber: invoiceNumber.trim(),
             invoiceDate: invDate,
             dueDate: due,
@@ -569,6 +588,8 @@ function GenerateInvoiceDrawer({
               allowManualAdd={false}
               hideSacColumn
               showLabourCessColumn
+                  showTdsColumn
+                  tdsRate={preset.tdsRate ?? null}
               error={fieldErrors.lines}
             />
           </Box>
@@ -665,9 +686,21 @@ function GenerateInvoiceDrawer({
             }}
           >
             <ClientInvoiceTaxSummary roll={roll} />
-            <Typography variant="caption" sx={{ display: 'block', mt: 1, color: 'text.secondary', fontStyle: 'italic' }}>
-              TDS will be captured when payment is recorded
-            </Typography>
+            {preset.tdsRate ? (
+              <>
+                <Divider sx={{ my: 1 }} />
+                <ReadOnlySummaryRow
+                  label={`TDS (${preset.tdsRate}%)`}
+                  value={`−₹${formatInr(calcTdsAmount(roll.baseAmount, preset.tdsRate))}`}
+                  valueSx={{ color: 'error.main' }}
+                />
+                <ReadOnlySummaryRow
+                  label="Net receivable"
+                  value={`₹${formatInr(roll.grossAmount - calcTdsAmount(roll.baseAmount, preset.tdsRate))}`}
+                  valueSx={{ fontWeight: 700, typography: 'body1' }}
+                />
+              </>
+            ) : null}
           </Box>
         </Box>
       </Stack>
@@ -703,7 +736,7 @@ function ViewInvoiceDrawer({
   const bal = balancePending(invoice)
   const showPay = bal > MONEY_EPS
   const bankReceived = totalReceivedBank(invoice.payments)
-  const tdsTotal = totalTdsFromPayments(invoice.payments)
+  const tdsTotal = invoice.tdsAmount
   const roll = rollupsFromLineItems(invoice.lineItems)
 
   return (
@@ -804,6 +837,8 @@ function ViewInvoiceDrawer({
               sacCodes={sacCodes}
               hideSacColumn
               showLabourCessColumn
+              showTdsColumn
+              tdsRate={invoice.tdsRate ?? null}
             />
           </Box>
         </Box>
@@ -830,9 +865,14 @@ function ViewInvoiceDrawer({
               }}
             />
             <ReadOnlySummaryRow
-              label="TDS deducted"
-              value={`₹${formatInr(tdsTotal)}`}
+              label={invoice.tdsRate != null ? `TDS (${invoice.tdsRate}%)` : 'TDS'}
+              value={`−₹${formatInr(tdsTotal)}`}
               valueSx={{ color: 'text.secondary' }}
+            />
+            <ReadOnlySummaryRow
+              label="Net invoice amount"
+              value={`₹${formatInr(invoice.grossAmount - tdsTotal)}`}
+              valueSx={{ fontWeight: 700, typography: 'body1' }}
             />
             <Divider sx={{ my: 1 }} />
             <ReadOnlySummaryRow
@@ -885,6 +925,14 @@ export default function BillingTab({ projectId, projectName, clientId, clientNam
     () => buildBillableFromClientPOs(clientPOs, projectId),
     [clientPOs, projectId],
   )
+
+  const clientPoById = useMemo(() => {
+    const map = new Map<string, { tdsRate: number | null | undefined }>()
+    for (const po of clientPOs) {
+      map.set(po.id, { tdsRate: po.tdsRate })
+    }
+    return map
+  }, [clientPOs])
 
   function openGenerate(row: BillableMilestone) {
     if (hasInvoiceForMilestone(projectInvoices, row)) return
@@ -967,10 +1015,13 @@ export default function BillingTab({ projectId, projectName, clientId, clientNam
               const dueOverdue =
                 inv != null && balancePending(inv) > MONEY_EPS && isDueDateOverdue(inv.dueDate)
 
+              const poTdsRate = clientPoById.get(m.clientPoId)?.tdsRate ?? null
+
               let base: number
               let gstRate: number
               let gstAmount: number
-              let gross: number
+              let tdsAmount: number
+              let net: number
               if (inv) {
                 const roll = rollupsFromLineItems(inv.lineItems)
                 base = roll.baseAmount
@@ -979,15 +1030,18 @@ export default function BillingTab({ projectId, projectName, clientId, clientNam
                     ? Math.round((100 * inv.gstAmount) / inv.baseAmount)
                     : DEFAULT_GST_RATE
                 gstAmount = inv.gstAmount
-                gross = inv.grossAmount
+                const effectiveTdsRate = inv.tdsRate ?? poTdsRate
+                tdsAmount = calcTdsAmount(base, effectiveTdsRate)
+                net = base + gstAmount - tdsAmount
               } else {
                 base = m.baseAmount
                 gstRate = DEFAULT_GST_RATE
                 gstAmount = gstOnBase(m.baseAmount, DEFAULT_GST_RATE)
-                gross = base + gstAmount
+                tdsAmount = calcTdsAmount(base, poTdsRate)
+                net = base + gstAmount - tdsAmount
               }
 
-              const tds = inv ? totalTdsFromPayments(inv.payments) : 0
+              const tds = inv ? inv.tdsAmount : 0
               const received = inv ? totalReceivedBank(inv.payments) : 0
               const outstanding = inv ? balancePending(inv) : 0
 
@@ -1027,7 +1081,9 @@ export default function BillingTab({ projectId, projectName, clientId, clientNam
                       base={base}
                       gstRate={gstRate}
                       gstAmount={gstAmount}
-                      gross={gross}
+                      tdsRate={inv?.tdsRate ?? poTdsRate}
+                      tdsAmount={tdsAmount}
+                      net={net}
                     />
                   </TableCell>
                   <TableCell sx={RECEIVABLES_TABLE_CELL_SX}>

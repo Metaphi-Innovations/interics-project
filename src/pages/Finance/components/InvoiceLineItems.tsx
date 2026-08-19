@@ -67,6 +67,10 @@ export interface InvoiceLineItemsProps {
   sacCodes: SACCode[]
   onChange?: (lines: DraftLineItem[]) => void
   error?: string
+  /** When set, renders a read-only TDS % column next to GST %. */
+  showTdsColumn?: boolean
+  /** TDS rate (%) applied to the entire client PO/invoice. */
+  tdsRate?: number | null
   /** When true, milestone/service rows show description as text and cannot be deleted; manual rows use Select + delete. */
   projectSourced?: boolean
   /** Allow zero lines (project flow before selection). */
@@ -109,6 +113,8 @@ export function InvoiceLineItems({
   manualAddCollapsed = false,
   hideSacColumn = false,
   showLabourCessColumn = false,
+  showTdsColumn = false,
+  tdsRate = null,
   allowManualAdd = true,
 }: InvoiceLineItemsProps) {
   const activeServices = services.filter((s) => s.status === 'active')
@@ -165,7 +171,8 @@ export function InvoiceLineItems({
     (hideSacColumn ? 0 : 1) +
     1 +
     (showLabourCessColumn ? 1 : 0) +
-    2 +
+    2 + // GST % + GST Amt
+    (showTdsColumn ? 1 : 0) +
     (mode === 'edit' ? 1 : 0)
 
   const serviceColSx = isCompactProjectTable
@@ -174,6 +181,8 @@ export function InvoiceLineItems({
   const amountColSx = isCompactProjectTable
     ? { width: 96, pl: 0.25, pr: 1 }
     : { width: 120 }
+
+  const tdsRateLabel = tdsRate != null ? `${tdsRate}%` : '—'
 
   return (
     <Box>
@@ -217,6 +226,11 @@ export function InvoiceLineItems({
               <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', width: 88 }}>
                 GST %
               </TableCell>
+              {showTdsColumn ? (
+                <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', width: 88 }}>
+                  TDS %
+                </TableCell>
+              ) : null}
               <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', width: 100 }}>
                 GST Amt
               </TableCell>
@@ -253,6 +267,7 @@ export function InvoiceLineItems({
                     </TableCell>
                   ) : null}
                   <TableCell sx={{ fontSize: 12 }}>{row.gstRate}%</TableCell>
+                  {showTdsColumn ? <TableCell sx={{ fontSize: 12 }}>{tdsRateLabel}</TableCell> : null}
                   <TableCell sx={{ fontSize: 12 }}>₹{formatInr(row.gstAmount)}</TableCell>
                 </TableRow>
               ) : (
@@ -309,6 +324,11 @@ export function InvoiceLineItems({
                   <TableCell sx={{ verticalAlign: 'middle' }}>
                     <Badge label={`${row.gstRate}%`} size="sm" color="neutral" variant="soft" />
                   </TableCell>
+                  {showTdsColumn ? (
+                    <TableCell sx={{ verticalAlign: 'middle' }}>
+                      <Badge label={tdsRateLabel} size="sm" color="neutral" variant="soft" />
+                    </TableCell>
+                  ) : null}
                   <TableCell sx={{ fontSize: 12, verticalAlign: 'middle' }}>
                     ₹{formatInr(row.gstAmount)}
                   </TableCell>
@@ -335,6 +355,7 @@ export function InvoiceLineItems({
                 <TableCell sx={{ fontSize: 12, fontWeight: 700 }}>₹{formatInr(baseTotal)}</TableCell>
                 {showLabourCessColumn ? <TableCell>—</TableCell> : null}
                 <TableCell>—</TableCell>
+                {showTdsColumn ? <TableCell>{tdsRateLabel}</TableCell> : null}
                 <TableCell sx={{ fontSize: 12, fontWeight: 700 }}>₹{formatInr(gstTotal)}</TableCell>
               </TableRow>
             )}

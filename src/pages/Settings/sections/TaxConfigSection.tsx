@@ -35,7 +35,6 @@ import {
   requiredText,
   optionalMaxLength,
   requiredRateInput,
-  requiredSelect,
   collectErrors,
   hasErrors,
   firstErrorMessage,
@@ -43,12 +42,12 @@ import {
 import { parseSettingsApiError, clearFieldError } from '@/modules/system-settings/shared/api-errors'
 
 type GSTForm = Omit<GSTRate, 'id'>
-type TDSForm = Omit<TDSSection, 'id' | 'appliesTo'> & { appliesTo: TDSSection['appliesTo'] | '' }
+type TDSForm = Omit<TDSSection, 'id'>
 
 const defaultGSTForm: GSTForm = { slabName: '', rate: 0, description: '', status: 'active' }
-const defaultTDSForm: TDSForm = { section: '', description: '', defaultRate: 0, appliesTo: '', status: 'active' }
+const defaultTDSForm: TDSForm = { section: '', description: '', defaultRate: 0, status: 'active' }
 const GST_DATA_COL_COUNT = 4
-const TDS_DATA_COL_COUNT = 5
+const TDS_DATA_COL_COUNT = 4
 const gstDataColWidth = settingsDataColWidth(GST_DATA_COL_COUNT)
 const tdsDataColWidth = settingsDataColWidth(TDS_DATA_COL_COUNT)
 type GSTFilterOptions = {
@@ -61,7 +60,6 @@ type TDSFilterOptions = {
   sectionCode: ColumnFilterOption[]
   description: ColumnFilterOption[]
   defaultRatePercent: ColumnFilterOption[]
-  appliesTo: ColumnFilterOption[]
   status: ColumnFilterOption[]
 }
 
@@ -112,7 +110,6 @@ export default function TaxConfigSection() {
     sectionCode: [],
     description: [],
     defaultRatePercent: [],
-    appliesTo: [],
     status: [],
   })
   const gstSearch = gstListing.search.trim()
@@ -137,7 +134,6 @@ export default function TaxConfigSection() {
           sectionCode: data.sectionCode ?? [],
           description: data.description ?? [],
           defaultRatePercent: data.defaultRatePercent ?? [],
-          appliesTo: data.appliesTo ?? [],
           status: data.status ?? [],
         })
       })
@@ -166,7 +162,6 @@ export default function TaxConfigSection() {
       sectionCode: tdsListing.filters.sectionCode,
       description: tdsListing.filters.description,
       defaultRatePercent: tdsListing.filters.defaultRatePercent,
-      appliesTo: tdsListing.filters.appliesTo,
       status: tdsListing.filters.status,
       sortBy: tdsSortField,
       sortOrder: tdsSortField ? tdsSortDirection : undefined,
@@ -263,7 +258,6 @@ export default function TaxConfigSection() {
       section: row.section,
       description: row.description,
       defaultRate: row.defaultRate,
-      appliesTo: row.appliesTo,
       status: row.status,
     })
     setTdsRateInput(String(row.defaultRate))
@@ -274,7 +268,6 @@ export default function TaxConfigSection() {
     const next = collectErrors([
       ['section', requiredText(tdsForm.section, 'Section', 50)],
       ['defaultRate', requiredRateInput(tdsRateInput, 'Default Rate')],
-      ['appliesTo', requiredSelect(tdsForm.appliesTo, 'Applies To')],
       ['description', optionalMaxLength(tdsForm.description, 'Description', 500)],
     ])
     setTdsFieldErrors(next)
@@ -286,7 +279,6 @@ export default function TaxConfigSection() {
       section: tdsForm.section.trim(),
       description: tdsForm.description,
       defaultRate: parseRateInput(tdsRateInput),
-      appliesTo: tdsForm.appliesTo as TDSSection['appliesTo'],
       status: tdsForm.status,
     }
     const action = editingTDS
@@ -333,7 +325,6 @@ export default function TaxConfigSection() {
           sectionCode: tdsListing.filters.sectionCode,
           description: tdsListing.filters.description,
           defaultRatePercent: tdsListing.filters.defaultRatePercent,
-          appliesTo: tdsListing.filters.appliesTo,
           status: tdsListing.filters.status,
           sortBy: tdsSortField,
           sortOrder: tdsSortField ? tdsSortDirection : undefined,
@@ -488,7 +479,6 @@ export default function TaxConfigSection() {
               <col style={{ width: tdsDataColWidth }} />
               <col style={{ width: tdsDataColWidth }} />
               <col style={{ width: tdsDataColWidth }} />
-              <col style={{ width: tdsDataColWidth }} />
               <col style={{ width: SETTINGS_TABLE_CELL_ACTION_SX.width }} />
             </colgroup>
             <TableHead>
@@ -527,17 +517,6 @@ export default function TaxConfigSection() {
                   sx={SETTINGS_TABLE_HEADER_CELL_SX}
                 />
                 <FilterableSortHeader
-                  label="Applies To"
-                  field="appliesTo"
-                  sortField={tdsSortField}
-                  sortDirection={tdsSortDirection}
-                  onSort={handleTdsSort}
-                  filterValue={tdsListing.filters.appliesTo ?? ''}
-                  filterOptions={tdsFilterOptions.appliesTo}
-                  onFilter={applyTdsFilter('appliesTo')}
-                  sx={SETTINGS_TABLE_HEADER_CELL_SX}
-                />
-                <FilterableSortHeader
                   label="Status"
                   field="status"
                   sortField={tdsSortField}
@@ -557,7 +536,6 @@ export default function TaxConfigSection() {
                   <TableCell sx={{ ...SETTINGS_TABLE_CELL_SX, fontWeight: 600 }}>{row.section}</TableCell>
                   <SettingsDescriptionCell value={row.description} />
                   <TableCell sx={SETTINGS_TABLE_CELL_SX}>{row.defaultRate}%</TableCell>
-                  <TableCell sx={{ ...SETTINGS_TABLE_CELL_SX, textTransform: 'capitalize' }}>{row.appliesTo}</TableCell>
                   <TableCell sx={SETTINGS_TABLE_CELL_SX}>
                     <StatusColumnToggle
                       active={row.status === 'active'}
@@ -701,28 +679,6 @@ export default function TaxConfigSection() {
             helperText={tdsFieldErrors.defaultRate}
           />
           <Box sx={{ display: 'flex', gap: 2 }}>
-            <TextField
-              select
-              size="small"
-              label="Applies To"
-              required
-              fullWidth
-              value={tdsForm.appliesTo}
-              onChange={e => {
-                setTdsForm(f => ({ ...f, appliesTo: e.target.value as TDSForm['appliesTo'] }))
-                setTdsFieldErrors(errors => clearFieldError(errors, 'appliesTo'))
-              }}
-              sx={{ flex: 1, minWidth: 0 }}
-              error={!!tdsFieldErrors.appliesTo}
-              helperText={tdsFieldErrors.appliesTo}
-            >
-              <MenuItem value="" disabled>
-                Select
-              </MenuItem>
-              <MenuItem value="vendors">Vendors</MenuItem>
-              <MenuItem value="clients">Clients</MenuItem>
-              <MenuItem value="both">Both</MenuItem>
-            </TextField>
             <TextField
               select
               size="small"

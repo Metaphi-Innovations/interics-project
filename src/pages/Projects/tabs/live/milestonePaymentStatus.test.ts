@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import type { ClientInvoice } from '@/slices/live/types'
-import { findClientInvoiceForMilestone } from './milestonePaymentStatus'
+import {
+  findClientInvoiceForMilestone,
+  clientRetentionPaymentStatus,
+} from './milestonePaymentStatus'
 
 function invoice(partial: Partial<ClientInvoice> & Pick<ClientInvoice, 'id'>): ClientInvoice {
   return {
@@ -101,5 +104,86 @@ describe('findClientInvoiceForMilestone', () => {
     })
 
     expect(findClientInvoiceForMilestone([inv], 'cpm-missing', 'master-svc', 'Mobilization')).toBeUndefined()
+  })
+})
+
+describe('clientRetentionPaymentStatus', () => {
+  it('returns Unpaid when parent milestone is billed but retention is not', () => {
+    const parentInv = invoice({
+      id: 'inv-parent',
+      milestoneId: 'cpm-1',
+      milestoneName: 'Mobilization',
+      serviceId: 'svc-1',
+      lineItems: [
+        {
+          id: 'li-1',
+          serviceId: 'svc-1',
+          serviceName: 'Interior Design',
+          sacCode: '998391',
+          amount: 10000,
+          gstRate: 18,
+          gstAmount: 1800,
+          milestoneId: 'cpm-1',
+          lineSource: 'milestone',
+        },
+      ],
+    })
+
+    expect(clientRetentionPaymentStatus([parentInv], 'cpm-1')).toBe('Unpaid')
+  })
+
+  it('returns Billed when retention-specific invoice exists', () => {
+    const retentionInv = invoice({
+      id: 'inv-ret',
+      milestoneId: 'cpm-1-retention',
+      milestoneName: 'Mobilization — Retention',
+      serviceId: 'svc-1',
+      lineItems: [
+        {
+          id: 'li-ret',
+          serviceId: 'svc-1',
+          serviceName: 'Mobilization — Retention',
+          sacCode: '998391',
+          amount: 2000,
+          gstRate: 18,
+          gstAmount: 360,
+          milestoneId: 'cpm-1-retention',
+          lineSource: 'milestone',
+        },
+      ],
+    })
+
+    expect(clientRetentionPaymentStatus([retentionInv], 'cpm-1')).toBe('Billed')
+  })
+
+  it('returns Paid when retention invoice is fully paid', () => {
+    const retentionInv = invoice({
+      id: 'inv-ret-paid',
+      milestoneId: 'cpm-1-retention',
+      milestoneName: 'Mobilization — Retention',
+      serviceId: 'svc-1',
+      status: 'paid',
+      grossAmount: 2360,
+      payments: [{ id: 'p1', amountReceived: 2360, tdsDeducted: 0, netReceived: 2360, date: '2026-08-15', paymentMode: 'bank_transfer' as const, recordedAt: '2026-08-15' }],
+      lineItems: [
+        {
+          id: 'li-ret2',
+          serviceId: 'svc-1',
+          serviceName: 'Mobilization — Retention',
+          sacCode: '998391',
+          amount: 2000,
+          gstRate: 18,
+          gstAmount: 360,
+          milestoneId: 'cpm-1-retention',
+          lineSource: 'milestone',
+        },
+      ],
+    })
+
+    expect(clientRetentionPaymentStatus([retentionInv], 'cpm-1')).toBe('Paid')
+  })
+
+  it('returns Unpaid when no invoices exist', () => {
+    expect(clientRetentionPaymentStatus([], 'cpm-1')).toBe('Unpaid')
   })
 })

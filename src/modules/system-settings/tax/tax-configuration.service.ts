@@ -24,7 +24,6 @@ type TdsApi = {
   sectionCode: string
   description: string | null
   defaultRatePercent: string | number
-  appliesTo: string
   status?: string
   isActive?: boolean
 }
@@ -51,7 +50,6 @@ export type TdsListParams = {
   sectionCode?: string
   description?: string
   defaultRatePercent?: string
-  appliesTo?: string
   status?: string
   sortBy?: string
   sortOrder?: 'asc' | 'desc'
@@ -68,7 +66,6 @@ type TdsFilters = {
   sectionCode?: ColumnFilterOption[]
   description?: ColumnFilterOption[]
   defaultRatePercent?: ColumnFilterOption[]
-  appliesTo?: ColumnFilterOption[]
   status?: ColumnFilterOption[]
 }
 
@@ -83,18 +80,11 @@ function toGstRate(api: GstApi): GSTRate {
 }
 
 function toTdsSection(api: TdsApi): TDSSection {
-  const applies = api.appliesTo?.toLowerCase()
-  const appliesTo: TDSSection['appliesTo'] =
-    applies === 'vendors' || applies === 'clients' || applies === 'both'
-      ? applies
-      : 'both'
-
   return {
     id: api.id,
     section: api.sectionCode,
     description: api.description ?? '',
     defaultRate: Number(api.defaultRatePercent),
-    appliesTo,
     status: toUiStatus(api.isActive ?? api.status),
   }
 }
@@ -113,7 +103,6 @@ function toTdsPayload(data: Omit<TDSSection, 'id'> | Partial<TDSSection>) {
     ...(data.section !== undefined && { sectionCode: data.section }),
     ...(data.description !== undefined && { description: data.description || undefined }),
     ...(data.defaultRate !== undefined && { defaultRatePercent: data.defaultRate }),
-    ...(data.appliesTo !== undefined && { appliesTo: data.appliesTo.toUpperCase() }),
     ...(data.status !== undefined && { status: toApiStatus(data.status) }),
   }
 }
@@ -165,7 +154,6 @@ export const taxConfigurationService = {
       sectionCode: params.sectionCode,
       description: params.description,
       defaultRatePercent: params.defaultRatePercent,
-      appliesTo: params.appliesTo,
       status: params.status,
       sortBy: params.sortBy,
       sortOrder: params.sortOrder,

@@ -1,12 +1,13 @@
-import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import {
-  Alert,
   Box,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
   Divider,
+  MenuItem,
+  Select,
   Stack,
   Table,
   TableBody,
@@ -17,11 +18,10 @@ import {
   Typography,
   Button as MuiButton,
 } from '@mui/material'
-import { Add, Upload } from '@mui/icons-material'
+import { Upload } from '@mui/icons-material'
 import {
   PODocumentLinkField,
 } from '@/components/documents/PODocumentLinkField'
-import { useTheme, alpha } from '@mui/material/styles'
 import { Button, useToast } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { uploadProjectDocumentFile } from '@/api/uploadFileApi'
@@ -36,25 +36,18 @@ import {
 } from '../../../../slices/baseline/thunk'
 import { fetchInvoices } from '../../../../slices/live/thunk'
 import type { ClientInvoice } from '../../../../slices/live/types'
-import { fetchCategories, fetchServices } from '../../../../slices/settings/thunk'
 import type { ClientPO, ClientPOMilestone } from '../../../../slices/baseline/reducer'
 import { formatCurrency } from '../../../../utils/formatters'
 import {
-  clientPOCardServiceOptions,
-  masterCategoryOptions,
-  masterClientPOServiceOptions,
   type ClientPOServiceOption,
 } from './clientPOServiceOptions'
+import { dropdownsApi, type TdsDropdownOption } from '@/api/dropdownsApi'
 import {
-  buildClientPOMilestonePayload,
-  ClientPOMilestoneCardEditor,
-  createClientPOMilestoneCard,
-  groupClientCardsByService,
-  isMilestoneCardConfigured,
-  clientPOCardsFromMilestones,
-  mergeClientPOMilestoneEditsFromCards,
-  type ClientPOMilestoneCard,
-} from './ClientPOMilestoneCards'
+  ClientPOMilestoneEditor,
+  milestonePayloadFromEditor,
+  validateNamedMilestones,
+  applyPoValueToMilestones,
+} from './ClientPOMilestoneEditor'
 import {
   canDeleteClientPO,
   clientPOHasBilledMilestone,
@@ -64,10 +57,10 @@ import {
 } from './poExecutedValueRules'
 import {
   clientMilestonePaymentStatus,
-  clientMilestoneStatusesForCard,
+  clientRetentionPaymentStatus,
+  clientMilestoneIsLocked,
   type MilestonePaymentStatusLabel,
 } from './milestonePaymentStatus'
-import { validateClientPOMilestonePercents } from '@/utils/clientPOMilestones'
 
 const PO_SECTION_TITLE_SX = {
   fontSize: '10px',
@@ -108,100 +101,69 @@ const MILESTONE_STATUS_CELL_SX = {
   verticalAlign: 'middle' as const,
 }
 
-function useClientPOMasterOptions(open: boolean): {
-  categoryOptions: { id: string; label: string }[]
-  serviceOptions: ClientPOServiceOption[]
-  cardServiceOptions: { id: string; label: string; categoryId: string }[]
-} {
-  const dispatch = useAppDispatch()
-  const categories = useAppSelector((s) => s.settings.categories)
-  const services = useAppSelector((s) => s.settings.services)
+function useClientPOServiceOptions(open: boolean): { serviceOptions: ClientPOServiceOption[] } {
+  const [serviceOptions, setServiceOptions] = useState<ClientPOServiceOption[]>([])
 
   useEffect(() => {
+    if (!open) {
+      setServiceOptions([])
+      return
+    }
+
+    let cancelled = false
+    void (async () => {
+      try {
+        const categories = await dropdownsApi.getCategories()
+        const out: ClientPOServiceOption[] = []
+
+        for (const cat of categories) {
+          const services = await dropdownsApi.getServices(cat.value)
+          for (const s of services) {
+            out.push({
+              id: s.value,
+              label: s.label,
+              categoryId: cat.value,
+              categoryName: cat.label,
+            })
+          }
+        }
+
+        out.sort((a, b) => {
+          const catCmp = a.categoryName.localeCompare(b.categoryName)
+          if (catCmp !== 0) return catCmp
+          return a.label.localeCompare(b.label)
+        })
+
+        if (!cancelled) setServiceOptions(out)
+      } catch {
+        if (!cancelled) setServiceOptions([])
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [open])
+
+  return { serviceOptions }
+}
+
+function useTdsOptions(open: boolean): TdsDropdownOption[] {
+  const [options, setOptions] = useState<TdsDropdownOption[]>([])
+  useEffect(() => {
     if (!open) return
-    void dispatch(fetchCategories())
-    void dispatch(fetchServices())
-  }, [dispatch, open])
-
-  const serviceOptions = useMemo(
-    () => masterClientPOServiceOptions(categories, services),
-    [categories, services],
-  )
-  const categoryOptions = useMemo(() => masterCategoryOptions(categories), [categories])
-  const cardServiceOptions = useMemo(
-    () => clientPOCardServiceOptions(serviceOptions),
-    [serviceOptions],
-  )
-
-  return { categoryOptions, serviceOptions, cardServiceOptions }
+    void dropdownsApi.getTdsSections().then(setOptions).catch(() => setOptions([]))
+  }, [open])
+  return options
 }
 
 function isRetentionRow(milestone: ClientPOMilestone): boolean {
   return milestone.kind === 'retention' || milestone.id.startsWith('cli-ret-')
 }
 
-function MilestoneSectionPanel({
-  title,
-  addLabel,
-  onAdd,
-  addDisabled,
-  isEmpty,
-  showAddButton = true,
-  children,
-}: {
-  title: string
-  addLabel: string
-  onAdd: () => void
-  addDisabled?: boolean
-  isEmpty: boolean
-  showAddButton?: boolean
-  children?: ReactNode
-}) {
-  const theme = useTheme()
-
-  const addButton = showAddButton ? (
-    <MuiButton
-      size="small"
-      variant="outlined"
-      startIcon={<Add sx={{ fontSize: 16 }} />}
-      onClick={onAdd}
-      disabled={addDisabled}
-      sx={{ fontSize: 12, alignSelf: 'flex-start' }}
-    >
-      {addLabel}
-    </MuiButton>
-  ) : null
-
-  return (
-    <Box sx={{ mt: 2 }}>
-      <Typography
-        component="span"
-        variant="overline"
-        sx={{ ...PO_SECTION_TITLE_SX, display: 'block', mb: 1 }}
-      >
-        {title}
-      </Typography>
-      {isEmpty ? (
-        addButton ? (
-          <Box
-            sx={{
-              borderRadius: 1,
-              p: 1.5,
-              bgcolor: alpha(theme.palette.text.primary, 0.04),
-              border: `1px solid ${alpha(theme.palette.divider, 0.8)}`,
-            }}
-          >
-            {addButton}
-          </Box>
-        ) : null
-      ) : (
-        <Stack gap={1.5}>
-          {children}
-          {addButton}
-        </Stack>
-      )}
-    </Box>
-  )
+/** Filter out standalone retention rows and keep nested retention. */
+function clientPOMilestonesForEditor(milestones: ClientPOMilestone[]): ClientPOMilestone[] {
+  return milestones.filter((m) => !isRetentionRow(m))
 }
 
 function MilestoneStatusCell({ status }: { status: MilestonePaymentStatusLabel }) {
@@ -310,12 +272,7 @@ function ClientPOMilestonesTable({
                     <MilestoneStatusCell
                       status={
                         m.retention.status ??
-                        clientMilestonePaymentStatus(
-                          projectInvoices,
-                          `${m.id}-retention`,
-                          m.serviceId,
-                          `${m.name} — Retention`,
-                        )
+                        clientRetentionPaymentStatus(projectInvoices, m.id)
                       }
                     />
                   </TableCell>
@@ -343,19 +300,22 @@ export function AddClientPODrawer({ open, onClose, projectId }: AddClientPODrawe
   const dispatch = useAppDispatch()
   const { saving } = useAppSelector((s) => s.baseline)
   const toast = useToast((s) => s.showToast)
-  const { categoryOptions, serviceOptions, cardServiceOptions } = useClientPOMasterOptions(open)
+  const { serviceOptions } = useClientPOServiceOptions(open)
+  const tdsOptions = useTdsOptions(open)
   const [poFormData, setPoFormData] = useState({
     poNumber: '',
     poValue: '',
     executedValue: '',
     file: null as File | null,
+    tdsSectionId: '',
+    tdsRate: null as number | null,
   })
-  const [milestoneCards, setMilestoneCards] = useState<ClientPOMilestoneCard[]>([])
+  const [milestones, setMilestones] = useState<ClientPOMilestone[]>([])
 
   useEffect(() => {
     if (!open) {
-      setPoFormData({ poNumber: '', poValue: '', executedValue: '', file: null })
-      setMilestoneCards([])
+      setPoFormData({ poNumber: '', poValue: '', executedValue: '', file: null, tdsSectionId: '', tdsRate: null })
+      setMilestones([])
     }
   }, [open])
 
@@ -365,46 +325,23 @@ export function AddClientPODrawer({ open, onClose, projectId }: AddClientPODrawe
     : poValueNumber
   const milestoneBaseValue = executedValueNumber
 
-  const hasConfiguredEntries = useMemo(
-    () => milestoneCards.some(isMilestoneCardConfigured),
-    [milestoneCards],
-  )
-
-  const groupedForSave = useMemo(
-    () =>
-      groupClientCardsByService(
-        milestoneCards.filter(isMilestoneCardConfigured),
-      ),
-    [milestoneCards],
-  )
-
   useEffect(() => {
     if (milestoneBaseValue <= 0) return
-    setMilestoneCards((prev) => {
-      let changed = false
-      const next = prev.map((card) => {
-        let cardChanged = false
-        const milestones = card.milestones.map((m) => {
-          const value = Math.round((m.percentage / 100) * milestoneBaseValue)
-          if (m.value === value) return m
-          cardChanged = true
-          return { ...m, value }
-        })
-        let retention = card.retention
-        if (retention) {
-          const amount = Math.round((retention.percentage / 100) * milestoneBaseValue)
-          if (retention.amount !== amount) {
-            cardChanged = true
-            retention = { ...retention, amount }
-          }
-        }
-        if (!cardChanged) return card
-        changed = true
-        return { ...card, milestones, retention }
-      })
-      return changed ? next : prev
-    })
+    setMilestones((prev) => applyPoValueToMilestones(prev, milestoneBaseValue))
   }, [milestoneBaseValue])
+
+  useEffect(() => {
+    if (serviceOptions.length === 0) return
+    const first = serviceOptions[0]
+    setMilestones((prev) =>
+      prev.map((m) => {
+        const keep = serviceOptions.some((o) => o.id === m.serviceId)
+        if (keep) return m
+        if (!first) return m
+        return { ...m, serviceId: first.id, serviceName: first.label }
+      }),
+    )
+  }, [serviceOptions])
 
   const handlePoChange = (field: string) => (e: React.ChangeEvent<HTMLInputElement>) => {
     setPoFormData((prev) => ({ ...prev, [field]: e.target.value }))
@@ -423,26 +360,17 @@ export function AddClientPODrawer({ open, onClose, projectId }: AddClientPODrawe
     })
   }
 
-  const submitDisabled = saving || categoryOptions.length === 0
-  const cardsDisabled = categoryOptions.length === 0
-
   async function handleSubmit() {
     if (!poFormData.poNumber || !poFormData.poValue) {
       toast({ title: 'Please fill in all required fields', variant: 'error' })
       return
     }
-    if (!hasConfiguredEntries || groupedForSave.length === 0) {
-      toast({ title: 'Add at least one milestone entry', variant: 'error' })
+    if (!validateNamedMilestones(milestones, (msg) => toast({ title: msg, variant: 'error' }), true)) {
       return
     }
-
-    const milestonePayload = buildClientPOMilestonePayload(groupedForSave, serviceOptions)
-    const pctValidation = validateClientPOMilestonePercents(milestonePayload)
-    if (!pctValidation.valid) {
-      toast({
-        title: pctValidation.pctMessage ?? 'Milestone percentages must not exceed 100%',
-        variant: 'error',
-      })
+    const milestonePayload = milestonePayloadFromEditor(milestones)
+    if (milestonePayload.length === 0) {
+      toast({ title: 'Add at least one milestone entry', variant: 'error' })
       return
     }
 
@@ -474,6 +402,8 @@ export function AddClientPODrawer({ open, onClose, projectId }: AddClientPODrawe
             fileName,
             uploadedAt,
             milestones: milestonePayload,
+            tdsSectionId: poFormData.tdsSectionId || null,
+            tdsRate: poFormData.tdsRate,
           },
         }),
       ).unwrap()
@@ -498,13 +428,7 @@ export function AddClientPODrawer({ open, onClose, projectId }: AddClientPODrawe
       onSubmit={handleSubmit}
       submitLoading={saving}
       submitLabel="Save PO"
-      submitDisabled={submitDisabled}
     >
-      {categoryOptions.length === 0 ? (
-        <Alert severity="warning" sx={{ mb: 2, fontSize: 12 }}>
-          Add active categories and services in Settings before adding PO milestones.
-        </Alert>
-      ) : null}
       <Box sx={{ mb: 0 }}>
         <Stack
           direction="row"
@@ -578,40 +502,43 @@ export function AddClientPODrawer({ open, onClose, projectId }: AddClientPODrawe
               placeholder="0"
             />
           </FormField>
+          <FormField label="TDS Section">
+            <Select
+              fullWidth
+              size="small"
+              displayEmpty
+              value={poFormData.tdsSectionId}
+              onChange={(e) => {
+                const id = e.target.value
+                const opt = tdsOptions.find((o) => o.value === id)
+                setPoFormData((prev) => ({
+                  ...prev,
+                  tdsSectionId: id,
+                  tdsRate: opt?.rate ?? null,
+                }))
+              }}
+              sx={{ fontSize: 12 }}
+            >
+              <MenuItem value="" sx={{ fontSize: 12 }}>None</MenuItem>
+              {tdsOptions.map((o) => (
+                <MenuItem key={o.value} value={o.value} sx={{ fontSize: 12 }}>
+                  {Number.isFinite((o as any).rate) ? `${(o as any).rate}%` : o.label}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormField>
         </Box>
       </Box>
 
       <Divider sx={{ my: 2 }} />
 
-      <MilestoneSectionPanel
-        title="Milestones"
-        addLabel="Add Milestone"
-        onAdd={() =>
-          setMilestoneCards((prev) => [
-            ...prev,
-            createClientPOMilestoneCard(categoryOptions, cardServiceOptions),
-          ])
-        }
-        addDisabled={cardsDisabled}
-        isEmpty={milestoneCards.length === 0}
-      >
-        {milestoneCards.map((card) => (
-          <ClientPOMilestoneCardEditor
-            key={card.id}
-            card={card}
-            categoryOptions={categoryOptions}
-            serviceOptions={cardServiceOptions}
-            milestoneBaseValue={milestoneBaseValue}
-            includeRetention
-            onChange={(patch) =>
-              setMilestoneCards((prev) =>
-                prev.map((c) => (c.id === card.id ? { ...c, ...patch } : c)),
-              )
-            }
-            onRemove={() => setMilestoneCards((prev) => prev.filter((c) => c.id !== card.id))}
-          />
-        ))}
-      </MilestoneSectionPanel>
+      <ClientPOMilestoneEditor
+        poValue={milestoneBaseValue}
+        milestones={milestones}
+        onChange={setMilestones}
+        serviceOptions={serviceOptions}
+        disabled={serviceOptions.length === 0}
+      />
     </DrawerForm>
   )
 }
@@ -761,18 +688,46 @@ export function EditClientPODrawer({
   const { saving } = useAppSelector((s) => s.baseline)
   const toast = useToast((s) => s.showToast)
   const { po, loadingPo, projectInvoices } = useClientPODetail(open, projectId, poId, poSeed)
-  const { categoryOptions, serviceOptions, cardServiceOptions } = useClientPOMasterOptions(open)
+  const { serviceOptions } = useClientPOServiceOptions(open)
+  const tdsOptions = useTdsOptions(open)
 
   const [poNumber, setPoNumber] = useState('')
   const [poValue, setPoValue] = useState('')
   const [executedValue, setExecutedValue] = useState('')
-  const [milestoneCards, setMilestoneCards] = useState<ClientPOMilestoneCard[]>([])
+  const [milestones, setMilestones] = useState<ClientPOMilestone[]>([])
   const [newFile, setNewFile] = useState<File | null>(null)
+  const [tdsSectionId, setTdsSectionId] = useState('')
+  const [tdsRate, setTdsRate] = useState<number | null>(null)
 
   const hasBilled = useMemo(
     () => (po ? clientPOHasBilledMilestone(po.milestones ?? [], projectInvoices) : false),
     [po, projectInvoices],
   )
+
+  const lockedMilestoneIds = useMemo(() => {
+    if (!po) return new Set<string>()
+    const ids = new Set<string>()
+    for (const m of po.milestones ?? []) {
+      if (clientMilestoneIsLocked(projectInvoices, m.id, m.serviceId, m.name)) {
+        ids.add(m.id)
+      }
+    }
+    return ids
+  }, [po, projectInvoices])
+
+  const lockedRetentionIds = useMemo(() => {
+    if (!po) return new Set<string>()
+    const ids = new Set<string>()
+    for (const m of po.milestones ?? []) {
+      if (isRetentionRow(m)) continue
+      if (!m.retention) continue
+      const retStatus = clientRetentionPaymentStatus(projectInvoices, m.id)
+      if (retStatus === 'Paid' || retStatus === 'Billed') {
+        ids.add(m.id)
+      }
+    }
+    return ids
+  }, [po, projectInvoices])
 
   useEffect(() => {
     if (!open || !po) return
@@ -780,29 +735,29 @@ export function EditClientPODrawer({
     setPoValue(String(po.poValue))
     setExecutedValue(String(effectiveExecutedValue(po)))
     setNewFile(null)
-    const { milestoneCards: cards } = clientPOCardsFromMilestones(po.milestones ?? [], serviceOptions)
-    setMilestoneCards(cards)
-  }, [open, po?.id, po, serviceOptions])
+    setMilestones(clientPOMilestonesForEditor(po.milestones ?? []))
+    setTdsSectionId(po.tdsSectionId ?? '')
+    setTdsRate(po.tdsRate ?? null)
+  }, [open, po?.id, po])
+
+  useEffect(() => {
+    if (serviceOptions.length === 0) return
+    const first = serviceOptions[0]
+    setMilestones((prev) =>
+      prev.map((m) => {
+        if (lockedMilestoneIds.has(m.id)) return m
+        const keep = serviceOptions.some((o) => o.id === m.serviceId)
+        if (keep) return m
+        if (!first) return m
+        return { ...m, serviceId: first.id, serviceName: first.label }
+      }),
+    )
+  }, [serviceOptions, lockedMilestoneIds])
 
   const milestoneBaseValue = useMemo(() => {
     const n = Number(executedValue)
     return Number.isFinite(n) && n > 0 ? n : po ? effectiveExecutedValue(po) : 0
   }, [executedValue, po])
-
-  const previewMilestones = useMemo(() => {
-    if (!po) return []
-    const base = recalculateClientPOMilestonesForExecutedValue(
-      po.milestones ?? [],
-      milestoneBaseValue,
-      projectInvoices,
-    )
-    return mergeClientPOMilestoneEditsFromCards(base, milestoneCards, projectInvoices)
-  }, [po, milestoneBaseValue, projectInvoices, milestoneCards])
-
-  const groupedForSave = useMemo(
-    () => groupClientCardsByService(milestoneCards.filter(isMilestoneCardConfigured)),
-    [milestoneCards],
-  )
 
   async function handleSave() {
     if (!po) return
@@ -816,26 +771,15 @@ export function EditClientPODrawer({
       toast({ title: 'Enter a valid executed value', variant: 'error' })
       return
     }
-    if (groupedForSave.length === 0) {
-      toast({ title: 'Add at least one milestone entry', variant: 'error' })
+    if (!validateNamedMilestones(milestones, (msg) => toast({ title: msg, variant: 'error' }), true)) {
       return
     }
 
-    const milestonePayload = buildClientPOMilestonePayload(groupedForSave, serviceOptions)
-    const pctValidation = validateClientPOMilestonePercents(milestonePayload)
-    if (!pctValidation.valid) {
-      toast({ title: pctValidation.pctMessage ?? 'Percentages must not exceed 100%', variant: 'error' })
-      return
-    }
+    const milestonePayload = milestonePayloadFromEditor(milestones)
 
     const recalculated = recalculateClientPOMilestonesForExecutedValue(
-      po.milestones ?? [],
+      milestonePayload,
       executedValueNum,
-      projectInvoices,
-    )
-    const nextMilestones = mergeClientPOMilestoneEditsFromCards(
-      recalculated,
-      milestoneCards,
       projectInvoices,
     )
 
@@ -853,10 +797,12 @@ export function EditClientPODrawer({
       poNumber: poNumber.trim(),
       poValue: hasBilled ? po.poValue : poValueNum,
       executedValue: executedValueNum,
-      milestones: nextMilestones,
+      milestones: recalculated,
       documentUrl,
       fileName,
       uploadedAt,
+      tdsSectionId: tdsSectionId || null,
+      tdsRate,
     }
 
     const merged = mergeClientPOUpdate(po, body, { invoices: projectInvoices })
@@ -925,6 +871,28 @@ export function EditClientPODrawer({
                 onChange={(e) => setExecutedValue(e.target.value)}
               />
             </FormField>
+            <FormField label="TDS Section">
+              <Select
+                fullWidth
+                size="small"
+                displayEmpty
+                value={tdsSectionId}
+                onChange={(e) => {
+                  const id = e.target.value
+                  const opt = tdsOptions.find((o) => o.value === id)
+                  setTdsSectionId(id)
+                  setTdsRate(opt?.rate ?? null)
+                }}
+                sx={{ fontSize: 12 }}
+              >
+                <MenuItem value="" sx={{ fontSize: 12 }}>None</MenuItem>
+                {tdsOptions.map((o) => (
+                  <MenuItem key={o.value} value={o.value} sx={{ fontSize: 12 }}>
+                    {Number.isFinite((o as any).rate) ? `${(o as any).rate}%` : o.label}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormField>
             <FormField label="PO Document">
               <MuiButton variant="outlined" component="label" size="small" startIcon={<Upload />} sx={{ fontSize: 12 }}>
                 {newFile ? newFile.name : po.fileName ? 'Replace document' : 'Upload document'}
@@ -933,45 +901,16 @@ export function EditClientPODrawer({
             </FormField>
           </Box>
           <Divider />
-          <MilestoneSectionPanel
-            title="Milestones"
-            addLabel="Add Milestone"
-            onAdd={() =>
-              setMilestoneCards((prev) => [
-                ...prev,
-                createClientPOMilestoneCard(categoryOptions, cardServiceOptions),
-              ])
-            }
-            addDisabled={hasBilled}
-            isEmpty={milestoneCards.length === 0}
-          >
-            {milestoneCards.map((card) => {
-              const { milestoneStatuses, retentionStatus } = clientMilestoneStatusesForCard(
-                previewMilestones,
-                card.serviceId,
-                projectInvoices,
-              )
-              return (
-                <ClientPOMilestoneCardEditor
-                  key={card.id}
-                  card={card}
-                  categoryOptions={categoryOptions}
-                  serviceOptions={cardServiceOptions}
-                  milestoneBaseValue={milestoneBaseValue}
-                  includeRetention
-                  structureLocked={hasBilled}
-                  milestoneStatuses={milestoneStatuses}
-                  retentionStatus={retentionStatus}
-                  onChange={(patch) =>
-                    setMilestoneCards((prev) =>
-                      prev.map((c) => (c.id === card.id ? { ...c, ...patch } : c)),
-                    )
-                  }
-                  onRemove={() => setMilestoneCards((prev) => prev.filter((c) => c.id !== card.id))}
-                />
-              )
-            })}
-          </MilestoneSectionPanel>
+
+          <ClientPOMilestoneEditor
+            poValue={milestoneBaseValue}
+            milestones={milestones}
+            onChange={setMilestones}
+            serviceOptions={serviceOptions}
+            lockedMilestoneIds={lockedMilestoneIds}
+            lockedRetentionIds={lockedRetentionIds}
+            disabled={serviceOptions.length === 0}
+          />
         </Stack>
       ) : null}
     </DrawerForm>

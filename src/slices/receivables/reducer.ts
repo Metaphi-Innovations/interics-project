@@ -66,6 +66,7 @@ export interface Invoice {
   gstAmount: number
   totalAmount: number
   tdsDeducted: number
+  tdsRate?: number | null
   totalReceived: number
   balance: number
   status: InvoiceStatus

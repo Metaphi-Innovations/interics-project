@@ -12,7 +12,6 @@ import {
   roundMoney,
   totalReceivedBank,
   totalSettledFromPayments,
-  totalTdsFromPayments,
 } from '@/pages/Projects/tabs/live/clientInvoiceUtils'
 
 const PAYMENT_MODES: { label: string; value: ClientInvoicePaymentMode }[] = [
@@ -59,7 +58,6 @@ export function RecordClientInvoicePaymentModal({
   const tdsLive = tdsRaw === '' ? 0 : Number(tdsDeducted)
 
   const priorBank = invoice ? totalReceivedBank(invoice.payments) : 0
-  const priorTds = invoice ? totalTdsFromPayments(invoice.payments) : 0
   const thisSettlement =
     (Number.isFinite(amtLive) ? amtLive : 0) + (Number.isFinite(tdsLive) ? tdsLive : 0)
   const totalSettledProjected = roundMoney(priorSettled + thisSettlement)
@@ -196,7 +194,7 @@ export function RecordClientInvoicePaymentModal({
               Invoice Total
             </Typography>
             <Typography variant="body2" fontWeight={600}>
-              ₹{formatInr(invoice.grossAmount)}
+              ₹{formatInr(bal)}
             </Typography>
           </Stack>
           <Stack direction="row" justifyContent="space-between">
@@ -205,14 +203,6 @@ export function RecordClientInvoicePaymentModal({
             </Typography>
             <Typography variant="body2" fontWeight={600} sx={{ color: tokens.color.success[600] }}>
               ₹{formatInr(priorBank)}
-            </Typography>
-          </Stack>
-          <Stack direction="row" justifyContent="space-between">
-            <Typography variant="body2" color="text.secondary">
-              Previously deducted TDS
-            </Typography>
-            <Typography variant="body2" fontWeight={600}>
-              ₹{formatInr(priorTds)}
             </Typography>
           </Stack>
           <Stack direction="row" justifyContent="space-between">

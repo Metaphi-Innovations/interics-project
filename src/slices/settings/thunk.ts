@@ -52,7 +52,6 @@ type TDSFetchOpts =
       sectionCode?: string
       description?: string
       defaultRatePercent?: string
-      appliesTo?: string
       status?: string
       sortBy?: string
       sortOrder?: 'asc' | 'desc'
