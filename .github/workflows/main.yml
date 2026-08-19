@@ -1,4 +1,4 @@
-name: Frontend Deploy - interics.metaphi.in
+name: Frontend Deploy - interics.metaphi.in#
 
 on:
   push:
