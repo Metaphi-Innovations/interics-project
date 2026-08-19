@@ -1,0 +1,80 @@
+name: Frontend Deploy - interics.dev.metaphi.in
+
+on:
+  push:
+    branches:
+      - staging
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+
+    env:
+      PATH: /root/.nvm/versions/node/v22.21.1/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Verify runner user
+        run: |
+          whoami
+          id
+          echo "HOME=$HOME"
+
+      - name: Verify Node and npm
+        run: |
+          node -v
+          npm -v
+
+      - name: Ensure deployment directory exists
+        run: |
+          mkdir -p /var/www/interics.dev.metaphi.in
+
+      - name: Copy files to deployment directory
+        run: |
+          rsync -av --delete \
+            --exclude='.git' \
+            --exclude='node_modules' \
+            --exclude='.env' \
+            ./ /var/www/interics.dev.metaphi.in/
+
+      - name: Install dependencies
+        working-directory: /var/www/interics.dev.metaphi.in
+        run: |
+          npm install
+
+      - name: Build application
+        working-directory: /var/www/interics.dev.metaphi.in
+        run: |
+          npm run build
+      - name: Create .htaccess
+        working-directory: /var/www/interics.dev.metaphi.in
+        run: |
+          cat > dist/.htaccess <<'EOF'
+          <IfModule mod_rewrite.c>
+              RewriteEngine On
+
+              # Don't rewrite existing files or directories
+              RewriteCond %{REQUEST_FILENAME} -f [OR]
+              RewriteCond %{REQUEST_FILENAME} -d
+              RewriteRule ^ - [L]
+
+              # Redirect all other routes to index.html
+              RewriteRule ^ index.html [L]
+          </IfModule>
+          EOF
+
+          echo "Created dist/.htaccess:"
+          cat dist/.htaccess    
+
+      - name: Verify build
+        working-directory: /var/www/interics.dev.metaphi.in
+        run: |
+          if [ -d "dist" ]; then
+            echo "Build successful. dist directory found."
+            ls -lah dist
+          else
+            echo "ERROR: dist directory not found after build."
+            exit 1
+          fi
