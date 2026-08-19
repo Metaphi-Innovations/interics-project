@@ -29,6 +29,8 @@ export interface GlobalGstSummaryByProject {
   clientName: string
   gstAmount: number
   percentage: number
+  invoiceCount: number
+  baseAmount: number
 }
 
 export interface GlobalGstSummaryByMonth {
@@ -113,3 +115,140 @@ export interface GlobalTdsResponse {
 
 /** Global POST /api/expenses */
 export type CreateExpenseBody = Omit<Expense, 'id'> & { projectId: string }
+
+export type FillingSummaryListType = 'gst' | 'client_tds' | 'vendor_tds'
+
+export interface FillingSummaryKpis {
+  totalGst: number
+  gstThisMonth: number
+  gstInvoiceCount: number
+  clientTdsTotal: number
+  vendorTdsTotal: number
+  tdsTotal: number
+}
+
+export interface FillingSummaryChartPoint {
+  period: string
+  gst: number
+  tds: number
+}
+
+export interface FillingSummaryPeriodRow {
+  month: number
+  year: number
+  period: string
+  gst: number
+  clientTds: number
+  vendorTds: number
+}
+
+export interface FillingSummaryPeriodBreakdown {
+  projectId?: string
+  projectName?: string
+  periods: FillingSummaryPeriodRow[]
+}
+
+export type FillingSummaryGstEntry = GlobalGstEntry
+export type FillingSummaryClientTdsEntry = GlobalTdsClientEntry
+export type FillingSummaryVendorTdsEntry = GlobalTdsVendorEntry
+
+export interface FillingSummaryListParams {
+  type: FillingSummaryListType
+  projectId?: string
+  page?: number
+  limit?: number
+  search?: string
+  sortBy?: string
+  sortOrder?: 'asc' | 'desc'
+}
+
+export type GstListType = 'invoice' | 'project' | 'month'
+
+export interface GstSummary {
+  totalGst: number
+  thisMonth: number
+  invoiceCount: number
+}
+
+export interface GstChartPoint {
+  period: string
+  gst: number
+}
+
+export interface GstPeriodBreakdown {
+  byProject: Array<{
+    projectId: string
+    projectName: string
+    gstAmount: number
+    percentage: number
+  }>
+  fy: {
+    label: string
+    gstTotal: number
+  }
+}
+
+export interface GstProjectRow {
+  projectId: string
+  projectName: string
+  clientName: string
+  gstAmount: number
+  percentage: number
+  invoiceCount: number
+  baseAmount: number
+}
+
+export interface GstMonthRow {
+  month: number
+  year: number
+  gstAmount: number
+  invoiceCount: number
+  baseAmount: number
+  period: string
+}
+
+export interface GstListParams {
+  type: GstListType
+  projectId?: string
+  page?: number
+  limit?: number
+  search?: string
+  sortBy?: string
+  sortOrder?: 'asc' | 'desc'
+}
+
+export type TdsListType = 'client' | 'vendor'
+
+export interface TdsSummary {
+  clientTdsTotal: number
+  vendorTdsTotal: number
+  total: number
+}
+
+export interface TdsChartPoint {
+  period: string
+  clientTds: number
+  vendorTds: number
+}
+
+export interface TdsPeriodBreakdown {
+  clientTdsTotal: number
+  vendorTdsTotal: number
+  total: number
+  fy: {
+    label: string
+    clientTds: number
+    vendorTds: number
+    total: number
+  }
+}
+
+export interface TdsListParams {
+  type: TdsListType
+  projectId?: string
+  page?: number
+  limit?: number
+  search?: string
+  sortBy?: string
+  sortOrder?: 'asc' | 'desc'
+}

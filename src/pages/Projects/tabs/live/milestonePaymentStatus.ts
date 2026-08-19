@@ -74,7 +74,7 @@ export function findClientInvoiceForMilestone(
   )
 }
 
-export type MilestonePaymentStatusLabel = 'Paid' | 'Unpaid'
+export type MilestonePaymentStatusLabel = 'Paid' | 'Unpaid' | 'Billed'
 
 function isClientRetentionMilestone(milestone: ClientPOMilestone): boolean {
   return (
@@ -82,6 +82,70 @@ function isClientRetentionMilestone(milestone: ClientPOMilestone): boolean {
     milestone.id.startsWith('cli-ret-') ||
     milestone.name.trim().toLowerCase() === 'retention'
   )
+}
+
+/** Any covering invoice (draft or tax) — not necessarily fully paid. */
+export function clientMilestoneIsBilled(
+  invoices: ClientInvoice[],
+  milestoneId: string,
+  serviceId: string,
+  milestoneName?: string,
+): boolean {
+  return Boolean(findClientInvoiceForMilestone(invoices, milestoneId, serviceId, milestoneName))
+}
+
+export function vendorMilestoneIsBilled(
+  invoices: VendorInvoice[],
+  milestoneId: string,
+): boolean {
+  return invoices.some(
+    (inv) =>
+      inv.milestoneId === milestoneId ||
+      (inv.lineItems ?? []).some((li) => li.milestoneId === milestoneId),
+  )
+}
+
+export function clientMilestonePaymentStatus(
+  invoices: ClientInvoice[],
+  milestoneId: string,
+  serviceId: string,
+  milestoneName?: string,
+): MilestonePaymentStatusLabel {
+  const inv = findClientInvoiceForMilestone(invoices, milestoneId, serviceId, milestoneName)
+  if (!inv) return 'Unpaid'
+  return isInvoiceFullyPaid(inv) ? 'Paid' : 'Billed'
+}
+
+export function vendorMilestonePaymentStatus(
+  invoices: VendorInvoice[],
+  milestoneId: string,
+): MilestonePaymentStatusLabel {
+  const inv = invoices.find(
+    (i) =>
+      i.milestoneId === milestoneId ||
+      (i.lineItems ?? []).some((li) => li.milestoneId === milestoneId),
+  )
+  if (!inv) return 'Unpaid'
+  return inv.status === 'paid' ? 'Paid' : 'Billed'
+}
+
+export function clientMilestoneIsLocked(
+  invoices: ClientInvoice[],
+  milestoneId: string,
+  serviceId: string,
+  milestoneName?: string,
+): boolean {
+  const status = clientMilestonePaymentStatus(invoices, milestoneId, serviceId, milestoneName)
+  return status === 'Paid' || status === 'Billed'
+}
+
+export function vendorMilestoneIsLocked(
+  invoices: VendorInvoice[],
+  milestoneId: string,
+  milestoneStatus?: string,
+): boolean {
+  if (milestoneStatus === 'Paid') return true
+  return vendorMilestoneIsBilled(invoices, milestoneId)
 }
 
 export function clientMilestoneStatusesForCard(
@@ -111,24 +175,4 @@ export function clientMilestoneStatusesForCard(
   }
 
   return { milestoneStatuses, retentionStatus }
-}
-
-export function clientMilestonePaymentStatus(
-  invoices: ClientInvoice[],
-  milestoneId: string,
-  serviceId: string,
-  milestoneName?: string,
-): MilestonePaymentStatusLabel {
-  const inv = findClientInvoiceForMilestone(invoices, milestoneId, serviceId, milestoneName)
-  if (!inv) return 'Unpaid'
-  return isInvoiceFullyPaid(inv) ? 'Paid' : 'Unpaid'
-}
-
-export function vendorMilestonePaymentStatus(
-  invoices: VendorInvoice[],
-  milestoneId: string,
-): MilestonePaymentStatusLabel {
-  const inv = invoices.find((i) => i.milestoneId === milestoneId)
-  if (!inv) return 'Unpaid'
-  return inv.status === 'paid' ? 'Paid' : 'Unpaid'
 }

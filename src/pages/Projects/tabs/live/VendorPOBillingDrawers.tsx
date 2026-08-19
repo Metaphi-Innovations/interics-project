@@ -19,12 +19,8 @@ import {
   Button as MuiButton,
 } from '@mui/material'
 import { Upload } from '@mui/icons-material'
-import {
-  PODocumentLinkField,
-  poDocumentOpenUrl,
-} from '@/components/documents/PODocumentLinkField'
+import { PODocumentLinkField } from '@/components/documents/PODocumentLinkField'
 import { parseSettingsApiError } from '@/modules/system-settings/shared/api-errors'
-import { READONLY_DISABLED_TEXTFIELD_SX } from './readOnlyFieldStyles'
 import { Button, Checkbox, DatePicker, dateFromIso, isoFromDate, useToast } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { uploadProjectDocumentFile } from '@/api/uploadFileApi'
@@ -44,15 +40,17 @@ import { formatFullAddress } from '../../../workspace/recordDetailTabUtils'
 import { formatCurrency, formatDate } from '../../../../utils/formatters'
 import type { VendorOption } from './vendorPOHelpers'
 import {
-  buildVendorPOExecutedValueUpdatePayload,
-  canUpdateExecutedValue,
+  canDeleteVendorPO,
   effectiveExecutedValue,
+  mergeVendorPOUpdate,
   recalculateVendorPOMilestonesForExecutedValue,
+  vendorPOHasBilledMilestone,
 } from './poExecutedValueRules'
 import {
   vendorMilestonePaymentStatus,
   type MilestonePaymentStatusLabel,
 } from './milestonePaymentStatus'
+import { validateVendorMilestonePercents } from '@/utils/vendorMilestones'
 import {
   resolveVendorPOMilestoneKind,
   vendorPOCategoryLabel,
@@ -61,6 +59,7 @@ import {
 import {
   VendorPOMilestoneEditor,
   buildVendorPOMilestonePayload,
+  buildVendorPOMilestonePayloadForUpdate,
   vendorPOMilestoneEditorStateFromPo,
   type VendorPOMilestoneRow,
   type VendorPORetentionRow,
@@ -121,7 +120,8 @@ function MilestoneStatusCell({ status }: { status: MilestonePaymentStatusLabel }
       sx={{
         fontSize: 12,
         fontWeight: 600,
-        color: status === 'Paid' ? 'success.main' : 'text.secondary',
+        color:
+          status === 'Paid' ? 'success.main' : status === 'Billed' ? 'warning.main' : 'text.secondary',
       }}
     >
       {status}
@@ -497,6 +497,30 @@ export function AddVendorPODrawer({
       }
     }
     const milestonePayload = buildVendorPOMilestonePayload(milestones, retention)
+    const pctValidation = validateVendorMilestonePercents({
+      id: '',
+      vendorId: form.vendorId,
+      vendorName: '',
+      value: poValueNumber,
+      percentage: 0,
+      isMeasurable: false,
+      milestones: milestones.filter((m) => m.name.trim()).map((m) => ({
+        id: m.id,
+        name: m.name,
+        percentage: m.percentage,
+        value: m.value,
+      })),
+      retention: retention
+        ? { percentage: retention.percentage, amount: retention.amount }
+        : undefined,
+    })
+    if (!pctValidation.valid) {
+      toast({
+        title: pctValidation.pctMessage ?? pctValidation.structureMessage ?? 'Percentages must not exceed 100%',
+        variant: 'error',
+      })
+      return
+    }
     const link = offerLinkRef.current
     const linkedIds = link?.serviceIds?.length ? link.serviceIds : undefined
     try {
@@ -711,7 +735,7 @@ export function AddVendorPODrawer({
   )
 }
 
-interface ViewVendorPODrawerProps {
+interface VendorPODrawerBaseProps {
   open: boolean
   onClose: () => void
   projectId: string
@@ -719,29 +743,20 @@ interface ViewVendorPODrawerProps {
   baseline?: Baseline | null
 }
 
-export function ViewVendorPODrawer({
-  open,
-  onClose,
-  projectId,
-  po,
-  baseline = null,
-}: ViewVendorPODrawerProps) {
+function useVendorPODetail(
+  open: boolean,
+  projectId: string,
+  poSeed: VendorPO | null,
+  baseline: Baseline | null,
+) {
   const dispatch = useAppDispatch()
-  const { saving, vendorPOs } = useAppSelector((s) => s.baseline)
+  const { vendorPOs } = useAppSelector((s) => s.baseline)
   const { vendorInvoices } = useAppSelector((s) => s.live)
   const vendorItems = useAppSelector((s) => s.vendors.items ?? [])
-  const toast = useToast((s) => s.showToast)
 
   const resolvedPo = useMemo(
-    () => (po ? vendorPOs.find((p) => p.id === po.id) ?? po : null),
-    [po, vendorPOs],
-  )
-  const [updatingExecutedValue, setUpdatingExecutedValue] = useState(false)
-  const [executedValueDraft, setExecutedValueDraft] = useState('')
-  const [deleteOpen, setDeleteOpen] = useState(false)
-  const [milestoneOverrides, setMilestoneOverrides] = useState<VendorPOMilestoneRow[] | null>(null)
-  const [retentionOverride, setRetentionOverride] = useState<VendorPORetentionRow | null | undefined>(
-    undefined,
+    () => (poSeed ? vendorPOs.find((p) => p.id === poSeed.id) ?? poSeed : null),
+    [poSeed, vendorPOs],
   )
 
   const projectVendorInvoices = useMemo(
@@ -793,155 +808,32 @@ export function ViewVendorPODrawer({
     }
   }, [open, projectId, dispatch])
 
-  useEffect(() => {
-    if (!open || !resolvedPo) {
-      setUpdatingExecutedValue(false)
-      setDeleteOpen(false)
-      setMilestoneOverrides(null)
-      setRetentionOverride(undefined)
-      return
-    }
-    setExecutedValueDraft(String(effectiveExecutedValue(resolvedPo)))
-  }, [open, resolvedPo?.id])
-
-  useEffect(() => {
-    setMilestoneOverrides(null)
-    setRetentionOverride(undefined)
-  }, [updatingExecutedValue, executedValueDraft, resolvedPo?.id])
-
-  const recalculatedEditorState = useMemo(() => {
-    if (!updatingExecutedValue || !resolvedPo) {
-      return { milestones: [] as VendorPOMilestoneRow[], retention: null as VendorPORetentionRow | null }
-    }
-    const nextValue = Number(executedValueDraft)
-    const milestones =
-      !Number.isFinite(nextValue) || nextValue <= 0
-        ? resolvedPo.milestones
-        : recalculateVendorPOMilestonesForExecutedValue(
-            resolvedPo.milestones,
-            nextValue,
-            projectVendorInvoices,
-          )
-    return vendorPOMilestoneEditorStateFromPo({ milestones })
-  }, [updatingExecutedValue, executedValueDraft, resolvedPo, projectVendorInvoices])
-
-  const editMilestones = milestoneOverrides ?? recalculatedEditorState.milestones
-  const editRetention =
-    retentionOverride === undefined ? recalculatedEditorState.retention : retentionOverride
-
-  const editMilestoneStatuses = useMemo(() => {
-    const statuses: Record<string, MilestonePaymentStatusLabel> = {}
-    if (!resolvedPo) return statuses
-    for (const m of resolvedPo.milestones) {
-      const kind = m.kind ?? (m.name.trim().toLowerCase() === 'retention' ? 'retention' : 'regular')
-      if (kind === 'retention') continue
-      statuses[m.id] =
-        m.status === 'Paid' || vendorMilestonePaymentStatus(projectVendorInvoices, m.id) === 'Paid'
-          ? 'Paid'
-          : 'Unpaid'
-    }
-    return statuses
-  }, [resolvedPo, projectVendorInvoices])
-
-  const editRetentionStatus = useMemo((): MilestonePaymentStatusLabel | undefined => {
-    if (!resolvedPo) return undefined
-    const retention = resolvedPo.milestones.find(
-      (m) => m.kind === 'retention' || m.name.trim().toLowerCase() === 'retention',
-    )
-    if (!retention) return undefined
-    return retention.status === 'Paid' ||
-      vendorMilestonePaymentStatus(projectVendorInvoices, retention.id) === 'Paid'
-      ? 'Paid'
-      : 'Unpaid'
-  }, [resolvedPo, projectVendorInvoices])
-
-  function resetExecutedValueEdit() {
-    if (!resolvedPo) return
-    setExecutedValueDraft(String(effectiveExecutedValue(resolvedPo)))
-    setUpdatingExecutedValue(false)
-    setMilestoneOverrides(null)
-    setRetentionOverride(undefined)
+  return {
+    resolvedPo,
+    projectVendorInvoices,
+    serviceLabel,
+    categoryLabel,
+    vendorAddress,
+    vendorShippingAddress,
   }
+}
 
-  function mergeVendorMilestoneEdits(
-    base: import('@/slices/baseline/reducer').VendorPOMilestone[],
-  ): import('@/slices/baseline/reducer').VendorPOMilestone[] {
-    const editsById = new Map(editMilestones.map((m) => [m.id, m]))
-    return base.map((m) => {
-      const kind = m.kind ?? (m.name.trim().toLowerCase() === 'retention' ? 'retention' : 'regular')
-      const isPaid =
-        m.status === 'Paid' || vendorMilestonePaymentStatus(projectVendorInvoices, m.id) === 'Paid'
-      if (isPaid) return m
-      if (kind === 'retention') {
-        if (!editRetention) return m
-        return {
-          ...m,
-          percentage: editRetention.percentage,
-          value: editRetention.amount,
-        }
-      }
-      const edit = editsById.get(m.id)
-      if (!edit) return m
-      return {
-        ...m,
-        percentage: edit.percentage,
-        value: edit.value,
-      }
-    })
-  }
-
-  async function handleSaveExecutedValue() {
-    if (!resolvedPo) return
-    if (!canUpdateExecutedValue(resolvedPo)) {
-      toast({ title: 'Executed value can no longer be updated', variant: 'error' })
-      return
-    }
-    const nextValue = Number(executedValueDraft)
-    if (!Number.isFinite(nextValue) || nextValue <= 0) {
-      toast({ title: 'Enter a valid executed value', variant: 'error' })
-      return
-    }
-    try {
-      const recalculated = recalculateVendorPOMilestonesForExecutedValue(
-        resolvedPo.milestones,
-        nextValue,
-        projectVendorInvoices,
-      )
-      const nextMilestones = mergeVendorMilestoneEdits(recalculated)
-      await dispatch(
-        updateVendorPO({
-          projectId,
-          poId: resolvedPo.id,
-          data: buildVendorPOExecutedValueUpdatePayload(nextValue, nextMilestones),
-        }),
-      ).unwrap()
-      await dispatch(fetchVendorPOs(projectId)).unwrap()
-      toast({ title: 'Executed value updated', variant: 'success' })
-      setUpdatingExecutedValue(false)
-      setMilestoneOverrides(null)
-      setRetentionOverride(undefined)
-    } catch (err) {
-      toast({
-        title: typeof err === 'string' ? err : 'Failed to update executed value',
-        variant: 'error',
-      })
-    }
-  }
-
-  async function handleDelete() {
-    if (!resolvedPo) return
-    try {
-      await dispatch(deleteVendorPO({ projectId, poId: resolvedPo.id })).unwrap()
-      await dispatch(fetchVendorPOs(projectId)).unwrap()
-      toast({ title: 'Vendor PO deleted', variant: 'success' })
-      setDeleteOpen(false)
-      onClose()
-    } catch {
-      toast({ title: 'Failed to delete vendor PO', variant: 'error' })
-    }
-  }
-
-  const showExecutedValueUpdated = Boolean(resolvedPo?.executedValueLocked)
+export function ViewVendorPODrawer({
+  open,
+  onClose,
+  projectId,
+  po,
+  baseline = null,
+}: VendorPODrawerBaseProps) {
+  const toast = useToast((s) => s.showToast)
+  const {
+    resolvedPo,
+    projectVendorInvoices,
+    serviceLabel,
+    categoryLabel,
+    vendorAddress,
+    vendorShippingAddress,
+  } = useVendorPODetail(open, projectId, po, baseline)
 
   function handlePoDocumentOpenFailed() {
     toast({
@@ -952,175 +844,57 @@ export function ViewVendorPODrawer({
   }
 
   return (
-    <>
-      <DrawerForm
-        open={open}
-        onClose={onClose}
-        title={resolvedPo?.poNumber ?? 'Vendor PO'}
-        subtitle={
-          updatingExecutedValue
-            ? 'Update the executed value (one-time change)'
-            : 'Vendor purchase order details'
-        }
-        footer={
-          <Stack
-            direction="row"
-            justifyContent="flex-end"
-            alignItems="center"
-            flexWrap="wrap"
-            gap={1}
-            sx={{ px: 2.5, py: 1.75, width: '100%' }}
-          >
-            {!updatingExecutedValue && showExecutedValueUpdated ? (
-              <Typography
-                variant="caption"
-                sx={{ color: 'text.secondary', fontSize: 11, mr: 'auto' }}
-              >
-                Executed Value Updated
-              </Typography>
-            ) : null}
-            {updatingExecutedValue ? (
-              <>
-                <Button variant="text" size="sm" label="Cancel" onClick={resetExecutedValueEdit} />
-                <Button
-                  size="sm"
-                  variant="contained"
-                  color="primary"
-                  label={saving ? 'Saving…' : 'Save'}
-                  onClick={() => void handleSaveExecutedValue()}
-                  disabled={saving}
-                />
-              </>
-            ) : (
-              <>
-                {resolvedPo && canUpdateExecutedValue(resolvedPo) ? (
-                  <Button
-                    size="sm"
-                    variant="outlined"
-                    color="primary"
-                    label="Updated"
-                    onClick={() => setUpdatingExecutedValue(true)}
-                  />
-                ) : null}
-                <Button
-                  size="sm"
-                  variant="outlined"
-                  color="error"
-                  label="Delete"
-                  onClick={() => setDeleteOpen(true)}
-                />
-              </>
-            )}
-          </Stack>
-        }
-      >
-        {resolvedPo ? (
-          <Stack spacing={2.5}>
-            {updatingExecutedValue ? (
-              <>
-                <Box sx={{ mb: 3 }}>
-                  <Typography
-                    component="span"
-                    variant="overline"
-                    sx={{ ...PO_SECTION_TITLE_SX, display: 'block', mb: 1.5 }}
-                  >
-                    PO Details
-                  </Typography>
-                  <Box sx={PO_VENDOR_SUMMARY_SX}>
-                    <Box
-                      sx={{
-                        display: 'grid',
-                        gridTemplateColumns: 'repeat(2, 1fr)',
-                        gap: 1.5,
-                      }}
-                    >
-                      <Box sx={{ gridColumn: '1 / -1' }}>
-                        <ReadOnlyField label="Vendor Name" value={resolvedPo.vendorName} />
-                      </Box>
-                      <ReadOnlyField label="Category" value={categoryLabel} />
-                      <ReadOnlyField label="Service" value={serviceLabel} />
-                      <ReadOnlyField label="Billing Address" value={vendorAddress} multiline />
-                      <ReadOnlyField label="Shipping Address" value={vendorShippingAddress} multiline />
-                    </Box>
-                  </Box>
-                  <Divider sx={{ my: 1.5 }} />
-                  <Box
-                    sx={{
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(2, 1fr)',
-                      gap: 1.5,
-                      ...READONLY_DISABLED_TEXTFIELD_SX,
-                    }}
-                  >
-                    <FormField label="PO Number">
-                      <TextField
-                        fullWidth
-                        size="small"
-                        value={resolvedPo.poNumber}
-                        disabled
-                      />
-                    </FormField>
-                    <FormField label="PO Date" required>
-                      <DatePicker
-                        value={dateFromIso(resolvedPo.poDate)}
-                        onChange={() => undefined}
-                        fullWidth
-                        size="sm"
-                        disabled
-                      />
-                    </FormField>
-                    <FormField label="PO Value (₹)" required>
-                      <TextField
-                        fullWidth
-                        size="small"
-                        type="number"
-                        value={executedValueDraft}
-                        onChange={(e) => setExecutedValueDraft(e.target.value)}
-                      />
-                    </FormField>
-                    <FormField label="Executed Value (₹)" required>
-                      <TextField
-                        fullWidth
-                        size="small"
-                        type="number"
-                        value={executedValueDraft}
-                        onChange={(e) => setExecutedValueDraft(e.target.value)}
-                      />
-                    </FormField>
-                    {resolvedPo.fileName && poDocumentOpenUrl(resolvedPo.documentUrl) ? (
-                      <PODocumentLinkField
-                        fileName={resolvedPo.fileName}
-                        documentUrl={resolvedPo.documentUrl}
-                        onOpenFailed={handlePoDocumentOpenFailed}
-                        alignWithInput
-                      />
-                    ) : null}
-                  </Box>
-                </Box>
+    <DrawerForm
+      open={open}
+      onClose={onClose}
+      title={resolvedPo?.poNumber ?? 'Vendor PO'}
+      subtitle="Vendor purchase order details"
+    >
+      {resolvedPo ? (
+        <Stack spacing={2.5}>
+          <Box>
+            <Typography
+              component="span"
+              variant="overline"
+              sx={{ ...PO_SECTION_TITLE_SX, display: 'block', mb: 1.5 }}
+            >
+              PO Details
+            </Typography>
+            <Box
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(2, 1fr)',
+                gap: 1.5,
+              }}
+            >
+              <ReadOnlyField label="PO Number" value={resolvedPo.poNumber} />
+              <ReadOnlyField label="PO Date" value={formatDate(resolvedPo.poDate)} />
+              <Box sx={{ gridColumn: '1 / -1' }}>
+                <ReadOnlyField label="PO Value" value={`₹${formatCurrency(resolvedPo.poValue)}`} />
+              </Box>
+              <ReadOnlyField
+                label="Executed Value"
+                value={`₹${formatCurrency(effectiveExecutedValue(resolvedPo))}`}
+              />
+              <PODocumentLinkField
+                fileName={resolvedPo.fileName}
+                documentUrl={resolvedPo.documentUrl}
+                onOpenFailed={handlePoDocumentOpenFailed}
+                emptyLabel="No document uploaded"
+              />
+            </Box>
+          </Box>
 
-                <Divider sx={{ my: 2 }} />
-
-                <VendorPOMilestoneEditor
-                  structureLocked
-                  poValue={Number(executedValueDraft) || effectiveExecutedValue(resolvedPo)}
-                  milestones={editMilestones}
-                  retention={editRetention}
-                  milestoneStatuses={editMilestoneStatuses}
-                  retentionStatus={editRetentionStatus}
-                  onMilestonesChange={setMilestoneOverrides}
-                  onRetentionChange={setRetentionOverride}
-                />
-              </>
-            ) : (
-              <>
-            <Box>
-              <Typography
-                component="span"
-                variant="overline"
-                sx={{ ...PO_SECTION_TITLE_SX, display: 'block', mb: 1.5 }}
-              >
-                PO Details
-              </Typography>
+          <Divider sx={{ my: 0.5 }} />
+          <Box>
+            <Typography
+              component="span"
+              variant="overline"
+              sx={{ ...PO_SECTION_TITLE_SX, display: 'block', mb: 1.5 }}
+            >
+              Vendor Information
+            </Typography>
+            <Box sx={PO_VENDOR_SUMMARY_SX}>
               <Box
                 sx={{
                   display: 'grid',
@@ -1128,85 +902,362 @@ export function ViewVendorPODrawer({
                   gap: 1.5,
                 }}
               >
-                <ReadOnlyField label="PO Number" value={resolvedPo.poNumber} />
-                <ReadOnlyField label="PO Date" value={formatDate(resolvedPo.poDate)} />
                 <Box sx={{ gridColumn: '1 / -1' }}>
-                  <ReadOnlyField label="PO Value" value={`₹${formatCurrency(resolvedPo.poValue)}`} />
+                  <ReadOnlyField label="Vendor Name" value={resolvedPo.vendorName} />
                 </Box>
-                <ReadOnlyField
-                  label="Executed Value"
-                  value={`₹${formatCurrency(effectiveExecutedValue(resolvedPo))}`}
-                />
-                <PODocumentLinkField
-                  fileName={resolvedPo.fileName}
-                  documentUrl={resolvedPo.documentUrl}
-                  onOpenFailed={handlePoDocumentOpenFailed}
-                  emptyLabel="No document uploaded"
-                />
+                <ReadOnlyField label="Category" value={categoryLabel} />
+                <ReadOnlyField label="Service" value={serviceLabel} />
+                <ReadOnlyField label="Billing Address" value={vendorAddress} multiline />
+                <ReadOnlyField label="Shipping Address" value={vendorShippingAddress} multiline />
               </Box>
             </Box>
-
-            <Divider sx={{ my: 0.5 }} />
-            <Box>
-              <Typography
-                component="span"
-                variant="overline"
-                sx={{ ...PO_SECTION_TITLE_SX, display: 'block', mb: 1.5 }}
-              >
-                Vendor Information
-              </Typography>
-              <Box sx={PO_VENDOR_SUMMARY_SX}>
-                <Box
-                  sx={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(2, 1fr)',
-                    gap: 1.5,
-                  }}
-                >
-                  <Box sx={{ gridColumn: '1 / -1' }}>
-                    <ReadOnlyField label="Vendor Name" value={resolvedPo.vendorName} />
-                  </Box>
-                  <ReadOnlyField label="Category" value={categoryLabel} />
-                  <ReadOnlyField label="Service" value={serviceLabel} />
-                  <ReadOnlyField label="Billing Address" value={vendorAddress} multiline />
-                  <ReadOnlyField label="Shipping Address" value={vendorShippingAddress} multiline />
-                </Box>
-              </Box>
-            </Box>
-            <Divider sx={{ my: 0.5 }} />
-              <VendorPOMilestonesReadOnlySections
-                milestones={resolvedPo.milestones}
-                serviceLabel={serviceLabel}
-                projectVendorInvoices={projectVendorInvoices}
-              />
-              </>
-            )}
-          </Stack>
-        ) : null}
-      </DrawerForm>
-
-      <Dialog open={deleteOpen} onClose={() => setDeleteOpen(false)} maxWidth="xs" fullWidth>
-        <DialogTitle sx={{ fontSize: 15, fontWeight: 600 }}>Delete vendor PO?</DialogTitle>
-        <DialogContent>
-          <Typography variant="body2" sx={{ fontSize: 13 }}>
-            This will permanently remove {resolvedPo?.poNumber}. This action cannot be undone.
-          </Typography>
-        </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2 }}>
-          <MuiButton size="small" onClick={() => setDeleteOpen(false)}>
-            Cancel
-          </MuiButton>
-          <MuiButton
-            size="small"
-            variant="contained"
-            color="error"
-            disabled={saving}
-            onClick={() => void handleDelete()}
-          >
-            Delete
-          </MuiButton>
-        </DialogActions>
-      </Dialog>
-    </>
+          </Box>
+          <Divider sx={{ my: 0.5 }} />
+          <VendorPOMilestonesReadOnlySections
+            milestones={resolvedPo.milestones}
+            serviceLabel={serviceLabel}
+            projectVendorInvoices={projectVendorInvoices}
+          />
+        </Stack>
+      ) : null}
+    </DrawerForm>
   )
 }
+
+export function EditVendorPODrawer({
+  open,
+  onClose,
+  projectId,
+  po,
+  baseline = null,
+}: VendorPODrawerBaseProps) {
+  const dispatch = useAppDispatch()
+  const { saving } = useAppSelector((s) => s.baseline)
+  const toast = useToast((s) => s.showToast)
+  const {
+    resolvedPo,
+    projectVendorInvoices,
+    serviceLabel,
+    categoryLabel,
+    vendorAddress,
+    vendorShippingAddress,
+  } = useVendorPODetail(open, projectId, po, baseline)
+
+  const [poNumber, setPoNumber] = useState('')
+  const [poDate, setPoDate] = useState('')
+  const [poValue, setPoValue] = useState('')
+  const [executedValue, setExecutedValue] = useState('')
+  const [milestones, setMilestones] = useState<VendorPOMilestoneRow[]>([])
+  const [retention, setRetention] = useState<VendorPORetentionRow | null>(null)
+  const [newFile, setNewFile] = useState<File | null>(null)
+
+  const hasBilled = useMemo(
+    () =>
+      resolvedPo
+        ? vendorPOHasBilledMilestone(resolvedPo.milestones ?? [], projectVendorInvoices)
+        : false,
+    [resolvedPo, projectVendorInvoices],
+  )
+
+  useEffect(() => {
+    if (!open || !resolvedPo) return
+    setPoNumber(resolvedPo.poNumber)
+    setPoDate(resolvedPo.poDate)
+    setPoValue(String(resolvedPo.poValue))
+    setExecutedValue(String(effectiveExecutedValue(resolvedPo)))
+    setNewFile(null)
+    const editorState = vendorPOMilestoneEditorStateFromPo(resolvedPo)
+    setMilestones(editorState.milestones)
+    setRetention(editorState.retention)
+  }, [open, resolvedPo?.id, resolvedPo])
+
+  const milestoneBaseValue = useMemo(() => {
+    const n = Number(executedValue)
+    return Number.isFinite(n) && n > 0 ? n : resolvedPo ? effectiveExecutedValue(resolvedPo) : 0
+  }, [executedValue, resolvedPo])
+
+  const milestoneStatuses = useMemo(() => {
+    const statuses: Record<string, MilestonePaymentStatusLabel> = {}
+    if (!resolvedPo) return statuses
+    for (const m of resolvedPo.milestones) {
+      const kind = m.kind ?? (m.name.trim().toLowerCase() === 'retention' ? 'retention' : 'regular')
+      if (kind === 'retention') continue
+      statuses[m.id] = vendorMilestonePaymentStatus(projectVendorInvoices, m.id)
+    }
+    return statuses
+  }, [resolvedPo, projectVendorInvoices])
+
+  const retentionStatus = useMemo((): MilestonePaymentStatusLabel | undefined => {
+    if (!resolvedPo) return undefined
+    const retentionRow = resolvedPo.milestones.find(
+      (m) => m.kind === 'retention' || m.name.trim().toLowerCase() === 'retention',
+    )
+    if (!retentionRow) return undefined
+    return vendorMilestonePaymentStatus(projectVendorInvoices, retentionRow.id)
+  }, [resolvedPo, projectVendorInvoices])
+
+  async function handleSave() {
+    if (!resolvedPo) return
+    const poValueNum = Number(poValue)
+    const executedValueNum = Number(executedValue)
+    if (!poNumber.trim() || !poDate) {
+      toast({ title: 'Enter valid PO number and date', variant: 'error' })
+      return
+    }
+    if (!Number.isFinite(poValueNum) || poValueNum <= 0) {
+      toast({ title: 'Enter a valid PO value', variant: 'error' })
+      return
+    }
+    if (!Number.isFinite(executedValueNum) || executedValueNum <= 0) {
+      toast({ title: 'Enter a valid executed value', variant: 'error' })
+      return
+    }
+
+    const pctValidation = validateVendorMilestonePercents({
+      id: '',
+      vendorId: resolvedPo.vendorId,
+      vendorName: resolvedPo.vendorName,
+      value: milestoneBaseValue,
+      percentage: 0,
+      isMeasurable: false,
+      milestones: milestones.filter((m) => m.name.trim()).map((m) => ({
+        id: m.id,
+        name: m.name,
+        percentage: m.percentage,
+        value: m.value,
+      })),
+      retention: retention
+        ? { percentage: retention.percentage, amount: retention.amount }
+        : undefined,
+    })
+    if (!pctValidation.valid) {
+      toast({
+        title: pctValidation.pctMessage ?? pctValidation.structureMessage ?? 'Percentages must not exceed 100%',
+        variant: 'error',
+      })
+      return
+    }
+
+    const recalculated = recalculateVendorPOMilestonesForExecutedValue(
+      resolvedPo.milestones,
+      executedValueNum,
+      projectVendorInvoices,
+    )
+    const nextMilestones = buildVendorPOMilestonePayloadForUpdate(
+      milestones,
+      retention,
+      recalculated,
+    )
+
+    let documentUrl = resolvedPo.documentUrl
+    let fileName = resolvedPo.fileName
+    if (newFile) {
+      try {
+        const uploaded = await uploadProjectDocumentFile(newFile)
+        documentUrl = uploaded.viewUrl
+        fileName = uploaded.originalName || newFile.name
+      } catch (err) {
+        const parsed = parseSettingsApiError(err, 'Failed to upload PO document')
+        toast({ title: parsed.message, variant: 'error' })
+        return
+      }
+    }
+
+    const body: Partial<VendorPO> = {
+      poNumber: poNumber.trim(),
+      poDate,
+      poValue: hasBilled ? resolvedPo.poValue : poValueNum,
+      executedValue: executedValueNum,
+      milestones: nextMilestones,
+      documentUrl,
+      fileName,
+    }
+
+    const merged = mergeVendorPOUpdate(resolvedPo, body, { invoices: projectVendorInvoices })
+    if (!merged.ok) {
+      toast({ title: merged.message, variant: 'error' })
+      return
+    }
+
+    try {
+      await dispatch(
+        updateVendorPO({ projectId, poId: resolvedPo.id, data: merged.po }),
+      ).unwrap()
+      await dispatch(fetchVendorPOs(projectId)).unwrap()
+      toast({ title: 'Vendor PO updated', variant: 'success' })
+      onClose()
+    } catch (err) {
+      toast({
+        title: typeof err === 'string' ? err : 'Failed to update vendor PO',
+        variant: 'error',
+      })
+    }
+  }
+
+  return (
+    <DrawerForm
+      open={open}
+      onClose={onClose}
+      title={resolvedPo?.poNumber ? `Edit ${resolvedPo.poNumber}` : 'Edit Vendor PO'}
+      subtitle={
+        hasBilled
+          ? 'PO value is locked; unbilled milestones remain editable'
+          : 'Update vendor purchase order details'
+      }
+      footer={
+        <Stack direction="row" justifyContent="flex-end" gap={1} sx={{ px: 2.5, py: 1.75, width: '100%' }}>
+          <Button variant="text" size="sm" label="Cancel" onClick={onClose} />
+          <Button
+            size="sm"
+            variant="contained"
+            color="primary"
+            label={saving ? 'Saving…' : 'Save'}
+            onClick={() => void handleSave()}
+            disabled={saving}
+          />
+        </Stack>
+      }
+    >
+      {resolvedPo ? (
+        <Stack spacing={2.5}>
+          <Box sx={PO_VENDOR_SUMMARY_SX}>
+            <Box
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(2, 1fr)',
+                gap: 1.5,
+              }}
+            >
+              <Box sx={{ gridColumn: '1 / -1' }}>
+                <ReadOnlyField label="Vendor Name" value={resolvedPo.vendorName} />
+              </Box>
+              <ReadOnlyField label="Category" value={categoryLabel} />
+              <ReadOnlyField label="Service" value={serviceLabel} />
+              <ReadOnlyField label="Billing Address" value={vendorAddress} multiline />
+              <ReadOnlyField label="Shipping Address" value={vendorShippingAddress} multiline />
+            </Box>
+          </Box>
+          <Divider />
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(2, 1fr)',
+              gap: 1.5,
+            }}
+          >
+            <FormField label="PO Number" required>
+              <TextField fullWidth size="small" value={poNumber} onChange={(e) => setPoNumber(e.target.value)} />
+            </FormField>
+            <FormField label="PO Date" required>
+              <DatePicker
+                value={dateFromIso(poDate)}
+                onChange={(d) => setPoDate(isoFromDate(d))}
+                fullWidth
+                size="sm"
+              />
+            </FormField>
+            <FormField label="PO Value (₹)" required>
+              <TextField
+                fullWidth
+                size="small"
+                type="number"
+                value={poValue}
+                onChange={(e) => setPoValue(e.target.value)}
+                disabled={hasBilled}
+              />
+            </FormField>
+            <FormField label="Executed Value (₹)" required>
+              <TextField
+                fullWidth
+                size="small"
+                type="number"
+                value={executedValue}
+                onChange={(e) => setExecutedValue(e.target.value)}
+              />
+            </FormField>
+            <FormField label="PO Document">
+              <MuiButton variant="outlined" component="label" size="small" startIcon={<Upload />} sx={{ fontSize: 12 }}>
+                {newFile ? newFile.name : resolvedPo.fileName ? 'Replace document' : 'Upload document'}
+                <input
+                  type="file"
+                  hidden
+                  accept=".pdf,.doc,.docx"
+                  onChange={(e) => setNewFile(e.target.files?.[0] ?? null)}
+                />
+              </MuiButton>
+            </FormField>
+          </Box>
+          <Divider />
+          <VendorPOMilestoneEditor
+            structureLocked={hasBilled}
+            poValue={milestoneBaseValue}
+            milestones={milestones}
+            retention={retention}
+            milestoneStatuses={milestoneStatuses}
+            retentionStatus={retentionStatus}
+            onMilestonesChange={setMilestones}
+            onRetentionChange={setRetention}
+          />
+        </Stack>
+      ) : null}
+    </DrawerForm>
+  )
+}
+
+export function DeleteVendorPODialog({
+  open,
+  po,
+  projectId,
+  onClose,
+  onDeleted,
+}: {
+  open: boolean
+  po: VendorPO | null
+  projectId: string
+  onClose: () => void
+  onDeleted?: () => void
+}) {
+  const dispatch = useAppDispatch()
+  const { saving } = useAppSelector((s) => s.baseline)
+  const toast = useToast((s) => s.showToast)
+
+  async function handleDelete() {
+    if (!po) return
+    try {
+      await dispatch(deleteVendorPO({ projectId, poId: po.id })).unwrap()
+      await dispatch(fetchVendorPOs(projectId)).unwrap()
+      toast({ title: 'Vendor PO deleted', variant: 'success' })
+      onDeleted?.()
+      onClose()
+    } catch {
+      toast({ title: 'Failed to delete vendor PO', variant: 'error' })
+    }
+  }
+
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
+      <DialogTitle sx={{ fontSize: 15, fontWeight: 600 }}>Delete vendor PO?</DialogTitle>
+      <DialogContent>
+        <Typography variant="body2" sx={{ fontSize: 13 }}>
+          This will permanently remove {po?.poNumber}. This action cannot be undone.
+        </Typography>
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 2 }}>
+        <MuiButton size="small" onClick={onClose}>
+          Cancel
+        </MuiButton>
+        <MuiButton
+          size="small"
+          variant="contained"
+          color="error"
+          disabled={saving}
+          onClick={() => void handleDelete()}
+        >
+          Delete
+        </MuiButton>
+      </DialogActions>
+    </Dialog>
+  )
+}
+
+export { canDeleteVendorPO }

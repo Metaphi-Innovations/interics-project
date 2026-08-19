@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ClientPO } from '@/slices/baseline/reducer'
-import { flattenClientPoMilestones } from './projectBillable'
+import type { Invoice } from '@/slices/receivables/reducer'
+import { flattenClientPoMilestones, sumBilledPerBaselineService } from './projectBillable'
 
 const po: ClientPO = {
   id: 'po-1',
@@ -43,5 +44,48 @@ describe('flattenClientPoMilestones', () => {
 
   it('returns an empty list when no PO is selected', () => {
     expect(flattenClientPoMilestones(null)).toEqual([])
+  })
+})
+
+describe('sumBilledPerBaselineService', () => {
+  it('counts milestone-sourced invoice lines toward service billing totals', () => {
+    const invoices: Invoice[] = [
+      {
+        id: 'inv-1',
+        invoiceNo: 'INV-1',
+        clientId: 'c-1',
+        clientName: 'Acme',
+        projectId: 'p-1',
+        projectName: 'HQ Fitout',
+        invoiceDate: '2026-08-01',
+        dueDate: '2026-08-31',
+        lineItems: [
+          {
+            id: 'li-1',
+            serviceId: 'svc-1',
+            serviceName: 'Interior Design',
+            sacCode: '',
+            amount: 40000,
+            gstRate: 18,
+            gstAmount: 7200,
+            milestoneId: 'ms-1',
+            baselineServiceId: 'svc-1',
+            lineSource: 'milestone',
+          },
+        ],
+        baseAmount: 40000,
+        gstAmount: 7200,
+        totalAmount: 47200,
+        tdsDeducted: 0,
+        totalReceived: 0,
+        balance: 47200,
+        status: 'sent',
+        payments: [],
+        createdAt: '2026-08-01T00:00:00.000Z',
+        updatedAt: '2026-08-01T00:00:00.000Z',
+      },
+    ]
+
+    expect(sumBilledPerBaselineService(invoices, 'p-1').get('svc-1')).toBe(40000)
   })
 })

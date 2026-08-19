@@ -20,9 +20,7 @@ import {
 import { Add, Upload } from '@mui/icons-material'
 import {
   PODocumentLinkField,
-  poDocumentOpenUrl,
 } from '@/components/documents/PODocumentLinkField'
-import { READONLY_DISABLED_TEXTFIELD_SX } from './readOnlyFieldStyles'
 import { useTheme, alpha } from '@mui/material/styles'
 import { Button, useToast } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
@@ -58,9 +56,10 @@ import {
   type ClientPOMilestoneCard,
 } from './ClientPOMilestoneCards'
 import {
-  buildClientPOExecutedValueUpdatePayload,
-  canUpdateExecutedValue,
+  canDeleteClientPO,
+  clientPOHasBilledMilestone,
   effectiveExecutedValue,
+  mergeClientPOUpdate,
   recalculateClientPOMilestonesForExecutedValue,
 } from './poExecutedValueRules'
 import {
@@ -68,6 +67,7 @@ import {
   clientMilestoneStatusesForCard,
   type MilestonePaymentStatusLabel,
 } from './milestonePaymentStatus'
+import { validateClientPOMilestonePercents } from '@/utils/clientPOMilestones'
 
 const PO_SECTION_TITLE_SX = {
   fontSize: '10px',
@@ -211,7 +211,8 @@ function MilestoneStatusCell({ status }: { status: MilestonePaymentStatusLabel }
       sx={{
         fontSize: 12,
         fontWeight: 600,
-        color: status === 'Paid' ? 'success.main' : 'text.secondary',
+        color:
+          status === 'Paid' ? 'success.main' : status === 'Billed' ? 'warning.main' : 'text.secondary',
       }}
     >
       {status}
@@ -436,6 +437,15 @@ export function AddClientPODrawer({ open, onClose, projectId }: AddClientPODrawe
     }
 
     const milestonePayload = buildClientPOMilestonePayload(groupedForSave, serviceOptions)
+    const pctValidation = validateClientPOMilestonePercents(milestonePayload)
+    if (!pctValidation.valid) {
+      toast({
+        title: pctValidation.pctMessage ?? 'Milestone percentages must not exceed 100%',
+        variant: 'error',
+      })
+      return
+    }
+
     const executedValueNumberSave = poFormData.executedValue
       ? Number(poFormData.executedValue)
       : null
@@ -619,42 +629,22 @@ function ReadOnlyField({ label, value }: { label: string; value: string }) {
   )
 }
 
-interface ViewClientPODrawerProps {
-  open: boolean
-  onClose: () => void
-  projectId: string
-  /** Prefer poId so the drawer loads a fresh GET /po/:poId payload. */
-  poId: string | null
-  /** Optional seed while the detail request is in flight. */
-  poSeed?: ClientPO | null
-}
-
-export function ViewClientPODrawer({
-  open,
-  onClose,
-  projectId,
-  poId,
-  poSeed = null,
-}: ViewClientPODrawerProps) {
+function useClientPODetail(
+  open: boolean,
+  projectId: string,
+  poId: string | null,
+  poSeed: ClientPO | null,
+) {
   const dispatch = useAppDispatch()
-  const { saving } = useAppSelector((s) => s.baseline)
-  const { invoices } = useAppSelector((s) => s.live)
   const toast = useToast((s) => s.showToast)
+  const { invoices } = useAppSelector((s) => s.live)
   const [po, setPo] = useState<ClientPO | null>(poSeed)
   const [loadingPo, setLoadingPo] = useState(false)
-  const [updatingExecutedValue, setUpdatingExecutedValue] = useState(false)
-  const [deleteOpen, setDeleteOpen] = useState(false)
-  const [executedValueDraft, setExecutedValueDraft] = useState('')
-  const [milestoneCardOverrides, setMilestoneCardOverrides] = useState<
-    ClientPOMilestoneCard[] | null
-  >(null)
 
   const projectInvoices = useMemo(
     () => invoices.filter((i) => i.projectId === projectId),
     [invoices, projectId],
   )
-
-  const { categoryOptions, serviceOptions, cardServiceOptions } = useClientPOMasterOptions(open)
 
   useEffect(() => {
     if (!open || !poId) {
@@ -685,126 +675,29 @@ export function ViewClientPODrawer({
     return () => {
       cancelled = true
     }
-    // poSeed is only used for first paint; intentionally omit from deps
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, poId, projectId, dispatch, toast])
 
-  useEffect(() => {
-    if (!open || !po) {
-      setUpdatingExecutedValue(false)
-      setDeleteOpen(false)
-      setMilestoneCardOverrides(null)
-      return
-    }
-    setExecutedValueDraft(String(effectiveExecutedValue(po)))
-  }, [open, po?.id, po?.executedValue, po?.poValue])
+  return { po, setPo, loadingPo, projectInvoices }
+}
 
-  useEffect(() => {
-    setMilestoneCardOverrides(null)
-  }, [updatingExecutedValue, executedValueDraft, po?.id])
+interface ClientPODrawerBaseProps {
+  open: boolean
+  onClose: () => void
+  projectId: string
+  poId: string | null
+  poSeed?: ClientPO | null
+}
 
-  const recalculatedMilestoneCards = useMemo(() => {
-    if (!updatingExecutedValue || !po) return []
-    const nextValue = Number(executedValueDraft)
-    const milestones =
-      !Number.isFinite(nextValue) || nextValue <= 0
-        ? (po.milestones ?? [])
-        : recalculateClientPOMilestonesForExecutedValue(
-            po.milestones ?? [],
-            nextValue,
-            projectInvoices,
-          )
-    return clientPOCardsFromMilestones(milestones, serviceOptions).milestoneCards
-  }, [updatingExecutedValue, executedValueDraft, po, projectInvoices, serviceOptions])
-
-  const editMilestoneCards = milestoneCardOverrides ?? recalculatedMilestoneCards
-
-  const previewMilestones = useMemo(() => {
-    if (!po || !updatingExecutedValue) return po?.milestones ?? []
-    const nextValue = Number(executedValueDraft)
-    const base =
-      !Number.isFinite(nextValue) || nextValue <= 0
-        ? (po.milestones ?? [])
-        : recalculateClientPOMilestonesForExecutedValue(
-            po.milestones ?? [],
-            nextValue,
-            projectInvoices,
-          )
-    return mergeClientPOMilestoneEditsFromCards(base, editMilestoneCards, projectInvoices)
-  }, [po, updatingExecutedValue, executedValueDraft, projectInvoices, editMilestoneCards])
-
-  const milestoneBaseValue = useMemo(() => {
-    const nextValue = Number(executedValueDraft)
-    if (updatingExecutedValue && Number.isFinite(nextValue) && nextValue > 0) return nextValue
-    return po ? effectiveExecutedValue(po) : 0
-  }, [updatingExecutedValue, executedValueDraft, po])
-
-  function resetExecutedValueEdit() {
-    if (!po) return
-    setExecutedValueDraft(String(effectiveExecutedValue(po)))
-    setUpdatingExecutedValue(false)
-    setMilestoneCardOverrides(null)
-  }
-
-  async function handleSaveExecutedValue() {
-    if (!po) return
-    if (!canUpdateExecutedValue(po)) {
-      toast({ title: 'Executed value can no longer be updated', variant: 'error' })
-      return
-    }
-    const nextValue = Number(executedValueDraft)
-    if (!Number.isFinite(nextValue) || nextValue <= 0) {
-      toast({ title: 'Enter a valid executed value', variant: 'error' })
-      return
-    }
-    try {
-      const recalculated = recalculateClientPOMilestonesForExecutedValue(
-        po.milestones ?? [],
-        nextValue,
-        projectInvoices,
-      )
-      const nextMilestones = mergeClientPOMilestoneEditsFromCards(
-        recalculated,
-        editMilestoneCards,
-        projectInvoices,
-      )
-      await dispatch(
-        updateClientPO({
-          projectId,
-          poId: po.id,
-          data: buildClientPOExecutedValueUpdatePayload(nextValue, nextMilestones),
-        }),
-      ).unwrap()
-      const detail = await dispatch(
-        fetchClientPoById({ projectId, poId: po.id }),
-      ).unwrap()
-      setPo(detail)
-      void dispatch(fetchClientPO(projectId))
-      toast({ title: 'Executed value updated', variant: 'success' })
-      setUpdatingExecutedValue(false)
-      setMilestoneCardOverrides(null)
-    } catch (err) {
-      toast({
-        title: typeof err === 'string' ? err : 'Failed to update executed value',
-        variant: 'error',
-      })
-    }
-  }
-
-  async function handleDelete() {
-    if (!po) return
-    try {
-      await dispatch(deleteClientPO({ projectId, poId: po.id })).unwrap()
-      void dispatch(fetchClientPO(projectId))
-      toast({ title: 'PO deleted', variant: 'success' })
-      setDeleteOpen(false)
-      onClose()
-    } catch {
-      toast({ title: 'Failed to delete PO', variant: 'error' })
-    }
-  }
-
-  const showExecutedValueUpdated = Boolean(po?.executedValueLocked)
+export function ViewClientPODrawer({
+  open,
+  onClose,
+  projectId,
+  poId,
+  poSeed = null,
+}: ClientPODrawerBaseProps) {
+  const toast = useToast((s) => s.showToast)
+  const { po, loadingPo, projectInvoices } = useClientPODetail(open, projectId, poId, poSeed)
 
   function handlePoDocumentOpenFailed() {
     toast({
@@ -815,243 +708,322 @@ export function ViewClientPODrawer({
   }
 
   return (
-    <>
-      <DrawerForm
-        open={open}
-        onClose={onClose}
-        title={po?.poNumber ?? 'Client PO'}
-        subtitle={
-          updatingExecutedValue
-            ? 'Update the executed value (one-time change)'
-            : 'Purchase order details'
-        }
-        footer={
-          <Stack
-            direction="row"
-            justifyContent="flex-end"
-            alignItems="center"
-            flexWrap="wrap"
-            gap={1}
-            sx={{ px: 2.5, py: 1.75, width: '100%' }}
-          >
-            {!updatingExecutedValue && showExecutedValueUpdated ? (
-              <Typography
-                variant="caption"
-                sx={{ color: 'text.secondary', fontSize: 11, mr: 'auto' }}
-              >
-                Executed Value Updated
-              </Typography>
-            ) : null}
-            {updatingExecutedValue ? (
-              <>
-                <Button variant="text" size="sm" label="Cancel" onClick={resetExecutedValueEdit} />
-                <Button
-                  size="sm"
-                  variant="contained"
-                  color="primary"
-                  label={saving ? 'Saving…' : 'Save'}
-                  onClick={() => void handleSaveExecutedValue()}
-                  disabled={saving}
-                />
-              </>
-            ) : (
-              <>
-                {po && canUpdateExecutedValue(po) ? (
-                  <Button
-                    size="sm"
-                    variant="outlined"
-                    color="primary"
-                    label="Updated"
-                    onClick={() => setUpdatingExecutedValue(true)}
-                  />
-                ) : null}
-                <Button
-                  size="sm"
-                  variant="outlined"
-                  color="error"
-                  label="Delete"
-                  onClick={() => setDeleteOpen(true)}
-                />
-              </>
-            )}
-          </Stack>
-        }
-      >
-        {loadingPo && !po ? (
-          <Typography variant="body2" color="text.secondary" sx={{ fontSize: 13, py: 4, textAlign: 'center' }}>
-            Loading PO…
-          </Typography>
-        ) : null}
-        {po ? (
-          <Stack spacing={2.5}>
-            {updatingExecutedValue ? (
-              <>
-                <Box sx={{ mb: 0 }}>
-                  <Typography
-                    component="span"
-                    variant="overline"
-                    sx={{ ...PO_SECTION_TITLE_SX, display: 'block', mb: 1.5 }}
-                  >
-                    PO Details
-                  </Typography>
-                  <Box
-                    sx={{
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(2, 1fr)',
-                      gap: '12px',
-                      ...READONLY_DISABLED_TEXTFIELD_SX,
-                    }}
-                  >
-                    <FormField label="PO Number" required>
-                      <TextField
-                        fullWidth
-                        size="small"
-                        value={po?.poNumber ?? ''}
-                        disabled
-                      />
-                    </FormField>
-                    <FormField label="PO Value (₹)" required>
-                      <TextField
-                        fullWidth
-                        size="small"
-                        type="number"
-                        value={executedValueDraft}
-                        onChange={(e) => setExecutedValueDraft(e.target.value)}
-                      />
-                    </FormField>
-                    <FormField label="Executed Value (₹)" required>
-                      <TextField
-                        fullWidth
-                        size="small"
-                        type="number"
-                        value={executedValueDraft}
-                        onChange={(e) => setExecutedValueDraft(e.target.value)}
-                      />
-                    </FormField>
-                    {po?.fileName && poDocumentOpenUrl(po.documentUrl) ? (
-                      <PODocumentLinkField
-                        fileName={po.fileName}
-                        documentUrl={po.documentUrl}
-                        onOpenFailed={handlePoDocumentOpenFailed}
-                        alignWithInput
-                      />
-                    ) : null}
-                  </Box>
-                </Box>
-
-                <Divider sx={{ my: 2 }} />
-
-                <MilestoneSectionPanel
-                  title="Milestones"
-                  addLabel="Add Milestone"
-                  onAdd={() => undefined}
-                  isEmpty={editMilestoneCards.length === 0}
-                  showAddButton={false}
-                >
-                  {editMilestoneCards.map((card) => {
-                    const { milestoneStatuses, retentionStatus } = clientMilestoneStatusesForCard(
-                      previewMilestones,
-                      card.serviceId,
-                      projectInvoices,
-                    )
-                    return (
-                      <ClientPOMilestoneCardEditor
-                        key={card.id}
-                        card={card}
-                        categoryOptions={categoryOptions}
-                        serviceOptions={cardServiceOptions}
-                        milestoneBaseValue={milestoneBaseValue}
-                        includeRetention
-                        structureLocked
-                        milestoneStatuses={milestoneStatuses}
-                        retentionStatus={retentionStatus}
-                        onChange={(patch) => {
-                          setMilestoneCardOverrides((prev) => {
-                            const base = prev ?? recalculatedMilestoneCards
-                            return base.map((c) => (c.id === card.id ? { ...c, ...patch } : c))
-                          })
-                        }}
-                        onRemove={() => undefined}
-                      />
-                    )
-                  })}
-                </MilestoneSectionPanel>
-              </>
-            ) : (
-              <>
-            <Box>
-              <Typography
-                component="span"
-                variant="overline"
-                sx={{ ...PO_SECTION_TITLE_SX, display: 'block', mb: 1.5 }}
-              >
-                PO Details
-              </Typography>
-                <Box
-                  sx={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(2, 1fr)',
-                    gap: '12px',
-                  }}
-                >
-                  <ReadOnlyField label="PO Number" value={po.poNumber} />
-                  <ReadOnlyField label="PO Value" value={`₹${formatCurrency(po.poValue)}`} />
-                  <ReadOnlyField
-                    label="Executed Value"
-                    value={`₹${formatCurrency(effectiveExecutedValue(po))}`}
-                  />
-                  <PODocumentLinkField
-                    fileName={po.fileName}
-                    documentUrl={po.documentUrl}
-                    onOpenFailed={handlePoDocumentOpenFailed}
-                    emptyLabel="No document uploaded"
-                  />
-                </Box>
-            </Box>
-
-            <Divider sx={{ my: 0.5 }} />
-
-            <Box>
-              <Typography
-                component="span"
-                variant="overline"
-                sx={{ ...PO_SECTION_TITLE_SX, display: 'block', mb: 1.5 }}
-              >
-                Milestones
-              </Typography>
-              <ClientPOMilestonesTable
-                milestones={po.milestones ?? []}
-                projectInvoices={projectInvoices}
+    <DrawerForm
+      open={open}
+      onClose={onClose}
+      title={po?.poNumber ?? 'Client PO'}
+      subtitle="Purchase order details"
+    >
+      {loadingPo && !po ? (
+        <Typography variant="body2" color="text.secondary" sx={{ fontSize: 13, py: 4, textAlign: 'center' }}>
+          Loading PO…
+        </Typography>
+      ) : null}
+      {po ? (
+        <Stack spacing={2.5}>
+          <Box>
+            <Typography component="span" variant="overline" sx={{ ...PO_SECTION_TITLE_SX, display: 'block', mb: 1.5 }}>
+              PO Details
+            </Typography>
+            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px' }}>
+              <ReadOnlyField label="PO Number" value={po.poNumber} />
+              <ReadOnlyField label="PO Value" value={`₹${formatCurrency(po.poValue)}`} />
+              <ReadOnlyField label="Executed Value" value={`₹${formatCurrency(effectiveExecutedValue(po))}`} />
+              <PODocumentLinkField
+                fileName={po.fileName}
+                documentUrl={po.documentUrl}
+                onOpenFailed={handlePoDocumentOpenFailed}
+                emptyLabel="No document uploaded"
               />
             </Box>
-              </>
-            )}
-          </Stack>
-        ) : null}
-      </DrawerForm>
-
-      <Dialog open={deleteOpen} onClose={() => setDeleteOpen(false)} maxWidth="xs" fullWidth>
-        <DialogTitle sx={{ fontSize: 15, fontWeight: 600 }}>Delete client PO?</DialogTitle>
-        <DialogContent>
-          <Typography variant="body2" sx={{ fontSize: 13 }}>
-            This will permanently remove {po?.poNumber}. This action cannot be undone.
-          </Typography>
-        </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2 }}>
-          <MuiButton size="small" onClick={() => setDeleteOpen(false)}>
-            Cancel
-          </MuiButton>
-          <MuiButton
-            size="small"
-            variant="contained"
-            color="error"
-            disabled={saving}
-            onClick={() => void handleDelete()}
-          >
-            Delete
-          </MuiButton>
-        </DialogActions>
-      </Dialog>
-    </>
+          </Box>
+          <Divider sx={{ my: 0.5 }} />
+          <Box>
+            <Typography component="span" variant="overline" sx={{ ...PO_SECTION_TITLE_SX, display: 'block', mb: 1.5 }}>
+              Milestones
+            </Typography>
+            <ClientPOMilestonesTable milestones={po.milestones ?? []} projectInvoices={projectInvoices} />
+          </Box>
+        </Stack>
+      ) : null}
+    </DrawerForm>
   )
 }
+
+export function EditClientPODrawer({
+  open,
+  onClose,
+  projectId,
+  poId,
+  poSeed = null,
+}: ClientPODrawerBaseProps) {
+  const dispatch = useAppDispatch()
+  const { saving } = useAppSelector((s) => s.baseline)
+  const toast = useToast((s) => s.showToast)
+  const { po, loadingPo, projectInvoices } = useClientPODetail(open, projectId, poId, poSeed)
+  const { categoryOptions, serviceOptions, cardServiceOptions } = useClientPOMasterOptions(open)
+
+  const [poNumber, setPoNumber] = useState('')
+  const [poValue, setPoValue] = useState('')
+  const [executedValue, setExecutedValue] = useState('')
+  const [milestoneCards, setMilestoneCards] = useState<ClientPOMilestoneCard[]>([])
+  const [newFile, setNewFile] = useState<File | null>(null)
+
+  const hasBilled = useMemo(
+    () => (po ? clientPOHasBilledMilestone(po.milestones ?? [], projectInvoices) : false),
+    [po, projectInvoices],
+  )
+
+  useEffect(() => {
+    if (!open || !po) return
+    setPoNumber(po.poNumber)
+    setPoValue(String(po.poValue))
+    setExecutedValue(String(effectiveExecutedValue(po)))
+    setNewFile(null)
+    const { milestoneCards: cards } = clientPOCardsFromMilestones(po.milestones ?? [], serviceOptions)
+    setMilestoneCards(cards)
+  }, [open, po?.id, po, serviceOptions])
+
+  const milestoneBaseValue = useMemo(() => {
+    const n = Number(executedValue)
+    return Number.isFinite(n) && n > 0 ? n : po ? effectiveExecutedValue(po) : 0
+  }, [executedValue, po])
+
+  const previewMilestones = useMemo(() => {
+    if (!po) return []
+    const base = recalculateClientPOMilestonesForExecutedValue(
+      po.milestones ?? [],
+      milestoneBaseValue,
+      projectInvoices,
+    )
+    return mergeClientPOMilestoneEditsFromCards(base, milestoneCards, projectInvoices)
+  }, [po, milestoneBaseValue, projectInvoices, milestoneCards])
+
+  const groupedForSave = useMemo(
+    () => groupClientCardsByService(milestoneCards.filter(isMilestoneCardConfigured)),
+    [milestoneCards],
+  )
+
+  async function handleSave() {
+    if (!po) return
+    const poValueNum = Number(poValue)
+    const executedValueNum = Number(executedValue)
+    if (!poNumber.trim() || !Number.isFinite(poValueNum) || poValueNum <= 0) {
+      toast({ title: 'Enter valid PO number and value', variant: 'error' })
+      return
+    }
+    if (!Number.isFinite(executedValueNum) || executedValueNum <= 0) {
+      toast({ title: 'Enter a valid executed value', variant: 'error' })
+      return
+    }
+    if (groupedForSave.length === 0) {
+      toast({ title: 'Add at least one milestone entry', variant: 'error' })
+      return
+    }
+
+    const milestonePayload = buildClientPOMilestonePayload(groupedForSave, serviceOptions)
+    const pctValidation = validateClientPOMilestonePercents(milestonePayload)
+    if (!pctValidation.valid) {
+      toast({ title: pctValidation.pctMessage ?? 'Percentages must not exceed 100%', variant: 'error' })
+      return
+    }
+
+    const recalculated = recalculateClientPOMilestonesForExecutedValue(
+      po.milestones ?? [],
+      executedValueNum,
+      projectInvoices,
+    )
+    const nextMilestones = mergeClientPOMilestoneEditsFromCards(
+      recalculated,
+      milestoneCards,
+      projectInvoices,
+    )
+
+    let documentUrl = po.documentUrl
+    let fileName = po.fileName
+    let uploadedAt = po.uploadedAt
+    if (newFile) {
+      const uploaded = await uploadProjectDocumentFile(newFile)
+      documentUrl = uploaded.viewUrl
+      fileName = uploaded.originalName || newFile.name
+      uploadedAt = new Date().toISOString()
+    }
+
+    const body: Partial<ClientPO> = {
+      poNumber: poNumber.trim(),
+      poValue: hasBilled ? po.poValue : poValueNum,
+      executedValue: executedValueNum,
+      milestones: nextMilestones,
+      documentUrl,
+      fileName,
+      uploadedAt,
+    }
+
+    const merged = mergeClientPOUpdate(po, body, { invoices: projectInvoices })
+    if (!merged.ok) {
+      toast({ title: merged.message, variant: 'error' })
+      return
+    }
+
+    try {
+      await dispatch(updateClientPO({ projectId, poId: po.id, data: merged.po })).unwrap()
+      void dispatch(fetchClientPO(projectId))
+      toast({ title: 'PO updated', variant: 'success' })
+      onClose()
+    } catch (err) {
+      toast({ title: typeof err === 'string' ? err : 'Failed to update PO', variant: 'error' })
+    }
+  }
+
+  return (
+    <DrawerForm
+      open={open}
+      onClose={onClose}
+      title={po?.poNumber ? `Edit ${po.poNumber}` : 'Edit Client PO'}
+      subtitle={hasBilled ? 'PO value is locked; unbilled milestones remain editable' : 'Update purchase order details'}
+      footer={
+        <Stack direction="row" justifyContent="flex-end" gap={1} sx={{ px: 2.5, py: 1.75, width: '100%' }}>
+          <Button variant="text" size="sm" label="Cancel" onClick={onClose} />
+          <Button
+            size="sm"
+            variant="contained"
+            color="primary"
+            label={saving ? 'Saving…' : 'Save'}
+            onClick={() => void handleSave()}
+            disabled={saving || loadingPo}
+          />
+        </Stack>
+      }
+    >
+      {loadingPo && !po ? (
+        <Typography variant="body2" color="text.secondary" sx={{ fontSize: 13, py: 4, textAlign: 'center' }}>
+          Loading PO…
+        </Typography>
+      ) : null}
+      {po ? (
+        <Stack spacing={2.5}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px' }}>
+            <FormField label="PO Number" required>
+              <TextField fullWidth size="small" value={poNumber} onChange={(e) => setPoNumber(e.target.value)} />
+            </FormField>
+            <FormField label="PO Value (₹)" required>
+              <TextField
+                fullWidth
+                size="small"
+                type="number"
+                value={poValue}
+                onChange={(e) => setPoValue(e.target.value)}
+                disabled={hasBilled}
+              />
+            </FormField>
+            <FormField label="Executed Value (₹)" required>
+              <TextField
+                fullWidth
+                size="small"
+                type="number"
+                value={executedValue}
+                onChange={(e) => setExecutedValue(e.target.value)}
+              />
+            </FormField>
+            <FormField label="PO Document">
+              <MuiButton variant="outlined" component="label" size="small" startIcon={<Upload />} sx={{ fontSize: 12 }}>
+                {newFile ? newFile.name : po.fileName ? 'Replace document' : 'Upload document'}
+                <input type="file" hidden accept=".pdf,.doc,.docx" onChange={(e) => setNewFile(e.target.files?.[0] ?? null)} />
+              </MuiButton>
+            </FormField>
+          </Box>
+          <Divider />
+          <MilestoneSectionPanel
+            title="Milestones"
+            addLabel="Add Milestone"
+            onAdd={() =>
+              setMilestoneCards((prev) => [
+                ...prev,
+                createClientPOMilestoneCard(categoryOptions, cardServiceOptions),
+              ])
+            }
+            addDisabled={hasBilled}
+            isEmpty={milestoneCards.length === 0}
+          >
+            {milestoneCards.map((card) => {
+              const { milestoneStatuses, retentionStatus } = clientMilestoneStatusesForCard(
+                previewMilestones,
+                card.serviceId,
+                projectInvoices,
+              )
+              return (
+                <ClientPOMilestoneCardEditor
+                  key={card.id}
+                  card={card}
+                  categoryOptions={categoryOptions}
+                  serviceOptions={cardServiceOptions}
+                  milestoneBaseValue={milestoneBaseValue}
+                  includeRetention
+                  structureLocked={hasBilled}
+                  milestoneStatuses={milestoneStatuses}
+                  retentionStatus={retentionStatus}
+                  onChange={(patch) =>
+                    setMilestoneCards((prev) =>
+                      prev.map((c) => (c.id === card.id ? { ...c, ...patch } : c)),
+                    )
+                  }
+                  onRemove={() => setMilestoneCards((prev) => prev.filter((c) => c.id !== card.id))}
+                />
+              )
+            })}
+          </MilestoneSectionPanel>
+        </Stack>
+      ) : null}
+    </DrawerForm>
+  )
+}
+
+export function DeleteClientPODialog({
+  open,
+  po,
+  projectId,
+  onClose,
+  onDeleted,
+}: {
+  open: boolean
+  po: ClientPO | null
+  projectId: string
+  onClose: () => void
+  onDeleted?: () => void
+}) {
+  const dispatch = useAppDispatch()
+  const { saving } = useAppSelector((s) => s.baseline)
+  const toast = useToast((s) => s.showToast)
+
+  async function handleDelete() {
+    if (!po) return
+    try {
+      await dispatch(deleteClientPO({ projectId, poId: po.id })).unwrap()
+      void dispatch(fetchClientPO(projectId))
+      toast({ title: 'PO deleted', variant: 'success' })
+      onDeleted?.()
+      onClose()
+    } catch {
+      toast({ title: 'Failed to delete PO', variant: 'error' })
+    }
+  }
+
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
+      <DialogTitle sx={{ fontSize: 15, fontWeight: 600 }}>Delete client PO?</DialogTitle>
+      <DialogContent>
+        <Typography variant="body2" sx={{ fontSize: 13 }}>
+          This will permanently remove {po?.poNumber}. This action cannot be undone.
+        </Typography>
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 2 }}>
+        <MuiButton size="small" onClick={onClose}>Cancel</MuiButton>
+        <MuiButton size="small" variant="contained" color="error" disabled={saving} onClick={() => void handleDelete()}>
+          Delete
+        </MuiButton>
+      </DialogActions>
+    </Dialog>
+  )
+}
+
+export { canDeleteClientPO }

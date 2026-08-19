@@ -32,15 +32,19 @@ export interface DraftLineItem {
   milestoneId?: string
   baselineServiceId?: string
   lineSource?: LineSource
-  /** Max base amount for this row (project-derived); enforced in UI */
+  /** Expected milestone remaining amount; used for warnings only, not a hard cap */
   maxAmount?: number
 }
 
+function amountVsMilestone(amount: number, milestoneAmount: number): 'over' | 'under' | null {
+  const delta = Math.round((amount - milestoneAmount) * 100) / 100
+  if (delta > 0.01) return 'over'
+  if (delta < -0.01) return 'under'
+  return null
+}
+
 function applyLineTaxes(line: DraftLineItem): DraftLineItem {
-  let amount = line.amount
-  if (line.maxAmount !== undefined && line.maxAmount >= 0) {
-    amount = Math.min(amount, line.maxAmount)
-  }
+  const amount = line.amount
   const breakdown = computeLineItemTaxBreakdown(amount, line.labourCessRate, line.gstRate)
   return {
     ...line,
@@ -206,8 +210,8 @@ export function InvoiceLineItems({
                 Amount
               </TableCell>
               {showLabourCessColumn ? (
-                <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', width: 80 }}>
-                  Labour Cess
+                <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', width: 96 }}>
+                  Labour Cess %
                 </TableCell>
               ) : null}
               <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', width: 88 }}>
@@ -224,7 +228,7 @@ export function InvoiceLineItems({
               <TableRow>
                 <TableCell colSpan={emptyColSpan}>
                   <Typography variant="body2" color="text.secondary">
-                    No lines yet — select milestones or services above.
+                    No lines yet — select milestones above.
                   </Typography>
                 </TableCell>
               </TableRow>
@@ -232,6 +236,10 @@ export function InvoiceLineItems({
             {lines.map((row, index) => {
               const draft = row as DraftLineItem
               const isManual = !projectSourced || draft.lineSource === 'manual' || !draft.lineSource
+              const amountMismatch =
+                draft.maxAmount !== undefined && draft.maxAmount >= 0
+                  ? amountVsMilestone(draft.amount, draft.maxAmount)
+                  : null
               return mode === 'read' ? (
                 <TableRow key={row.id}>
                   <TableCell sx={{ fontSize: 12, ...serviceColSx }}>{row.serviceName}</TableCell>
@@ -278,9 +286,11 @@ export function InvoiceLineItems({
                       onChange={(v) => updateLine(index, { amount: Number(v) || 0 })}
                       fullWidth
                     />
-                    {draft.maxAmount !== undefined && draft.maxAmount >= 0 && (
-                      <Typography variant="caption" color="text.secondary" display="block">
-                        Max ₹{formatInr(draft.maxAmount)}
+                    {amountMismatch && draft.maxAmount !== undefined && (
+                      <Typography variant="caption" color="warning.main" display="block" sx={{ mt: 0.25 }}>
+                        {amountMismatch === 'over'
+                          ? `Amount exceeds the milestone value of ₹${formatInr(draft.maxAmount)}`
+                          : `Amount is less than the milestone value of ₹${formatInr(draft.maxAmount)}`}
                       </Typography>
                     )}
                   </TableCell>

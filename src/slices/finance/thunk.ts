@@ -4,8 +4,6 @@ import type {
   ClientInvoice,
   CreateExpenseBody,
   Expense,
-  GlobalGstResponse,
-  GlobalTdsResponse,
   Reimbursement,
   VendorPayment,
 } from './types'
@@ -102,31 +100,5 @@ export const fetchFinanceReimbursements = createAsyncThunk<
     return res.data
   } catch (err) {
     return rejectWithValue(errMessage(err, 'Failed to fetch reimbursements'))
-  }
-})
-
-export const fetchFinanceGst = createAsyncThunk<
-  GlobalGstResponse,
-  Record<string, string | undefined> | undefined,
-  { rejectValue: string }
->('finance/fetchGst', async (params, { rejectWithValue }) => {
-  try {
-    const res = await financeApi.getGstData(cleanParams(params))
-    return res.data
-  } catch (err) {
-    return rejectWithValue(errMessage(err, 'Failed to fetch GST data'))
-  }
-})
-
-export const fetchFinanceTds = createAsyncThunk<
-  GlobalTdsResponse,
-  Record<string, string | undefined> | undefined,
-  { rejectValue: string }
->('finance/fetchTds', async (params, { rejectWithValue }) => {
-  try {
-    const res = await financeApi.getTdsData(cleanParams(params))
-    return res.data
-  } catch (err) {
-    return rejectWithValue(errMessage(err, 'Failed to fetch TDS data'))
   }
 })

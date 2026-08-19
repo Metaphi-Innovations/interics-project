@@ -3,9 +3,19 @@ import type {
   ClientInvoice,
   CreateExpenseBody,
   Expense,
-  GlobalGstResponse,
-  GlobalTdsResponse,
+  FillingSummaryChartPoint,
+  FillingSummaryKpis,
+  FillingSummaryListParams,
+  FillingSummaryPeriodBreakdown,
+  GstChartPoint,
+  GstListParams,
+  GstPeriodBreakdown,
+  GstSummary,
   Reimbursement,
+  TdsChartPoint,
+  TdsListParams,
+  TdsPeriodBreakdown,
+  TdsSummary,
   VendorPayment,
 } from '@/slices/finance/types'
 import type { CreateClientInvoiceBody } from '@/api/liveApi'
@@ -40,14 +50,64 @@ export const financeApi = {
   getReimbursements: (params?: Record<string, string | undefined>) =>
     client.get<Reimbursement[]>('/reimbursements', { params }),
 
-  getGstData: (params?: Record<string, string | undefined>) =>
-    client.get<GlobalGstResponse>('/finance/compliance/gst', { params }),
+  getFillingSummary: (params?: Record<string, string | undefined>) =>
+    client.get<FillingSummaryKpis>('/finance/compliance/filling-summary/summary', { params }),
 
-  getTdsData: (params?: Record<string, string | undefined>) =>
-    client.get<GlobalTdsResponse>('/finance/compliance/tds', { params }),
+  getFillingSummaryChart: (params?: Record<string, string | undefined>) =>
+    client.get<FillingSummaryChartPoint[]>('/finance/compliance/filling-summary/chart', {
+      params,
+    }),
 
-  getComplianceSummary: (params?: Record<string, string | undefined>) =>
-    client.get('/finance/compliance/summary', { params }),
+  getFillingSummaryPeriodBreakdown: (params?: Record<string, string | undefined>) =>
+    client.get<FillingSummaryPeriodBreakdown>(
+      '/finance/compliance/filling-summary/period-breakdown',
+      { params },
+    ),
+
+  getFillingSummaryList: (params: FillingSummaryListParams) =>
+    client.get('/finance/compliance/filling-summary', { params }),
+
+  exportFillingSummary: (params: FillingSummaryListParams) =>
+    client.get('/finance/compliance/filling-summary/export', {
+      params,
+      responseType: 'blob',
+    }),
+
+  getGstSummary: (params?: Record<string, string | undefined>) =>
+    client.get<GstSummary>('/finance/compliance/gst/summary', { params }),
+
+  getGstChart: (params?: Record<string, string | undefined>) =>
+    client.get<GstChartPoint[]>('/finance/compliance/gst/chart', { params }),
+
+  getGstPeriodBreakdown: (params?: Record<string, string | undefined>) =>
+    client.get<GstPeriodBreakdown>('/finance/compliance/gst/period-breakdown', { params }),
+
+  getGstList: (params: GstListParams) => client.get('/finance/compliance/gst', { params }),
+
+  exportGst: (params: GstListParams) =>
+    client.get('/finance/compliance/gst/export', {
+      params,
+      responseType: 'blob',
+    }),
+
+  getTdsSummary: (params?: Record<string, string | undefined>) =>
+    client.get<TdsSummary>('/finance/compliance/tds/summary', { params }),
+
+  getTdsChart: (params?: Record<string, string | undefined>) =>
+    client.get<TdsChartPoint[]>('/finance/compliance/tds/chart', { params }),
+
+  getTdsPeriodBreakdown: (params?: Record<string, string | undefined>) =>
+    client.get<TdsPeriodBreakdown>('/finance/compliance/tds/period-breakdown', { params }),
+
+  getTdsList: (params: TdsListParams) => client.get('/finance/compliance/tds', { params }),
+
+  exportTds: (params: TdsListParams) =>
+    client.get('/finance/compliance/tds/export', {
+      params,
+      responseType: 'blob',
+    }),
+
+  getProjectDropdown: () => client.get('/dropdowns/projects'),
 
   getReceivablesSummary: (params?: Record<string, string | undefined>) =>
     client.get('/finance/receivables/summary', { params }),

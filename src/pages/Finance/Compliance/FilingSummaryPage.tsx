@@ -27,17 +27,17 @@ import { useNavigate } from 'react-router-dom'
 import { Button, Select, StatusBadge, Tag } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { financeApi } from '@/api/financeApi'
-import { unwrapApiData } from '@/modules/system-settings/shared/api'
+import { unwrapApiData, unwrapApiList } from '@/modules/system-settings/shared/api'
 import type {
+  FillingSummaryChartPoint,
+  FillingSummaryKpis,
+  FillingSummaryListType,
+  FillingSummaryPeriodBreakdown,
   GlobalGstEntry,
-  GlobalGstResponse,
   GlobalTdsClientEntry,
-  GlobalTdsResponse,
   GlobalTdsVendorEntry,
 } from '@/slices/finance/types'
 import type { ClientInvoice } from '@/slices/live/types'
-import { useAppDispatch, useAppSelector } from '@/store/hooks'
-import { fetchProjects } from '@/slices/projects/thunk'
 import { formatCurrency, formatDate, formatInr } from '@/utils/formatters'
 import { invoiceStatusToBadgeType } from '@/pages/Finance/invoiceStatus'
 
@@ -65,9 +65,10 @@ const TABLE_CELL_SX = {
 type PeriodMode = 'monthly' | 'quarterly'
 type TableTab = 'all' | 'gst' | 'clientTds' | 'vendorTds'
 
-function startOfCalendarQuarter(d: dayjs.Dayjs) {
-  const qStartM = Math.floor(d.month() / 3) * 3
-  return d.month(qStartM).date(1).startOf('day')
+const TAB_TO_LIST_TYPE: Record<Exclude<TableTab, 'all'>, FillingSummaryListType> = {
+  gst: 'gst',
+  clientTds: 'client_tds',
+  vendorTds: 'vendor_tds',
 }
 
 function indianFyLabelAndRange(now = new Date()) {
@@ -80,75 +81,35 @@ function indianFyLabelAndRange(now = new Date()) {
   return { startStr, endStr, label, startYear }
 }
 
-function inDateRange(iso: string, startStr: string, endStr: string) {
-  return iso >= startStr && iso <= endStr
+function parseChartPeriod(period: string): Date | null {
+  const match = period.trim().match(/^([A-Za-z]{3})\s+(\d{2})$/)
+  if (!match) return null
+  const parsed = new Date(`${match[1]} 1, 20${match[2]}`)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
-function sumGstInClosedRange(entries: GlobalGstEntry[], start: dayjs.Dayjs, end: dayjs.Dayjs) {
-  const s = start.format('YYYY-MM-DD')
-  const e = end.format('YYYY-MM-DD')
-  return entries.reduce((acc, x) => acc + (x.invoiceDate >= s && x.invoiceDate <= e ? x.gstAmount : 0), 0)
-}
-
-function sumClientTdsInRange(entries: GlobalTdsClientEntry[], start: dayjs.Dayjs, end: dayjs.Dayjs) {
-  const s = start.format('YYYY-MM-DD')
-  const e = end.format('YYYY-MM-DD')
-  return entries.reduce((acc, x) => acc + (x.invoiceDate >= s && x.invoiceDate <= e ? x.tdsAmount : 0), 0)
-}
-
-function sumVendorTdsInRange(entries: GlobalTdsVendorEntry[], start: dayjs.Dayjs, end: dayjs.Dayjs) {
-  const s = start.format('YYYY-MM-DD')
-  const e = end.format('YYYY-MM-DD')
-  return entries.reduce((acc, x) => acc + (x.paymentDate >= s && x.paymentDate <= e ? x.tdsAmount : 0), 0)
-}
-
-function buildMonthlyChartSeries(
-  gst: GlobalGstResponse | null,
-  tds: GlobalTdsResponse | null,
-): { period: string; gst: number; tds: number }[] {
-  const rows: { period: string; gst: number; tds: number }[] = []
-  const end = dayjs()
-  for (let i = 5; i >= 0; i--) {
-    const d = end.subtract(i, 'month')
-    const y = d.year()
-    const mo = d.month() + 1
-    let gstSum = 0
-    for (const e of gst?.entries ?? []) {
-      const ed = dayjs(e.invoiceDate)
-      if (ed.year() === y && ed.month() + 1 === mo) gstSum += e.gstAmount
-    }
-    let tdsSum = 0
-    for (const e of tds?.clientEntries ?? []) {
-      const ed = dayjs(e.invoiceDate)
-      if (ed.year() === y && ed.month() + 1 === mo) tdsSum += e.tdsAmount
-    }
-    for (const e of tds?.vendorEntries ?? []) {
-      const ed = dayjs(e.paymentDate)
-      if (ed.year() === y && ed.month() + 1 === mo) tdsSum += e.tdsAmount
-    }
-    rows.push({ period: d.format('MMM YY'), gst: gstSum, tds: tdsSum })
+function groupChartByQuarter(rows: FillingSummaryChartPoint[]): FillingSummaryChartPoint[] {
+  const map = new Map<string, FillingSummaryChartPoint>()
+  for (const row of rows) {
+    const parsed = parseChartPeriod(row.period)
+    const label = parsed
+      ? `Q${Math.floor(parsed.getMonth() / 3) + 1} ${parsed.getFullYear()}`
+      : row.period
+    const prev = map.get(label) ?? { period: label, gst: 0, tds: 0 }
+    prev.gst += row.gst
+    prev.tds += row.tds
+    map.set(label, prev)
   }
-  return rows
+  return [...map.values()]
 }
 
-function buildQuarterlyChartSeries(
-  gst: GlobalGstResponse | null,
-  tds: GlobalTdsResponse | null,
-): { period: string; gst: number; tds: number }[] {
-  const rows: { period: string; gst: number; tds: number }[] = []
-  const oldestQStart = startOfCalendarQuarter(startOfCalendarQuarter(dayjs()).subtract(15, 'month'))
-  for (let i = 0; i < 6; i++) {
-    const qStart = oldestQStart.add(i * 3, 'month')
-    const qEnd = qStart.add(3, 'month').subtract(1, 'day').endOf('day')
-    const qn = Math.floor(qStart.month() / 3) + 1
-    const label = `Q${qn} ${qStart.year()}`
-    const gstSum = sumGstInClosedRange(gst?.entries ?? [], qStart, qEnd)
-    const tdsSum =
-      sumClientTdsInRange(tds?.clientEntries ?? [], qStart, qEnd) +
-      sumVendorTdsInRange(tds?.vendorEntries ?? [], qStart, qEnd)
-    rows.push({ period: label, gst: gstSum, tds: tdsSum })
-  }
-  return rows
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
 }
 
 function downloadCsv(filename: string, rows: (string | number)[][]) {
@@ -158,13 +119,13 @@ function downloadCsv(filename: string, rows: (string | number)[][]) {
     return s
   }
   const body = rows.map((r) => r.map(esc).join(',')).join('\n')
-  const blob = new Blob([body], { type: 'text/csv;charset=utf-8;' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  a.click()
-  URL.revokeObjectURL(url)
+  downloadBlob(new Blob([body], { type: 'text/csv;charset=utf-8;' }), filename)
+}
+
+function filenameFromDisposition(header: unknown, fallback: string) {
+  if (typeof header !== 'string') return fallback
+  const match = header.match(/filename="?([^";]+)"?/i)
+  return match?.[1]?.trim() || fallback
 }
 
 function axisTickInr(v: number) {
@@ -172,92 +133,141 @@ function axisTickInr(v: number) {
 }
 
 export default function FilingSummaryPage() {
-  const dispatch = useAppDispatch()
   const navigate = useNavigate()
-  const projects = useAppSelector((s) => s.projects.items ?? [])
 
   const [filterProjectId, setFilterProjectId] = useState('')
-  const [gstData, setGstData] = useState<GlobalGstResponse | null>(null)
-  const [tdsData, setTdsData] = useState<GlobalTdsResponse | null>(null)
+  const [projectOptions, setProjectOptions] = useState<Array<{ label: string; value: string }>>([])
+  const [kpis, setKpis] = useState<FillingSummaryKpis | null>(null)
+  const [monthlyChart, setMonthlyChart] = useState<FillingSummaryChartPoint[]>([])
+  const [breakdown, setBreakdown] = useState<FillingSummaryPeriodBreakdown | null>(null)
+  const [gstEntries, setGstEntries] = useState<GlobalGstEntry[]>([])
+  const [clientTdsEntries, setClientTdsEntries] = useState<GlobalTdsClientEntry[]>([])
+  const [vendorTdsEntries, setVendorTdsEntries] = useState<GlobalTdsVendorEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [periodMode, setPeriodMode] = useState<PeriodMode>('monthly')
-  const [tableTab, setTableTab] = useState<TableTab>('all')
+  const [tableTab, setTableTab] = useState<TableTab>('gst')
 
-  const params = useMemo(() => {
+  const scopeParams = useMemo(() => {
     const p: Record<string, string | undefined> = {}
     if (filterProjectId) p.projectId = filterProjectId
     return p
   }, [filterProjectId])
 
-  const load = useCallback(async () => {
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await financeApi.getProjectDropdown()
+        const items = unwrapApiList<{ value: string; label: string }>(res.data)
+        setProjectOptions(items.map((item) => ({ value: item.value, label: item.label })))
+      } catch {
+        setProjectOptions([])
+      }
+    })()
+  }, [])
+
+  const loadOverview = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const [g, t] = await Promise.all([
-        financeApi.getGstData(params),
-        financeApi.getTdsData({ ...params, type: 'all' }),
+      const [summaryRes, chartRes, breakdownRes] = await Promise.all([
+        financeApi.getFillingSummary(scopeParams),
+        financeApi.getFillingSummaryChart(scopeParams),
+        financeApi.getFillingSummaryPeriodBreakdown(scopeParams),
       ])
-      setGstData(unwrapApiData<GlobalGstResponse>(g.data))
-      setTdsData(unwrapApiData<GlobalTdsResponse>(t.data))
+      setKpis(unwrapApiData<FillingSummaryKpis>(summaryRes.data))
+      setMonthlyChart(unwrapApiList<FillingSummaryChartPoint>(chartRes.data))
+      setBreakdown(unwrapApiData<FillingSummaryPeriodBreakdown>(breakdownRes.data))
     } catch {
       setError('Could not load compliance data.')
-      setGstData(null)
-      setTdsData(null)
+      setKpis(null)
+      setMonthlyChart([])
+      setBreakdown(null)
     } finally {
       setLoading(false)
     }
-  }, [params])
+  }, [scopeParams])
+
+  const loadTable = useCallback(async () => {
+    try {
+      const listParams = { ...scopeParams, limit: 100 }
+      if (tableTab === 'gst') {
+        const gstRes = await financeApi.getFillingSummaryList({ ...listParams, type: 'gst' })
+        setGstEntries(unwrapApiList<GlobalGstEntry>(gstRes.data))
+        setClientTdsEntries([])
+        setVendorTdsEntries([])
+        return
+      }
+      if (tableTab === 'clientTds') {
+        const clientRes = await financeApi.getFillingSummaryList({
+          ...listParams,
+          type: 'client_tds',
+        })
+        setClientTdsEntries(unwrapApiList<GlobalTdsClientEntry>(clientRes.data))
+        setGstEntries([])
+        setVendorTdsEntries([])
+        return
+      }
+      if (tableTab === 'vendorTds') {
+        const vendorRes = await financeApi.getFillingSummaryList({
+          ...listParams,
+          type: 'vendor_tds',
+        })
+        setVendorTdsEntries(unwrapApiList<GlobalTdsVendorEntry>(vendorRes.data))
+        setGstEntries([])
+        setClientTdsEntries([])
+        return
+      }
+      const [gstRes, clientRes, vendorRes] = await Promise.all([
+        financeApi.getFillingSummaryList({ ...listParams, type: 'gst' }),
+        financeApi.getFillingSummaryList({ ...listParams, type: 'client_tds' }),
+        financeApi.getFillingSummaryList({ ...listParams, type: 'vendor_tds' }),
+      ])
+      setGstEntries(unwrapApiList<GlobalGstEntry>(gstRes.data))
+      setClientTdsEntries(unwrapApiList<GlobalTdsClientEntry>(clientRes.data))
+      setVendorTdsEntries(unwrapApiList<GlobalTdsVendorEntry>(vendorRes.data))
+    } catch {
+      setError('Could not load compliance data.')
+      setGstEntries([])
+      setClientTdsEntries([])
+      setVendorTdsEntries([])
+    }
+  }, [scopeParams, tableTab])
 
   useEffect(() => {
-    void dispatch(fetchProjects({}))
-  }, [dispatch])
+    void loadOverview()
+  }, [loadOverview])
 
   useEffect(() => {
-    void load()
-  }, [load])
+    void loadTable()
+  }, [loadTable])
 
-  const gstCollected = gstData?.summary.totalGst ?? 0
-  const clientTds = tdsData?.summary.clientTdsTotal ?? 0
-  const vendorTds = tdsData?.summary.vendorTdsTotal ?? 0
+  const gstCollected = kpis?.totalGst ?? 0
+  const clientTds = kpis?.clientTdsTotal ?? 0
+  const vendorTds = kpis?.vendorTdsTotal ?? 0
   const netTax = gstCollected - clientTds - vendorTds
   const netPositive = netTax >= 0
 
   const fy = useMemo(() => indianFyLabelAndRange(), [])
-  const fyGst = useMemo(
-    () =>
-      (gstData?.entries ?? []).reduce(
-        (s, e) => s + (inDateRange(e.invoiceDate, fy.startStr, fy.endStr) ? e.gstAmount : 0),
-        0,
-      ),
-    [gstData, fy.startStr, fy.endStr],
-  )
-  const fyClientTds = useMemo(
-    () =>
-      (tdsData?.clientEntries ?? []).reduce(
-        (s, e) => s + (inDateRange(e.invoiceDate, fy.startStr, fy.endStr) ? e.tdsAmount : 0),
-        0,
-      ),
-    [tdsData, fy.startStr, fy.endStr],
-  )
-  const fyVendorTds = useMemo(
-    () =>
-      (tdsData?.vendorEntries ?? []).reduce(
-        (s, e) => s + (inDateRange(e.paymentDate, fy.startStr, fy.endStr) ? e.tdsAmount : 0),
-        0,
-      ),
-    [tdsData, fy.startStr, fy.endStr],
-  )
-  const fyNet = fyGst - fyClientTds - fyVendorTds
+  const fyTotals = useMemo(() => {
+    const periods = (breakdown?.periods ?? []).filter((p) => {
+      const stamp = `${p.year}-${String(p.month).padStart(2, '0')}-01`
+      return stamp >= fy.startStr && stamp <= fy.endStr
+    })
+    const fyGst = periods.reduce((s, p) => s + p.gst, 0)
+    const fyClientTds = periods.reduce((s, p) => s + p.clientTds, 0)
+    const fyVendorTds = periods.reduce((s, p) => s + p.vendorTds, 0)
+    return {
+      fyGst,
+      fyClientTds,
+      fyVendorTds,
+      fyNet: fyGst - fyClientTds - fyVendorTds,
+    }
+  }, [breakdown, fy.startStr, fy.endStr])
 
-  const chartData = useMemo(() => {
-    if (periodMode === 'monthly') return buildMonthlyChartSeries(gstData, tdsData)
-    return buildQuarterlyChartSeries(gstData, tdsData)
-  }, [gstData, tdsData, periodMode])
-
-  const projectOptions = useMemo(
-    () => projects.map((p) => ({ label: p.name, value: p.id })),
-    [projects],
+  const chartData = useMemo(
+    () => (periodMode === 'monthly' ? monthlyChart : groupChartByQuarter(monthlyChart)),
+    [monthlyChart, periodMode],
   )
 
   const allMergedRows = useMemo(() => {
@@ -274,7 +284,7 @@ export default function FilingSummaryPage() {
       status: string
     }
     const out: Row[] = []
-    for (const e of gstData?.entries ?? []) {
+    for (const e of gstEntries) {
       out.push({
         id: `g-${e.invoiceId}`,
         sortDate: e.invoiceDate,
@@ -288,7 +298,7 @@ export default function FilingSummaryPage() {
         status: e.status,
       })
     }
-    for (const e of tdsData?.clientEntries ?? []) {
+    for (const e of clientTdsEntries) {
       out.push({
         id: `c-${e.invoiceId}`,
         sortDate: e.invoiceDate,
@@ -302,7 +312,7 @@ export default function FilingSummaryPage() {
         status: e.status,
       })
     }
-    for (const e of tdsData?.vendorEntries ?? []) {
+    for (const e of vendorTdsEntries) {
       out.push({
         id: `v-${e.paymentId}`,
         sortDate: e.paymentDate,
@@ -318,27 +328,27 @@ export default function FilingSummaryPage() {
     }
     out.sort((a, b) => b.sortDate.localeCompare(a.sortDate))
     return out
-  }, [gstData, tdsData])
+  }, [gstEntries, clientTdsEntries, vendorTdsEntries])
 
-  const gstFooterTotals = useMemo(() => {
-    const entries = gstData?.entries ?? []
-    return {
-      base: entries.reduce((s, e) => s + e.baseAmount, 0),
-      gst: entries.reduce((s, e) => s + e.gstAmount, 0),
-    }
-  }, [gstData])
+  const gstFooterTotals = useMemo(
+    () => ({
+      base: gstEntries.reduce((s, e) => s + e.baseAmount, 0),
+      gst: gstEntries.reduce((s, e) => s + e.gstAmount, 0),
+    }),
+    [gstEntries],
+  )
 
   const clientTdsTotalFooter = useMemo(
-    () => (tdsData?.clientEntries ?? []).reduce((s, e) => s + e.tdsAmount, 0),
-    [tdsData],
+    () => clientTdsEntries.reduce((s, e) => s + e.tdsAmount, 0),
+    [clientTdsEntries],
   )
 
   const vendorTdsTotalFooter = useMemo(
-    () => (tdsData?.vendorEntries ?? []).reduce((s, e) => s + e.tdsAmount, 0),
-    [tdsData],
+    () => vendorTdsEntries.reduce((s, e) => s + e.tdsAmount, 0),
+    [vendorTdsEntries],
   )
 
-  function exportCurrentTab() {
+  async function exportCurrentTab() {
     const stamp = dayjs().format('YYYY-MM-DD')
     if (tableTab === 'all') {
       downloadCsv(`filing-all-entries-${stamp}.csv`, [
@@ -354,51 +364,20 @@ export default function FilingSummaryPage() {
           r.status,
         ]),
       ])
-    } else if (tableTab === 'gst') {
-      const rows = gstData?.entries ?? []
-      downloadCsv(`filing-gst-${stamp}.csv`, [
-        ['Invoice no.', 'Project', 'Client', 'Invoice date', 'Base amount', 'GST rate', 'GST amount', 'Status'],
-        ...rows.map((e) => [
-          e.invoiceNumber,
-          e.projectName,
-          e.clientName,
-          e.invoiceDate,
-          e.baseAmount,
-          e.gstRate,
-          e.gstAmount,
-          e.status,
-        ]),
-      ])
-    } else if (tableTab === 'clientTds') {
-      const rows = tdsData?.clientEntries ?? []
-      downloadCsv(`filing-client-tds-${stamp}.csv`, [
-        ['Invoice no.', 'Project', 'Client', 'Invoice date', 'Invoice amount', 'TDS rate', 'TDS amount', 'Status'],
-        ...rows.map((e) => [
-          e.invoiceNumber,
-          e.projectName,
-          e.clientName,
-          e.invoiceDate,
-          e.grossAmount,
-          e.tdsRate,
-          e.tdsAmount,
-          e.status,
-        ]),
-      ])
-    } else {
-      const rows = tdsData?.vendorEntries ?? []
-      downloadCsv(`filing-vendor-tds-${stamp}.csv`, [
-        ['Invoice/Ref', 'Project', 'Vendor', 'Payment date', 'Invoice total', 'TDS rate', 'TDS amount', 'Status'],
-        ...rows.map((e) => [
-          e.invoiceNumber?.trim() || e.referenceNumber?.trim() || '—',
-          e.projectName,
-          e.vendorName,
-          e.paymentDate,
-          e.invoiceTotal,
-          e.tdsRate,
-          e.tdsAmount,
-          e.status || 'paid',
-        ]),
-      ])
+      return
+    }
+    try {
+      const type = TAB_TO_LIST_TYPE[tableTab]
+      const res = await financeApi.exportFillingSummary({
+        type,
+        ...(filterProjectId ? { projectId: filterProjectId } : {}),
+      })
+      downloadBlob(
+        res.data as Blob,
+        filenameFromDisposition(res.headers['content-disposition'], `filling-summary-${type}.csv`),
+      )
+    } catch {
+      setError('Could not export filling summary.')
     }
   }
 
@@ -575,7 +554,7 @@ export default function FilingSummaryPage() {
               fullWidth
               clearable
               value={filterProjectId}
-              onChange={(v) => setFilterProjectId(String(v))}
+              onChange={(v) => setFilterProjectId(v ? String(v) : '')}
               options={projectOptions}
             />
           </Box>
@@ -622,6 +601,27 @@ export default function FilingSummaryPage() {
             </Stack>
           </Stack>
 
+          {filterProjectId && (breakdown?.periods.length ?? 0) > 0 && (
+            <>
+              <Box sx={{ borderTop: `1px solid ${tokens.color.neutral[100]}`, my: 2 }} />
+              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700, letterSpacing: 0.5 }}>
+                Monthly breakdown
+              </Typography>
+              <Stack gap={0.75} sx={{ mt: 1, maxHeight: 160, overflow: 'auto' }}>
+                {breakdown?.periods.map((row) => (
+                  <Stack key={`${row.year}-${row.month}`} direction="row" justifyContent="space-between" gap={1}>
+                    <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary' }}>
+                      {row.period}
+                    </Typography>
+                    <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600 }}>
+                      GST ₹{formatInr(row.gst)} · TDS ₹{formatInr(row.clientTds + row.vendorTds)}
+                    </Typography>
+                  </Stack>
+                ))}
+              </Stack>
+            </>
+          )}
+
           <Box sx={{ borderTop: `1px solid ${tokens.color.neutral[100]}`, my: 2 }} />
 
           <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700, letterSpacing: 0.5 }}>
@@ -633,7 +633,7 @@ export default function FilingSummaryPage() {
                 GST on client invoices
               </Typography>
               <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 600 }}>
-                ₹{formatInr(fyGst)}
+                ₹{formatInr(fyTotals.fyGst)}
               </Typography>
             </Stack>
             <Stack direction="row" justifyContent="space-between">
@@ -641,7 +641,7 @@ export default function FilingSummaryPage() {
                 TDS deducted by clients
               </Typography>
               <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 600 }}>
-                ₹{formatInr(fyClientTds)}
+                ₹{formatInr(fyTotals.fyClientTds)}
               </Typography>
             </Stack>
             <Stack direction="row" justifyContent="space-between">
@@ -649,7 +649,7 @@ export default function FilingSummaryPage() {
                 TDS deducted on vendors
               </Typography>
               <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 600 }}>
-                ₹{formatInr(fyVendorTds)}
+                ₹{formatInr(fyTotals.fyVendorTds)}
               </Typography>
             </Stack>
             <Box sx={{ borderTop: `1px solid ${tokens.color.neutral[100]}`, my: 1 }} />
@@ -662,10 +662,10 @@ export default function FilingSummaryPage() {
                 sx={{
                   fontSize: 13,
                   fontWeight: 700,
-                  color: fyNet >= 0 ? 'success.main' : 'error.main',
+                  color: fyTotals.fyNet >= 0 ? 'success.main' : 'error.main',
                 }}
               >
-                ₹{formatInr(fyNet)}
+                ₹{formatInr(fyTotals.fyNet)}
               </Typography>
             </Stack>
           </Stack>
@@ -714,7 +714,7 @@ export default function FilingSummaryPage() {
             color="primary"
             label="Export CSV"
             startIcon={<FileSpreadsheet size={14} strokeWidth={2} />}
-            onClick={exportCurrentTab}
+            onClick={() => void exportCurrentTab()}
           />
         </Stack>
 
@@ -810,7 +810,7 @@ export default function FilingSummaryPage() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {(gstData?.entries ?? []).map((e) => (
+                {(gstEntries).map((e) => (
                   <TableRow key={e.invoiceId} hover>
                     <TableCell sx={TABLE_CELL_SX}>
                       <Typography
@@ -893,7 +893,7 @@ export default function FilingSummaryPage() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {(tdsData?.clientEntries ?? []).map((e) => (
+                {(clientTdsEntries).map((e) => (
                   <TableRow key={e.invoiceId} hover>
                     <TableCell sx={TABLE_CELL_SX}>
                       <Typography
@@ -972,7 +972,7 @@ export default function FilingSummaryPage() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {(tdsData?.vendorEntries ?? []).map((e) => (
+                {(vendorTdsEntries).map((e) => (
                   <TableRow key={e.paymentId} hover>
                     <TableCell sx={TABLE_CELL_SX}>
                       {e.invoiceNumber?.trim() || e.referenceNumber?.trim() || '—'}

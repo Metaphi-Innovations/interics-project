@@ -7,8 +7,9 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { Delete } from '@mui/icons-material'
+import { Trash2 } from 'lucide-react'
 import { tokens } from '@/design-system/tokens'
+import { ROW_ICON_ACTION_BUTTON_DANGER_SX } from '@/components/listing/rowIconActionStyles'
 import { VENDOR_MILESTONE_PCT_EPS } from '@/utils/vendorMilestones'
 import {
   VendorPOMilestoneEditor,
@@ -272,9 +273,9 @@ function CardHeader({
         size="small"
         aria-label={removeLabel}
         onClick={onRemove}
-        sx={{ color: 'error.main' }}
+        sx={ROW_ICON_ACTION_BUTTON_DANGER_SX}
       >
-        <Delete sx={{ fontSize: 16 }} />
+        <Trash2 size={14} strokeWidth={2} />
       </MuiIconButton>
     </Stack>
   )

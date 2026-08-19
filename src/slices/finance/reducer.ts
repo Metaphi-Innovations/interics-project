@@ -4,19 +4,15 @@ import {
   createFinanceExpense,
   createFinanceInvoice,
   fetchFinanceExpenses,
-  fetchFinanceGst,
   fetchFinanceInvoices,
   fetchFinancePayments,
   fetchFinanceReimbursements,
-  fetchFinanceTds,
 } from './thunk'
 import type {
   ClientInvoice,
   Expense,
   FinanceComplianceFilters,
   FinanceListFilters,
-  GlobalGstResponse,
-  GlobalTdsResponse,
   Reimbursement,
   VendorPayment,
 } from './types'
@@ -28,8 +24,6 @@ export type {
   FinanceListFilters,
   Reimbursement,
   VendorPayment,
-  GlobalGstResponse,
-  GlobalTdsResponse,
 } from './types'
 
 export interface FinanceState {
@@ -38,12 +32,9 @@ export interface FinanceState {
   payments: VendorPayment[]
   reimbursements: Reimbursement[]
   filters: FinanceListFilters
-  gst: GlobalGstResponse | null
-  tds: GlobalTdsResponse | null
   complianceFilters: FinanceComplianceFilters
   loading: boolean
   saving: boolean
-  complianceLoading: boolean
 }
 
 const initialState: FinanceState = {
@@ -52,12 +43,9 @@ const initialState: FinanceState = {
   payments: [],
   reimbursements: [],
   filters: {},
-  gst: null,
-  tds: null,
   complianceFilters: {},
   loading: false,
   saving: false,
-  complianceLoading: false,
 }
 
 const financeSlice = createSlice({
@@ -140,28 +128,6 @@ const financeSlice = createSlice({
       })
       .addCase(fetchFinanceReimbursements.rejected, (state) => {
         state.loading = false
-      })
-
-      .addCase(fetchFinanceGst.pending, (state) => {
-        state.complianceLoading = true
-      })
-      .addCase(fetchFinanceGst.fulfilled, (state, action) => {
-        state.complianceLoading = false
-        state.gst = action.payload
-      })
-      .addCase(fetchFinanceGst.rejected, (state) => {
-        state.complianceLoading = false
-      })
-
-      .addCase(fetchFinanceTds.pending, (state) => {
-        state.complianceLoading = true
-      })
-      .addCase(fetchFinanceTds.fulfilled, (state, action) => {
-        state.complianceLoading = false
-        state.tds = action.payload
-      })
-      .addCase(fetchFinanceTds.rejected, (state) => {
-        state.complianceLoading = false
       })
   },
 })

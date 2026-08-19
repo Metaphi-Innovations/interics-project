@@ -110,6 +110,13 @@ export interface VendorInvoice {
   fileName?: string
   /** When the invoice document was uploaded into the system. */
   uploadedAt?: string
+  /** Optional line items when one invoice covers multiple milestones. */
+  lineItems?: Array<{
+    milestoneId?: string
+    serviceId?: string
+    amount?: number
+    milestoneName?: string
+  }>
 }
 
 /** Per vendor–service row on a project (Finance → Payments payable control). */

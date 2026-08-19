@@ -1,6 +1,9 @@
 import type { ClientPO, ClientPOMilestone, VendorPO, VendorPOMilestone } from '@/slices/baseline/reducer'
 import type { ClientInvoice, VendorInvoice } from '@/slices/live/types'
-import { clientMilestonePaymentStatus, vendorMilestonePaymentStatus } from './milestonePaymentStatus'
+import {
+  clientMilestoneIsLocked,
+  vendorMilestoneIsLocked,
+} from './milestonePaymentStatus'
 
 export interface POExecutedValueFields {
   poValue: number
@@ -12,57 +15,40 @@ export function effectiveExecutedValue(po: POExecutedValueFields): number {
   return po.executedValue ?? po.poValue
 }
 
-export function canUpdateExecutedValue(po: POExecutedValueFields | null | undefined): boolean {
-  if (!po) return false
-  return !po.executedValueLocked
-}
-
-export function buildExecutedValueUpdatePayload(
-  executedValue: number,
-): Pick<POExecutedValueFields, 'executedValue' | 'executedValueLocked'> {
-  return {
-    executedValue,
-    executedValueLocked: true,
-  }
-}
-
 function isClientRetentionRow(milestone: ClientPOMilestone): boolean {
   return milestone.kind === 'retention' || milestone.id.startsWith('cli-ret-')
 }
 
 /**
- * Redistribute `poValue` across milestones:
- * - Paid slots keep their original value (locked).
- * - Remaining = poValue − total paid is split among unpaid slots
- *   preserving their original percentage ratio.
- * - Rounding remainder is applied to the last unpaid slot so
- *   paid + unpaid always equals `poValue`.
+ * Redistribute target value across milestones:
+ * - Locked (billed/paid) slots keep their value.
+ * - Remaining is split among unlocked slots by percentage ratio.
  */
 export function distributeUnpaidMilestoneValues(
-  slots: { percentage: number; isPaid: boolean; value: number }[],
-  poValue: number,
+  slots: { percentage: number; isLocked: boolean; value: number }[],
+  targetValue: number,
 ): number[] {
-  const paidTotal = slots.filter((s) => s.isPaid).reduce((sum, s) => sum + s.value, 0)
-  const unpaidIndexes = slots
+  const lockedTotal = slots.filter((s) => s.isLocked).reduce((sum, s) => sum + s.value, 0)
+  const unlockedIndexes = slots
     .map((slot, index) => ({ slot, index }))
-    .filter(({ slot }) => !slot.isPaid)
-  const unpaidPctTotal = unpaidIndexes.reduce((sum, { slot }) => sum + slot.percentage, 0)
-  const remaining = Math.max(0, poValue - paidTotal)
+    .filter(({ slot }) => !slot.isLocked)
+  const unlockedPctTotal = unlockedIndexes.reduce((sum, { slot }) => sum + slot.percentage, 0)
+  const remaining = Math.max(0, targetValue - lockedTotal)
 
-  const next = slots.map((slot) => (slot.isPaid ? slot.value : 0))
+  const next = slots.map((slot) => (slot.isLocked ? slot.value : 0))
 
-  if (unpaidIndexes.length === 0 || unpaidPctTotal <= 0 || remaining <= 0) {
+  if (unlockedIndexes.length === 0 || unlockedPctTotal <= 0 || remaining <= 0) {
     return next
   }
 
   let assigned = 0
-  unpaidIndexes.forEach(({ slot, index }, i) => {
-    const isLast = i === unpaidIndexes.length - 1
+  unlockedIndexes.forEach(({ slot, index }, i) => {
+    const isLast = i === unlockedIndexes.length - 1
     if (isLast) {
       next[index] = Math.max(0, remaining - assigned)
       return
     }
-    const share = Math.round(remaining * (slot.percentage / unpaidPctTotal))
+    const share = Math.round(remaining * (slot.percentage / unlockedPctTotal))
     next[index] = share
     assigned += share
   })
@@ -70,7 +56,6 @@ export function distributeUnpaidMilestoneValues(
   return next
 }
 
-/** Recalculate unpaid milestone values; paid milestones keep their amounts. */
 export function recalculateClientPOMilestonesForExecutedValue(
   milestones: ClientPOMilestone[],
   executedValue: number,
@@ -83,7 +68,7 @@ export function recalculateClientPOMilestonesForExecutedValue(
 
   type ValueSlot = {
     percentage: number
-    isPaid: boolean
+    isLocked: boolean
     value: number
     apply: (nextValue: number) => void
   }
@@ -92,11 +77,10 @@ export function recalculateClientPOMilestonesForExecutedValue(
 
   for (const m of result) {
     if (isClientRetentionRow(m)) {
-      const isPaid =
-        clientMilestonePaymentStatus(invoices, m.id, m.serviceId, m.name) === 'Paid'
+      const isLocked = clientMilestoneIsLocked(invoices, m.id, m.serviceId, m.name)
       slots.push({
         percentage: m.percentage,
-        isPaid,
+        isLocked,
         value: m.value,
         apply: (nextValue) => {
           m.value = nextValue
@@ -105,10 +89,10 @@ export function recalculateClientPOMilestonesForExecutedValue(
       continue
     }
 
-    const isPaid = clientMilestonePaymentStatus(invoices, m.id, m.serviceId, m.name) === 'Paid'
+    const isLocked = clientMilestoneIsLocked(invoices, m.id, m.serviceId, m.name)
     slots.push({
       percentage: m.percentage,
-      isPaid,
+      isLocked,
       value: m.value,
       apply: (nextValue) => {
         m.value = nextValue
@@ -116,11 +100,15 @@ export function recalculateClientPOMilestonesForExecutedValue(
     })
 
     if (m.retention) {
-      // Nested retention rows are not independently invoiceable; keep them unpaid
-      // so they participate in remaining-value redistribution with unpaid work.
+      const retentionLocked = clientMilestoneIsLocked(
+        invoices,
+        `${m.id}-retention`,
+        m.serviceId,
+        `${m.name} — Retention`,
+      )
       slots.push({
         percentage: m.retention.percentage,
-        isPaid: false,
+        isLocked: retentionLocked,
         value: m.retention.value,
         apply: (nextValue) => {
           if (m.retention) m.retention.value = nextValue
@@ -134,11 +122,8 @@ export function recalculateClientPOMilestonesForExecutedValue(
   return result
 }
 
-/** Alias — PO value / executed value drive the same paid-lock redistribute. */
-export const recalculateClientPOMilestonesForPoValue =
-  recalculateClientPOMilestonesForExecutedValue
+export const recalculateClientPOMilestonesForPoValue = recalculateClientPOMilestonesForExecutedValue
 
-/** Recalculate unpaid milestone values; paid milestones keep amounts and status. */
 export function recalculateVendorPOMilestonesForExecutedValue(
   milestones: VendorPOMilestone[],
   executedValue: number,
@@ -147,19 +132,13 @@ export function recalculateVendorPOMilestonesForExecutedValue(
   const result = milestones.map((m) => ({ ...m }))
   const slots = result.map((m) => ({
     percentage: m.percentage,
-    isPaid:
-      m.status === 'Paid' || vendorMilestonePaymentStatus(invoices, m.id) === 'Paid',
+    isLocked: vendorMilestoneIsLocked(invoices, m.id, m.status),
     value: m.value,
   }))
 
   const nextValues = distributeUnpaidMilestoneValues(slots, executedValue)
   return result.map((m, index) => {
-    const isPaid =
-      m.status === 'Paid' || vendorMilestonePaymentStatus(invoices, m.id) === 'Paid'
-    if (isPaid) {
-      // Preserve percentage, value, and status exactly as at payment time.
-      return m
-    }
+    if (vendorMilestoneIsLocked(invoices, m.id, m.status)) return m
     return {
       ...m,
       value: nextValues[index] ?? m.value,
@@ -167,79 +146,60 @@ export function recalculateVendorPOMilestonesForExecutedValue(
   })
 }
 
-/** Alias — PO value / executed value drive the same paid-lock redistribute. */
-export const recalculateVendorPOMilestonesForPoValue =
-  recalculateVendorPOMilestonesForExecutedValue
+export const recalculateVendorPOMilestonesForPoValue = recalculateVendorPOMilestonesForExecutedValue
 
-export function buildClientPOExecutedValueUpdatePayload(
-  executedValue: number,
-  milestones: ClientPOMilestone[],
-): Pick<ClientPO, 'executedValue' | 'executedValueLocked' | 'milestones'> {
-  return {
-    executedValue,
-    executedValueLocked: true,
-    milestones,
-  }
-}
-
-export function buildVendorPOExecutedValueUpdatePayload(
-  executedValue: number,
-  milestones: VendorPOMilestone[],
-): Pick<VendorPO, 'executedValue' | 'executedValueLocked' | 'milestones'> {
-  return {
-    executedValue,
-    executedValueLocked: true,
-    milestones,
-  }
-}
-
-export function clientPOHasPaidMilestone(
+export function clientPOHasBilledMilestone(
   milestones: ClientPOMilestone[],
   invoices: ClientInvoice[],
 ): boolean {
-  return milestones.some(
-    (m) => clientMilestonePaymentStatus(invoices, m.id, m.serviceId, m.name) === 'Paid',
+  return milestones.some((m) =>
+    clientMilestoneIsLocked(invoices, m.id, m.serviceId, m.name),
   )
 }
 
-export function vendorPOHasPaidMilestone(milestones: VendorPOMilestone[]): boolean {
-  return milestones.some((m) => m.status === 'Paid')
+export function vendorPOHasBilledMilestone(
+  milestones: VendorPOMilestone[],
+  invoices: VendorInvoice[],
+): boolean {
+  return milestones.some((m) => vendorMilestoneIsLocked(invoices, m.id, m.status))
 }
 
-/** Reject milestone mutations when any milestone is paid. */
 export function clientPOMilestonesAreProtected(
   existing: ClientPOMilestone[],
   next: ClientPOMilestone[] | undefined,
   invoices: ClientInvoice[],
 ): boolean {
-  if (!next || !clientPOHasPaidMilestone(existing, invoices)) return false
-  if (existing.length !== next.length) return true
-  return existing.some((m) => {
-    if (clientMilestonePaymentStatus(invoices, m.id, m.serviceId, m.name) !== 'Paid') return false
+  if (!next) return false
+  for (const m of existing) {
+    if (!clientMilestoneIsLocked(invoices, m.id, m.serviceId, m.name)) continue
     const n = next.find((x) => x.id === m.id)
     if (!n) return true
-    return (
+    if (
       n.name !== m.name ||
       n.percentage !== m.percentage ||
       n.value !== m.value ||
       n.serviceId !== m.serviceId ||
       n.serviceName !== m.serviceName
-    )
-  })
+    ) {
+      return true
+    }
+  }
+  return false
 }
 
 export function vendorPOMilestonesAreProtected(
   existing: VendorPOMilestone[],
   next: VendorPOMilestone[] | undefined,
+  invoices: VendorInvoice[],
 ): boolean {
-  if (!next || !vendorPOHasPaidMilestone(existing)) return false
-  if (existing.length !== next.length) return true
-  return existing.some((m) => {
-    if (m.status !== 'Paid') return false
+  if (!next) return false
+  for (const m of existing) {
+    if (!vendorMilestoneIsLocked(invoices, m.id, m.status)) continue
     const n = next.find((x) => x.id === m.id)
     if (!n) return true
-    return n.name !== m.name || n.percentage !== m.percentage || n.value !== m.value
-  })
+    if (n.name !== m.name || n.percentage !== m.percentage || n.value !== m.value) return true
+  }
+  return false
 }
 
 export function mergeClientPOUpdate(
@@ -247,123 +207,122 @@ export function mergeClientPOUpdate(
   body: Partial<ClientPO>,
   options?: { invoices?: ClientInvoice[] },
 ): { ok: true; po: ClientPO } | { ok: false; message: string } {
-  if (body.executedValueLocked === true && body.executedValue != null) {
-    if (existing.executedValueLocked) {
-      return { ok: false, message: 'Executed value has already been updated and is locked.' }
-    }
+  const invoices = options?.invoices ?? []
+  const hasBilled = clientPOHasBilledMilestone(existing.milestones ?? [], invoices)
+
+  if (hasBilled && body.poValue != null && body.poValue !== existing.poValue) {
+    return { ok: false, message: 'PO value cannot be changed when milestones are billed or paid.' }
+  }
+
+  if (body.executedValue != null) {
     if (!Number.isFinite(body.executedValue) || body.executedValue <= 0) {
       return { ok: false, message: 'Executed value must be a positive number.' }
     }
-    const nextMilestones = body.milestones ?? existing.milestones
-    if (
-      clientPOMilestonesAreProtected(existing.milestones ?? [], nextMilestones, options?.invoices ?? [])
-    ) {
-      return { ok: false, message: 'Paid milestones cannot be modified.' }
-    }
-    return {
-      ok: true,
-      po: {
-        ...existing,
-        ...(body.poValue != null ? { poValue: body.poValue } : {}),
-        executedValue: body.executedValue,
-        executedValueLocked: true,
-        milestones: nextMilestones,
-      },
-    }
   }
 
-  if (existing.executedValueLocked) {
-    const lockedKeys: (keyof ClientPO)[] = [
-      'poNumber',
-      'poValue',
-      'executedValue',
-      'milestones',
-      'documentUrl',
-      'fileName',
-      'startDate',
-      'endDate',
-    ]
-    for (const key of lockedKeys) {
-      if (key in body && body[key] !== undefined && body[key] !== existing[key]) {
-        return { ok: false, message: 'This PO is locked and cannot be modified.' }
+  const nextMilestones = body.milestones ?? existing.milestones
+  if (clientPOMilestonesAreProtected(existing.milestones ?? [], nextMilestones, invoices)) {
+    return { ok: false, message: 'Billed or paid milestones cannot be modified or removed.' }
+  }
+
+  if (body.executedValue != null && hasBilled) {
+    const lockedTotal = (existing.milestones ?? [])
+      .filter((m) => clientMilestoneIsLocked(invoices, m.id, m.serviceId, m.name))
+      .reduce((sum, m) => sum + m.value + (m.retention?.value ?? 0), 0)
+    if (body.executedValue < lockedTotal - 0.01) {
+      return {
+        ok: false,
+        message: 'Executed value cannot be less than the total of billed or paid milestones.',
       }
     }
   }
 
-  if (body.milestones) {
-    const existingMilestones = existing.milestones ?? []
-    const milestonesChanged =
-      JSON.stringify(existingMilestones) !== JSON.stringify(body.milestones)
-    if (milestonesChanged && existing.executedValueLocked) {
-      return { ok: false, message: 'This PO is locked and cannot be modified.' }
-    }
+  return {
+    ok: true,
+    po: {
+      ...existing,
+      ...body,
+      ...(body.milestones !== undefined ? { milestones: body.milestones } : {}),
+    },
   }
-
-  if (
-    clientPOMilestonesAreProtected(
-      existing.milestones ?? [],
-      body.milestones,
-      options?.invoices ?? [],
-    )
-  ) {
-    return { ok: false, message: 'Paid milestones cannot be modified.' }
-  }
-
-  return { ok: true, po: { ...existing, ...body } }
 }
 
 export function mergeVendorPOUpdate(
   existing: VendorPO,
   body: Partial<VendorPO>,
+  options?: { invoices?: VendorInvoice[] },
 ): { ok: true; po: VendorPO } | { ok: false; message: string } {
-  if (body.executedValueLocked === true && body.executedValue != null) {
-    if (existing.executedValueLocked) {
-      return { ok: false, message: 'Executed value has already been updated and is locked.' }
-    }
+  const invoices = options?.invoices ?? []
+  const hasBilled = vendorPOHasBilledMilestone(existing.milestones ?? [], invoices)
+
+  if (hasBilled && body.poValue != null && body.poValue !== existing.poValue) {
+    return { ok: false, message: 'PO value cannot be changed when milestones are billed or paid.' }
+  }
+
+  if (body.executedValue != null) {
     if (!Number.isFinite(body.executedValue) || body.executedValue <= 0) {
       return { ok: false, message: 'Executed value must be a positive number.' }
     }
-    const nextMilestones = body.milestones ?? existing.milestones
-    if (vendorPOMilestonesAreProtected(existing.milestones, nextMilestones)) {
-      return { ok: false, message: 'Paid milestones cannot be modified.' }
-    }
-    return {
-      ok: true,
-      po: {
-        ...existing,
-        ...(body.poValue != null ? { poValue: body.poValue } : {}),
-        executedValue: body.executedValue,
-        executedValueLocked: true,
-        milestones: nextMilestones,
-      },
-    }
   }
 
-  if (existing.executedValueLocked) {
-    const lockedKeys: (keyof VendorPO)[] = [
-      'poNumber',
-      'poDate',
-      'poValue',
-      'executedValue',
-      'milestones',
-      'documentUrl',
-      'fileName',
-      'vendorId',
-      'vendorName',
-      'paymentTerms',
-      'linkedBaselineServiceIds',
-      'linkedVendorMappingId',
-    ]
-    for (const key of lockedKeys) {
-      if (key in body && body[key] !== undefined && body[key] !== existing[key]) {
-        return { ok: false, message: 'This PO is locked and cannot be modified.' }
+  const nextMilestones = body.milestones ?? existing.milestones
+  if (vendorPOMilestonesAreProtected(existing.milestones ?? [], nextMilestones, invoices)) {
+    return { ok: false, message: 'Billed or paid milestones cannot be modified or removed.' }
+  }
+
+  if (body.executedValue != null && hasBilled) {
+    const lockedTotal = (existing.milestones ?? [])
+      .filter((m) => vendorMilestoneIsLocked(invoices, m.id, m.status))
+      .reduce((sum, m) => sum + m.value, 0)
+    if (body.executedValue < lockedTotal - 0.01) {
+      return {
+        ok: false,
+        message: 'Executed value cannot be less than the total of billed or paid milestones.',
       }
     }
   }
 
-  if (vendorPOMilestonesAreProtected(existing.milestones, body.milestones)) {
-    return { ok: false, message: 'Paid milestones cannot be modified.' }
+  return {
+    ok: true,
+    po: {
+      ...existing,
+      ...body,
+      ...(body.milestones !== undefined ? { milestones: body.milestones } : {}),
+    },
   }
+}
 
-  return { ok: true, po: { ...existing, ...body } }
+export function canDeleteClientPO(
+  milestones: ClientPOMilestone[],
+  invoices: ClientInvoice[],
+): boolean {
+  return !clientPOHasBilledMilestone(milestones, invoices)
+}
+
+export function canDeleteVendorPO(
+  milestones: VendorPOMilestone[],
+  invoices: VendorInvoice[],
+): boolean {
+  return !vendorPOHasBilledMilestone(milestones, invoices)
+}
+
+/** @deprecated Use billed-milestone rules instead */
+export function canUpdateExecutedValue(_po: POExecutedValueFields | null | undefined): boolean {
+  return true
+}
+
+/** @deprecated One-time lock removed */
+export function buildClientPOExecutedValueUpdatePayload(
+  executedValue: number,
+  milestones: ClientPOMilestone[],
+): Pick<ClientPO, 'executedValue' | 'milestones'> {
+  return { executedValue, milestones }
+}
+
+/** @deprecated One-time lock removed */
+export function buildVendorPOExecutedValueUpdatePayload(
+  executedValue: number,
+  milestones: VendorPOMilestone[],
+): Pick<VendorPO, 'executedValue' | 'milestones'> {
+  return { executedValue, milestones }
 }

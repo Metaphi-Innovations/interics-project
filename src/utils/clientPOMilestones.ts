@@ -32,11 +32,11 @@ export function validateClientPOMilestonePercents(
 
   const currentPct = sumClientPOMilestonePercentages(named)
 
-  if (Math.abs(currentPct - 100) >= CLIENT_PO_MILESTONE_PCT_EPS) {
+  if (currentPct > 100 + CLIENT_PO_MILESTONE_PCT_EPS) {
     return {
       valid: false,
       currentPct,
-      pctMessage: `Total must equal 100% (currently ${currentPct.toFixed(1)}%)`,
+      pctMessage: `Total must not exceed 100% (currently ${currentPct.toFixed(1)}%)`,
     }
   }
 

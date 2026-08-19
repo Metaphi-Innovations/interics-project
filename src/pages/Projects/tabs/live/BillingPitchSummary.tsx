@@ -3,9 +3,16 @@ import { Box, Stack, Typography } from '@mui/material'
 import { tokens } from '@/design-system/tokens'
 import { useAppDispatch, useAppSelector } from '../../../../store/hooks'
 import { fetchClientPO } from '../../../../slices/baseline/thunk'
+import { fetchInvoices } from '../../../../slices/live/thunk'
 import type { ClientPO } from '../../../../slices/baseline/reducer'
 import { ClientPOSection } from '../../components/ClientPOSection'
-import { AddClientPODrawer, ViewClientPODrawer } from './ClientPOBillingDrawers'
+import {
+  AddClientPODrawer,
+  canDeleteClientPO,
+  DeleteClientPODialog,
+  EditClientPODrawer,
+  ViewClientPODrawer,
+} from './ClientPOBillingDrawers'
 
 interface BillingPitchSummaryProps {
   projectId: string
@@ -14,12 +21,16 @@ interface BillingPitchSummaryProps {
 export function BillingPitchSummary({ projectId }: BillingPitchSummaryProps) {
   const dispatch = useAppDispatch()
   const { clientPOs } = useAppSelector((s) => s.baseline)
+  const { invoices } = useAppSelector((s) => s.live)
 
   const [addPOOpen, setAddPOOpen] = useState(false)
   const [viewPoId, setViewPoId] = useState<string | null>(null)
+  const [editPoId, setEditPoId] = useState<string | null>(null)
+  const [deletePo, setDeletePo] = useState<ClientPO | null>(null)
 
   useEffect(() => {
     void dispatch(fetchClientPO(projectId))
+    void dispatch(fetchInvoices(projectId))
   }, [dispatch, projectId])
 
   const projectClientPOs = useMemo(
@@ -27,9 +38,19 @@ export function BillingPitchSummary({ projectId }: BillingPitchSummaryProps) {
     [clientPOs, projectId],
   )
 
+  const projectInvoices = useMemo(
+    () => invoices.filter((i) => i.projectId === projectId),
+    [invoices, projectId],
+  )
+
   const viewPoSeed = useMemo(
     () => projectClientPOs.find((po) => po.id === viewPoId) ?? null,
     [projectClientPOs, viewPoId],
+  )
+
+  const editPoSeed = useMemo(
+    () => projectClientPOs.find((po) => po.id === editPoId) ?? null,
+    [projectClientPOs, editPoId],
   )
 
   return (
@@ -56,7 +77,10 @@ export function BillingPitchSummary({ projectId }: BillingPitchSummaryProps) {
           <ClientPOSection
             clientPOs={projectClientPOs}
             onAddPO={() => setAddPOOpen(true)}
-            onViewPO={(po: ClientPO) => setViewPoId(po.id)}
+            onViewPO={(po) => setViewPoId(po.id)}
+            onEditPO={(po) => setEditPoId(po.id)}
+            onDeletePO={(po) => setDeletePo(po)}
+            canDeletePO={(po) => canDeleteClientPO(po.milestones ?? [], projectInvoices)}
           />
         </Stack>
       </Box>
@@ -68,6 +92,19 @@ export function BillingPitchSummary({ projectId }: BillingPitchSummaryProps) {
         projectId={projectId}
         poId={viewPoId}
         poSeed={viewPoSeed}
+      />
+      <EditClientPODrawer
+        open={!!editPoId}
+        onClose={() => setEditPoId(null)}
+        projectId={projectId}
+        poId={editPoId}
+        poSeed={editPoSeed}
+      />
+      <DeleteClientPODialog
+        open={!!deletePo}
+        po={deletePo}
+        projectId={projectId}
+        onClose={() => setDeletePo(null)}
       />
     </>
   )

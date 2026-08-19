@@ -617,7 +617,7 @@ export function buildFinancialSummaryGroups(
     serviceCatalog,
   )
 
-  const children: FinancialSummaryWorkstreamRow[] = []
+  const byCategory = new Map<string, FinancialSummaryWorkstreamRow[]>()
   for (const bucket of buckets) {
     if (
       Math.abs(bucket.clientPOAmount) < FINANCIALS_EPS &&
@@ -630,7 +630,7 @@ export function buildFinancialSummaryGroups(
       continue
     }
 
-    children.push({
+    const row: FinancialSummaryWorkstreamRow = {
       id: workstreamIdentityKey(bucket.categoryName, bucket.serviceName, bucket.serviceId),
       kind: 'service',
       workstreamName: looksLikeRawId(bucket.serviceName)
@@ -648,17 +648,21 @@ export function buildFinancialSummaryGroups(
         bucket.pendingReceived,
         bucket.pendingPaid,
       ),
-    })
+    }
+    const categoryName = bucket.categoryName.trim() || 'Uncategorized'
+    const rows = byCategory.get(categoryName)
+    if (rows) rows.push(row)
+    else byCategory.set(categoryName, [row])
   }
 
   const categoryGroups: FinancialSummaryCategoryGroup[] = []
-  if (children.length > 0) {
+  for (const [name, rows] of byCategory) {
     categoryGroups.push({
-      id: 'live-services',
-      name: 'Services',
+      id: `cat:${name}`,
+      name,
       kind: 'category',
-      children,
-      subtotal: sumMetrics(children),
+      children: rows,
+      subtotal: sumMetrics(rows),
     })
   }
 

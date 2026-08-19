@@ -160,7 +160,7 @@ export function sumBilledPerBaselineService(
 ): Map<string, number> {
   const map = new Map<string, number>()
   for (const li of lineItemsForProject(invoices, projectId)) {
-    if (li.lineSource !== 'service' || !li.baselineServiceId) continue
+    if (!li.baselineServiceId) continue
     map.set(li.baselineServiceId, (map.get(li.baselineServiceId) ?? 0) + li.amount)
   }
   return map

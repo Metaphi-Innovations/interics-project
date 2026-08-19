@@ -11,7 +11,6 @@ import {
   TableFooter,
   Alert,
 } from '@mui/material'
-import dayjs from 'dayjs'
 import {
   BarChart,
   Bar,
@@ -27,14 +26,15 @@ import { Button, Drawer, Select, StatusBadge } from '@/design-system/components'
 import type { StatusType } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { financeApi } from '@/api/financeApi'
-import { unwrapApiData } from '@/modules/system-settings/shared/api'
+import { unwrapApiData, unwrapApiList } from '@/modules/system-settings/shared/api'
 import type {
   GlobalTdsClientEntry,
-  GlobalTdsResponse,
   GlobalTdsVendorEntry,
+  TdsChartPoint,
+  TdsListType,
+  TdsPeriodBreakdown,
+  TdsSummary,
 } from '@/slices/finance/types'
-import { useAppDispatch, useAppSelector } from '@/store/hooks'
-import { fetchProjects } from '@/slices/projects/thunk'
 import { formatCurrency, formatDate, formatInr } from '@/utils/formatters'
 
 const CHART_CLIENT_TDS = '#EF9F27'
@@ -60,105 +60,42 @@ const TABLE_CELL_SX = {
 }
 
 type PeriodMode = 'monthly' | 'quarterly'
-type TableTab = 'client' | 'vendor'
 
-function startOfCalendarQuarter(d: dayjs.Dayjs) {
-  const qStartM = Math.floor(d.month() / 3) * 3
-  return d.month(qStartM).date(1).startOf('day')
+function parseChartPeriod(period: string): Date | null {
+  const match = period.trim().match(/^([A-Za-z]{3})\s+(\d{2})$/)
+  if (!match) return null
+  const parsed = new Date(`${match[1]} 1, 20${match[2]}`)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
-function indianFyLabelAndRange(now = new Date()) {
-  const y = now.getFullYear()
-  const m = now.getMonth() + 1
-  const startYear = m >= 4 ? y : y - 1
-  const startStr = `${startYear}-04-01`
-  const endStr = `${startYear + 1}-03-31`
-  const label = `FY ${startYear}-${String((startYear + 1) % 100).padStart(2, '0')}`
-  return { startStr, endStr, label, startYear }
-}
-
-function inDateRange(iso: string, startStr: string, endStr: string) {
-  return iso >= startStr && iso <= endStr
-}
-
-function sumClientTdsInRange(entries: GlobalTdsClientEntry[], start: dayjs.Dayjs, end: dayjs.Dayjs) {
-  const s = start.format('YYYY-MM-DD')
-  const e = end.format('YYYY-MM-DD')
-  return entries.reduce(
-    (acc, x) => acc + (x.invoiceDate >= s && x.invoiceDate <= e ? x.tdsAmount : 0),
-    0,
-  )
-}
-
-function sumVendorTdsInRange(entries: GlobalTdsVendorEntry[], start: dayjs.Dayjs, end: dayjs.Dayjs) {
-  const s = start.format('YYYY-MM-DD')
-  const e = end.format('YYYY-MM-DD')
-  return entries.reduce(
-    (acc, x) => acc + (x.paymentDate >= s && x.paymentDate <= e ? x.tdsAmount : 0),
-    0,
-  )
-}
-
-function buildTdsMonthlySeries(
-  client: GlobalTdsClientEntry[],
-  vendor: GlobalTdsVendorEntry[],
-): { period: string; clientTds: number; vendorTds: number }[] {
-  const rows: { period: string; clientTds: number; vendorTds: number }[] = []
-  const end = dayjs()
-  for (let i = 5; i >= 0; i--) {
-    const d = end.subtract(i, 'month')
-    const y = d.year()
-    const mo = d.month() + 1
-    let c = 0
-    for (const e of client) {
-      const ed = dayjs(e.invoiceDate)
-      if (ed.year() === y && ed.month() + 1 === mo) c += e.tdsAmount
-    }
-    let v = 0
-    for (const e of vendor) {
-      const ed = dayjs(e.paymentDate)
-      if (ed.year() === y && ed.month() + 1 === mo) v += e.tdsAmount
-    }
-    rows.push({ period: d.format('MMM YY'), clientTds: c, vendorTds: v })
+function groupTdsChartByQuarter(rows: TdsChartPoint[]): TdsChartPoint[] {
+  const map = new Map<string, TdsChartPoint>()
+  for (const row of rows) {
+    const parsed = parseChartPeriod(row.period)
+    const label = parsed
+      ? `Q${Math.floor(parsed.getMonth() / 3) + 1} ${parsed.getFullYear()}`
+      : row.period
+    const prev = map.get(label) ?? { period: label, clientTds: 0, vendorTds: 0 }
+    prev.clientTds += row.clientTds
+    prev.vendorTds += row.vendorTds
+    map.set(label, prev)
   }
-  return rows
+  return [...map.values()]
 }
 
-function buildTdsQuarterlySeries(
-  client: GlobalTdsClientEntry[],
-  vendor: GlobalTdsVendorEntry[],
-): { period: string; clientTds: number; vendorTds: number }[] {
-  const rows: { period: string; clientTds: number; vendorTds: number }[] = []
-  const oldestQStart = startOfCalendarQuarter(startOfCalendarQuarter(dayjs()).subtract(15, 'month'))
-  for (let i = 0; i < 6; i++) {
-    const qStart = oldestQStart.add(i * 3, 'month')
-    const qEnd = qStart.add(3, 'month').subtract(1, 'day').endOf('day')
-    const qn = Math.floor(qStart.month() / 3) + 1
-    const yy = qStart.format('YY')
-    const label = `Q${qn} '${yy}`
-    rows.push({
-      period: label,
-      clientTds: sumClientTdsInRange(client, qStart, qEnd),
-      vendorTds: sumVendorTdsInRange(vendor, qStart, qEnd),
-    })
-  }
-  return rows
-}
-
-function downloadCsv(filename: string, rows: (string | number)[][]) {
-  const esc = (c: string | number) => {
-    const s = String(c)
-    if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`
-    return s
-  }
-  const body = rows.map((r) => r.map(esc).join(',')).join('\n')
-  const blob = new Blob([body], { type: 'text/csv;charset=utf-8;' })
+function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
   a.download = filename
   a.click()
   URL.revokeObjectURL(url)
+}
+
+function filenameFromDisposition(header: unknown, fallback: string) {
+  if (typeof header !== 'string') return fallback
+  const match = header.match(/filename="?([^";]+)"?/i)
+  return match?.[1]?.trim() || fallback
 }
 
 function axisTickInr(v: number) {
@@ -177,85 +114,88 @@ function entryStatusToBadge(status: string): StatusType {
 }
 
 export default function TDSPage() {
-  const dispatch = useAppDispatch()
-  const projects = useAppSelector((s) => s.projects.items ?? [])
-
   const [filterProjectId, setFilterProjectId] = useState('')
-  const [tdsData, setTdsData] = useState<GlobalTdsResponse | null>(null)
+  const [projectOptions, setProjectOptions] = useState<Array<{ label: string; value: string }>>([])
+  const [kpis, setKpis] = useState<TdsSummary | null>(null)
+  const [monthlyChart, setMonthlyChart] = useState<TdsChartPoint[]>([])
+  const [breakdown, setBreakdown] = useState<TdsPeriodBreakdown | null>(null)
+  const [clientRows, setClientRows] = useState<GlobalTdsClientEntry[]>([])
+  const [vendorRows, setVendorRows] = useState<GlobalTdsVendorEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [periodMode, setPeriodMode] = useState<PeriodMode>('monthly')
-  const [tableTab, setTableTab] = useState<TableTab>('client')
+  const [tableTab, setTableTab] = useState<TdsListType>('client')
   const [drawerEntry, setDrawerEntry] = useState<GlobalTdsClientEntry | null>(null)
 
-  const params = useMemo(() => {
-    const p: Record<string, string | undefined> = { type: 'all' }
+  const scopeParams = useMemo(() => {
+    const p: Record<string, string | undefined> = {}
     if (filterProjectId) p.projectId = filterProjectId
     return p
   }, [filterProjectId])
 
-  const load = useCallback(async () => {
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await financeApi.getProjectDropdown()
+        const items = unwrapApiList<{ value: string; label: string }>(res.data)
+        setProjectOptions(items.map((item) => ({ value: item.value, label: item.label })))
+      } catch {
+        setProjectOptions([])
+      }
+    })()
+  }, [])
+
+  const loadOverview = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const res = await financeApi.getTdsData(params)
-      setTdsData(unwrapApiData<GlobalTdsResponse>(res.data))
+      const [summaryRes, chartRes, breakdownRes] = await Promise.all([
+        financeApi.getTdsSummary(scopeParams),
+        financeApi.getTdsChart(scopeParams),
+        financeApi.getTdsPeriodBreakdown(scopeParams),
+      ])
+      setKpis(unwrapApiData<TdsSummary>(summaryRes.data))
+      setMonthlyChart(unwrapApiList<TdsChartPoint>(chartRes.data))
+      setBreakdown(unwrapApiData<TdsPeriodBreakdown>(breakdownRes.data))
     } catch {
       setError('Could not load TDS data.')
-      setTdsData(null)
+      setKpis(null)
+      setMonthlyChart([])
+      setBreakdown(null)
     } finally {
       setLoading(false)
     }
-  }, [params])
+  }, [scopeParams])
+
+  const loadTable = useCallback(async () => {
+    try {
+      const listParams = { ...scopeParams, limit: 100, type: tableTab }
+      const res = await financeApi.getTdsList(listParams)
+      if (tableTab === 'client') {
+        setClientRows(unwrapApiList<GlobalTdsClientEntry>(res.data))
+        setVendorRows([])
+        return
+      }
+      setVendorRows(unwrapApiList<GlobalTdsVendorEntry>(res.data))
+      setClientRows([])
+    } catch {
+      setError('Could not load TDS data.')
+      setClientRows([])
+      setVendorRows([])
+    }
+  }, [scopeParams, tableTab])
 
   useEffect(() => {
-    void dispatch(fetchProjects({}))
-  }, [dispatch])
+    void loadOverview()
+  }, [loadOverview])
 
   useEffect(() => {
-    void load()
-  }, [load])
+    void loadTable()
+  }, [loadTable])
 
-  const summary = tdsData?.summary
-  const clientEntriesRaw = tdsData?.clientEntries ?? []
-  const vendorEntriesRaw = tdsData?.vendorEntries ?? []
-
-  const clientRows = useMemo(
-    () => clientEntriesRaw.filter((e) => e.tdsAmount > 0),
-    [clientEntriesRaw],
-  )
-  const vendorRows = useMemo(
-    () => vendorEntriesRaw.filter((e) => e.tdsAmount > 0),
-    [vendorEntriesRaw],
-  )
-
-  const fy = useMemo(() => indianFyLabelAndRange(), [])
-  const fyClient = useMemo(
-    () =>
-      clientEntriesRaw.reduce(
-        (s, e) => s + (inDateRange(e.invoiceDate, fy.startStr, fy.endStr) ? e.tdsAmount : 0),
-        0,
-      ),
-    [clientEntriesRaw, fy.startStr, fy.endStr],
-  )
-  const fyVendor = useMemo(
-    () =>
-      vendorEntriesRaw.reduce(
-        (s, e) => s + (inDateRange(e.paymentDate, fy.startStr, fy.endStr) ? e.tdsAmount : 0),
-        0,
-      ),
-    [vendorEntriesRaw, fy.startStr, fy.endStr],
-  )
-
-  const chartData = useMemo(() => {
-    if (periodMode === 'monthly')
-      return buildTdsMonthlySeries(clientEntriesRaw, vendorEntriesRaw)
-    return buildTdsQuarterlySeries(clientEntriesRaw, vendorEntriesRaw)
-  }, [clientEntriesRaw, vendorEntriesRaw, periodMode])
-
-  const projectOptions = useMemo(
-    () => projects.map((p) => ({ label: p.name, value: p.id })),
-    [projects],
+  const chartData = useMemo(
+    () => (periodMode === 'monthly' ? monthlyChart : groupTdsChartByQuarter(monthlyChart)),
+    [monthlyChart, periodMode],
   )
 
   const footerClientTds = useMemo(
@@ -267,36 +207,18 @@ export default function TDSPage() {
     [vendorRows],
   )
 
-  function exportCurrentTab() {
-    const stamp = dayjs().format('YYYY-MM-DD')
-    if (tableTab === 'client') {
-      downloadCsv(`tds-client-${stamp}.csv`, [
-        ['Invoice no.', 'Project', 'Client name', 'Invoice date', 'Invoice amount (gross)', 'TDS rate %', 'TDS amount', 'Status'],
-        ...clientRows.map((e) => [
-          e.invoiceNumber,
-          e.projectName,
-          e.clientName,
-          e.invoiceDate,
-          e.grossAmount,
-          e.tdsRate,
-          e.tdsAmount,
-          e.status,
-        ]),
-      ])
-    } else {
-      downloadCsv(`tds-vendor-${stamp}.csv`, [
-        ['Invoice/Ref', 'Project', 'Vendor name', 'Payment date', 'Invoice total', 'TDS rate %', 'TDS amount', 'Status'],
-        ...vendorRows.map((e) => [
-          e.invoiceNumber?.trim() || e.referenceNumber?.trim() || '—',
-          e.projectName,
-          e.vendorName,
-          e.paymentDate,
-          e.invoiceTotal,
-          e.tdsRate,
-          e.tdsAmount,
-          e.status || 'paid',
-        ]),
-      ])
+  async function exportCurrentTab() {
+    try {
+      const res = await financeApi.exportTds({
+        type: tableTab,
+        ...(filterProjectId ? { projectId: filterProjectId } : {}),
+      })
+      downloadBlob(
+        res.data as Blob,
+        filenameFromDisposition(res.headers['content-disposition'], `tds-${tableTab}.csv`),
+      )
+    } catch {
+      setError('Could not export TDS data.')
     }
   }
 
@@ -314,7 +236,7 @@ export default function TDSPage() {
     fontFamily: 'inherit',
   })
 
-  const totalTds = summary?.total ?? (summary?.clientTdsTotal ?? 0) + (summary?.vendorTdsTotal ?? 0)
+  const totalTds = kpis?.total ?? (kpis?.clientTdsTotal ?? 0) + (kpis?.vendorTdsTotal ?? 0)
 
   return (
     <Box sx={{ p: { xs: 2, md: 3, lg: 4 }, maxWidth: 1920, mx: 'auto' }}>
@@ -358,8 +280,8 @@ export default function TDSPage() {
         }}
       >
         {[
-          { label: 'Client TDS Deducted', value: summary?.clientTdsTotal ?? 0 },
-          { label: 'Vendor TDS Deducted', value: summary?.vendorTdsTotal ?? 0 },
+          { label: 'Client TDS Deducted', value: kpis?.clientTdsTotal ?? 0 },
+          { label: 'Vendor TDS Deducted', value: kpis?.vendorTdsTotal ?? 0 },
           { label: 'Total TDS', value: totalTds },
         ].map((m) => (
           <Box
@@ -476,7 +398,7 @@ export default function TDSPage() {
                 TDS deducted by clients
               </Typography>
               <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 600, color: CHART_CLIENT_TDS }}>
-                ₹{formatInr(summary?.clientTdsTotal ?? 0)}
+                ₹{formatInr(breakdown?.clientTdsTotal ?? kpis?.clientTdsTotal ?? 0)}
               </Typography>
             </Stack>
             <Stack direction="row" justifyContent="space-between">
@@ -484,7 +406,7 @@ export default function TDSPage() {
                 TDS deducted on vendors
               </Typography>
               <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 600, color: CHART_VENDOR_TDS }}>
-                ₹{formatInr(summary?.vendorTdsTotal ?? 0)}
+                ₹{formatInr(breakdown?.vendorTdsTotal ?? kpis?.vendorTdsTotal ?? 0)}
               </Typography>
             </Stack>
             <Box sx={{ borderTop: `1px solid ${tokens.color.neutral[100]}`, pt: 1 }}>
@@ -493,7 +415,7 @@ export default function TDSPage() {
                   Total TDS
                 </Typography>
                 <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 700 }}>
-                  ₹{formatInr(totalTds)}
+                  ₹{formatInr(breakdown?.total ?? totalTds)}
                 </Typography>
               </Stack>
             </Box>
@@ -502,7 +424,7 @@ export default function TDSPage() {
           <Box sx={{ borderTop: `1px solid ${tokens.color.neutral[100]}`, my: 2 }} />
 
           <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700, letterSpacing: 0.5 }}>
-            This Financial Year ({fy.label})
+            This Financial Year ({breakdown?.fy.label ?? '—'})
           </Typography>
           <Stack spacing={1} sx={{ mt: 1 }}>
             <Stack direction="row" justifyContent="space-between">
@@ -510,7 +432,7 @@ export default function TDSPage() {
                 TDS deducted by clients
               </Typography>
               <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 600 }}>
-                ₹{formatInr(fyClient)}
+                ₹{formatInr(breakdown?.fy.clientTds ?? 0)}
               </Typography>
             </Stack>
             <Stack direction="row" justifyContent="space-between">
@@ -518,7 +440,7 @@ export default function TDSPage() {
                 TDS deducted on vendors
               </Typography>
               <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 600 }}>
-                ₹{formatInr(fyVendor)}
+                ₹{formatInr(breakdown?.fy.vendorTds ?? 0)}
               </Typography>
             </Stack>
             <Stack direction="row" justifyContent="space-between">
@@ -526,7 +448,7 @@ export default function TDSPage() {
                 Total TDS this FY
               </Typography>
               <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 700 }}>
-                ₹{formatInr(fyClient + fyVendor)}
+                ₹{formatInr(breakdown?.fy.total ?? 0)}
               </Typography>
             </Stack>
           </Stack>
@@ -550,7 +472,7 @@ export default function TDSPage() {
               Vendor TDS
             </Box>
           </Stack>
-          <Button variant="outlined" color="secondary" size="sm" onClick={exportCurrentTab}>
+          <Button variant="outlined" color="secondary" size="sm" onClick={() => void exportCurrentTab()}>
             Export CSV
           </Button>
         </Stack>

@@ -12,7 +12,6 @@ import {
   Alert,
   LinearProgress,
 } from '@mui/material'
-import dayjs from 'dayjs'
 import {
   BarChart,
   Bar,
@@ -27,10 +26,16 @@ import { Button, Drawer, Select, StatusBadge } from '@/design-system/components'
 import type { StatusType } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { financeApi } from '@/api/financeApi'
-import { unwrapApiData } from '@/modules/system-settings/shared/api'
-import type { GlobalGstEntry, GlobalGstResponse } from '@/slices/finance/types'
-import { useAppDispatch, useAppSelector } from '@/store/hooks'
-import { fetchProjects } from '@/slices/projects/thunk'
+import { unwrapApiData, unwrapApiList } from '@/modules/system-settings/shared/api'
+import type {
+  GlobalGstEntry,
+  GstChartPoint,
+  GstListType,
+  GstMonthRow,
+  GstPeriodBreakdown,
+  GstProjectRow,
+  GstSummary,
+} from '@/slices/finance/types'
 import { formatCurrency, formatDate, formatInr } from '@/utils/formatters'
 
 const CHART_GST = '#1D9E75'
@@ -54,79 +59,41 @@ const TABLE_CELL_SX = {
 }
 
 type PeriodMode = 'monthly' | 'quarterly'
-type TableTab = 'invoice' | 'project' | 'month'
 
-function startOfCalendarQuarter(d: dayjs.Dayjs) {
-  const qStartM = Math.floor(d.month() / 3) * 3
-  return d.month(qStartM).date(1).startOf('day')
+function parseChartPeriod(period: string): Date | null {
+  const match = period.trim().match(/^([A-Za-z]{3})\s+(\d{2})$/)
+  if (!match) return null
+  const parsed = new Date(`${match[1]} 1, 20${match[2]}`)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
-function indianFyLabelAndRange(now = new Date()) {
-  const y = now.getFullYear()
-  const m = now.getMonth() + 1
-  const startYear = m >= 4 ? y : y - 1
-  const startStr = `${startYear}-04-01`
-  const endStr = `${startYear + 1}-03-31`
-  const label = `FY ${startYear}-${String((startYear + 1) % 100).padStart(2, '0')}`
-  return { startStr, endStr, label, startYear }
-}
-
-function inDateRange(iso: string, startStr: string, endStr: string) {
-  return iso >= startStr && iso <= endStr
-}
-
-function sumGstInClosedRange(entries: GlobalGstEntry[], start: dayjs.Dayjs, end: dayjs.Dayjs) {
-  const s = start.format('YYYY-MM-DD')
-  const e = end.format('YYYY-MM-DD')
-  return entries.reduce((acc, x) => acc + (x.invoiceDate >= s && x.invoiceDate <= e ? x.gstAmount : 0), 0)
-}
-
-function buildGstMonthlyChartSeries(entries: GlobalGstEntry[]): { period: string; gst: number }[] {
-  const rows: { period: string; gst: number }[] = []
-  const end = dayjs()
-  for (let i = 5; i >= 0; i--) {
-    const d = end.subtract(i, 'month')
-    const y = d.year()
-    const mo = d.month() + 1
-    let gstSum = 0
-    for (const e of entries) {
-      const ed = dayjs(e.invoiceDate)
-      if (ed.year() === y && ed.month() + 1 === mo) gstSum += e.gstAmount
-    }
-    rows.push({ period: d.format('MMM YY'), gst: gstSum })
+function groupGstChartByQuarter(rows: GstChartPoint[]): GstChartPoint[] {
+  const map = new Map<string, GstChartPoint>()
+  for (const row of rows) {
+    const parsed = parseChartPeriod(row.period)
+    const label = parsed
+      ? `Q${Math.floor(parsed.getMonth() / 3) + 1} ${parsed.getFullYear()}`
+      : row.period
+    const prev = map.get(label) ?? { period: label, gst: 0 }
+    prev.gst += row.gst
+    map.set(label, prev)
   }
-  return rows
+  return [...map.values()]
 }
 
-function buildGstQuarterlyChartSeries(entries: GlobalGstEntry[]): { period: string; gst: number }[] {
-  const rows: { period: string; gst: number }[] = []
-  const oldestQStart = startOfCalendarQuarter(startOfCalendarQuarter(dayjs()).subtract(15, 'month'))
-  for (let i = 0; i < 6; i++) {
-    const qStart = oldestQStart.add(i * 3, 'month')
-    const qEnd = qStart.add(3, 'month').subtract(1, 'day').endOf('day')
-    const qn = Math.floor(qStart.month() / 3) + 1
-    const yy = qStart.format('YY')
-    const label = `Q${qn} '${yy}`
-    const gstSum = sumGstInClosedRange(entries, qStart, qEnd)
-    rows.push({ period: label, gst: gstSum })
-  }
-  return rows
-}
-
-function downloadCsv(filename: string, rows: (string | number)[][]) {
-  const esc = (c: string | number) => {
-    const s = String(c)
-    if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`
-    return s
-  }
-  const body = rows.map((r) => r.map(esc).join(',')).join('\n')
-  const blob = new Blob([body], { type: 'text/csv;charset=utf-8;' })
+function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
   a.download = filename
   a.click()
   URL.revokeObjectURL(url)
+}
+
+function filenameFromDisposition(header: unknown, fallback: string) {
+  if (typeof header !== 'string') return fallback
+  const match = header.match(/filename="?([^";]+)"?/i)
+  return match?.[1]?.trim() || fallback
 }
 
 function axisTickInr(v: number) {
@@ -144,190 +111,138 @@ function gstEntryStatusToBadge(status: string): StatusType {
 }
 
 export default function GSTPage() {
-  const dispatch = useAppDispatch()
-  const projects = useAppSelector((s) => s.projects.items ?? [])
-
   const [filterProjectId, setFilterProjectId] = useState('')
-  const [gstData, setGstData] = useState<GlobalGstResponse | null>(null)
+  const [projectOptions, setProjectOptions] = useState<Array<{ label: string; value: string }>>([])
+  const [kpis, setKpis] = useState<GstSummary | null>(null)
+  const [monthlyChart, setMonthlyChart] = useState<GstChartPoint[]>([])
+  const [breakdown, setBreakdown] = useState<GstPeriodBreakdown | null>(null)
+  const [invoiceRows, setInvoiceRows] = useState<GlobalGstEntry[]>([])
+  const [projectRows, setProjectRows] = useState<GstProjectRow[]>([])
+  const [monthRows, setMonthRows] = useState<GstMonthRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [periodMode, setPeriodMode] = useState<PeriodMode>('monthly')
-  const [tableTab, setTableTab] = useState<TableTab>('invoice')
+  const [tableTab, setTableTab] = useState<GstListType>('invoice')
   const [drawerEntry, setDrawerEntry] = useState<GlobalGstEntry | null>(null)
 
-  const params = useMemo(() => {
+  const scopeParams = useMemo(() => {
     const p: Record<string, string | undefined> = {}
     if (filterProjectId) p.projectId = filterProjectId
     return p
   }, [filterProjectId])
 
-  const load = useCallback(async () => {
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await financeApi.getProjectDropdown()
+        const items = unwrapApiList<{ value: string; label: string }>(res.data)
+        setProjectOptions(items.map((item) => ({ value: item.value, label: item.label })))
+      } catch {
+        setProjectOptions([])
+      }
+    })()
+  }, [])
+
+  const loadOverview = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const g = await financeApi.getGstData(params)
-      setGstData(unwrapApiData<GlobalGstResponse>(g.data))
+      const [summaryRes, chartRes, breakdownRes] = await Promise.all([
+        financeApi.getGstSummary(scopeParams),
+        financeApi.getGstChart(scopeParams),
+        financeApi.getGstPeriodBreakdown(scopeParams),
+      ])
+      setKpis(unwrapApiData<GstSummary>(summaryRes.data))
+      setMonthlyChart(unwrapApiList<GstChartPoint>(chartRes.data))
+      setBreakdown(unwrapApiData<GstPeriodBreakdown>(breakdownRes.data))
     } catch {
       setError('Could not load GST data.')
-      setGstData(null)
+      setKpis(null)
+      setMonthlyChart([])
+      setBreakdown(null)
     } finally {
       setLoading(false)
     }
-  }, [params])
+  }, [scopeParams])
+
+  const loadTable = useCallback(async () => {
+    try {
+      const listParams = { ...scopeParams, limit: 100, type: tableTab }
+      const res = await financeApi.getGstList(listParams)
+      if (tableTab === 'invoice') {
+        setInvoiceRows(unwrapApiList<GlobalGstEntry>(res.data))
+        setProjectRows([])
+        setMonthRows([])
+        return
+      }
+      if (tableTab === 'project') {
+        setProjectRows(unwrapApiList<GstProjectRow>(res.data))
+        setInvoiceRows([])
+        setMonthRows([])
+        return
+      }
+      setMonthRows(unwrapApiList<GstMonthRow>(res.data))
+      setInvoiceRows([])
+      setProjectRows([])
+    } catch {
+      setError('Could not load GST data.')
+      setInvoiceRows([])
+      setProjectRows([])
+      setMonthRows([])
+    }
+  }, [scopeParams, tableTab])
 
   useEffect(() => {
-    void dispatch(fetchProjects({}))
-  }, [dispatch])
+    void loadOverview()
+  }, [loadOverview])
 
   useEffect(() => {
-    void load()
-  }, [load])
+    void loadTable()
+  }, [loadTable])
 
-  const entries = gstData?.entries ?? []
-  const summary = gstData?.summary
-
-  const fy = useMemo(() => indianFyLabelAndRange(), [])
-  const fyGstTotal = useMemo(
-    () =>
-      entries.reduce(
-        (s, e) => s + (inDateRange(e.invoiceDate, fy.startStr, fy.endStr) ? e.gstAmount : 0),
-        0,
-      ),
-    [entries, fy.startStr, fy.endStr],
-  )
-
-  const chartData = useMemo(() => {
-    if (periodMode === 'monthly') return buildGstMonthlyChartSeries(entries)
-    return buildGstQuarterlyChartSeries(entries)
-  }, [entries, periodMode])
-
-  const projectOptions = useMemo(
-    () => projects.map((p) => ({ label: p.name, value: p.id })),
-    [projects],
+  const chartData = useMemo(
+    () => (periodMode === 'monthly' ? monthlyChart : groupGstChartByQuarter(monthlyChart)),
+    [monthlyChart, periodMode],
   )
 
   const byProjectSorted = useMemo(() => {
-    const rows = [...(summary?.byProject ?? [])]
+    const rows = [...(breakdown?.byProject ?? [])]
     rows.sort((a, b) => b.gstAmount - a.gstAmount)
     return rows
-  }, [summary?.byProject])
-
-  const projectAggregates = useMemo(() => {
-    const map = new Map<
-      string,
-      {
-        projectId: string
-        projectName: string
-        clientName: string
-        invoiceCount: number
-        totalBase: number
-        totalGst: number
-      }
-    >()
-    for (const e of entries) {
-      const prev =
-        map.get(e.projectId) ?? {
-          projectId: e.projectId,
-          projectName: e.projectName,
-          clientName: e.clientName,
-          invoiceCount: 0,
-          totalBase: 0,
-          totalGst: 0,
-        }
-      prev.invoiceCount += 1
-      prev.totalBase += e.baseAmount
-      prev.totalGst += e.gstAmount
-      if (!prev.clientName && e.clientName) prev.clientName = e.clientName
-      map.set(e.projectId, prev)
-    }
-    return [...map.values()].sort((a, b) => b.totalGst - a.totalGst)
-  }, [entries])
-
-  const monthAggregates = useMemo(() => {
-    const map = new Map<
-      string,
-      { key: string; month: number; year: number; invoiceCount: number; totalBase: number; totalGst: number }
-    >()
-    for (const e of entries) {
-      const d = dayjs(e.invoiceDate)
-      const mk = `${d.year()}-${d.month() + 1}`
-      const prev =
-        map.get(mk) ?? {
-          key: mk,
-          month: d.month() + 1,
-          year: d.year(),
-          invoiceCount: 0,
-          totalBase: 0,
-          totalGst: 0,
-        }
-      prev.invoiceCount += 1
-      prev.totalBase += e.baseAmount
-      prev.totalGst += e.gstAmount
-      map.set(mk, prev)
-    }
-    return [...map.values()].sort((a, b) =>
-      a.year !== b.year ? b.year - a.year : b.month - a.month,
-    )
-  }, [entries])
+  }, [breakdown?.byProject])
 
   const footerInvoice = useMemo(() => {
-    const base = entries.reduce((s, e) => s + e.baseAmount, 0)
-    const gst = entries.reduce((s, e) => s + e.gstAmount, 0)
+    const base = invoiceRows.reduce((s, e) => s + e.baseAmount, 0)
+    const gst = invoiceRows.reduce((s, e) => s + e.gstAmount, 0)
     return { base, gst }
-  }, [entries])
+  }, [invoiceRows])
 
   const footerProject = useMemo(() => {
-    const ic = projectAggregates.reduce((s, r) => s + r.invoiceCount, 0)
-    const tb = projectAggregates.reduce((s, r) => s + r.totalBase, 0)
-    const tg = projectAggregates.reduce((s, r) => s + r.totalGst, 0)
-    return { invoiceCount: ic, totalBase: tb, totalGst: tg }
-  }, [projectAggregates])
+    const invoiceCount = projectRows.reduce((s, r) => s + r.invoiceCount, 0)
+    const totalBase = projectRows.reduce((s, r) => s + r.baseAmount, 0)
+    const totalGst = projectRows.reduce((s, r) => s + r.gstAmount, 0)
+    return { invoiceCount, totalBase, totalGst }
+  }, [projectRows])
 
   const footerMonth = useMemo(() => {
-    const ic = monthAggregates.reduce((s, r) => s + r.invoiceCount, 0)
-    const tb = monthAggregates.reduce((s, r) => s + r.totalBase, 0)
-    const tg = monthAggregates.reduce((s, r) => s + r.totalGst, 0)
-    return { invoiceCount: ic, totalBase: tb, totalGst: tg }
-  }, [monthAggregates])
+    const invoiceCount = monthRows.reduce((s, r) => s + r.invoiceCount, 0)
+    const totalBase = monthRows.reduce((s, r) => s + r.baseAmount, 0)
+    const totalGst = monthRows.reduce((s, r) => s + r.gstAmount, 0)
+    return { invoiceCount, totalBase, totalGst }
+  }, [monthRows])
 
-  function exportCurrentTab() {
-    const stamp = dayjs().format('YYYY-MM-DD')
-    if (tableTab === 'invoice') {
-      downloadCsv(`gst-by-invoice-${stamp}.csv`, [
-        ['Invoice no.', 'Project', 'Client', 'Invoice date', 'Base amount', 'GST rate %', 'GST amount', 'Status'],
-        ...entries.map((e) => [
-          e.invoiceNumber,
-          e.projectName,
-          e.clientName,
-          e.invoiceDate,
-          e.baseAmount,
-          e.gstRate,
-          e.gstAmount,
-          e.status,
-        ]),
-      ])
-    } else if (tableTab === 'project') {
-      downloadCsv(`gst-by-project-${stamp}.csv`, [
-        ['Project', 'Client', 'Invoice count', 'Total base', 'Total GST', 'Avg GST rate %'],
-        ...projectAggregates.map((r) => [
-          r.projectName,
-          r.clientName,
-          r.invoiceCount,
-          r.totalBase,
-          r.totalGst,
-          r.totalBase > 0 ? Math.round((100 * r.totalGst) / r.totalBase) : 0,
-        ]),
-      ])
-    } else {
-      downloadCsv(`gst-by-month-${stamp}.csv`, [
-        ['Month', 'Invoice count', 'Total base', 'Total GST'],
-        ...monthAggregates.map((r) => [
-          dayjs(`${r.year}-${String(r.month).padStart(2, '0')}-01`).format('MMM YYYY'),
-          r.invoiceCount,
-          r.totalBase,
-          r.totalGst,
-        ]),
-      ])
+  async function exportCurrentTab() {
+    try {
+      const res = await financeApi.exportGst({
+        type: tableTab,
+        ...(filterProjectId ? { projectId: filterProjectId } : {}),
+      })
+      downloadBlob(
+        res.data as Blob,
+        filenameFromDisposition(res.headers['content-disposition'], `gst-${tableTab}.csv`),
+      )
+    } catch {
+      setError('Could not export GST data.')
     }
   }
 
@@ -345,7 +260,7 @@ export default function GSTPage() {
     fontFamily: 'inherit',
   })
 
-  const tabIds: { id: TableTab; label: string }[] = [
+  const tabIds: { id: GstListType; label: string }[] = [
     { id: 'invoice', label: 'By Invoice' },
     { id: 'project', label: 'By Project' },
     { id: 'month', label: 'By Month' },
@@ -395,15 +310,15 @@ export default function GSTPage() {
         {[
           {
             label: 'Total GST Collected',
-            value: summary?.totalGst ?? 0,
+            value: kpis?.totalGst ?? 0,
           },
           {
             label: 'This Month',
-            value: summary?.thisMonth ?? 0,
+            value: kpis?.thisMonth ?? 0,
           },
           {
             label: 'Invoice Count',
-            value: summary?.invoiceCount ?? 0,
+            value: kpis?.invoiceCount ?? 0,
           },
         ].map((m) => (
           <Box
@@ -425,9 +340,7 @@ export default function GSTPage() {
               {m.label === 'Invoice Count' ? (
                 m.value
               ) : (
-                <>
-                  ₹{formatInr(typeof m.value === 'number' ? m.value : 0)}
-                </>
+                <>₹{formatInr(typeof m.value === 'number' ? m.value : 0)}</>
               )}
             </Typography>
           </Box>
@@ -558,10 +471,10 @@ export default function GSTPage() {
           <Box sx={{ borderTop: `1px solid ${tokens.color.neutral[100]}`, mt: 2, pt: 2 }}>
             <Stack direction="row" justifyContent="space-between" alignItems="center">
               <Typography variant="body2" sx={{ fontWeight: 700 }}>
-                This FY Total ({fy.label})
+                This FY Total ({breakdown?.fy.label ?? '—'})
               </Typography>
               <Typography variant="body2" sx={{ fontWeight: 700 }}>
-                ₹{formatInr(fyGstTotal)}
+                ₹{formatInr(breakdown?.fy.gstTotal ?? 0)}
               </Typography>
             </Stack>
           </Box>
@@ -590,7 +503,7 @@ export default function GSTPage() {
               </Box>
             ))}
           </Stack>
-          <Button variant="outlined" color="secondary" size="sm" onClick={exportCurrentTab}>
+          <Button variant="outlined" color="secondary" size="sm" onClick={() => void exportCurrentTab()}>
             Export CSV
           </Button>
         </Stack>
@@ -617,14 +530,14 @@ export default function GSTPage() {
                       Loading…
                     </TableCell>
                   </TableRow>
-                ) : entries.length === 0 ? (
+                ) : invoiceRows.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={8} sx={{ ...TABLE_CELL_SX, py: 4, textAlign: 'center' }}>
                       No invoices.
                     </TableCell>
                   </TableRow>
                 ) : (
-                  entries.map((e) => (
+                  invoiceRows.map((e) => (
                     <TableRow key={e.invoiceId} hover>
                       <TableCell sx={TABLE_CELL_SX}>
                         <Button
@@ -687,22 +600,22 @@ export default function GSTPage() {
                       Loading…
                     </TableCell>
                   </TableRow>
-                ) : projectAggregates.length === 0 ? (
+                ) : projectRows.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={6} sx={{ ...TABLE_CELL_SX, py: 4, textAlign: 'center' }}>
                       No data.
                     </TableCell>
                   </TableRow>
                 ) : (
-                  projectAggregates.map((r) => (
+                  projectRows.map((r) => (
                     <TableRow key={r.projectId} hover>
                       <TableCell sx={TABLE_CELL_SX}>{r.projectName}</TableCell>
                       <TableCell sx={TABLE_CELL_SX}>{r.clientName}</TableCell>
                       <TableCell sx={{ ...TABLE_CELL_SX, textAlign: 'right' }}>{r.invoiceCount}</TableCell>
-                      <TableCell sx={{ ...TABLE_CELL_SX, textAlign: 'right' }}>₹{formatInr(r.totalBase)}</TableCell>
-                      <TableCell sx={{ ...TABLE_CELL_SX, textAlign: 'right' }}>₹{formatInr(r.totalGst)}</TableCell>
+                      <TableCell sx={{ ...TABLE_CELL_SX, textAlign: 'right' }}>₹{formatInr(r.baseAmount)}</TableCell>
+                      <TableCell sx={{ ...TABLE_CELL_SX, textAlign: 'right' }}>₹{formatInr(r.gstAmount)}</TableCell>
                       <TableCell sx={{ ...TABLE_CELL_SX, textAlign: 'right' }}>
-                        {r.totalBase > 0 ? `${Math.round((100 * r.totalGst) / r.totalBase)}%` : '—'}
+                        {r.baseAmount > 0 ? `${Math.round((100 * r.gstAmount) / r.baseAmount)}%` : '—'}
                       </TableCell>
                     </TableRow>
                   ))
@@ -745,21 +658,19 @@ export default function GSTPage() {
                       Loading…
                     </TableCell>
                   </TableRow>
-                ) : monthAggregates.length === 0 ? (
+                ) : monthRows.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={4} sx={{ ...TABLE_CELL_SX, py: 4, textAlign: 'center' }}>
                       No data.
                     </TableCell>
                   </TableRow>
                 ) : (
-                  monthAggregates.map((r) => (
-                    <TableRow key={r.key} hover>
-                      <TableCell sx={TABLE_CELL_SX}>
-                        {dayjs(`${r.year}-${String(r.month).padStart(2, '0')}-01`).format('MMM YYYY')}
-                      </TableCell>
+                  monthRows.map((r) => (
+                    <TableRow key={`${r.year}-${r.month}`} hover>
+                      <TableCell sx={TABLE_CELL_SX}>{r.period}</TableCell>
                       <TableCell sx={{ ...TABLE_CELL_SX, textAlign: 'right' }}>{r.invoiceCount}</TableCell>
-                      <TableCell sx={{ ...TABLE_CELL_SX, textAlign: 'right' }}>₹{formatInr(r.totalBase)}</TableCell>
-                      <TableCell sx={{ ...TABLE_CELL_SX, textAlign: 'right' }}>₹{formatInr(r.totalGst)}</TableCell>
+                      <TableCell sx={{ ...TABLE_CELL_SX, textAlign: 'right' }}>₹{formatInr(r.baseAmount)}</TableCell>
+                      <TableCell sx={{ ...TABLE_CELL_SX, textAlign: 'right' }}>₹{formatInr(r.gstAmount)}</TableCell>
                     </TableRow>
                   ))
                 )}

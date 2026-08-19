@@ -1,5 +1,11 @@
 import { Box, Divider, Stack, Typography } from '@mui/material'
 import { Button } from '@/design-system/components'
+import {
+  RowDeleteAction,
+  RowEditAction,
+  RowIconActionsGroup,
+  RowViewAction,
+} from '@/components/listing/RowIconActions'
 import type { ClientPO } from '@/slices/baseline/reducer'
 import { formatCurrency, formatDate } from '@/utils/formatters'
 
@@ -25,11 +31,24 @@ export interface ClientPOSectionProps {
   clientPOs: ClientPO[]
   onAddPO: () => void
   onViewPO: (po: ClientPO) => void
+  onEditPO: (po: ClientPO) => void
+  onDeletePO: (po: ClientPO) => void
+  canDeletePO?: (po: ClientPO) => boolean
+  deleteDisabledReason?: string
   /** Shown above the section when provided (e.g. go-live hint on Pitch). */
   caption?: string
 }
 
-export function ClientPOSection({ clientPOs, onAddPO, onViewPO, caption }: ClientPOSectionProps) {
+export function ClientPOSection({
+  clientPOs,
+  onAddPO,
+  onViewPO,
+  onEditPO,
+  onDeletePO,
+  canDeletePO,
+  deleteDisabledReason = 'Cannot delete — milestones are billed or paid',
+  caption,
+}: ClientPOSectionProps) {
   const totalPOValue = clientPOs.reduce((sum, po) => sum + po.poValue, 0)
 
   return (
@@ -125,7 +144,15 @@ export function ClientPOSection({ clientPOs, onAddPO, onViewPO, caption }: Clien
                 <Typography variant="body2" sx={{ fontWeight: 700, color: 'primary.main', fontSize: 13 }}>
                   ₹{formatCurrency(po.poValue)}
                 </Typography>
-                <Button size="sm" variant="outlined" color="primary" label="View" onClick={() => onViewPO(po)} />
+                <RowIconActionsGroup>
+                  <RowViewAction onClick={() => onViewPO(po)} />
+                  <RowEditAction onClick={() => onEditPO(po)} />
+                  <RowDeleteAction
+                    onClick={() => onDeletePO(po)}
+                    disabled={canDeletePO ? !canDeletePO(po) : false}
+                    disabledReason={deleteDisabledReason}
+                  />
+                </RowIconActionsGroup>
               </Box>
             ))}
           </Stack>

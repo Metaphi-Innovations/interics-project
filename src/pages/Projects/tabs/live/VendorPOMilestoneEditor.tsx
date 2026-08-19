@@ -10,13 +10,17 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { Add, Delete } from '@mui/icons-material'
+import { Add } from '@mui/icons-material'
+import { Trash2 } from 'lucide-react'
 import { useTheme, alpha } from '@mui/material/styles'
 import { tokens } from '@/design-system/tokens'
 import { READONLY_DISABLED_TEXTFIELD_SX } from './readOnlyFieldStyles'
 import type { MilestonePaymentStatusLabel } from './milestonePaymentStatus'
 import { VENDOR_MILESTONE_PCT_EPS, validateVendorMilestonePercents } from '@/utils/vendorMilestones'
 import type { VendorMapping, VendorMilestone } from '@/slices/pitch/reducer'
+import {
+  ROW_ICON_ACTION_BUTTON_DANGER_SX,
+} from '@/components/listing/rowIconActionStyles'
 import { parseRateInput, rateInputDisplay, selectRateInputOnFocus } from './rateInput'
 
 export interface VendorPOMilestoneRow {
@@ -299,32 +303,33 @@ export function VendorPOMilestoneEditor({
       ? milestones.length > 0 || Boolean(retention)
       : milestones.length > 0 || Boolean(retention)
   const lockStructure = readOnly || structureLocked
-  const showActionColumn = !lockStructure && isCardMilestoneList && milestones.length > 1
+  const showActionColumn = !readOnly && isCardMilestoneList
   const showRetentionActionColumn =
-    !lockStructure && (showActionColumn || (cardWithRetention && Boolean(retention)))
+    !readOnly && (showActionColumn || (cardWithRetention && Boolean(retention)))
   const showStatusColumn = milestoneStatuses !== undefined
   const standaloneGridColumns = lockStructure ? 'repeat(3, minmax(0, 1fr))' : GRID_COLUMNS
 
-  function isMilestonePaid(id: string): boolean {
-    return milestoneStatuses?.[id] === 'Paid'
+  function isMilestoneLocked(id: string): boolean {
+    const status = milestoneStatuses?.[id]
+    return status === 'Paid' || status === 'Billed'
   }
 
-  function isRetentionPaid(): boolean {
-    return retentionStatus === 'Paid'
+  function isRetentionLocked(): boolean {
+    return retentionStatus === 'Paid' || retentionStatus === 'Billed'
   }
 
   function isMilestoneFieldDisabled(id: string): boolean {
-    return readOnly || isMilestonePaid(id)
+    return readOnly || isMilestoneLocked(id)
   }
 
   function isRetentionFieldDisabled(): boolean {
-    return readOnly || isRetentionPaid()
+    return readOnly || isRetentionLocked()
   }
 
   function updateMilestone(idx: number, field: keyof VendorPOMilestoneRow, val: string | number) {
     const row = milestones[idx]
     if (!row) return
-    if (readOnly || isMilestonePaid(row.id)) return
+    if (readOnly || isMilestoneLocked(row.id)) return
     if (lockStructure && field === 'name') return
     const next = milestones.map((m, i) => {
       if (i !== idx) return m
@@ -348,7 +353,7 @@ export function VendorPOMilestoneEditor({
     if (lockStructure) return
     if (isCardMilestoneList && milestones.length <= 1) return
     const row = milestones[idx]
-    if (row && isMilestonePaid(row.id)) return
+    if (row && isMilestoneLocked(row.id)) return
     const next = milestones.filter((_, i) => i !== idx)
     onMilestonesChange(
       isCardMilestoneList && next.length === 0 ? [createEmptyVendorPOMilestoneRow()] : next,
@@ -356,7 +361,7 @@ export function VendorPOMilestoneEditor({
   }
 
   function updateRetention(field: 'percentage' | 'amount', val: number) {
-    if (readOnly || !retention || isRetentionPaid()) return
+    if (readOnly || !retention || isRetentionLocked()) return
     const next = { ...retention }
     if (field === 'percentage') {
       next.percentage = val
@@ -462,10 +467,10 @@ export function VendorPOMilestoneEditor({
                           size="small"
                           aria-label="Remove milestone row"
                           onClick={() => removeMilestone(idx)}
-                          disabled={isMilestonePaid(m.id)}
-                          sx={{ color: 'error.main', width: 28, height: 28, p: 0.25 }}
+                          disabled={isMilestoneLocked(m.id)}
+                          sx={ROW_ICON_ACTION_BUTTON_DANGER_SX}
                         >
-                          <Delete sx={{ fontSize: 16 }} />
+                          <Trash2 size={14} strokeWidth={2} />
                         </MuiIconButton>
                       )}
                     </Box>
@@ -553,10 +558,10 @@ export function VendorPOMilestoneEditor({
                           size="small"
                           aria-label="Remove retention"
                           onClick={() => onRetentionChange(null)}
-                          disabled={isRetentionPaid()}
-                          sx={{ color: 'error.main', width: 28, height: 28, p: 0.25 }}
+                          disabled={isRetentionLocked()}
+                          sx={ROW_ICON_ACTION_BUTTON_DANGER_SX}
                         >
-                          <Delete sx={{ fontSize: 16 }} />
+                          <Trash2 size={14} strokeWidth={2} />
                         </MuiIconButton>
                       </Box>
                     ) : null}
@@ -621,10 +626,10 @@ export function VendorPOMilestoneEditor({
                       size="small"
                       aria-label="Remove milestone row"
                       onClick={() => removeMilestone(idx)}
-                      disabled={isMilestonePaid(m.id)}
-                      sx={{ color: 'error.main', width: 28, height: 28, p: 0.25 }}
+                      disabled={isMilestoneLocked(m.id)}
+                      sx={ROW_ICON_ACTION_BUTTON_DANGER_SX}
                     >
-                      <Delete sx={{ fontSize: 16 }} />
+                      <Trash2 size={14} strokeWidth={2} />
                     </MuiIconButton>
                   </Box>
                 ) : null}
@@ -709,10 +714,10 @@ export function VendorPOMilestoneEditor({
               <MuiIconButton
                 size="small"
                 onClick={() => onRetentionChange(null)}
-                disabled={isRetentionPaid()}
-                sx={{ color: 'error.main' }}
+                disabled={isRetentionLocked()}
+                sx={ROW_ICON_ACTION_BUTTON_DANGER_SX}
               >
-                <Delete sx={{ fontSize: 16 }} />
+                <Trash2 size={14} strokeWidth={2} />
               </MuiIconButton>
             ) : null}
           </Box>

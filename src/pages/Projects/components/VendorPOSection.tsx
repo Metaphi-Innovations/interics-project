@@ -1,5 +1,11 @@
 import { Box, Divider, Stack, Typography } from '@mui/material'
 import { Button } from '@/design-system/components'
+import {
+  RowDeleteAction,
+  RowEditAction,
+  RowIconActionsGroup,
+  RowViewAction,
+} from '@/components/listing/RowIconActions'
 import type { VendorPO } from '@/slices/baseline/reducer'
 import { formatCurrency, formatDate } from '@/utils/formatters'
 import { vendorPoEffectiveValue } from '@/pages/Projects/tabs/live/vendorPOHelpers'
@@ -26,9 +32,21 @@ export interface VendorPOSectionProps {
   vendorPOs: VendorPO[]
   onAddPO: () => void
   onViewPO: (po: VendorPO) => void
+  onEditPO: (po: VendorPO) => void
+  onDeletePO: (po: VendorPO) => void
+  canDeletePO?: (po: VendorPO) => boolean
+  deleteDisabledReason?: string
 }
 
-export function VendorPOSection({ vendorPOs, onAddPO, onViewPO }: VendorPOSectionProps) {
+export function VendorPOSection({
+  vendorPOs,
+  onAddPO,
+  onViewPO,
+  onEditPO,
+  onDeletePO,
+  canDeletePO,
+  deleteDisabledReason = 'Cannot delete — milestones are billed or paid',
+}: VendorPOSectionProps) {
   const totalPOValue = vendorPOs.reduce((sum, po) => sum + vendorPoEffectiveValue(po), 0)
 
   return (
@@ -109,7 +127,15 @@ export function VendorPOSection({ vendorPOs, onAddPO, onViewPO }: VendorPOSectio
                 <Typography variant="body2" sx={{ fontWeight: 700, color: 'primary.main', fontSize: 13 }}>
                   ₹{formatCurrency(po.poValue)}
                 </Typography>
-                <Button size="sm" variant="outlined" color="primary" label="View" onClick={() => onViewPO(po)} />
+                <RowIconActionsGroup>
+                  <RowViewAction onClick={() => onViewPO(po)} />
+                  <RowEditAction onClick={() => onEditPO(po)} />
+                  <RowDeleteAction
+                    onClick={() => onDeletePO(po)}
+                    disabled={canDeletePO ? !canDeletePO(po) : false}
+                    disabledReason={deleteDisabledReason}
+                  />
+                </RowIconActionsGroup>
               </Box>
             ))}
           </Stack>

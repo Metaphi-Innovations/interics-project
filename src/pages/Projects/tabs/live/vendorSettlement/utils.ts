@@ -147,11 +147,19 @@ export function findInvoiceForMilestone(
   scopedInvoices: VendorInvoice[],
   vm: VendorMilestone,
 ): VendorInvoice | undefined {
-  const byId = scopedInvoices.find((inv) => inv.milestoneId && inv.milestoneId === vm.id)
+  const byId = scopedInvoices.find(
+    (inv) =>
+      (inv.milestoneId && inv.milestoneId === vm.id) ||
+      (inv.lineItems ?? []).some((li) => li.milestoneId === vm.id),
+  )
   if (byId) return byId
   const wanted = vm.name.trim()
   if (!wanted) return undefined
-  const byName = scopedInvoices.filter((inv) => inv.milestoneName.trim() === wanted)
+  const byName = scopedInvoices.filter(
+    (inv) =>
+      inv.milestoneName.trim() === wanted ||
+      (inv.lineItems ?? []).some((li) => (li.milestoneName ?? '').trim() === wanted),
+  )
   if (byName.length === 1) return byName[0]
   return undefined
 }

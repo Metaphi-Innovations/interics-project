@@ -38,6 +38,7 @@ import {
   type VendorOfferRetentionCard,
   type GroupedServiceMilestones,
 } from './VendorOfferMilestoneCards'
+import { validateVendorMilestonePercents } from '@/utils/vendorMilestones'
 
 const PO_SECTION_TITLE_SX = {
   fontSize: '10px',
@@ -371,6 +372,38 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
     if (!form.vendorId) next.vendorId = 'Vendor is required'
     if (!hasConfiguredEntries || groupedForSave.length === 0) {
       next.milestones = 'Add at least one milestone or retention entry'
+    }
+    for (const group of groupedForSave) {
+      const retentionCard = group.retentions[0]
+      const pctValidation = validateVendorMilestonePercents({
+        id: group.serviceId,
+        vendorId: form.vendorId,
+        vendorName: '',
+        value: Number(form.poValue) || 0,
+        percentage: 0,
+        isMeasurable: false,
+        milestones: group.milestones.filter((m) => m.name.trim()).map((m) => ({
+          id: m.id,
+          name: m.name,
+          percentage: m.percentage,
+          value: m.value,
+        })),
+        retention: retentionCard
+          ? { percentage: retentionCard.percentage, amount: retentionCard.value }
+          : group.retentions.length > 1
+            ? {
+                percentage: group.retentions.reduce((s, r) => s + r.percentage, 0),
+                amount: group.retentions.reduce((s, r) => s + r.value, 0),
+              }
+            : undefined,
+      })
+      if (!pctValidation.valid) {
+        next.milestones =
+          pctValidation.pctMessage ??
+          pctValidation.structureMessage ??
+          'Milestone percentages must not exceed 100%'
+        break
+      }
     }
     setFieldErrors(next)
     const keys = Object.keys(next)

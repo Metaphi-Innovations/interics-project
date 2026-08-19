@@ -197,7 +197,8 @@ describe('financialSummaryAggregates (live PO driven)', () => {
       [],
       [{ id: 'ignored' }],
     )
-    expect(groups[0]?.id).toBe('live-services')
+    expect(groups[0]?.id).toBe('cat:Uncategorized')
+    expect(groups[0]?.name).toBe('Uncategorized')
     expect(groups[0]?.children).toHaveLength(2)
   })
 
@@ -286,7 +287,7 @@ describe('financialSummaryAggregates (live PO driven)', () => {
       [],
     )
 
-    const services = groups.find((g) => g.id === 'live-services')?.children ?? []
+    const services = groups.filter((g) => g.kind !== 'expenses').flatMap((g) => g.children)
     const construction = services.filter(
       (r) => r.workstreamName === 'Construction / Build Services',
     )
@@ -342,7 +343,7 @@ describe('financialSummaryAggregates (live PO driven)', () => {
       [],
     )
 
-    const services = groups.find((g) => g.id === 'live-services')?.children ?? []
+    const services = groups.filter((g) => g.kind !== 'expenses').flatMap((g) => g.children)
     expect(services).toHaveLength(2)
   })
 
@@ -400,7 +401,7 @@ describe('financialSummaryAggregates (live PO driven)', () => {
       ],
     )
 
-    const services = groups.find((g) => g.id === 'live-services')?.children ?? []
+    const services = groups.filter((g) => g.kind !== 'expenses').flatMap((g) => g.children)
     expect(services).toHaveLength(1)
     expect(services[0]?.workstreamName).toBe('Construction / Build Services')
     expect(services[0]?.workstreamName).not.toMatch(/[0-9a-f-]{36}/i)
@@ -465,7 +466,7 @@ describe('financialSummaryAggregates (live PO driven)', () => {
       ],
     )
 
-    const services = groups.find((g) => g.id === 'live-services')?.children ?? []
+    const services = groups.filter((g) => g.kind !== 'expenses').flatMap((g) => g.children)
     expect(services).toHaveLength(1)
     expect(services[0]?.workstreamName).toBe('Construction / Build Services')
     expect(services[0]?.clientPOAmount).toBe(59000)
@@ -526,9 +527,122 @@ describe('financialSummaryAggregates (live PO driven)', () => {
       ],
     )
 
-    const services = groups.find((g) => g.id === 'live-services')?.children ?? []
+    const services = groups.filter((g) => g.kind !== 'expenses').flatMap((g) => g.children)
     expect(services).toHaveLength(1)
     expect(services[0]?.pendingPaid).toBe(50000)
     expect(services[0]?.vendorPaid).toBe(45000)
+  })
+
+  it('groups services by baseline category without changing child amounts or totals', () => {
+    const groups = buildFinancialSummaryGroups(
+      {
+        id: 'bl-1',
+        projectId,
+        version: 1,
+        versionId: 'v1',
+        versionLabel: 'V1',
+        basedOnPitchVersion: 'V1',
+        pitchVersionNumber: 1,
+        isActive: true,
+        createdAt: '',
+        lockedAt: '',
+        status: 'Locked',
+        clientPOId: 'po-1',
+        categories: [
+          {
+            id: 'cat-design',
+            categoryId: 'cat-design',
+            categoryName: 'Design & Diligence',
+            totalValue: 0,
+            services: [
+              {
+                id: 'svc-design',
+                name: 'Interior Design',
+                subcategoryId: 'master-svc-design',
+                subcategoryName: 'Interior Design',
+                customName: null,
+                value: 0,
+                clientMilestones: [],
+                vendorMappings: [],
+                milestonesTotal: 0,
+              },
+            ],
+          },
+          {
+            id: 'cat-build',
+            categoryId: 'cat-build',
+            categoryName: 'Build Services',
+            totalValue: 0,
+            services: [
+              {
+                id: 'svc-build',
+                name: 'Construction / Build Services',
+                subcategoryId: 'master-svc-construction',
+                subcategoryName: 'Construction / Build Services',
+                customName: null,
+                value: 0,
+                clientMilestones: [],
+                vendorMappings: [],
+                milestonesTotal: 0,
+              },
+            ],
+          },
+        ],
+        plannedExpenses: [],
+        originalServiceValues: {},
+        totalRevenue: 0,
+        totalCost: 0,
+        profitability: 0,
+      },
+      projectId,
+      [
+        {
+          id: 'po-1',
+          projectId,
+          poNumber: 'C-1',
+          startDate: '',
+          endDate: '',
+          poValue: 150000,
+          documentUrl: null,
+          milestones: [
+            {
+              id: 'm-design',
+              serviceId: 'master-svc-design',
+              serviceName: 'Interior Design',
+              name: 'M1',
+              percentage: 100,
+              value: 100000,
+              kind: 'regular',
+            },
+            {
+              id: 'm-build',
+              serviceId: 'master-svc-construction',
+              serviceName: 'Construction / Build Services',
+              name: 'M1',
+              percentage: 100,
+              value: 50000,
+              kind: 'regular',
+            },
+          ],
+        },
+      ],
+      [],
+      [],
+      [],
+      [],
+    )
+
+    const total = buildFinancialSummaryTotal(groups)
+    const design = groups.find((g) => g.name === 'Design & Diligence')?.children[0]
+    const build = groups.find((g) => g.name === 'Build Services')?.children[0]
+
+    expect(groups.filter((g) => g.kind === 'category').map((g) => g.name)).toEqual([
+      'Design & Diligence',
+      'Build Services',
+    ])
+    expect(design?.clientPOAmount).toBe(118000)
+    expect(build?.clientPOAmount).toBe(59000)
+    expect(total.clientPOAmount).toBe(177000)
+    expect(total.clientPOAmount).toBe((design?.clientPOAmount ?? 0) + (build?.clientPOAmount ?? 0))
   })
 })

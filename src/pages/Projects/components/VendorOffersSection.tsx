@@ -1,9 +1,6 @@
-import { useMemo, useState, type MouseEvent } from 'react'
+import { useMemo, useState } from 'react'
 import {
   Box,
-  IconButton,
-  Menu,
-  MenuItem,
   Table,
   TableBody,
   TableCell,
@@ -11,14 +8,25 @@ import {
   TableRow,
   Typography,
 } from '@mui/material'
-import MoreVertIcon from '@mui/icons-material/MoreVert'
+import {
+  RowDeleteAction,
+  RowEditAction,
+  RowIconActionsGroup,
+  RowViewAction,
+} from '@/components/listing/RowIconActions'
 import { Button } from '@/design-system/components'
 import { WorkspaceSection } from '@/components/templates'
 import { tokens } from '@/design-system/tokens'
+import { useAppSelector } from '@/store/hooks'
 import type { Baseline, VendorPO } from '@/slices/baseline/reducer'
 import { formatCurrency } from '@/utils/formatters'
 import { buildLiveVendorOfferRows } from '@/pages/Projects/tabs/live/vendorPOHelpers'
-import { ViewVendorPODrawer } from '@/pages/Projects/tabs/live/VendorPOBillingDrawers'
+import {
+  canDeleteVendorPO,
+  DeleteVendorPODialog,
+  EditVendorPODrawer,
+  ViewVendorPODrawer,
+} from '@/pages/Projects/tabs/live/VendorPOBillingDrawers'
 
 const TABLE_HEADER_SX = {
   fontSize: 10,
@@ -49,10 +57,8 @@ const ACTION_CELL_SX = {
   verticalAlign: 'middle' as const,
 }
 
-const MENU_ITEM_SX = { fontSize: 12, py: 0.75 } as const
-
 const VENDOR_OFFER_COL_COUNT = 6
-const VENDOR_OFFER_ACTION_WIDTH_PX = 56
+const VENDOR_OFFER_ACTION_WIDTH_PX = 96
 const VENDOR_OFFER_DATA_COL_WIDTH = `calc((100% - ${VENDOR_OFFER_ACTION_WIDTH_PX}px) / 5)`
 
 const VENDOR_OFFER_COLUMNS = [
@@ -63,52 +69,6 @@ const VENDOR_OFFER_COLUMNS = [
   'Notes / Tags',
   'Action',
 ] as const
-
-function OfferRowActions({
-  canView,
-  onView,
-}: {
-  canView: boolean
-  onView: () => void
-}) {
-  const [anchor, setAnchor] = useState<null | HTMLElement>(null)
-
-  function open(e: MouseEvent<HTMLElement>) {
-    e.stopPropagation()
-    setAnchor(e.currentTarget)
-  }
-
-  function close() {
-    setAnchor(null)
-  }
-
-  return (
-    <>
-      <IconButton size="small" onClick={open} aria-label="Row actions" sx={{ p: 0.5 }}>
-        <MoreVertIcon sx={{ fontSize: 16 }} />
-      </IconButton>
-      <Menu
-        anchorEl={anchor}
-        open={Boolean(anchor)}
-        onClose={close}
-        onClick={(e) => e.stopPropagation()}
-        slotProps={{ paper: { elevation: 2 } }}
-      >
-        <MenuItem
-          dense
-          disabled={!canView}
-          sx={MENU_ITEM_SX}
-          onClick={() => {
-            onView()
-            close()
-          }}
-        >
-          View
-        </MenuItem>
-      </Menu>
-    </>
-  )
-}
 
 export interface VendorOffersSectionProps {
   loading?: boolean
@@ -125,11 +85,21 @@ export function VendorOffersSection({
   vendorPOs,
   baseline,
 }: VendorOffersSectionProps) {
+  const { vendorInvoices } = useAppSelector((s) => s.live)
+
   const vendorRows = useMemo(
     () => buildLiveVendorOfferRows(vendorPOs, projectId, baseline),
     [vendorPOs, projectId, baseline],
   )
+
+  const projectVendorInvoices = useMemo(
+    () => vendorInvoices.filter((i) => i.projectId === projectId),
+    [vendorInvoices, projectId],
+  )
+
   const [viewVendorPO, setViewVendorPO] = useState<VendorPO | null>(null)
+  const [editVendorPO, setEditVendorPO] = useState<VendorPO | null>(null)
+  const [deleteVendorPO, setDeleteVendorPO] = useState<VendorPO | null>(null)
 
   return (
     <>
@@ -193,34 +163,36 @@ export function VendorOffersSection({
                     </TableCell>
                   </TableRow>
                 ) : (
-                  vendorRows.map((row) => (
-                    <TableRow key={row.key} hover>
-                      <TableCell sx={TABLE_CELL_SX}>{row.vendorName}</TableCell>
-                      <TableCell sx={TABLE_CELL_SX}>{row.categoryName}</TableCell>
-                      <TableCell sx={TABLE_CELL_SX}>{row.serviceName}</TableCell>
-                      <TableCell sx={{ ...TABLE_CELL_SX, fontWeight: 600 }}>
-                        ₹{formatCurrency(row.offerAmount)}
-                      </TableCell>
-                      <TableCell sx={{ ...TABLE_CELL_SX, color: 'text.secondary' }}>
-                        {row.notes || '—'}
-                      </TableCell>
-                      <TableCell className="vendor-offer-action-cell" sx={ACTION_CELL_SX}>
-                        <Box
-                          sx={{
-                            display: 'flex',
-                            justifyContent: 'center',
-                            alignItems: 'center',
-                            minHeight: 32,
-                          }}
-                        >
-                          <OfferRowActions
-                            canView
-                            onView={() => setViewVendorPO(row.po)}
-                          />
-                        </Box>
-                      </TableCell>
-                    </TableRow>
-                  ))
+                  vendorRows.map((row) => {
+                    const canDelete = canDeleteVendorPO(
+                      row.po.milestones ?? [],
+                      projectVendorInvoices,
+                    )
+                    return (
+                      <TableRow key={row.key} hover>
+                        <TableCell sx={TABLE_CELL_SX}>{row.vendorName}</TableCell>
+                        <TableCell sx={TABLE_CELL_SX}>{row.categoryName}</TableCell>
+                        <TableCell sx={TABLE_CELL_SX}>{row.serviceName}</TableCell>
+                        <TableCell sx={{ ...TABLE_CELL_SX, fontWeight: 600 }}>
+                          ₹{formatCurrency(row.offerAmount)}
+                        </TableCell>
+                        <TableCell sx={{ ...TABLE_CELL_SX, color: 'text.secondary' }}>
+                          {row.notes || '—'}
+                        </TableCell>
+                        <TableCell className="vendor-offer-action-cell" sx={ACTION_CELL_SX}>
+                          <RowIconActionsGroup>
+                            <RowViewAction onClick={() => setViewVendorPO(row.po)} />
+                            <RowEditAction onClick={() => setEditVendorPO(row.po)} />
+                            <RowDeleteAction
+                              onClick={() => setDeleteVendorPO(row.po)}
+                              disabled={!canDelete}
+                              disabledReason="Cannot delete — milestones are billed or paid"
+                            />
+                          </RowIconActionsGroup>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })
                 )}
               </TableBody>
             </Table>
@@ -234,6 +206,19 @@ export function VendorOffersSection({
         projectId={projectId}
         po={viewVendorPO}
         baseline={baseline}
+      />
+      <EditVendorPODrawer
+        open={!!editVendorPO}
+        onClose={() => setEditVendorPO(null)}
+        projectId={projectId}
+        po={editVendorPO}
+        baseline={baseline}
+      />
+      <DeleteVendorPODialog
+        open={!!deleteVendorPO}
+        po={deleteVendorPO}
+        projectId={projectId}
+        onClose={() => setDeleteVendorPO(null)}
       />
     </>
   )

@@ -31,15 +31,11 @@ import { formatInr } from '@/utils/formatters'
 import { DEFAULT_GST_RATE } from '@/config/billingRates'
 import {
   flattenBaselineMilestones,
-  flattenBaselineServices,
   flattenClientPoMilestones,
-  flattenPoServicesFromMilestones,
   milestoneBillStatus,
   remainingMilestoneValue,
-  remainingServiceValue,
   resolveServiceForLine,
   sacCodeForService,
-  sumBilledPerBaselineService,
   sumBilledPerMilestone,
 } from '@/pages/Finance/utils/projectBillable'
 import type { Service, SACCode } from '@/slices/settings/reducer'
@@ -62,78 +58,43 @@ function addDaysToDate(base: Date, days: number): Date {
 }
 
 function buildAutoDraftLines(
-  pickerAxis: 'milestones' | 'services' | null,
   selectedMilestoneIds: string[],
-  selectedServiceIds: string[],
   sourceMilestones: ReturnType<typeof flattenClientPoMilestones>,
-  sourceServices: ReturnType<typeof flattenBaselineServices>,
   projectInvoices: Invoice[],
   projectId: string,
   services: Service[],
   sacCodes: SACCode[],
 ): DraftLineItem[] {
-  if (!pickerAxis) return []
+  if (selectedMilestoneIds.length === 0) return []
   const mSet = new Set(selectedMilestoneIds)
-  const sSet = new Set(selectedServiceIds)
   const billedM = sumBilledPerMilestone(projectInvoices, projectId)
-  const billedS = sumBilledPerBaselineService(projectInvoices, projectId)
   const out: DraftLineItem[] = []
 
-  if (pickerAxis === 'milestones') {
-    for (const m of sourceMilestones) {
-      if (!mSet.has(m.milestoneId)) continue
-      const billed = billedM.get(m.milestoneId) ?? 0
-      const rem = remainingMilestoneValue(billed, m.value)
-      if (rem <= 0) continue
-      const settingsSvc = resolveServiceForLine(m.baselineServiceId, m.baselineServiceName, services)
-      const sac = sacCodeForService(sacCodes, settingsSvc)
-      const amt = rem
-      const gstRate = settingsSvc?.gstRate ?? DEFAULT_GST_RATE
-      const taxed = computeLineItemTaxBreakdown(amt, 0, gstRate)
-      out.push({
-        id: `tmp-ms-${m.milestoneId}`,
-        serviceId: settingsSvc?.id ?? m.baselineServiceId,
-        serviceName: `${m.milestoneName} — ${m.baselineServiceName}`,
-        sacCode: sac,
-        amount: amt,
-        labourCessRate: 0,
-        labourCessAmount: taxed.labourCessAmount,
-        taxableAmount: taxed.taxableAmount,
-        gstRate,
-        gstAmount: taxed.gstAmount,
-        milestoneId: m.milestoneId,
-        baselineServiceId: m.baselineServiceId,
-        lineSource: 'milestone',
-        maxAmount: rem,
-      })
-    }
-  } else {
-    for (const s of sourceServices) {
-      if (!sSet.has(s.baselineServiceId)) continue
-      const billed = billedS.get(s.baselineServiceId) ?? 0
-      const rem = remainingServiceValue(billed, s.adjustedValue)
-      if (rem <= 0) continue
-      const settingsSvc = resolveServiceForLine(s.baselineServiceId, s.name, services)
-      const sac = sacCodeForService(sacCodes, settingsSvc)
-      const amt = rem
-      const gstRate = settingsSvc?.gstRate ?? DEFAULT_GST_RATE
-      const taxed = computeLineItemTaxBreakdown(amt, 0, gstRate)
-      out.push({
-        id: `tmp-sv-${s.baselineServiceId}`,
-        serviceId: settingsSvc?.id ?? s.baselineServiceId,
-        serviceName: s.name,
-        sacCode: sac,
-        amount: amt,
-        labourCessRate: 0,
-        labourCessAmount: taxed.labourCessAmount,
-        taxableAmount: taxed.taxableAmount,
-        gstRate,
-        gstAmount: taxed.gstAmount,
-        baselineServiceId: s.baselineServiceId,
-        lineSource: 'service',
-        maxAmount: rem,
-      })
-    }
+  for (const m of sourceMilestones) {
+    if (!mSet.has(m.milestoneId)) continue
+    const billed = billedM.get(m.milestoneId) ?? 0
+    const remaining = remainingMilestoneValue(billed, m.value)
+    if (remaining <= 0) continue
+    const settingsSvc = resolveServiceForLine(m.baselineServiceId, m.baselineServiceName, services)
+    const sac = sacCodeForService(sacCodes, settingsSvc)
+    const gstRate = settingsSvc?.gstRate ?? DEFAULT_GST_RATE
+    const taxed = computeLineItemTaxBreakdown(remaining, 0, gstRate)
+    out.push({
+      id: `tmp-ms-${m.milestoneId}`,
+      serviceId: settingsSvc?.id ?? m.baselineServiceId,
+      serviceName: `${m.milestoneName} — ${m.baselineServiceName}`,
+      sacCode: sac,
+      amount: remaining,
+      labourCessRate: 0,
+      labourCessAmount: taxed.labourCessAmount,
+      taxableAmount: taxed.taxableAmount,
+      gstRate,
+      gstAmount: taxed.gstAmount,
+      milestoneId: m.milestoneId,
+      baselineServiceId: m.baselineServiceId,
+      lineSource: 'milestone',
+      maxAmount: remaining,
+    })
   }
   return out
 }
@@ -232,9 +193,7 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved, pre
   const [liveProjects, setLiveProjects] = useState<Project[]>([])
   const [project, setProject] = useState<Project | null>(null)
   const [selectedPoId, setSelectedPoId] = useState('')
-  const [pickerAxis, setPickerAxis] = useState<'milestones' | 'services' | null>(null)
   const [selectedMilestoneIds, setSelectedMilestoneIds] = useState<string[]>([])
-  const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>([])
   const [projectInvoices, setProjectInvoices] = useState<Invoice[]>([])
   const [invoiceDate, setInvoiceDate] = useState<Date | null>(new Date())
   const [paymentTermDays, setPaymentTermDays] = useState('30')
@@ -342,9 +301,7 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved, pre
     if (!open || mode !== 'create') return
     setProject(null)
     setSelectedPoId('')
-    setPickerAxis(null)
     setSelectedMilestoneIds([])
-    setSelectedServiceIds([])
     setLines([])
     setInvoiceDate(new Date())
     setPaymentTermDays('30')
@@ -361,9 +318,7 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved, pre
     setProject(p)
     setSelectedPoId(preset.clientPoId ?? '')
     if (preset.milestoneId) {
-      setPickerAxis('milestones')
       setSelectedMilestoneIds([preset.milestoneId])
-      setSelectedServiceIds([])
     }
   }, [open, mode, preset, presetProject])
 
@@ -392,56 +347,33 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved, pre
     setNotes(invoice.notes ?? '')
     setLines(invoiceLinesToDraft(invoice.lineItems))
     const ms = invoice.lineItems.map((l) => l.milestoneId).filter(Boolean) as string[]
-    const bs = invoice.lineItems
-      .filter((l) => l.lineSource === 'service' && l.baselineServiceId)
-      .map((l) => l.baselineServiceId!) 
-    if (ms.length) {
-      setPickerAxis('milestones')
-      setSelectedMilestoneIds([...new Set(ms)])
-      setSelectedServiceIds([])
-    } else if (bs.length) {
-      setPickerAxis('services')
-      setSelectedServiceIds([...new Set(bs)])
-      setSelectedMilestoneIds([])
-    } else {
-      setPickerAxis(null)
-      setSelectedMilestoneIds([])
-      setSelectedServiceIds([])
-    }
+    setSelectedMilestoneIds([...new Set(ms)])
     setErrors({})
     setLineError('')
   }, [open, mode, invoice?.id, liveProjects])
 
   const milestoneKey = selectedMilestoneIds.slice().sort().join(',')
-  const serviceKey = selectedServiceIds.slice().sort().join(',')
 
   useEffect(() => {
     if (!open || mode !== 'create' || !project) return
     setLines((prev) => {
       const manual = prev.filter((l) => l.lineSource === 'manual')
       const auto = buildAutoDraftLines(
-        pickerAxis,
         selectedMilestoneIds,
-        selectedServiceIds,
         selectedPo ? flattenClientPoMilestones(selectedPo) : flattenBaselineMilestones(baseline),
-        selectedPo
-          ? flattenPoServicesFromMilestones(flattenClientPoMilestones(selectedPo))
-          : flattenBaselineServices(baseline),
         projectInvoices,
         project.id,
         services,
         sacCodes,
       )
-      if (pickerAxis === null) return manual
+      if (selectedMilestoneIds.length === 0) return manual
       return [...auto, ...manual]
     })
   }, [
     open,
     mode,
     project?.id,
-    pickerAxis,
     milestoneKey,
-    serviceKey,
     selectedPo,
     baseline,
     projectInvoices,
@@ -452,38 +384,19 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved, pre
   const onProjectChange = useCallback((p: Project | null) => {
     setProject(p)
     setSelectedPoId('')
-    setPickerAxis(null)
     setSelectedMilestoneIds([])
-    setSelectedServiceIds([])
     setLines([])
   }, [])
 
   const onPoChange = useCallback((value: string) => {
     setSelectedPoId(value)
-    setPickerAxis(null)
     setSelectedMilestoneIds([])
-    setSelectedServiceIds([])
     setLines((prev) => prev.filter((l) => l.lineSource === 'manual'))
   }, [])
 
   const toggleMilestone = (id: string) => {
     if (mode === 'edit') return
-    setSelectedServiceIds([])
-    setSelectedMilestoneIds((prev) => {
-      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-      setPickerAxis(next.length ? 'milestones' : null)
-      return next
-    })
-  }
-
-  const toggleService = (id: string) => {
-    if (mode === 'edit') return
-    setSelectedMilestoneIds([])
-    setSelectedServiceIds((prev) => {
-      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-      setPickerAxis(next.length ? 'services' : null)
-      return next
-    })
+    setSelectedMilestoneIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
   }
 
   const poMilestones = useMemo(() => flattenClientPoMilestones(selectedPo), [selectedPo])
@@ -491,19 +404,8 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved, pre
     () => (selectedPo ? poMilestones : flattenBaselineMilestones(baseline)),
     [selectedPo, poMilestones, baseline],
   )
-  const flatServices = useMemo(
-    () =>
-      selectedPo
-        ? flattenPoServicesFromMilestones(poMilestones)
-        : flattenBaselineServices(baseline),
-    [selectedPo, poMilestones, baseline],
-  )
   const billedByMilestone = useMemo(
     () => (project ? sumBilledPerMilestone(projectInvoices, project.id) : new Map()),
-    [project, projectInvoices],
-  )
-  const billedByService = useMemo(
-    () => (project ? sumBilledPerBaselineService(projectInvoices, project.id) : new Map()),
     [project, projectInvoices],
   )
 
@@ -517,24 +419,6 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved, pre
     if (lines.length < 1) le = 'At least one line item is required'
     else if (lines.some((l) => !l.serviceId || l.amount <= 0)) {
       le = 'Each line needs a service and amount greater than 0'
-    } else if (
-      lines.some(
-        (l) => l.maxAmount !== undefined && l.maxAmount >= 0 && l.amount > l.maxAmount + 0.01,
-      )
-    ) {
-      le = 'One or more amounts exceed the allowed maximum for that milestone or service'
-    }
-    if (selectedPo && project) {
-      const used = projectInvoices
-        .filter((i) => i.clientPoId === selectedPo.id && i.id !== invoice?.id)
-        .reduce((s, i) => s + i.totalAmount, 0)
-      const draftTotal = lines.reduce((s, l) => {
-        const taxed = computeLineItemTaxBreakdown(l.amount, l.labourCessRate ?? 0, l.gstRate)
-        return s + taxed.grossAmount
-      }, 0)
-      if (used + draftTotal > selectedPo.poValue + 0.01) {
-        le = `Total exceeds PO value (₹${formatInr(selectedPo.poValue)} less ₹${formatInr(used)} already invoiced on this PO)`
-      }
     }
     setLineError(le)
     setErrors(e)
@@ -792,54 +676,28 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved, pre
                     No milestones found on this PO.
                   </Typography>
                 ) : (
-                  <>
-                    <Typography variant="caption" color="text.secondary">
-                      Select milestones or services (not both). Picking one clears the other.
+                  <Box>
+                    <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 600 }}>
+                      Milestones
                     </Typography>
-                    <Box>
-                      <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 600 }}>
-                        Milestones
-                      </Typography>
-                      <Stack spacing={1} sx={{ mt: 1 }}>
-                        {flatMilestones.map((m) => {
-                          const billed = billedByMilestone.get(m.milestoneId) ?? 0
-                          const rem = remainingMilestoneValue(billed, m.value)
-                          const st = milestoneBillStatus(billed, m.value)
-                          return (
-                            <Checkbox
-                              key={m.milestoneId}
-                              size="sm"
-                              label={`${m.milestoneName} — ${m.baselineServiceName} · ₹${formatInr(m.value)} · Remaining ₹${formatInr(rem)} · ${st}`}
-                              checked={selectedMilestoneIds.includes(m.milestoneId)}
-                              onChange={() => toggleMilestone(m.milestoneId)}
-                              disabled={readOnlyPickers || pickerAxis === 'services' || rem <= 0}
-                            />
-                          )
-                        })}
-                      </Stack>
-                    </Box>
-                    <Box>
-                      <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 600 }}>
-                        Services
-                      </Typography>
-                      <Stack spacing={1} sx={{ mt: 1 }}>
-                        {flatServices.map((s) => {
-                          const billed = billedByService.get(s.baselineServiceId) ?? 0
-                          const rem = remainingServiceValue(billed, s.adjustedValue)
-                          return (
-                            <Checkbox
-                              key={s.baselineServiceId}
-                              size="sm"
-                              label={`${s.name} · Remaining ₹${formatInr(rem)}`}
-                              checked={selectedServiceIds.includes(s.baselineServiceId)}
-                              onChange={() => toggleService(s.baselineServiceId)}
-                              disabled={readOnlyPickers || pickerAxis === 'milestones' || rem <= 0}
-                            />
-                          )
-                        })}
-                      </Stack>
-                    </Box>
-                  </>
+                    <Stack spacing={1} sx={{ mt: 1 }}>
+                      {flatMilestones.map((m) => {
+                        const billed = billedByMilestone.get(m.milestoneId) ?? 0
+                        const rem = remainingMilestoneValue(billed, m.value)
+                        const st = milestoneBillStatus(billed, m.value)
+                        return (
+                          <Checkbox
+                            key={m.milestoneId}
+                            size="sm"
+                            label={`${m.milestoneName} — ${m.baselineServiceName} · ₹${formatInr(m.value)} · Remaining ₹${formatInr(rem)} · ${st}`}
+                            checked={selectedMilestoneIds.includes(m.milestoneId)}
+                            onChange={() => toggleMilestone(m.milestoneId)}
+                            disabled={readOnlyPickers || rem <= 0}
+                          />
+                        )
+                      })}
+                    </Stack>
+                  </Box>
                 )}
               </Stack>
             )}

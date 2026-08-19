@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Box, MenuItem, Select, Typography } from '@mui/material'
+import { Box, MenuItem, Select, Stack, Typography } from '@mui/material'
 import { DrawerForm, FormField, FormSection } from '@/components/templates/DrawerForm'
 import {
   AutocompleteField,
+  Checkbox,
   DatePicker,
   dateFromIso,
   FileUpload,
@@ -47,7 +48,7 @@ interface VendorOption {
 interface FormErrors {
   project?: string
   vendor?: string
-  milestone?: string
+  milestones?: string
   invoiceNumber?: string
   invoiceDate?: string
   baseAmount?: string
@@ -93,7 +94,7 @@ export function UploadVendorInvoiceDrawer({
 
   const [project, setProject] = useState<ProjectOption | null>(null)
   const [vendor, setVendor] = useState<VendorOption | null>(null)
-  const [selectedEntry, setSelectedEntry] = useState<EligibleInvoiceUploadEntry | null>(null)
+  const [selectedEntries, setSelectedEntries] = useState<EligibleInvoiceUploadEntry[]>([])
   const [invoiceNumber, setInvoiceNumber] = useState('')
   const [invoiceDate, setInvoiceDate] = useState('')
   const [baseAmount, setBaseAmount] = useState('')
@@ -170,7 +171,7 @@ export function UploadVendorInvoiceDrawer({
   function resetForm() {
     setProject(isProjectScoped ? lockedProjectOption : null)
     setVendor(null)
-    setSelectedEntry(null)
+    setSelectedEntries([])
     setInvoiceNumber('')
     setInvoiceDate('')
     setBaseAmount('')
@@ -215,10 +216,10 @@ export function UploadVendorInvoiceDrawer({
       (initialSelection.milestoneId
         ? matching.find((e) => e.milestone.id === initialSelection.milestoneId)
         : undefined) ?? matching[0]
-    setSelectedEntry(preset)
+    setSelectedEntries(preset ? [preset] : [])
     setInvoiceNumber('')
     setInvoiceDate('')
-    setBaseAmount(preset.milestone.value > 0 ? String(preset.milestone.value) : '')
+    setBaseAmount(preset && preset.milestone.value > 0 ? String(preset.milestone.value) : '')
     setTdsRate(DEFAULT_TDS_PERCENT)
     setDocumentUrl(undefined)
     setDocumentFileName(undefined)
@@ -237,10 +238,30 @@ export function UploadVendorInvoiceDrawer({
     }
   }, [open, initialSelection, project, projectOptions, isProjectScoped, lockedProjectOption])
 
+  const selectedKeys = useMemo(
+    () => new Set(selectedEntries.map(milestoneOptionKey)),
+    [selectedEntries],
+  )
+
+  const selectedTotal = useMemo(
+    () => selectedEntries.reduce((sum, e) => sum + (e.milestone.value > 0 ? e.milestone.value : 0), 0),
+    [selectedEntries],
+  )
+
   useEffect(() => {
-    if (!selectedEntry || selectedEntry.milestone.value <= 0) return
-    setBaseAmount(String(selectedEntry.milestone.value))
-  }, [selectedEntry])
+    if (selectedEntries.length === 0) return
+    setBaseAmount(String(selectedTotal))
+  }, [selectedEntries, selectedTotal])
+
+  function toggleMilestone(entry: EligibleInvoiceUploadEntry) {
+    const key = milestoneOptionKey(entry)
+    setSelectedEntries((prev) => {
+      const exists = prev.some((e) => milestoneOptionKey(e) === key)
+      if (exists) return prev.filter((e) => milestoneOptionKey(e) !== key)
+      return [...prev, entry]
+    })
+    clearError('milestones')
+  }
 
   function clearError(key: keyof FormErrors) {
     if (errors[key]) setErrors((prev) => ({ ...prev, [key]: undefined }))
@@ -249,23 +270,23 @@ export function UploadVendorInvoiceDrawer({
   function handleProjectChange(next: ProjectOption | null) {
     setProject(next)
     setVendor(null)
-    setSelectedEntry(null)
+    setSelectedEntries([])
     clearError('project')
-    setErrors((prev) => ({ ...prev, vendor: undefined, milestone: undefined }))
+    setErrors((prev) => ({ ...prev, vendor: undefined, milestones: undefined }))
   }
 
   function handleVendorChange(next: VendorOption | null) {
     setVendor(next)
-    setSelectedEntry(null)
+    setSelectedEntries([])
     clearError('vendor')
-    setErrors((prev) => ({ ...prev, milestone: undefined }))
+    setErrors((prev) => ({ ...prev, milestones: undefined }))
   }
 
   function validate(): boolean {
     const next: FormErrors = {}
     if (!isProjectScoped && !project) next.project = 'Project is required'
     if (!vendor) next.vendor = 'Vendor is required'
-    if (!selectedEntry) next.milestone = 'Milestone is required'
+    if (selectedEntries.length === 0) next.milestones = 'Select at least one milestone'
     if (!invoiceNumber.trim()) next.invoiceNumber = 'Invoice number is required'
     const base = Number(baseAmount)
     if (!baseAmount.trim() || !Number.isFinite(base) || base <= 0) {
@@ -277,25 +298,34 @@ export function UploadVendorInvoiceDrawer({
 
   async function handleSubmit() {
     const resolvedProject = project ?? lockedProjectOption
-    if (!validate() || !resolvedProject || !vendor || !selectedEntry) return
+    if (!validate() || !resolvedProject || !vendor || selectedEntries.length === 0) return
 
+    const primary = selectedEntries[0]!
     const base = Number(baseAmount)
     const gstRate = DEFAULT_GST_RATE
     const gstAmount = gstOnBase(base, gstRate)
     const tdsAmount = calcVendorInvoiceTdsAmount(base, tdsRate)
     const netPayable = calcVendorInvoiceNetPayable(base, 0, tdsRate, 0)
+    const lineItems = selectedEntries.map((entry) => ({
+      milestoneId: entry.milestone.id,
+      milestoneName: entry.milestone.name,
+      serviceId: entry.row.serviceId,
+      serviceName: entry.row.serviceName,
+      amount: entry.milestone.value,
+    }))
 
     try {
       await dispatch(
         uploadVendorInvoice({
-          projectId: selectedEntry.projectId,
+          projectId: primary.projectId,
           data: {
-            vendorId: selectedEntry.row.vendorId,
-            vendorName: selectedEntry.row.vendorName,
-            serviceId: selectedEntry.row.serviceId,
-            serviceName: selectedEntry.row.serviceName,
-            milestoneId: selectedEntry.milestone.id,
-            milestoneName: selectedEntry.milestone.name,
+            vendorId: primary.row.vendorId,
+            vendorName: primary.row.vendorName,
+            serviceId: primary.row.serviceId,
+            serviceName: primary.row.serviceName,
+            milestoneId: primary.milestone.id,
+            milestoneName: primary.milestone.name,
+            lineItems,
             invoiceNumber: invoiceNumber.trim(),
             invoiceDate,
             baseAmount: base,
@@ -311,12 +341,12 @@ export function UploadVendorInvoiceDrawer({
             status: 'not_paid',
             documentUrl,
             fileName: documentFileName,
-            projectName: selectedEntry.projectName,
+            projectName: primary.projectName,
           },
         }),
       ).unwrap()
-      await dispatch(fetchVendorInvoices(selectedEntry.projectId)).unwrap()
-      onUploaded?.(selectedEntry.projectId)
+      await dispatch(fetchVendorInvoices(primary.projectId)).unwrap()
+      onUploaded?.(primary.projectId)
       toast.success('Vendor invoice uploaded')
       onClose()
     } catch {
@@ -377,36 +407,51 @@ export function UploadVendorInvoiceDrawer({
           />
         </FormField>
 
-        <FormField label="Milestone" required error={errors.milestone}>
-          <AutocompleteField
-            options={milestoneOptions}
-            value={selectedEntry}
-            onChange={(next) => {
-              setSelectedEntry(next)
-              clearError('milestone')
-            }}
-            getOptionLabel={(o) => {
-              const amount =
-                o.milestone.value > 0
-                  ? `${o.milestone.name} · ₹${formatCurrency(o.milestone.value)}`
-                  : o.milestone.name
-              if (!milestoneNeedsServiceLabel) return amount
-              return `${amount} · ${o.row.serviceName}`
-            }}
-            isOptionEqualToValue={(a, b) => milestoneOptionKey(a) === milestoneOptionKey(b)}
-            placeholder={
-              !activeProjectId
-                ? 'Select a project first'
-                : !vendor
-                  ? 'Select a vendor first'
-                  : milestoneOptions.length === 0
-                    ? 'No uninvoiced milestones'
-                    : 'Search milestone…'
-            }
-            disabled={!activeProjectId || !vendor || milestoneOptions.length === 0}
-            error={Boolean(errors.milestone)}
-            size="sm"
-          />
+        <FormField label="Milestones" required error={errors.milestones}>
+          {!activeProjectId || !vendor ? (
+            <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12 }}>
+              Select a project and vendor first
+            </Typography>
+          ) : milestoneOptions.length === 0 ? (
+            <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12 }}>
+              No uninvoiced milestones
+            </Typography>
+          ) : (
+            <Stack gap={0.75} sx={{ maxHeight: 220, overflow: 'auto', pr: 0.5 }}>
+              {milestoneOptions.map((entry) => {
+                const key = milestoneOptionKey(entry)
+                const checked = selectedKeys.has(key)
+                const label =
+                  entry.milestone.value > 0
+                    ? `${entry.milestone.name} · ₹${formatCurrency(entry.milestone.value)}`
+                    : entry.milestone.name
+                return (
+                  <Box
+                    key={key}
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 1,
+                      py: 0.5,
+                      px: 0.5,
+                      borderRadius: 1,
+                      '&:hover': { bgcolor: 'action.hover' },
+                    }}
+                  >
+                    <Checkbox
+                      checked={checked}
+                      onChange={() => toggleMilestone(entry)}
+                      label={
+                        milestoneNeedsServiceLabel
+                          ? `${label} · ${entry.row.serviceName}`
+                          : label
+                      }
+                    />
+                  </Box>
+                )
+              })}
+            </Stack>
+          )}
         </FormField>
       </FormSection>
 
