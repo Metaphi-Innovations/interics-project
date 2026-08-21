@@ -20,7 +20,7 @@ import { useTheme, alpha } from '@mui/material/styles'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import { Banknote, ChevronLeft, ChevronRight, Upload } from 'lucide-react'
 import { ListingTemplate } from '@/components/templates'
-import type { FilterField, TabItem } from '@/components/templates/ListingTemplate'
+import type { ColumnItem, FilterField, TabItem } from '@/components/templates/ListingTemplate'
 import { FilterableSortHeader, type ColumnFilterOption } from '@/components/listing'
 import { Avatar, Badge, useToast } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
@@ -41,6 +41,7 @@ import {
   fetchReimbursements,
   fetchVendorInvoices,
   fetchVendorPayableControls,
+  deleteVendorInvoice,
 } from '@/slices/live/thunk'
 import { hydrateVendorInvoices } from '@/slices/live/reducer'
 import type { Baseline, VendorPO } from '@/slices/baseline/reducer'
@@ -87,11 +88,48 @@ interface PaymentTableRow {
 }
 
 /** Equal-width data columns + fixed Action; padding matches listing toolbar (14px). */
-const PAY_DATA_COLUMN_COUNT = 8
 const PAY_ACTION_WIDTH_PX = 60
 const PAY_CELL_PAD_X = '14px'
-const PAY_DATA_COL_WIDTH = `calc((100% - ${PAY_ACTION_WIDTH_PX}px) / ${PAY_DATA_COLUMN_COUNT})`
-const PAY_TABLE_COL_SPAN = PAY_DATA_COLUMN_COUNT + 1
+
+type PayablesVisibleColumns = {
+  vendorName: boolean
+  projectName: boolean
+  milestone: boolean
+  invoiceNo: boolean
+  invoiceDate: boolean
+  invoiceAmount: boolean
+  tdsAmount: boolean
+  paymentStatus: boolean
+}
+
+const DEFAULT_PAYABLES_VISIBLE: PayablesVisibleColumns = {
+  vendorName: true,
+  projectName: true,
+  milestone: true,
+  invoiceNo: true,
+  invoiceDate: true,
+  invoiceAmount: true,
+  tdsAmount: true,
+  paymentStatus: true,
+}
+
+function payablesVisibleColCount(v: PayablesVisibleColumns): number {
+  return Object.values(v).filter(Boolean).length
+}
+
+function buildPayablesListColumns(v: PayablesVisibleColumns): string[] {
+  return [
+    'id',
+    ...(v.vendorName ? (['vendorName', 'vendorId'] as const) : []),
+    ...(v.projectName ? (['projectName', 'projectId'] as const) : []),
+    ...(v.milestone ? (['milestone', 'milestoneId'] as const) : []),
+    ...(v.invoiceNo ? (['invoiceNo'] as const) : []),
+    ...(v.invoiceDate ? (['invoiceDate'] as const) : []),
+    ...(v.invoiceAmount ? (['invoiceAmount'] as const) : []),
+    ...(v.tdsAmount ? (['tdsAmount'] as const) : []),
+    ...(v.paymentStatus ? (['paymentStatus'] as const) : []),
+  ]
+}
 
 const PAY_HEADER_PADDING = {
   '&.MuiTableCell-sizeSmall': {
@@ -144,7 +182,6 @@ const PAY_HEADER_SX = {
   verticalAlign: 'middle' as const,
   lineHeight: 1.35,
   boxSizing: 'border-box' as const,
-  width: PAY_DATA_COL_WIDTH,
   minWidth: 0,
   whiteSpace: 'nowrap' as const,
   ...PAY_HEADER_PADDING,
@@ -165,7 +202,6 @@ const PAY_CELL_SX = {
   fontSize: 12,
   verticalAlign: 'top' as const,
   boxSizing: 'border-box' as const,
-  width: PAY_DATA_COL_WIDTH,
   minWidth: 0,
   overflow: 'hidden',
   ...PAY_BODY_PADDING,
@@ -235,8 +271,14 @@ function isPayableCompleted(status: PayablePaymentStatus): boolean {
   return status === 'settled'
 }
 
+function isDraftEquivalentPayable(status: PayablePaymentStatus): boolean {
+  // Uploaded / unpaid vendor invoices (not yet partial or settled).
+  return status === 'not_paid'
+}
+
 function actionMenuItemsForStatus(status: PayablePaymentStatus): readonly string[] {
   if (status === 'settled') return ['View Details']
+  if (isDraftEquivalentPayable(status)) return ['View Details', 'Release Payment', 'Delete']
   return ['View Details', 'Release Payment']
 }
 
@@ -310,6 +352,7 @@ export default function PaymentsPage() {
   const [listItems, setListItems] = useState<PayablesListItem[]>([])
   const [listTotal, setListTotal] = useState(0)
   const [listLoading, setListLoading] = useState(false)
+  const [visibleColumns, setVisibleColumns] = useState<PayablesVisibleColumns>(DEFAULT_PAYABLES_VISIBLE)
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null)
   const [menuContext, setMenuContext] = useState<PaymentTableRow | null>(null)
   const [workflowDrawer, setWorkflowDrawer] = useState<{
@@ -510,42 +553,91 @@ export default function PaymentsPage() {
     return { pending, completed }
   }, [searchedRows])
 
-  useEffect(() => {
-    let cancelled = false
-    setListLoading(true)
-    void payablesService
-      .getList({
-        page,
-        limit: PAY_PAGE_SIZE,
-        search: search.trim() || undefined,
-        vendorId: colFilters.vendorId || filterVendorId || undefined,
-        projectId: colFilters.projectId || filterProjectId || undefined,
-        milestone: colFilters.milestone || undefined,
-        invoiceNo: colFilters.invoiceNo || undefined,
-        invoiceDate: colFilters.invoiceDate || undefined,
-        invoiceAmount: colFilters.invoiceAmount ? Number(colFilters.invoiceAmount) : undefined,
-        tdsAmount: colFilters.tdsAmount ? Number(colFilters.tdsAmount) : undefined,
-        paymentStatus: colFilters.paymentStatus || statusTab,
-        sortBy: sortConfig.field || undefined,
-        sortOrder: sortConfig.field ? sortConfig.direction : undefined,
-      })
-      .then((result) => {
-        if (cancelled) return
+  const fetchPayablesList = useCallback(
+    async (
+      overrides: {
+        page?: number
+        colFilters?: Record<string, string>
+        visibleColumns?: PayablesVisibleColumns
+      } = {},
+    ) => {
+      const nextPage = overrides.page ?? page
+      const nextCols = { ...colFilters, ...overrides.colFilters }
+      const visibility = overrides.visibleColumns ?? visibleColumns
+      setListLoading(true)
+      try {
+        const result = await payablesService.getList({
+          page: nextPage,
+          limit: PAY_PAGE_SIZE,
+          search: search.trim() || undefined,
+          vendorId: nextCols.vendorId || filterVendorId || undefined,
+          projectId: nextCols.projectId || filterProjectId || undefined,
+          milestone: nextCols.milestone || undefined,
+          invoiceNo: nextCols.invoiceNo || undefined,
+          invoiceDate: nextCols.invoiceDate || undefined,
+          invoiceAmount: nextCols.invoiceAmount ? Number(nextCols.invoiceAmount) : undefined,
+          tdsAmount: nextCols.tdsAmount ? Number(nextCols.tdsAmount) : undefined,
+          paymentStatus: nextCols.paymentStatus || statusTab,
+          columns: buildPayablesListColumns(visibility),
+          sortBy: sortConfig.field || undefined,
+          sortOrder: sortConfig.field ? sortConfig.direction : undefined,
+        })
         setListItems(result.items)
         setListTotal(result.total)
-      })
-      .catch(() => {
-        if (cancelled) return
+      } catch {
         setListItems([])
         setListTotal(0)
-      })
-      .finally(() => {
-        if (!cancelled) setListLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [page, search, colFilters, filterVendorId, filterProjectId, statusTab, sortConfig.field, sortConfig.direction])
+      } finally {
+        setListLoading(false)
+      }
+    },
+    [
+      page,
+      search,
+      colFilters,
+      filterVendorId,
+      filterProjectId,
+      statusTab,
+      sortConfig.field,
+      sortConfig.direction,
+      visibleColumns,
+    ],
+  )
+
+  useEffect(() => {
+    void fetchPayablesList()
+  }, [fetchPayablesList])
+
+  function handleColumnFilter(field: string, value: string) {
+    setColFilters((prev) => ({ ...prev, [field]: value }))
+    setPage(1)
+    void fetchPayablesList({ page: 1, colFilters: { [field]: value } })
+  }
+
+  function handleColumnVisibilityChange(field: string, visible: boolean) {
+    const key = field as keyof PayablesVisibleColumns
+    if (!(key in visibleColumns)) return
+    setVisibleColumns((prev) => ({ ...prev, [key]: visible }))
+    setPage(1)
+  }
+
+  const columnsConfig: ColumnItem[] = useMemo(
+    () => [
+      { field: 'vendorName', label: 'Vendor', visible: visibleColumns.vendorName },
+      { field: 'projectName', label: 'Project', visible: visibleColumns.projectName },
+      { field: 'milestone', label: 'Milestone', visible: visibleColumns.milestone },
+      { field: 'invoiceNo', label: 'Invoice No.', visible: visibleColumns.invoiceNo },
+      { field: 'invoiceDate', label: 'Invoice date', visible: visibleColumns.invoiceDate },
+      { field: 'invoiceAmount', label: 'Invoice Amount', visible: visibleColumns.invoiceAmount },
+      { field: 'tdsAmount', label: 'TDS Amount', visible: visibleColumns.tdsAmount },
+      { field: 'paymentStatus', label: 'Payment Status', visible: visibleColumns.paymentStatus },
+    ],
+    [visibleColumns],
+  )
+
+  const dataColCount = Math.max(1, payablesVisibleColCount(visibleColumns))
+  const dataColWidth = `calc((100% - ${PAY_ACTION_WIDTH_PX}px) / ${dataColCount})`
+  const tableColSpan = dataColCount + 1
 
   const listingRows = useMemo((): PaymentTableRow[] => {
     return listItems.map((item) => {
@@ -740,6 +832,26 @@ export default function PaymentsPage() {
           paymentStatus: menuContext.payableSt,
         })
         break
+      case 'Delete':
+        void (async () => {
+          if (!isDraftEquivalentPayable(menuContext.payableSt)) {
+            showToast({ title: 'Only draft/uploaded invoices can be deleted', variant: 'error' })
+            return
+          }
+          try {
+            await dispatch(
+              deleteVendorInvoice({
+                projectId: entry.projectId,
+                invoiceId: menuContext.invoiceId,
+              }),
+            ).unwrap()
+            showToast({ title: 'Vendor invoice deleted', variant: 'success' })
+            await handleInvoiceUploaded(entry.projectId)
+          } catch (e) {
+            showToast({ title: String(e), variant: 'error' })
+          }
+        })()
+        break
       case 'View Details':
       default:
         setWorkflowDrawer({
@@ -873,6 +985,8 @@ export default function PaymentsPage() {
           onFilterChange={setActiveFilters}
           onFilterReset={() => setActiveFilters({ dateFrom: '', dateTo: '' })}
           onResetAll={handleResetAll}
+          columns={columnsConfig}
+          onColumnVisibilityChange={handleColumnVisibilityChange}
           showExport
           onExport={handleExport}
           clipCardContent={false}
@@ -881,28 +995,44 @@ export default function PaymentsPage() {
               <TableContainer sx={{ overflowX: 'auto', width: '100%' }}>
                 <Table size="small" sx={{ tableLayout: 'fixed', width: '100%', minWidth: 1080 }}>
                   <colgroup>
-                    {Array.from({ length: PAY_DATA_COLUMN_COUNT }, (_, index) => (
-                      <col key={index} style={{ width: PAY_DATA_COL_WIDTH }} />
+                    {Array.from({ length: dataColCount }, (_, index) => (
+                      <col key={index} style={{ width: dataColWidth }} />
                     ))}
                     <col style={{ width: `${PAY_ACTION_WIDTH_PX}px` }} />
                   </colgroup>
                   <TableHead>
                     <TableRow sx={{ bgcolor: alpha(theme.palette.text.primary, 0.02) }}>
-                      <FilterableSortHeader label="Vendor" field="vendorName" sortField={sortConfig.field ?? undefined} sortDirection={sortConfig.direction} onSort={handleSort} filterValue={colFilters.vendorId ?? ''} filterOptions={payableFilterOptions.vendorId ?? []} onFilter={(v) => setColFilters((p) => ({ ...p, vendorId: v }))} sx={PAY_HEADER_SX} />
-                      <FilterableSortHeader label="Project" field="projectName" sortField={sortConfig.field ?? undefined} sortDirection={sortConfig.direction} onSort={handleSort} filterValue={colFilters.projectId ?? ''} filterOptions={payableFilterOptions.projectId ?? []} onFilter={(v) => setColFilters((p) => ({ ...p, projectId: v }))} sx={PAY_HEADER_SX} />
-                      <FilterableSortHeader label="Milestone" field="milestone" sortField={sortConfig.field ?? undefined} sortDirection={sortConfig.direction} onSort={handleSort} filterValue={colFilters.milestone ?? ''} filterOptions={payableFilterOptions.milestone ?? []} onFilter={(v) => setColFilters((p) => ({ ...p, milestone: v }))} sx={PAY_HEADER_SX} />
-                      <FilterableSortHeader label="Invoice No." field="invoiceNo" sortField={sortConfig.field ?? undefined} sortDirection={sortConfig.direction} onSort={handleSort} filterValue={colFilters.invoiceNo ?? ''} filterOptions={payableFilterOptions.invoiceNo ?? []} onFilter={(v) => setColFilters((p) => ({ ...p, invoiceNo: v }))} sx={PAY_HEADER_SX} />
-                      <FilterableSortHeader label="Invoice date" field="invoiceDate" sortField={sortConfig.field ?? undefined} sortDirection={sortConfig.direction} onSort={handleSort} filterValue={colFilters.invoiceDate ?? ''} filterOptions={payableFilterOptions.invoiceDate ?? []} onFilter={(v) => setColFilters((p) => ({ ...p, invoiceDate: v }))} sx={PAY_HEADER_SX} />
-                      <FilterableSortHeader label="Invoice Amount" field="invoiceAmount" sortField={sortConfig.field ?? undefined} sortDirection={sortConfig.direction} onSort={handleSort} filterValue={colFilters.invoiceAmount ?? ''} filterOptions={payableFilterOptions.invoiceAmount ?? []} onFilter={(v) => setColFilters((p) => ({ ...p, invoiceAmount: v }))} sx={PAY_HEADER_SX} />
-                      <FilterableSortHeader label="TDS Amount" field="tdsAmount" sortField={sortConfig.field ?? undefined} sortDirection={sortConfig.direction} onSort={handleSort} filterValue={colFilters.tdsAmount ?? ''} filterOptions={payableFilterOptions.tdsAmount ?? []} onFilter={(v) => setColFilters((p) => ({ ...p, tdsAmount: v }))} sx={PAY_HEADER_SX} />
-                      <FilterableSortHeader label="Payment Status" field="paymentStatus" sortField={sortConfig.field ?? undefined} sortDirection={sortConfig.direction} onSort={handleSort} filterValue={colFilters.paymentStatus ?? ''} filterOptions={payableFilterOptions.paymentStatus ?? []} onFilter={(v) => setColFilters((p) => ({ ...p, paymentStatus: v }))} sx={PAY_HEADER_STATUS_SX} />
+                      {visibleColumns.vendorName && (
+                        <FilterableSortHeader label="Vendor" field="vendorName" sortField={sortConfig.field ?? undefined} sortDirection={sortConfig.direction} onSort={handleSort} filterValue={colFilters.vendorId ?? ''} filterOptions={payableFilterOptions.vendorId ?? []} onFilter={(v) => handleColumnFilter('vendorId', v)} sx={PAY_HEADER_SX} />
+                      )}
+                      {visibleColumns.projectName && (
+                        <FilterableSortHeader label="Project" field="projectName" sortField={sortConfig.field ?? undefined} sortDirection={sortConfig.direction} onSort={handleSort} filterValue={colFilters.projectId ?? ''} filterOptions={payableFilterOptions.projectId ?? []} onFilter={(v) => handleColumnFilter('projectId', v)} sx={PAY_HEADER_SX} />
+                      )}
+                      {visibleColumns.milestone && (
+                        <FilterableSortHeader label="Milestone" field="milestone" sortField={sortConfig.field ?? undefined} sortDirection={sortConfig.direction} onSort={handleSort} filterValue={colFilters.milestone ?? ''} filterOptions={payableFilterOptions.milestone ?? []} onFilter={(v) => handleColumnFilter('milestone', v)} sx={PAY_HEADER_SX} />
+                      )}
+                      {visibleColumns.invoiceNo && (
+                        <FilterableSortHeader label="Invoice No." field="invoiceNo" sortField={sortConfig.field ?? undefined} sortDirection={sortConfig.direction} onSort={handleSort} filterValue={colFilters.invoiceNo ?? ''} filterOptions={payableFilterOptions.invoiceNo ?? []} onFilter={(v) => handleColumnFilter('invoiceNo', v)} sx={PAY_HEADER_SX} />
+                      )}
+                      {visibleColumns.invoiceDate && (
+                        <FilterableSortHeader label="Invoice date" field="invoiceDate" sortField={sortConfig.field ?? undefined} sortDirection={sortConfig.direction} onSort={handleSort} filterValue={colFilters.invoiceDate ?? ''} filterOptions={payableFilterOptions.invoiceDate ?? []} onFilter={(v) => handleColumnFilter('invoiceDate', v)} sx={PAY_HEADER_SX} />
+                      )}
+                      {visibleColumns.invoiceAmount && (
+                        <FilterableSortHeader label="Invoice Amount" field="invoiceAmount" sortField={sortConfig.field ?? undefined} sortDirection={sortConfig.direction} onSort={handleSort} filterValue={colFilters.invoiceAmount ?? ''} filterOptions={payableFilterOptions.invoiceAmount ?? []} onFilter={(v) => handleColumnFilter('invoiceAmount', v)} sx={PAY_HEADER_SX} />
+                      )}
+                      {visibleColumns.tdsAmount && (
+                        <FilterableSortHeader label="TDS Amount" field="tdsAmount" sortField={sortConfig.field ?? undefined} sortDirection={sortConfig.direction} onSort={handleSort} filterValue={colFilters.tdsAmount ?? ''} filterOptions={payableFilterOptions.tdsAmount ?? []} onFilter={(v) => handleColumnFilter('tdsAmount', v)} sx={PAY_HEADER_SX} />
+                      )}
+                      {visibleColumns.paymentStatus && (
+                        <FilterableSortHeader label="Payment Status" field="paymentStatus" sortField={sortConfig.field ?? undefined} sortDirection={sortConfig.direction} onSort={handleSort} filterValue={colFilters.paymentStatus ?? ''} filterOptions={payableFilterOptions.paymentStatus ?? []} onFilter={(v) => handleColumnFilter('paymentStatus', v)} sx={PAY_HEADER_STATUS_SX} />
+                      )}
                       <TableCell sx={PAY_HEADER_ACTION_SX}>Actions</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
                     {isDataLoading ? (
                       <TableRow>
-                        <TableCell colSpan={PAY_TABLE_COL_SPAN} sx={{ ...PAY_CELL_SX, color: 'text.secondary', py: 4 }}>
+                        <TableCell colSpan={tableColSpan} sx={{ ...PAY_CELL_SX, color: 'text.secondary', py: 4 }}>
                           <Stack direction="row" alignItems="center" justifyContent="center" gap={1}>
                             <CircularProgress size={20} />
                             <Typography variant="body2" sx={{ fontSize: 12 }}>
@@ -913,7 +1043,7 @@ export default function PaymentsPage() {
                       </TableRow>
                     ) : listingRows.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={PAY_TABLE_COL_SPAN} sx={{ ...PAY_CELL_SX, color: 'text.secondary', py: 4 }}>
+                        <TableCell colSpan={tableColSpan} sx={{ ...PAY_CELL_SX, color: 'text.secondary', py: 4 }}>
                           {listTotal === 0
                             ? 'No vendor invoices yet. Upload an invoice to get started.'
                             : statusTab === 'completed'
@@ -932,59 +1062,75 @@ export default function PaymentsPage() {
                             '&:last-child td': { border: 0 },
                           }}
                         >
-                          <TableCell sx={PAY_CELL_SX}>
-                            <Stack direction="row" alignItems="center" gap={1.25} sx={{ minWidth: 0 }}>
-                              <Box sx={{ flexShrink: 0 }}>
-                                <Avatar name={row.entry.row.vendorName} size="sm" />
-                              </Box>
-                              <Typography
-                                variant="body2"
-                                sx={{ ...PAY_TEXT_WRAP_SX, fontWeight: 600, flex: 1, minWidth: 0 }}
-                              >
-                                {row.entry.row.vendorName}
+                          {visibleColumns.vendorName && (
+                            <TableCell sx={PAY_CELL_SX}>
+                              <Stack direction="row" alignItems="center" gap={1.25} sx={{ minWidth: 0 }}>
+                                <Box sx={{ flexShrink: 0 }}>
+                                  <Avatar name={row.entry.row.vendorName} size="sm" />
+                                </Box>
+                                <Typography
+                                  variant="body2"
+                                  sx={{ ...PAY_TEXT_WRAP_SX, fontWeight: 600, flex: 1, minWidth: 0 }}
+                                >
+                                  {row.entry.row.vendorName}
+                                </Typography>
+                              </Stack>
+                            </TableCell>
+                          )}
+                          {visibleColumns.projectName && (
+                            <TableCell sx={PAY_CELL_SX}>
+                              <Typography variant="body2" sx={PAY_TEXT_WRAP_SX}>
+                                {row.entry.projectName}
                               </Typography>
-                            </Stack>
-                          </TableCell>
-                          <TableCell sx={PAY_CELL_SX}>
-                            <Typography variant="body2" sx={PAY_TEXT_WRAP_SX}>
-                              {row.entry.projectName}
-                            </Typography>
-                          </TableCell>
-                          <TableCell sx={PAY_CELL_SX}>
-                            <Typography variant="body2" sx={PAY_TEXT_BODY_SX}>
-                              {row.entry.milestone.name}
-                            </Typography>
-                          </TableCell>
-                          <TableCell sx={PAY_CELL_SX}>
-                            <Typography variant="body2" sx={PAY_TEXT_BODY_SX}>
-                              {row.invoiceNumber || '—'}
-                            </Typography>
-                          </TableCell>
-                          <TableCell sx={PAY_CELL_SX}>
-                            <Typography variant="body2" sx={PAY_TEXT_BODY_SX}>
-                              {row.invoiceDate ? formatDate(row.invoiceDate) : '—'}
-                            </Typography>
-                          </TableCell>
-                          <TableCell sx={PAY_CELL_SX}>
-                            <Typography variant="body2" sx={PAY_TEXT_BODY_SX}>
-                              ₹{formatInr(row.invoiceAmount)}
-                            </Typography>
-                          </TableCell>
-                          <TableCell sx={PAY_CELL_SX}>
-                            <Typography variant="body2" sx={PAY_TEXT_BODY_SX}>
-                              ₹{formatInr(row.tdsAmount)}
-                            </Typography>
-                          </TableCell>
-                          <TableCell sx={PAY_CELL_STATUS_SX}>
-                            <Box sx={CENTER_CELL_CONTENT_SX}>
-                              <Badge
-                                label={payableStatusLabel(row.payableSt)}
-                                variant="soft"
-                                color={payableStatusBadgeColor(row.payableSt)}
-                                size="sm"
-                              />
-                            </Box>
-                          </TableCell>
+                            </TableCell>
+                          )}
+                          {visibleColumns.milestone && (
+                            <TableCell sx={PAY_CELL_SX}>
+                              <Typography variant="body2" sx={PAY_TEXT_BODY_SX}>
+                                {row.entry.milestone.name}
+                              </Typography>
+                            </TableCell>
+                          )}
+                          {visibleColumns.invoiceNo && (
+                            <TableCell sx={PAY_CELL_SX}>
+                              <Typography variant="body2" sx={PAY_TEXT_BODY_SX}>
+                                {row.invoiceNumber || '—'}
+                              </Typography>
+                            </TableCell>
+                          )}
+                          {visibleColumns.invoiceDate && (
+                            <TableCell sx={PAY_CELL_SX}>
+                              <Typography variant="body2" sx={PAY_TEXT_BODY_SX}>
+                                {row.invoiceDate ? formatDate(row.invoiceDate) : '—'}
+                              </Typography>
+                            </TableCell>
+                          )}
+                          {visibleColumns.invoiceAmount && (
+                            <TableCell sx={PAY_CELL_SX}>
+                              <Typography variant="body2" sx={PAY_TEXT_BODY_SX}>
+                                ₹{formatInr(row.invoiceAmount)}
+                              </Typography>
+                            </TableCell>
+                          )}
+                          {visibleColumns.tdsAmount && (
+                            <TableCell sx={PAY_CELL_SX}>
+                              <Typography variant="body2" sx={PAY_TEXT_BODY_SX}>
+                                ₹{formatInr(row.tdsAmount)}
+                              </Typography>
+                            </TableCell>
+                          )}
+                          {visibleColumns.paymentStatus && (
+                            <TableCell sx={PAY_CELL_STATUS_SX}>
+                              <Box sx={CENTER_CELL_CONTENT_SX}>
+                                <Badge
+                                  label={payableStatusLabel(row.payableSt)}
+                                  variant="soft"
+                                  color={payableStatusBadgeColor(row.payableSt)}
+                                  size="sm"
+                                />
+                              </Box>
+                            </TableCell>
+                          )}
                           <TableCell sx={PAY_CELL_ACTION_SX} onClick={(e) => e.stopPropagation()}>
                             <Box sx={CENTER_CELL_CONTENT_SX}>
                               <IconButton

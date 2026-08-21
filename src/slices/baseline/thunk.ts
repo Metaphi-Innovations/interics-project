@@ -2,16 +2,19 @@ import { createAsyncThunk } from '@reduxjs/toolkit'
 import { baselineReject, baselineService } from '@/modules/projects/baseline.service'
 import type { ClientPO, Baseline, VendorPO } from './reducer'
 
-export const fetchClientPO = createAsyncThunk<ClientPO[], string, { rejectValue: string }>(
-  'baseline/fetchClientPO',
-  async (projectId, { rejectWithValue }) => {
-    try {
-      return await baselineService.listClientPos(projectId)
-    } catch (err) {
-      return rejectWithValue(baselineReject(err, 'Failed to fetch client POs'))
-    }
-  },
-)
+export const fetchClientPO = createAsyncThunk<
+  ClientPO[],
+  string | { projectId: string; pendingInvoiceOnly?: boolean },
+  { rejectValue: string }
+>('baseline/fetchClientPO', async (arg, { rejectWithValue }) => {
+  const projectId = typeof arg === 'string' ? arg : arg.projectId
+  const pendingInvoiceOnly = typeof arg === 'string' ? false : Boolean(arg.pendingInvoiceOnly)
+  try {
+    return await baselineService.listClientPos(projectId, { pendingInvoiceOnly })
+  } catch (err) {
+    return rejectWithValue(baselineReject(err, 'Failed to fetch client POs'))
+  }
+})
 
 export const fetchClientPoById = createAsyncThunk<
   ClientPO,

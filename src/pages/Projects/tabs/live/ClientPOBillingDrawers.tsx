@@ -826,7 +826,11 @@ export function EditClientPODrawer({
       open={open}
       onClose={onClose}
       title={po?.poNumber ? `Edit ${po.poNumber}` : 'Edit Client PO'}
-      subtitle={hasBilled ? 'PO value is locked; unbilled milestones remain editable' : 'Update purchase order details'}
+      subtitle={
+        hasBilled
+          ? 'Milestones are billed or paid — only Executed Value can be changed'
+          : 'Update purchase order details'
+      }
       footer={
         <Stack direction="row" justifyContent="flex-end" gap={1} sx={{ px: 2.5, py: 1.75, width: '100%' }}>
           <Button variant="text" size="sm" label="Cancel" onClick={onClose} />
@@ -850,7 +854,13 @@ export function EditClientPODrawer({
         <Stack spacing={2.5}>
           <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px' }}>
             <FormField label="PO Number" required>
-              <TextField fullWidth size="small" value={poNumber} onChange={(e) => setPoNumber(e.target.value)} />
+              <TextField
+                fullWidth
+                size="small"
+                value={poNumber}
+                onChange={(e) => setPoNumber(e.target.value)}
+                disabled={hasBilled}
+              />
             </FormField>
             <FormField label="PO Value (₹)" required>
               <TextField
@@ -877,6 +887,7 @@ export function EditClientPODrawer({
                 size="small"
                 displayEmpty
                 value={tdsSectionId}
+                disabled={hasBilled}
                 onChange={(e) => {
                   const id = e.target.value
                   const opt = tdsOptions.find((o) => o.value === id)
@@ -894,9 +905,22 @@ export function EditClientPODrawer({
               </Select>
             </FormField>
             <FormField label="PO Document">
-              <MuiButton variant="outlined" component="label" size="small" startIcon={<Upload />} sx={{ fontSize: 12 }}>
+              <MuiButton
+                variant="outlined"
+                component="label"
+                size="small"
+                startIcon={<Upload />}
+                sx={{ fontSize: 12 }}
+                disabled={hasBilled}
+              >
                 {newFile ? newFile.name : po.fileName ? 'Replace document' : 'Upload document'}
-                <input type="file" hidden accept=".pdf,.doc,.docx" onChange={(e) => setNewFile(e.target.files?.[0] ?? null)} />
+                <input
+                  type="file"
+                  hidden
+                  accept=".pdf,.doc,.docx"
+                  disabled={hasBilled}
+                  onChange={(e) => setNewFile(e.target.files?.[0] ?? null)}
+                />
               </MuiButton>
             </FormField>
           </Box>
@@ -909,7 +933,8 @@ export function EditClientPODrawer({
             serviceOptions={serviceOptions}
             lockedMilestoneIds={lockedMilestoneIds}
             lockedRetentionIds={lockedRetentionIds}
-            disabled={serviceOptions.length === 0}
+            allowAddMilestone={false}
+            disabled={hasBilled || serviceOptions.length === 0}
           />
         </Stack>
       ) : null}

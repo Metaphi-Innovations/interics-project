@@ -19,11 +19,16 @@ function toUiStatus(status?: string): Project['status'] {
   return 'Pitch'
 }
 
-function toApiStatus(status?: string): 'PITCH' | 'LIVE' | undefined {
+function toApiStatus(
+  status?: string,
+): 'PITCH' | 'LIVE' | 'COMPLETED' | 'ARCHIVED' | 'CANCELLED' | undefined {
   if (!status) return undefined
   const normalized = status.toUpperCase()
   if (normalized === 'LIVE' || status === 'Live') return 'LIVE'
   if (normalized === 'PITCH' || status === 'Pitch') return 'PITCH'
+  if (normalized === 'COMPLETED' || status === 'Completed') return 'COMPLETED'
+  if (normalized === 'ARCHIVED' || status === 'Archived') return 'ARCHIVED'
+  if (normalized === 'CANCELLED' || status === 'Cancelled') return 'CANCELLED'
   return undefined
 }
 
@@ -93,6 +98,10 @@ export function toProjectFromListItem(api: ProjectListItemApi): Project {
     invoicedAmount: 0,
     paidVendorAmount: 0,
     createdAt: api.createdAt ?? new Date().toISOString(),
+    wentLiveAt: api.wentLiveAt ?? null,
+    completedAt: api.completedAt ?? null,
+    archivedAt: api.archivedAt ?? null,
+    cancelledAt: api.cancelledAt ?? null,
     sector: api.sectorLabel ?? api.sector,
   }
   return {
@@ -147,6 +156,10 @@ export function toProjectFromDetail(api: ProjectDetailApi): Project {
     invoicedAmount: 0,
     paidVendorAmount: 0,
     createdAt: api.createdAt ?? new Date().toISOString(),
+    wentLiveAt: api.wentLiveAt ?? null,
+    completedAt: api.completedAt ?? null,
+    archivedAt: api.archivedAt ?? null,
+    cancelledAt: api.cancelledAt ?? null,
     sector: setup.sector,
     designFeePerSqft: setup.designFeePerSqFt ?? null,
     buildValuePerSqft: setup.buildValuePerSqFt ?? null,

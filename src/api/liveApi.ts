@@ -20,7 +20,6 @@ export type UpdateClientInvoiceBody = Partial<ClientInvoice>
 export type RecordClientInvoicePaymentBody = {
   date: string
   amountReceived: number
-  tdsDeducted: number
   paymentMode: ClientInvoicePaymentMode
   reference?: string
 }
@@ -378,6 +377,11 @@ export const liveApi = {
   ) => {
     const res = await client.put(`${root(projectId)}/vendor-invoices/${invoiceId}`, data)
     return unwrapApiData<VendorInvoice>(res.data)
+  },
+
+  deleteVendorInvoice: async (projectId: string, invoiceId: string) => {
+    const res = await client.delete(`${root(projectId)}/vendor-invoices/${invoiceId}`)
+    return unwrapApiData<null>(res.data)
   },
 
   getVendorPayableControls: async (projectId: string) => {

@@ -15,11 +15,11 @@ export const formatCurrencyCompact = (amount: number, decimals = 2): string => {
 }
 
 const inrFormatter = new Intl.NumberFormat('en-IN', {
-  minimumFractionDigits: 0,
+  minimumFractionDigits: 2,
   maximumFractionDigits: 2,
 })
 
-/** Full Indian-grouped amount (e.g. listing invoice lines and totals). */
+/** Full Indian-grouped amount with exactly 2 decimal places (e.g. listing + KPI totals). */
 export const formatInr = (amount: number): string => inrFormatter.format(amount)
 
 export const getInitials = (name: string | null | undefined): string =>

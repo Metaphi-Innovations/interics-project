@@ -13,7 +13,9 @@ export const teamsApi = {
   async getFilters() {
     const res = await client.get('/teams/filters')
     return unwrapApiData<{
+      teamMember: { value: string; label: string }[]
       roles: { value: string; label: string }[]
+      projectCount: { value: string; label: string }[]
       projects: { value: string; label: string }[]
       statuses: { value: string; label: string }[]
     }>(res.data)

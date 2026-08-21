@@ -40,10 +40,10 @@ import {
   setPage,
   setPageSize,
 } from '@/slices/receivables/reducer'
-import { convertDraftToTax, fetchInvoices, sendInvoice } from '@/slices/receivables/thunk'
+import { convertDraftToTax, deleteInvoice, fetchInvoices, sendInvoice } from '@/slices/receivables/thunk'
 import { fetchCustomers } from '@/slices/customers/thunk'
 import type { Invoice } from '@/slices/receivables/reducer'
-import { formatCurrency } from '@/utils/formatters'
+import { formatInr } from '@/utils/formatters'
 import { tokens } from '@/design-system/tokens'
 import { CreateInvoiceDrawer } from './components/CreateInvoiceDrawer'
 import { InvoiceDetailDrawer } from './components/InvoiceDetailDrawer'
@@ -149,6 +149,24 @@ function mainInvoiceTableColumnCount(v: ReceivablesVisibleColumns): number {
   return 1 + toggles + 1
 }
 
+function buildReceivablesListColumns(visible: ReceivablesVisibleColumns): string[] {
+  return [
+    'id',
+    'invoiceNo',
+    ...(visible.clientName ? (['clientName', 'clientId'] as const) : []),
+    ...(visible.projectName ? (['projectName', 'projectId'] as const) : []),
+    ...(visible.milestoneName ? (['milestoneName', 'milestoneId'] as const) : []),
+    ...(visible.invoiceDate ? (['invoiceDate'] as const) : []),
+    ...(visible.dueDate ? (['dueDate'] as const) : []),
+    ...(visible.baseAmount ? (['baseAmount'] as const) : []),
+    ...(visible.gstAmount ? (['gstAmount'] as const) : []),
+    ...(visible.totalAmount ? (['totalAmount'] as const) : []),
+    ...(visible.totalReceived ? (['totalReceived', 'received'] as const) : []),
+    ...(visible.balance ? (['balance', 'netReceivable'] as const) : []),
+    ...(visible.status ? (['status'] as const) : []),
+  ]
+}
+
 const menuItemSx = { fontSize: 12, minHeight: 32, py: 0.5 }
 const LISTING_EDGE_PAD = '14px'
 const ACTION_WIDTH_PX = 44
@@ -201,6 +219,10 @@ const BODY_ACTION_SX = {
   pr: LISTING_EDGE_PAD,
 }
 
+function isDraftEquivalentInvoice(inv: Pick<Invoice, 'status'>): boolean {
+  return inv.status === 'draft' || inv.status === 'uploaded'
+}
+
 function RowActions({
   inv,
   onView,
@@ -208,6 +230,7 @@ function RowActions({
   onSend,
   onConvertTax,
   onPdf,
+  onDelete,
 }: {
   inv: Invoice
   onView: () => void
@@ -215,11 +238,13 @@ function RowActions({
   onSend: () => void
   onConvertTax: () => void
   onPdf: () => void
+  onDelete: () => void
 }) {
   const [anchor, setAnchor] = useState<null | HTMLElement>(null)
   const canRecordPayment = inv.status !== 'draft' && inv.status !== 'paid' && inv.balance > 0
   const canMarkSent = inv.status === 'draft'
   const canConvertTax = inv.status === 'draft'
+  const canDelete = isDraftEquivalentInvoice(inv)
 
   return (
     <Box sx={CENTER_CELL_CONTENT_SX}>
@@ -270,7 +295,7 @@ function RowActions({
         >
           Download PDF
         </MenuItem>
-        {(canConvertTax || canMarkSent) && (
+        {(canConvertTax || canMarkSent || canDelete) && (
           <>
             <Divider />
             {canConvertTax && (
@@ -293,6 +318,17 @@ function RowActions({
                 }}
               >
                 Mark as Sent
+              </MenuItem>
+            )}
+            {canDelete && (
+              <MenuItem
+                sx={{ ...menuItemSx, color: 'error.main' }}
+                onClick={() => {
+                  onDelete()
+                  setAnchor(null)
+                }}
+              >
+                Delete
               </MenuItem>
             )}
           </>
@@ -336,6 +372,7 @@ export default function BillingsPage() {
   const [paymentInv, setPaymentInv] = useState<Invoice | null>(null)
   const [sendTarget, setSendTarget] = useState<Invoice | null>(null)
   const [convertTaxTarget, setConvertTaxTarget] = useState<Invoice | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<Invoice | null>(null)
   const [activeFilters, setActiveFilters] = useState<Record<string, unknown>>({})
   const [searchInput, setSearchInput] = useState(filters.search)
   const [columnFilters, setColumnFilters] = useState<ReceivablesColumnFilters>({
@@ -395,36 +432,68 @@ export default function BillingsPage() {
 
   function handleColumnVisibilityChange(field: string, visible: boolean) {
     const key = field as keyof ReceivablesVisibleColumns
-    setVisibleColumns((prev) => (key in prev ? { ...prev, [key]: visible } : prev))
+    if (!(key in visibleColumns)) return
+    setVisibleColumns((prev) => ({ ...prev, [key]: visible }))
+    dispatch(setPage(1))
   }
 
   const mainColCount = useMemo(() => mainInvoiceTableColumnCount(visibleColumns), [visibleColumns])
 
-  function reload() {
+  function reload(overrides: {
+    page?: number
+    columnFilters?: Partial<ReceivablesColumnFilters>
+    statusTab?: string
+    clientId?: string
+    projectId?: string
+    visibleColumns?: ReceivablesVisibleColumns
+  } = {}) {
+    const nextCols = { ...columnFilters, ...overrides.columnFilters }
+    const nextPage = overrides.page ?? pagination.page
+    const statusTab = overrides.statusTab ?? filters.statusTab
+    const toolbarClientId = overrides.clientId !== undefined ? overrides.clientId : filters.clientId
+    const toolbarProjectId =
+      overrides.projectId !== undefined ? overrides.projectId : filters.projectId
+    const visibility = overrides.visibleColumns ?? visibleColumns
     dispatch(
       fetchInvoices({
-        page: pagination.page,
+        page: nextPage,
         pageSize: pagination.pageSize,
-        status: columnFilters.status || (filters.statusTab === 'all' ? undefined : filters.statusTab),
+        status: nextCols.status || (statusTab === 'all' ? undefined : statusTab),
         search: filters.search || undefined,
-        clientId: columnFilters.clientId || filters.clientId || undefined,
-        projectId: columnFilters.projectId || filters.projectId || undefined,
+        clientId: nextCols.clientId || toolbarClientId || undefined,
+        projectId: nextCols.projectId || toolbarProjectId || undefined,
         dateFrom: filters.dateFrom || undefined,
         dateTo: filters.dateTo || undefined,
         amountMin: filters.amountMin || undefined,
         amountMax: filters.amountMax || undefined,
-        invoiceNo: columnFilters.invoiceNo || undefined,
-        invoiceDate: columnFilters.invoiceDate || undefined,
-        dueDate: columnFilters.dueDate || undefined,
-        baseAmount: toExactNumber(columnFilters.baseAmount),
-        gstAmount: toExactNumber(columnFilters.gstAmount),
-        totalAmount: toExactNumber(columnFilters.totalAmount),
-        received: toExactNumber(columnFilters.received),
-        netReceivable: toExactNumber(columnFilters.netReceivable),
+        invoiceNo: nextCols.invoiceNo || undefined,
+        invoiceDate: nextCols.invoiceDate || undefined,
+        dueDate: nextCols.dueDate || undefined,
+        baseAmount: toExactNumber(nextCols.baseAmount),
+        gstAmount: toExactNumber(nextCols.gstAmount),
+        totalAmount: toExactNumber(nextCols.totalAmount),
+        received: toExactNumber(nextCols.received),
+        netReceivable: toExactNumber(nextCols.netReceivable),
+        columns: buildReceivablesListColumns(visibility),
         sortBy: sortConfig.field || undefined,
         sortOrder: sortConfig.field ? sortConfig.direction : undefined,
       }),
     )
+  }
+
+  function refreshKpis() {
+    void financeApi
+      .getReceivablesSummary({ period: kpiPeriod })
+      .then((res) => {
+        const data = unwrapApiData<ReceivableSummaryKpis>(res.data)
+        if (data) setKpis(data)
+      })
+      .catch(() => undefined)
+  }
+
+  function reloadAfterMutation() {
+    reload()
+    refreshKpis()
   }
 
   function openGenerateInvoice(inv: Invoice) {
@@ -505,6 +574,7 @@ export default function BillingsPage() {
     columnFilters.status,
     sortConfig.field,
     sortConfig.direction,
+    visibleColumns,
   ])
 
   useEffect(() => {
@@ -555,33 +625,33 @@ export default function BillingsPage() {
   const statCards = [
     {
       label: 'Total PO Value',
-      value: `₹${kpis.totalPoValue.toLocaleString('en-IN')}`,
+      value: `₹${formatInr(kpis.totalPoValue)}`,
       variant: 'default' as const,
       icon: <RequestQuoteIcon sx={{ fontSize: 24 }} />,
     },
     {
+      label: 'Draft Invoice Sent',
+      value: `₹${formatInr(kpis.draftInvoiceSent)}`,
+      variant: 'purple' as const,
+      icon: <DraftsIcon sx={{ fontSize: 24 }} />,
+    },
+    {
+      label: 'Tax Invoice Raised',
+      value: `₹${formatInr(kpis.taxInvoiceRaised)}`,
+      variant: 'info' as const,
+      icon: <ReceiptLongIcon sx={{ fontSize: 24 }} />,
+    },
+    {
       label: 'Received Till Date',
-      value: `₹${kpis.receivedTillDate.toLocaleString('en-IN')}`,
+      value: `₹${formatInr(kpis.receivedTillDate)}`,
       variant: 'success' as const,
       icon: <CheckCircleIcon sx={{ fontSize: 24 }} />,
     },
     {
       label: 'Pending',
-      value: `₹${kpis.pending.toLocaleString('en-IN')}`,
+      value: `₹${formatInr(kpis.pending)}`,
       variant: 'warning' as const,
       icon: <WarningAmberIcon sx={{ fontSize: 24 }} />,
-    },
-    {
-      label: 'Tax Invoice Raised',
-      value: `₹${kpis.taxInvoiceRaised.toLocaleString('en-IN')}`,
-      variant: 'info' as const,
-      icon: <ReceiptLongIcon sx={{ fontSize: 24 }} />,
-    },
-    {
-      label: 'Draft Invoice Sent',
-      value: `₹${kpis.draftInvoiceSent.toLocaleString('en-IN')}`,
-      variant: 'purple' as const,
-      icon: <DraftsIcon sx={{ fontSize: 24 }} />,
     },
   ]
 
@@ -764,6 +834,13 @@ export default function BillingsPage() {
     if (field === 'status') {
       dispatch(setFilters({ statusTab: value || 'all' }))
     }
+    reload({
+      page: 1,
+      columnFilters: { [field]: value },
+      ...(field === 'status' ? { statusTab: value || 'all' } : {}),
+      ...(field === 'clientId' ? { clientId: value } : {}),
+      ...(field === 'projectId' ? { projectId: value } : {}),
+    })
   }
 
   function handleResetAll() {
@@ -803,7 +880,7 @@ export default function BillingsPage() {
     try {
       await dispatch(sendInvoice(sendTarget.id)).unwrap()
       showToast({ title: 'Invoice sent', variant: 'success' })
-      reload()
+      reloadAfterMutation()
     } catch (e) {
       showToast({ title: String(e), variant: 'error' })
     }
@@ -815,11 +892,23 @@ export default function BillingsPage() {
     try {
       await dispatch(convertDraftToTax(convertTaxTarget.id)).unwrap()
       showToast({ title: 'Converted to tax invoice', variant: 'success' })
-      reload()
+      reloadAfterMutation()
     } catch (e) {
       showToast({ title: String(e), variant: 'error' })
     }
     setConvertTaxTarget(null)
+  }
+
+  async function confirmDeleteInvoice() {
+    if (!deleteTarget) return
+    try {
+      await dispatch(deleteInvoice(deleteTarget.id)).unwrap()
+      showToast({ title: 'Invoice deleted', variant: 'success' })
+      reloadAfterMutation()
+    } catch (e) {
+      showToast({ title: String(e), variant: 'error' })
+    }
+    setDeleteTarget(null)
   }
 
   const detailOpen = Boolean(detailId)
@@ -1124,22 +1213,22 @@ export default function BillingsPage() {
                             </TableCell>
                           )}
                           {visibleColumns.baseAmount && (
-                            <TableCell sx={BODY_CELL_SX}>₹{formatCurrency(inv.baseAmount)}</TableCell>
+                            <TableCell sx={BODY_CELL_SX}>₹{formatInr(inv.baseAmount)}</TableCell>
                           )}
                           {visibleColumns.gstAmount && (
-                            <TableCell sx={BODY_CELL_SX}>₹{formatCurrency(inv.gstAmount)}</TableCell>
+                            <TableCell sx={BODY_CELL_SX}>₹{formatInr(inv.gstAmount)}</TableCell>
                           )}
                           {visibleColumns.totalAmount && (
-                            <TableCell sx={{ ...BODY_CELL_SX, fontWeight: 700 }}>₹{formatCurrency(inv.totalAmount)}</TableCell>
+                            <TableCell sx={{ ...BODY_CELL_SX, fontWeight: 700 }}>₹{formatInr(inv.totalAmount)}</TableCell>
                           )}
                           {visibleColumns.totalReceived && (
                             <TableCell sx={{ ...BODY_CELL_SX, color: pendingRow ? 'text.secondary' : 'success.main' }}>
-                              {pendingRow ? '—' : `₹${formatCurrency(inv.totalReceived)}`}
+                              {pendingRow ? '—' : `₹${formatInr(inv.totalReceived)}`}
                             </TableCell>
                           )}
                           {visibleColumns.balance && (
                             <TableCell sx={{ ...BODY_CELL_SX, color: inv.balance > 0 ? 'error.main' : 'text.primary' }}>
-                              ₹{formatCurrency(inv.balance)}
+                              ₹{formatInr(inv.balance)}
                             </TableCell>
                           )}
                           {visibleColumns.status && (
@@ -1177,6 +1266,7 @@ export default function BillingsPage() {
                                 onSend={() => setSendTarget(inv)}
                                 onConvertTax={() => setConvertTaxTarget(inv)}
                                 onPdf={() => showToast({ title: 'PDF download (placeholder)', variant: 'success' })}
+                                onDelete={() => setDeleteTarget(inv)}
                               />
                             )}
                           </TableCell>
@@ -1235,6 +1325,38 @@ export default function BillingsPage() {
         </Typography>
       </Modal>
 
+      <Modal
+        open={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        title="Delete draft invoice?"
+        size="xs"
+        footer={
+          <Stack direction="row" justifyContent="flex-end" gap={1}>
+            <Button
+              variant="outlined"
+              size="sm"
+              onClick={() => setDeleteTarget(null)}
+              disabled={saving}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="contained"
+              size="sm"
+              color="error"
+              onClick={confirmDeleteInvoice}
+              loading={saving}
+            >
+              Delete
+            </Button>
+          </Stack>
+        }
+      >
+        <Typography variant="body2">
+          Delete draft invoice <strong>{deleteTarget?.invoiceNo}</strong>? This cannot be undone.
+        </Typography>
+      </Modal>
+
       <CreateInvoiceDrawer
         open={drawerCreate}
         onClose={() => {
@@ -1245,7 +1367,7 @@ export default function BillingsPage() {
         preset={generatePreset}
         onSaved={() => {
           setGeneratePreset(null)
-          reload()
+          reloadAfterMutation()
         }}
       />
       <CreateInvoiceDrawer
@@ -1253,7 +1375,7 @@ export default function BillingsPage() {
         onClose={() => setDrawerEdit(null)}
         mode="edit"
         invoice={drawerEdit}
-        onSaved={reload}
+        onSaved={reloadAfterMutation}
       />
 
       <InvoiceDetailDrawer
@@ -1279,7 +1401,7 @@ export default function BillingsPage() {
         open={!!paymentInv}
         onClose={() => setPaymentInv(null)}
         invoice={paymentInv}
-        onRecorded={reload}
+        onRecorded={reloadAfterMutation}
       />
     </>
   )

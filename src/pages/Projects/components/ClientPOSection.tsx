@@ -8,6 +8,7 @@ import {
 } from '@/components/listing/RowIconActions'
 import type { ClientPO } from '@/slices/baseline/reducer'
 import { formatCurrency, formatDate } from '@/utils/formatters'
+import { effectiveExecutedValue } from '@/pages/Projects/tabs/live/poExecutedValueRules'
 
 const SUBSECTION_SX = {
   border: '1px solid',
@@ -50,6 +51,7 @@ export function ClientPOSection({
   caption,
 }: ClientPOSectionProps) {
   const totalPOValue = clientPOs.reduce((sum, po) => sum + po.poValue, 0)
+  const totalExecutedValue = clientPOs.reduce((sum, po) => sum + effectiveExecutedValue(po), 0)
 
   return (
     <Box sx={SUBSECTION_SX}>
@@ -90,6 +92,19 @@ export function ClientPOSection({
               </Typography>
               <Typography variant="body2" sx={{ fontWeight: 700, color: 'primary.main', fontSize: 13 }}>
                 ₹{formatCurrency(totalPOValue)}
+              </Typography>
+            </Box>
+            <Divider orientation="vertical" flexItem sx={{ display: { xs: 'none', sm: 'block' } }} />
+            <Box>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ display: 'block', fontSize: 10, letterSpacing: 0.5 }}
+              >
+                TOTAL EXECUTED VALUE
+              </Typography>
+              <Typography variant="body2" sx={{ fontWeight: 700, color: 'text.secondary', fontSize: 13 }}>
+                ₹{formatCurrency(totalExecutedValue)}
               </Typography>
             </Box>
             <Divider orientation="vertical" flexItem sx={{ display: { xs: 'none', sm: 'block' } }} />
@@ -141,9 +156,14 @@ export function ClientPOSection({
                     </Typography>
                   ) : null}
                 </Box>
-                <Typography variant="body2" sx={{ fontWeight: 700, color: 'primary.main', fontSize: 13 }}>
-                  ₹{formatCurrency(po.poValue)}
-                </Typography>
+                <Stack alignItems="flex-end" sx={{ flexShrink: 0 }}>
+                  <Typography variant="body2" sx={{ fontWeight: 700, color: 'primary.main', fontSize: 13 }}>
+                    ₹{formatCurrency(po.poValue)}
+                  </Typography>
+                  <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: 11 }}>
+                    Executed ₹{formatCurrency(effectiveExecutedValue(po))}
+                  </Typography>
+                </Stack>
                 <RowIconActionsGroup>
                   <RowViewAction onClick={() => onViewPO(po)} />
                   <RowEditAction onClick={() => onEditPO(po)} />

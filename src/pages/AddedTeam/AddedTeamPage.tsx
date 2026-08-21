@@ -16,12 +16,18 @@ import {
 } from '@mui/material'
 import { useTheme, alpha } from '@mui/material/styles'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
-import { ArrowUpward, ArrowDownward, PersonOutline } from '@mui/icons-material'
+import { PersonOutline } from '@mui/icons-material'
 import { Eye } from 'lucide-react'
 import { FolderKanban, UserPlus } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import type { Project } from '@/slices/projects/reducer'
 import { ListingTemplate } from '@/components/templates/ListingTemplate'
+import type { ColumnItem } from '@/components/templates/ListingTemplate'
+import {
+  FilterableHeaderCell,
+  FilterableSortHeader,
+  type ColumnFilterOption,
+} from '@/components/listing'
 import { tokens } from '@/design-system/tokens'
 import { getInitials, getAvatarColor } from '@/utils/formatters'
 import { teamsApi } from '@/api/teamsApi'
@@ -51,6 +57,22 @@ type TeamMemberApiRow = {
   projectName?: string
   projectCode?: string
   projectStatus?: string
+}
+
+type TeamColumnFilters = {
+  teamMember: string
+  projectCount: string
+  role: string
+  projectId: string
+}
+
+function toColumnFilterOptions(
+  options?: Array<{ value: string | number | boolean; label: string }>,
+): ColumnFilterOption[] {
+  return (options ?? []).map((option) => ({
+    value: String(option.value),
+    label: option.label,
+  }))
 }
 
 function mapApiTeamRow(raw: TeamMemberApiRow): TeamAssignmentRow | null {
@@ -85,14 +107,34 @@ function mapApiTeamRow(raw: TeamMemberApiRow): TeamAssignmentRow | null {
   }
 }
 
-const TEAM_DATA_COLUMN_COUNT = 4
+const TEAM_ACTION_WIDTH_PX = 56
+
+type TeamVisibleColumns = {
+  projectCount: boolean
+  role: boolean
+  project: boolean
+}
+
+function buildTeamListColumns(visible: TeamVisibleColumns): string[] {
+  return [
+    'id',
+    'userId',
+    'memberName',
+    'teamMember',
+    ...(visible.projectCount ? (['projectCount'] as const) : []),
+    ...(visible.role ? (['role', 'roleLabel'] as const) : []),
+    ...(visible.project ? (['projectId', 'projectName', 'project', 'projectCode'] as const) : []),
+  ]
+}
+
+function teamDataColWidth(visibleCount: number): string {
+  const count = Math.max(1, visibleCount)
+  return `calc((100% - ${TEAM_ACTION_WIDTH_PX}px) / ${count})`
+}
 
 /** Horizontal padding aligned with listing card toolbar (`p: 10px 14px`). */
 const LISTING_EDGE_PAD = '14px'
-
 const TEAM_CELL_PAD_X = LISTING_EDGE_PAD
-
-const TEAM_ACTION_WIDTH_PX = 56
 
 const TABLE_HEADER_PADDING = {
   '&.MuiTableCell-sizeSmall': {
@@ -175,10 +217,6 @@ const CENTER_CELL_CONTENT_SX = {
   width: 1,
 } as const
 
-function teamDataColWidth(): string {
-  return `calc((100% - ${TEAM_ACTION_WIDTH_PX}px) / ${TEAM_DATA_COLUMN_COUNT})`
-}
-
 function MemberAvatar({ name }: { name: string }) {
   const colors = getAvatarColor(name)
   return (
@@ -199,46 +237,6 @@ function MemberAvatar({ name }: { name: string }) {
     >
       {getInitials(name)}
     </Box>
-  )
-}
-
-interface SortHeaderProps {
-  field: string
-  label: string
-  sortField: string | null
-  sortDirection: 'asc' | 'desc'
-  onSort: (field: string) => void
-  sx?: object
-}
-
-function SortHeader({ field, label, sortField, sortDirection, onSort, sx }: SortHeaderProps) {
-  const isActive = sortField === field
-  return (
-    <TableCell
-      sx={{
-        ...TABLE_HEADER_CELL_SX,
-        cursor: 'pointer',
-        userSelect: 'none',
-        fontWeight: isActive ? 700 : 600,
-        color: isActive ? 'primary.main' : 'text.secondary',
-        '&:hover': { color: 'primary.main' },
-        ...sx,
-      }}
-      onClick={() => onSort(field)}
-    >
-      <Stack direction="row" alignItems="center" gap="2px" component="span">
-        {label}
-        {isActive ? (
-          sortDirection === 'asc' ? (
-            <ArrowUpward sx={{ fontSize: 12 }} />
-          ) : (
-            <ArrowDownward sx={{ fontSize: 12 }} />
-          )
-        ) : (
-          <ArrowUpward sx={{ fontSize: 12, opacity: 0.2 }} />
-        )}
-      </Stack>
-    </TableCell>
   )
 }
 
@@ -287,7 +285,14 @@ interface AddedTeamTableProps {
   loadError: string | null
   sortField: string | null
   sortDirection: 'asc' | 'desc'
-  onSort: (field: string) => void
+  onSort: (field: string, direction: 'asc' | 'desc') => void
+  columnFilters: TeamColumnFilters
+  visibleColumns: TeamVisibleColumns
+  teamMemberOptions: ColumnFilterOption[]
+  projectCountOptions: ColumnFilterOption[]
+  roleOptions: ColumnFilterOption[]
+  projectOptions: ColumnFilterOption[]
+  onColumnFilter: (field: keyof TeamColumnFilters, value: string) => void
   onViewDetails: (userId: string) => void
 }
 
@@ -299,10 +304,22 @@ function AddedTeamTable({
   sortField,
   sortDirection,
   onSort,
+  columnFilters,
+  visibleColumns,
+  teamMemberOptions,
+  projectCountOptions,
+  roleOptions,
+  projectOptions,
+  onColumnFilter,
   onViewDetails,
 }: AddedTeamTableProps) {
   const theme = useTheme()
-  const dataColWidth = teamDataColWidth()
+  const visibleDataCount =
+    1 +
+    (visibleColumns.projectCount ? 1 : 0) +
+    (visibleColumns.role ? 1 : 0) +
+    (visibleColumns.project ? 1 : 0)
+  const dataColWidth = teamDataColWidth(visibleDataCount)
   const hoverBg = alpha(theme.palette.primary.main, 0.04)
   const headSx = { ...TABLE_HEADER_CELL_SX, width: dataColWidth }
   const cellSx = { ...TABLE_CELL_SX, width: dataColWidth }
@@ -341,39 +358,59 @@ function AddedTeamTable({
     <TableContainer sx={{ overflow: 'visible', width: '100%' }}>
       <Table size="small" sx={{ tableLayout: 'fixed', width: '100%', minWidth: 0 }}>
           <colgroup>
-            <col style={{ width: dataColWidth }} />
-            <col style={{ width: dataColWidth }} />
-            <col style={{ width: dataColWidth }} />
-            <col style={{ width: dataColWidth }} />
+            {Array.from({ length: visibleDataCount }, (_, index) => (
+              <col key={index} style={{ width: dataColWidth }} />
+            ))}
             <col style={{ width: `${TEAM_ACTION_WIDTH_PX}px` }} />
           </colgroup>
         <TableHead>
           <TableRow sx={{ bgcolor: alpha(theme.palette.text.primary, 0.02) }}>
-            <SortHeader
-              field="memberName"
+            <FilterableSortHeader
               label="Team Member"
-              sortField={sortField}
+              field="memberName"
+              sortField={sortField ?? undefined}
               sortDirection={sortDirection}
               onSort={onSort}
+              filterValue={columnFilters.teamMember}
+              filterOptions={teamMemberOptions}
+              onFilter={(value) => onColumnFilter('teamMember', value)}
               sx={headSx}
             />
-            <SortHeader
-              field="projectCount"
-              label="No. of Project"
-              sortField={sortField}
-              sortDirection={sortDirection}
-              onSort={onSort}
-              sx={headSx}
-            />
-            <TableCell sx={headSx}>Role</TableCell>
-            <SortHeader
-              field="projectName"
-              label="Project"
-              sortField={sortField}
-              sortDirection={sortDirection}
-              onSort={onSort}
-              sx={headSx}
-            />
+            {visibleColumns.projectCount && (
+              <FilterableSortHeader
+                label="No. of Project"
+                field="projectCount"
+                sortField={sortField ?? undefined}
+                sortDirection={sortDirection}
+                onSort={onSort}
+                filterValue={columnFilters.projectCount}
+                filterOptions={projectCountOptions}
+                onFilter={(value) => onColumnFilter('projectCount', value)}
+                sx={headSx}
+              />
+            )}
+            {visibleColumns.role && (
+              <FilterableHeaderCell
+                label="Role"
+                filterValue={columnFilters.role}
+                filterOptions={roleOptions}
+                onFilter={(value) => onColumnFilter('role', value)}
+                sx={headSx}
+              />
+            )}
+            {visibleColumns.project && (
+              <FilterableSortHeader
+                label="Project"
+                field="projectName"
+                sortField={sortField ?? undefined}
+                sortDirection={sortDirection}
+                onSort={onSort}
+                filterValue={columnFilters.projectId}
+                filterOptions={projectOptions}
+                onFilter={(value) => onColumnFilter('projectId', value)}
+                sx={headSx}
+              />
+            )}
             <TableCell sx={actionHeadSx}>
               <Box sx={CENTER_CELL_CONTENT_SX}>Action</Box>
             </TableCell>
@@ -395,26 +432,32 @@ function AddedTeamTable({
                   </Typography>
                 </Stack>
               </TableCell>
-              <TableCell sx={cellSx}>
-                <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600 }}>
-                  {row.projectCount}
-                </Typography>
-              </TableCell>
-              <TableCell sx={cellSx}>
-                <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary', wordBreak: 'break-word' }}>
-                  {row.roleLabel}
-                </Typography>
-              </TableCell>
-              <TableCell sx={cellSx}>
-                <Box sx={{ minWidth: 0 }}>
-                  <Typography variant="body2" sx={{ fontWeight: 600, fontSize: 12, lineHeight: 1.35, wordBreak: 'break-word' }}>
-                    {row.projectName}
+              {visibleColumns.projectCount && (
+                <TableCell sx={cellSx}>
+                  <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600 }}>
+                    {row.projectCount}
                   </Typography>
-                  <Typography variant="caption" color="text.secondary" sx={{ fontSize: 10 }}>
-                    {row.projectCode}
+                </TableCell>
+              )}
+              {visibleColumns.role && (
+                <TableCell sx={cellSx}>
+                  <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary', wordBreak: 'break-word' }}>
+                    {row.roleLabel}
                   </Typography>
-                </Box>
-              </TableCell>
+                </TableCell>
+              )}
+              {visibleColumns.project && (
+                <TableCell sx={cellSx}>
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography variant="body2" sx={{ fontWeight: 600, fontSize: 12, lineHeight: 1.35, wordBreak: 'break-word' }}>
+                      {row.projectName}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ fontSize: 10 }}>
+                      {row.projectCode}
+                    </Typography>
+                  </Box>
+                </TableCell>
+              )}
               <TableCell sx={cellActionSx} onClick={(e) => e.stopPropagation()}>
                 <Box sx={CENTER_CELL_CONTENT_SX}>
                   <RowActions onViewDetails={() => onViewDetails(row.userId)} />
@@ -438,12 +481,32 @@ export default function AddedTeamPage() {
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [projectFilter, setProjectFilter] = useState('')
+  const [columnFilters, setColumnFilters] = useState<TeamColumnFilters>({
+    teamMember: '',
+    projectCount: '',
+    role: '',
+    projectId: '',
+  })
+  const [visibleColumns, setVisibleColumns] = useState<TeamVisibleColumns>({
+    projectCount: true,
+    role: true,
+    project: true,
+  })
   const [sortField, setSortField] = useState<string | null>('memberName')
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(20)
   const [total, setTotal] = useState(0)
   const [summary, setSummary] = useState({ assignments: 0, teamMembers: 0, projectsWithTeam: 0 })
+  const [filterOptions, setFilterOptions] = useState<{
+    teamMember: { value: string; label: string }[]
+    roles: { value: string; label: string }[]
+    projectCount: { value: string; label: string }[]
+    projects: { value: string; label: string }[]
+    statuses: { value: string; label: string }[]
+  }>({ teamMember: [], roles: [], projectCount: [], projects: [], statuses: [] })
+
+  const resolvedProjectId = columnFilters.projectId || projectFilter
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 300)
@@ -457,6 +520,20 @@ export default function AddedTeamPage() {
   }, [])
 
   useEffect(() => {
+    void teamsApi.getFilters().then((f) => {
+      if (f) {
+        setFilterOptions({
+          teamMember: f.teamMember ?? [],
+          roles: f.roles ?? [],
+          projectCount: f.projectCount ?? [],
+          projects: f.projects ?? [],
+          statuses: f.statuses ?? [],
+        })
+      }
+    }).catch(() => undefined)
+  }, [])
+
+  useEffect(() => {
     let cancelled = false
     setLoading(true)
     void (async () => {
@@ -466,7 +543,11 @@ export default function AddedTeamPage() {
           limit: pageSize,
           search: debouncedSearch || undefined,
           status: statusFilter || undefined,
-          projectId: projectFilter || undefined,
+          projectId: resolvedProjectId || undefined,
+          teamMember: columnFilters.teamMember || undefined,
+          role: columnFilters.role || undefined,
+          projectCount: columnFilters.projectCount || undefined,
+          columns: buildTeamListColumns(visibleColumns).join(','),
           sortBy:
             sortField === 'memberName'
               ? 'teamMember'
@@ -499,21 +580,38 @@ export default function AddedTeamPage() {
     return () => {
       cancelled = true
     }
-  }, [page, pageSize, debouncedSearch, statusFilter, projectFilter, sortField, sortDirection])
+  }, [
+    page,
+    pageSize,
+    debouncedSearch,
+    statusFilter,
+    resolvedProjectId,
+    columnFilters.teamMember,
+    columnFilters.role,
+    columnFilters.projectCount,
+    sortField,
+    sortDirection,
+    visibleColumns,
+  ])
 
-  const [filterOptions, setFilterOptions] = useState<{
-    projects: { value: string; label: string }[]
-    statuses: { value: string; label: string }[]
-  }>({ projects: [], statuses: [] })
-
-  useEffect(() => {
-    void teamsApi.getFilters().then((f) => {
-      if (f) setFilterOptions({ projects: f.projects ?? [], statuses: f.statuses ?? [] })
-    }).catch(() => undefined)
-  }, [])
-
-  const projectOptions = filterOptions.projects
+  const projectOptions = toColumnFilterOptions(filterOptions.projects)
+  const teamMemberOptions = toColumnFilterOptions(filterOptions.teamMember)
+  const roleOptions = toColumnFilterOptions(filterOptions.roles)
+  const projectCountOptions = toColumnFilterOptions(filterOptions.projectCount)
   const sortedRows = items
+
+  const columnsConfig: ColumnItem[] = [
+    { field: 'projectCount', label: 'No. of Project', visible: visibleColumns.projectCount },
+    { field: 'role', label: 'Role', visible: visibleColumns.role },
+    { field: 'project', label: 'Project', visible: visibleColumns.project },
+  ]
+
+  function handleColumnVisibilityChange(field: string, visible: boolean) {
+    const key = field as keyof TeamVisibleColumns
+    if (!(key in visibleColumns)) return
+    setVisibleColumns((prev) => ({ ...prev, [key]: visible }))
+    setPage(0)
+  }
 
   const statCards = [
     {
@@ -561,29 +659,45 @@ export default function AddedTeamPage() {
   }, [])
 
   function handleFilterChange(vals: Record<string, unknown>) {
+    const nextProjectId = (vals.projectId as string) ?? ''
     setStatusFilter((vals.status as string) ?? '')
-    setProjectFilter((vals.projectId as string) ?? '')
+    setProjectFilter(nextProjectId)
+    setColumnFilters((prev) => ({ ...prev, projectId: nextProjectId }))
     setPage(0)
   }
 
   function handleFilterReset() {
     setStatusFilter('')
     setProjectFilter('')
+    setColumnFilters((prev) => ({ ...prev, projectId: '' }))
     setSearch('')
   }
 
-  function handleSort(field: string) {
-    const newDirection =
-      sortField === field && sortDirection === 'asc' ? 'desc' : 'asc'
+  function handleSort(field: string, direction: 'asc' | 'desc') {
     setSortField(field)
-    setSortDirection(newDirection)
+    setSortDirection(direction)
+    setPage(0)
+  }
+
+  function handleColumnFilter(field: keyof TeamColumnFilters, value: string) {
+    setColumnFilters((prev) => ({ ...prev, [field]: value }))
+    if (field === 'projectId') {
+      setProjectFilter(value)
+    }
+    setPage(0)
   }
 
   function handleViewDetails(userId: string) {
     navigate(`/added-team/${userId}`)
   }
 
-  const activeFilterCount = [statusFilter, projectFilter].filter(Boolean).length
+  const activeFilterCount = [
+    statusFilter,
+    resolvedProjectId,
+    columnFilters.teamMember,
+    columnFilters.role,
+    columnFilters.projectCount,
+  ].filter(Boolean).length
 
   return (
     <ListingTemplate
@@ -594,10 +708,12 @@ export default function AddedTeamPage() {
       searchPlaceholder="Search team or project…"
       onSearchChange={handleSearch}
       filterConfig={filterConfig}
-      activeFilters={{ status: statusFilter, projectId: projectFilter }}
+      activeFilters={{ status: statusFilter, projectId: resolvedProjectId }}
       onFilterChange={handleFilterChange}
       onFilterReset={handleFilterReset}
       filterCount={activeFilterCount}
+      columns={columnsConfig}
+      onColumnVisibilityChange={handleColumnVisibilityChange}
       showViewToggle={false}
       clipCardContent={false}
       pageSize={pageSize}
@@ -617,6 +733,13 @@ export default function AddedTeamPage() {
         sortField={sortField}
         sortDirection={sortDirection}
         onSort={handleSort}
+        columnFilters={columnFilters}
+        visibleColumns={visibleColumns}
+        teamMemberOptions={teamMemberOptions}
+        projectCountOptions={projectCountOptions}
+        roleOptions={roleOptions}
+        projectOptions={projectOptions}
+        onColumnFilter={handleColumnFilter}
         onViewDetails={handleViewDetails}
       />
     </ListingTemplate>

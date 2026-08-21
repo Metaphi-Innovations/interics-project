@@ -93,6 +93,10 @@ export interface Project {
   invoicedAmount: number
   paidVendorAmount: number
   createdAt: string
+  wentLiveAt?: string | null
+  completedAt?: string | null
+  archivedAt?: string | null
+  cancelledAt?: string | null
   // Extended metadata
   sector?: string
   gstNumber?: string

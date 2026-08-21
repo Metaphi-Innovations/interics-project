@@ -45,6 +45,7 @@ function toListParams(params: FetchVendorsParams = {}): VendorListParams {
     website: params.website,
     location: params.location,
     specialization: params.specialization,
+    rating: params.rating,
     contactPerson: params.contactPerson,
     mobile: params.mobile,
     email: params.email,

@@ -97,7 +97,6 @@ export const recordInvoicePayment = createAsyncThunk<
     const payload: Record<string, unknown> = {
       date: data.date,
       amountReceived: data.amountReceived,
-      tdsDeducted: data.tdsDeducted ?? 0,
       paymentMode: data.paymentMode === 'cash' ? 'other' : data.paymentMode,
       reference: data.reference,
     }
@@ -141,6 +140,19 @@ export const updateVendorInvoice = createAsyncThunk<
     return await liveApi.updateVendorInvoice(projectId, invoiceId, data)
   } catch (err) {
     return rejectWithValue(errMessage(err, 'Failed to update vendor invoice'))
+  }
+})
+
+export const deleteVendorInvoice = createAsyncThunk<
+  { projectId: string; invoiceId: string },
+  { projectId: string; invoiceId: string },
+  { rejectValue: string }
+>('live/deleteVendorInvoice', async ({ projectId, invoiceId }, { rejectWithValue }) => {
+  try {
+    await liveApi.deleteVendorInvoice(projectId, invoiceId)
+    return { projectId, invoiceId }
+  } catch (err) {
+    return rejectWithValue(errMessage(err, 'Failed to delete vendor invoice'))
   }
 })
 

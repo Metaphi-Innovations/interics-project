@@ -22,6 +22,12 @@ interface FetchProjectsParams {
   projectType?: string
   expectedStartDate?: string
   expectedEndDate?: string
+  createdAt?: string
+  wentLiveAt?: string
+  completedAt?: string
+  archivedAt?: string
+  cancelledAt?: string
+  columns?: string[]
   sortBy?: string
   sortOrder?: 'asc' | 'desc'
 }
@@ -55,6 +61,12 @@ export const fetchProjects = createAsyncThunk(
         projectType: params.projectType ?? params.type,
         expectedStartDate: params.expectedStartDate,
         expectedEndDate: params.expectedEndDate,
+        createdAt: params.createdAt,
+        wentLiveAt: params.wentLiveAt,
+        completedAt: params.completedAt,
+        archivedAt: params.archivedAt,
+        cancelledAt: params.cancelledAt,
+        columns: params.columns,
         sortBy: params.sortBy,
         sortOrder: params.sortOrder,
       })
@@ -136,7 +148,15 @@ export const changeProjectStatus = createAsyncThunk(
       if (status === 'Live') {
         return await projectsService.markLive(id)
       }
-      // Backend currently supports Pitch -> Live only.
+      if (status === 'Completed') {
+        return await projectsService.markCompleted(id)
+      }
+      if (status === 'Archived') {
+        return await projectsService.markArchived(id)
+      }
+      if (status === 'Cancelled') {
+        return await projectsService.markCancelled(id)
+      }
       return await projectsService.getById(id)
     } catch (err: unknown) {
       return rejectWithValue(rejectProject(err, 'Failed to change project status'))

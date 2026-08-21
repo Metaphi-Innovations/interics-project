@@ -67,6 +67,20 @@ type VisibleCols = {
   status: boolean
 }
 
+function buildExpenseListColumns(visible: VisibleCols): string[] {
+  return [
+    'id',
+    ...(visible.type ? (['type'] as const) : []),
+    ...(visible.description ? (['description'] as const) : []),
+    ...(visible.project ? (['project', 'projectId', 'projectName'] as const) : []),
+    ...(visible.vendor ? (['vendor', 'vendorId', 'vendorName'] as const) : []),
+    ...(visible.service ? (['service'] as const) : []),
+    ...(visible.amount ? (['amount'] as const) : []),
+    ...(visible.date ? (['date'] as const) : []),
+    ...(visible.status ? (['status'] as const) : []),
+  ]
+}
+
 type ExpenseColumnFilters = {
   description: string
   vendorId: string
@@ -227,37 +241,67 @@ export default function ExpensesPage() {
     void dispatch(fetchProjects({ pageSize: 100 }))
   }, [dispatch])
 
-  const reloadExpenses = useCallback(async () => {
-    setListLoading(true)
-    try {
-      const res = await financeApi.getExpenses({
-        page: String(page + 1),
-        limit: String(pageSize),
-        search: search.trim() || undefined,
-        type: typeTab === 'all' ? undefined : typeTab,
-        projectId: filterProjectId || undefined,
-        status: filterStatus === 'all' ? undefined : filterStatus,
-        dateFrom: columnFilters.date || String(activeFilters.dateFrom ?? '') || undefined,
-        dateTo: columnFilters.date || String(activeFilters.dateTo ?? '') || undefined,
-        description: columnFilters.description || undefined,
-        vendorId: columnFilters.vendorId || undefined,
-        service: columnFilters.service || undefined,
-        amount: columnFilters.amount || undefined,
-        sortBy: sortConfig.field || undefined,
-        sortOrder: sortConfig.field ? sortConfig.direction : undefined,
-      })
-      const data = unwrapApiData<Expense[]>(res.data)
-      const meta =
-        res.data && typeof res.data === 'object' && 'meta' in res.data
-          ? (res.data.meta as Record<string, unknown>)
-          : {}
-      setItems(Array.isArray(data) ? data : [])
-      setTotalCount(typeof meta.total === 'number' ? meta.total : Array.isArray(data) ? data.length : 0)
-    } finally {
-      setListLoading(false)
-      setFinanceLoaded(true)
-    }
-  }, [activeFilters, columnFilters, filterProjectId, filterStatus, page, pageSize, search, sortConfig.field, sortConfig.direction, typeTab])
+  const reloadExpenses = useCallback(
+    async (overrides: {
+      page?: number
+      typeTab?: TypeTab
+      filterProjectId?: string
+      filterStatus?: StatusFilter
+      columnFilters?: Partial<ExpenseColumnFilters>
+      visibleColumns?: VisibleCols
+    } = {}) => {
+      const nextPage = overrides.page ?? page
+      const nextType = overrides.typeTab ?? typeTab
+      const nextProjectId =
+        overrides.filterProjectId !== undefined ? overrides.filterProjectId : filterProjectId
+      const nextStatus = overrides.filterStatus ?? filterStatus
+      const nextCols = { ...columnFilters, ...overrides.columnFilters }
+      const visibility = overrides.visibleColumns ?? visibleColumns
+      setListLoading(true)
+      try {
+        const res = await financeApi.getExpenses({
+          page: String(nextPage + 1),
+          limit: String(pageSize),
+          search: search.trim() || undefined,
+          type: nextType === 'all' ? undefined : nextType,
+          projectId: nextProjectId || undefined,
+          status: nextStatus === 'all' ? undefined : nextStatus,
+          dateFrom: nextCols.date || String(activeFilters.dateFrom ?? '') || undefined,
+          dateTo: nextCols.date || String(activeFilters.dateTo ?? '') || undefined,
+          description: nextCols.description || undefined,
+          vendorId: nextCols.vendorId || undefined,
+          service: nextCols.service || undefined,
+          amount: nextCols.amount ? String(Number(nextCols.amount)) : undefined,
+          columns: buildExpenseListColumns(visibility).join(','),
+          sortBy: sortConfig.field || undefined,
+          sortOrder: sortConfig.field ? sortConfig.direction : undefined,
+        })
+        const data = unwrapApiData<Expense[]>(res.data)
+        const meta =
+          res.data && typeof res.data === 'object' && 'meta' in res.data
+            ? (res.data.meta as Record<string, unknown>)
+            : {}
+        setItems(Array.isArray(data) ? data : [])
+        setTotalCount(typeof meta.total === 'number' ? meta.total : Array.isArray(data) ? data.length : 0)
+      } finally {
+        setListLoading(false)
+        setFinanceLoaded(true)
+      }
+    },
+    [
+      activeFilters,
+      columnFilters,
+      filterProjectId,
+      filterStatus,
+      page,
+      pageSize,
+      search,
+      sortConfig.field,
+      sortConfig.direction,
+      typeTab,
+      visibleColumns,
+    ],
+  )
 
   useEffect(() => {
     void financeApi.getExpenseFilters().then((res) => {
@@ -381,7 +425,9 @@ export default function ExpensesPage() {
 
   function handleColumnVisibilityChange(field: string, visible: boolean) {
     const k = field as keyof VisibleCols
-    if (k in visibleColumns) setVisibleColumns((prev) => ({ ...prev, [k]: visible }))
+    if (!(k in visibleColumns)) return
+    setVisibleColumns((prev) => ({ ...prev, [k]: visible }))
+    setPage(0)
   }
 
   const mainColCount = useMemo(() => visibleColCount(visibleColumns), [visibleColumns])
@@ -484,7 +530,7 @@ export default function ExpensesPage() {
   const vendorOptions = toColumnFilterOptions(filterOptions?.vendors)
   const serviceOptions = toColumnFilterOptions(filterOptions?.services)
   const amountOptions = toColumnFilterOptions(filterOptions?.amounts)
-  const dateOptions: ColumnFilterOption[] = []
+  const dateOptions = toColumnFilterOptions(filterOptions?.dates)
   const statusOptions = toColumnFilterOptions(filterOptions?.statuses)
 
   function handleColumnFilter(
@@ -501,18 +547,24 @@ export default function ExpensesPage() {
   ) {
     setPage(0)
     if (field === 'type') {
-      setTypeTab((value || 'all') as TypeTab)
+      const nextType = (value || 'all') as TypeTab
+      setTypeTab(nextType)
+      void reloadExpenses({ page: 0, typeTab: nextType })
       return
     }
     if (field === 'projectId') {
       setFilterProjectId(value)
+      void reloadExpenses({ page: 0, filterProjectId: value })
       return
     }
     if (field === 'status') {
-      setFilterStatus((value || 'all') as StatusFilter)
+      const nextStatus = (value || 'all') as StatusFilter
+      setFilterStatus(nextStatus)
+      void reloadExpenses({ page: 0, filterStatus: nextStatus })
       return
     }
     setColumnFilters((prev) => ({ ...prev, [field]: value }))
+    void reloadExpenses({ page: 0, columnFilters: { [field]: value } })
   }
 
   function handleResetAll() {

@@ -146,6 +146,7 @@ export type VendorListParams = {
   website?: string
   location?: string
   specialization?: string
+  rating?: string
   contactPerson?: string
   mobile?: string
   email?: string

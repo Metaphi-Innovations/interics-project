@@ -11,7 +11,6 @@ import {
   MONEY_EPS,
   roundMoney,
   totalReceivedBank,
-  totalSettledFromPayments,
 } from '@/pages/Projects/tabs/live/clientInvoiceUtils'
 
 const PAYMENT_MODES: { label: string; value: ClientInvoicePaymentMode }[] = [
@@ -40,40 +39,32 @@ export function RecordClientInvoicePaymentModal({
   const saving = useAppSelector((s) => s.live.saving)
 
   const [amountReceived, setAmountReceived] = useState('')
-  const [tdsDeducted, setTdsDeducted] = useState('0')
   const [paymentDate, setPaymentDate] = useState<Date | null>(new Date())
   const [paymentMode, setPaymentMode] = useState<ClientInvoicePaymentMode>('bank_transfer')
   const [reference, setReference] = useState('')
   const [error, setError] = useState('')
 
+  const gross = invoice?.grossAmount ?? 0
+  const invoiceTds = invoice?.tdsAmount ?? 0
+  const netPayable = roundMoney(gross - invoiceTds)
+  const priorBank = invoice ? totalReceivedBank(invoice.payments) : 0
   const bal = invoice ? balancePending(invoice) : 0
 
-  const priorSettled = useMemo(() => {
-    if (!invoice) return 0
-    return totalSettledFromPayments(invoice.payments)
-  }, [invoice])
-
   const amtLive = amountReceived.trim() === '' ? 0 : Number(amountReceived)
-  const tdsRaw = tdsDeducted.trim()
-  const tdsLive = tdsRaw === '' ? 0 : Number(tdsDeducted)
+  const totalReceivedProjected = roundMoney(priorBank + (Number.isFinite(amtLive) ? amtLive : 0))
+  const remainingProjected = invoice ? roundMoney(bal - (Number.isFinite(amtLive) ? amtLive : 0)) : 0
 
-  const priorBank = invoice ? totalReceivedBank(invoice.payments) : 0
-  const thisSettlement =
-    (Number.isFinite(amtLive) ? amtLive : 0) + (Number.isFinite(tdsLive) ? tdsLive : 0)
-  const totalSettledProjected = roundMoney(priorSettled + thisSettlement)
-  const remainingProjected = invoice ? roundMoney(bal - thisSettlement) : 0
-
-  const exceedsInvoice =
-    invoice &&
-    Number.isFinite(amtLive) &&
-    Number.isFinite(tdsLive) &&
-    priorSettled + amtLive + tdsLive > invoice.grossAmount + MONEY_EPS
+  const exceedsNetPayable = useMemo(() => {
+    if (!invoice) return false
+    const a = Number(amountReceived)
+    if (!Number.isFinite(a)) return false
+    return priorBank + a > netPayable + MONEY_EPS
+  }, [invoice, amountReceived, priorBank, netPayable])
 
   useEffect(() => {
     if (open && invoice) {
       const pending = balancePending(invoice)
       setAmountReceived(pending > MONEY_EPS ? String(pending) : '')
-      setTdsDeducted('0')
       setPaymentDate(new Date())
       setPaymentMode('bank_transfer')
       setReference('')
@@ -90,18 +81,8 @@ export function RecordClientInvoicePaymentModal({
       return
     }
 
-    const tdsParsed = tdsRaw === '' ? 0 : Number(tdsDeducted)
-    if (Number.isNaN(tdsParsed)) {
-      setError('Enter a valid TDS amount')
-      return
-    }
-    if (tdsParsed < 0) {
-      setError('TDS cannot be negative')
-      return
-    }
-
-    if (priorSettled + a + tdsParsed > invoice.grossAmount + MONEY_EPS) {
-      setError('Total settled (including this payment) cannot exceed invoice total')
+    if (priorBank + a > netPayable + MONEY_EPS) {
+      setError('Total received cannot exceed net payable amount')
       return
     }
 
@@ -124,7 +105,6 @@ export function RecordClientInvoicePaymentModal({
           data: {
             date: dateIso,
             amountReceived: a,
-            tdsDeducted: tdsParsed,
             paymentMode,
             reference: reference.trim() || undefined,
           },
@@ -191,15 +171,31 @@ export function RecordClientInvoicePaymentModal({
         >
           <Stack direction="row" justifyContent="space-between">
             <Typography variant="body2" color="text.secondary">
-              Invoice Total
+              Gross invoice amount
             </Typography>
             <Typography variant="body2" fontWeight={600}>
-              ₹{formatInr(bal)}
+              ₹{formatInr(gross)}
             </Typography>
           </Stack>
           <Stack direction="row" justifyContent="space-between">
             <Typography variant="body2" color="text.secondary">
-              Amount Received
+              Invoice TDS
+            </Typography>
+            <Typography variant="body2" fontWeight={600}>
+              −₹{formatInr(invoiceTds)}
+            </Typography>
+          </Stack>
+          <Stack direction="row" justifyContent="space-between">
+            <Typography variant="body2" color="text.secondary">
+              Net payable
+            </Typography>
+            <Typography variant="body2" fontWeight={600}>
+              ₹{formatInr(netPayable)}
+            </Typography>
+          </Stack>
+          <Stack direction="row" justifyContent="space-between">
+            <Typography variant="body2" color="text.secondary">
+              Prior received
             </Typography>
             <Typography variant="body2" fontWeight={600} sx={{ color: tokens.color.success[600] }}>
               ₹{formatInr(priorBank)}
@@ -207,7 +203,7 @@ export function RecordClientInvoicePaymentModal({
           </Stack>
           <Stack direction="row" justifyContent="space-between">
             <Typography variant="body2" color="text.secondary">
-              Balance Pending
+              Balance pending
             </Typography>
             <Typography variant="body2" fontWeight={700} sx={{ color: balancePendingColor }}>
               ₹{formatInr(bal)}
@@ -223,17 +219,7 @@ export function RecordClientInvoicePaymentModal({
           size="sm"
           value={amountReceived}
           onChange={setAmountReceived}
-          helperText="Bank credit only. Partial payments are allowed up to the outstanding balance."
-        />
-
-        <Input
-          label="TDS on this payment"
-          type="number"
-          fullWidth
-          size="sm"
-          value={tdsDeducted}
-          onChange={setTdsDeducted}
-          helperText="TDS withheld by client on this payment (optional). Default 0."
+          helperText="Bank credit only. Partial payments are allowed up to the net payable balance."
         />
 
         <Stack
@@ -251,15 +237,15 @@ export function RecordClientInvoicePaymentModal({
           </Typography>
           <Stack direction="row" justifyContent="space-between">
             <Typography variant="body2" color="text.secondary">
-              Total Settled
+              Total received
             </Typography>
             <Typography variant="body2" fontWeight={600}>
-              ₹{formatInr(totalSettledProjected)}
+              ₹{formatInr(totalReceivedProjected)}
             </Typography>
           </Stack>
           <Stack direction="row" justifyContent="space-between" alignItems="baseline">
             <Typography variant="body2" color="text.secondary">
-              Remaining Balance
+              Remaining balance
             </Typography>
             <Typography variant="body2" fontWeight={700} sx={{ color: remainingColor }}>
               ₹{formatInr(remainingProjected)}
@@ -267,9 +253,9 @@ export function RecordClientInvoicePaymentModal({
           </Stack>
         </Stack>
 
-        {exceedsInvoice ? (
+        {exceedsNetPayable ? (
           <Typography variant="caption" sx={{ color: 'warning.main' }}>
-            Total settled would exceed the invoice total. Reduce amount or TDS.
+            Total received would exceed net payable. Reduce the amount.
           </Typography>
         ) : null}
 

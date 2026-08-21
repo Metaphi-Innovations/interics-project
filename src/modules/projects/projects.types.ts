@@ -1,6 +1,6 @@
 import type { Project, ProjectTeamMember } from '@/slices/projects/reducer'
 
-export type ProjectStatusApi = 'PITCH' | 'LIVE'
+export type ProjectStatusApi = 'PITCH' | 'LIVE' | 'COMPLETED' | 'ARCHIVED' | 'CANCELLED'
 
 export interface ProjectListItemApi {
   id: string
@@ -23,6 +23,10 @@ export interface ProjectListItemApi {
   totalDesignFee?: number | null
   totalBuildValue?: number | null
   createdAt?: string
+  wentLiveAt?: string | null
+  completedAt?: string | null
+  archivedAt?: string | null
+  cancelledAt?: string | null
 }
 
 export interface ProjectDetailApi {
@@ -32,6 +36,9 @@ export interface ProjectDetailApi {
   status: ProjectStatusApi
   statusLabel?: string
   wentLiveAt?: string | null
+  completedAt?: string | null
+  archivedAt?: string | null
+  cancelledAt?: string | null
   customer: {
     id: string
     customerName: string
@@ -137,6 +144,11 @@ export interface ProjectListParams {
   projectType?: string
   expectedStartDate?: string
   expectedEndDate?: string
+  createdAt?: string
+  wentLiveAt?: string
+  completedAt?: string
+  archivedAt?: string
+  cancelledAt?: string
   columns?: string[]
   sortBy?: string
   sortOrder?: 'asc' | 'desc'
@@ -158,6 +170,11 @@ export interface ProjectFiltersApi {
   projectLeadId?: Array<{ value: string; label: string }>
   expectedStartDate?: Array<{ value: string; label: string }>
   expectedEndDate?: Array<{ value: string; label: string }>
+  createdAt?: Array<{ value: string; label: string }>
+  wentLiveAt?: Array<{ value: string; label: string }>
+  completedAt?: Array<{ value: string; label: string }>
+  archivedAt?: Array<{ value: string; label: string }>
+  cancelledAt?: Array<{ value: string; label: string }>
 }
 
 export type ProjectCreateApiPayload = {

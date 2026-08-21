@@ -21,6 +21,10 @@ export type DropdownOption = {
   label: string
 }
 
+export type ServiceDropdownOption = DropdownOption & {
+  categoryId: string
+}
+
 export const dropdownsApi = {
   getLiveProjects: async (params?: { search?: string; customerId?: string }) => {
     const res = await client.get('/dropdowns/projects', {
@@ -42,6 +46,6 @@ export const dropdownsApi = {
     const res = await client.get('/dropdowns/services', {
       params: categoryId ? { categoryId } : undefined,
     })
-    return unwrapApiData<DropdownOption[]>(res.data) ?? []
+    return unwrapApiData<ServiceDropdownOption[]>(res.data) ?? []
   },
 }

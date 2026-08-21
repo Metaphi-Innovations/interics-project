@@ -96,6 +96,28 @@ function vendorDataColCount(visible: VendorTableVisibleColumns): number {
   )
 }
 
+/** API list projection keys (rating is client-only — never include). */
+function buildVendorListColumns(visible: VendorTableVisibleColumns): string[] {
+  return [
+    'id',
+    'initials',
+    'vendorName',
+    'contactPerson',
+    'designation',
+    'contactPersonLabel',
+    'phone',
+    'email',
+    ...(visible.website ? (['website'] as const) : []),
+    ...(visible.location ? (['location', 'city', 'state'] as const) : []),
+    ...(visible.specialization ? (['specialization'] as const) : []),
+    'complianceStatus',
+    'gstStatus',
+    'isActive',
+    'statusLabel',
+    'createdAt',
+  ]
+}
+
 function vendorColWidth(visible: VendorTableVisibleColumns): string {
   return `calc((100% - ${VENDOR_ACTION_WIDTH_PX}px) / ${vendorDataColCount(visible)})`
 }
@@ -845,6 +867,8 @@ export default function VendorsPage() {
       createdOn?: string
       sortBy?: string
       sortOrder?: 'asc' | 'desc'
+      columns?: string[]
+      visibleColumns?: VendorTableVisibleColumns
     } = {},
   ) {
     const pick = (key: 'search' | 'status' | 'gstStatus' | 'state') => {
@@ -868,10 +892,15 @@ export default function VendorsPage() {
         : pendingColumnFilters[key as keyof PendingVendorColumnFilters]
     }
 
+    const columns =
+      overrides.columns ??
+      buildVendorListColumns(overrides.visibleColumns ?? visibleColumns)
+
     return {
       page,
       pageSize,
       search,
+      columns,
       ...(targetTab === 'active'
         ? {
             status: pick('status') || undefined,
@@ -1089,7 +1118,16 @@ export default function VendorsPage() {
   }
 
   function handleColumnVisibilityChange(field: string, visible: boolean) {
-    setVisibleColumns((prev) => ({ ...prev, [field]: visible } as VendorTableVisibleColumns))
+    const next = { ...visibleColumns, [field]: visible } as VendorTableVisibleColumns
+    setVisibleColumns(next)
+    dispatch(setPage(1))
+    void dispatch(
+      fetchVendors(
+        buildFetchParams(1, pagination.pageSize, {
+          visibleColumns: next,
+        }),
+      ),
+    )
   }
 
   function handleResetAll() {

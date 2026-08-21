@@ -22,13 +22,22 @@ export interface ReceivablesListParams extends Record<string, unknown> {
   totalAmount?: number
   received?: number
   netReceivable?: number
+  columns?: string[] | string
   sortBy?: string
   sortOrder?: 'asc' | 'desc'
 }
 
 export const receivablesApi = {
   getAll: async (params?: ReceivablesListParams) => {
-    const res = await client.get('/invoices', { params })
+    const { columns, ...rest } = params ?? {}
+    const res = await client.get('/invoices', {
+      params: {
+        ...rest,
+        ...(columns
+          ? { columns: Array.isArray(columns) ? columns.join(',') : columns }
+          : {}),
+      },
+    })
     return unwrapApiData<{ items: Invoice[]; total: number }>(res.data)
   },
   getFilters: async () => {
@@ -58,5 +67,9 @@ export const receivablesApi = {
   convertDraftToTax: async (id: string) => {
     const res = await client.post(`/invoices/${id}/convert-to-tax`)
     return unwrapApiData<Invoice>(res.data)
+  },
+  delete: async (id: string) => {
+    const res = await client.delete(`/invoices/${id}`)
+    return unwrapApiData<null>(res.data)
   },
 }

@@ -29,6 +29,7 @@ import { alpha } from '@mui/material/styles'
 import { Add, Delete, Edit as EditIcon, ExpandMore, Upload } from '@mui/icons-material'
 import { useToast } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
+import { LISTING_SEARCH_DEBOUNCE_MS } from '@/components/listing'
 import { PitchFinancialSidebar } from '@/components/projects/PitchFinancialSidebar'
 import { AddExpenseDrawer } from '@/components/expenses/AddExpenseDrawer'
 import {
@@ -40,8 +41,7 @@ import {
 import { PitchQuotationsSection } from '../components/PitchQuotationsSection'
 import { UploadedDocumentLink } from '@/components/documents/UploadedDocumentLink'
 import { useAppDispatch, useAppSelector } from '../../../store/hooks'
-import { fetchCategories, fetchServices } from '../../../slices/settings/thunk'
-import type { Service } from '../../../slices/settings/reducer'
+import { dropdownsApi } from '@/api/dropdownsApi'
 import { fetchVendors } from '../../../slices/vendors/thunk'
 import type {
   PitchCategory,
@@ -168,22 +168,10 @@ function pct(value: number, total: number): number {
   return Math.round((value / total) * 100)
 }
 
-function buildServiceMaster(services: Service[]): ServiceMasterRow[] {
-  return services
-    .filter((s) => s.status === 'active')
-    .map((s) => ({
-      id: s.id,
-      name: s.name,
-      categoryId: s.categoryId,
-    }))
-}
-
 export default function PitchTab({ project }: { project: Project }) {
   const dispatch = useAppDispatch()
   const { showToast } = useToast()
   const { versions, activeVersion, loading } = useAppSelector((s) => s.pitch)
-  const settingsCategories = useAppSelector((s) => s.settings.categories)
-  const settingsServices = useAppSelector((s) => s.settings.services)
   const vendorItems = useAppSelector((s) => s.vendors.items)
   const authUser = useAppSelector((s) => s.auth.user)
 
@@ -194,15 +182,43 @@ export default function PitchTab({ project }: { project: Project }) {
   const [addCategoryDialogOpen, setAddCategoryDialogOpen] = useState(false)
   const [selectedMasterCategoryId, setSelectedMasterCategoryId] = useState('')
   const [expandedClientOffer, setExpandedClientOffer] = useState<Record<string, boolean>>({})
+  const [masterCategories, setMasterCategories] = useState<{ id: string; name: string }[]>([])
+  const [serviceMaster, setServiceMaster] = useState<ServiceMasterRow[]>([])
   const ensuringServiceRef = useRef<Set<string>>(new Set())
   const creatingVersionRef = useRef(false)
+  const serviceSaveTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+  const serviceSaveSeqRef = useRef<Map<string, number>>(new Map())
+  const servicePendingPatchRef = useRef<Map<string, Partial<PitchService>>>(new Map())
+  const serviceLatestPatchRef = useRef<Map<string, Partial<PitchService>>>(new Map())
+  const [serviceLocalPatches, setServiceLocalPatches] = useState<
+    Record<string, Partial<PitchService>>
+  >({})
+
+  const loadCategoryAndServiceDropdowns = useCallback(async () => {
+    try {
+      const [categories, services] = await Promise.all([
+        dropdownsApi.getCategories(),
+        dropdownsApi.getServices(),
+      ])
+      setMasterCategories(categories.map((c) => ({ id: c.value, name: c.label })))
+      setServiceMaster(
+        services.map((s) => ({
+          id: s.value,
+          name: s.label,
+          categoryId: s.categoryId,
+        })),
+      )
+    } catch {
+      setMasterCategories([])
+      setServiceMaster([])
+    }
+  }, [])
 
   useEffect(() => {
     void dispatch(fetchVersions(project.id))
-    void dispatch(fetchCategories())
-    void dispatch(fetchServices())
+    void loadCategoryAndServiceDropdowns()
     void dispatch(fetchVendors({}))
-  }, [dispatch, project.id])
+  }, [dispatch, loadCategoryAndServiceDropdowns, project.id])
 
   useEffect(() => {
     if (loading || versions.length > 0 || creatingVersionRef.current) return
@@ -231,12 +247,6 @@ export default function PitchTab({ project }: { project: Project }) {
   const finVersionId = versionForSidebar.id === '__none__' ? null : versionForSidebar.id
   const pitchFinMetrics = useAppSelector((s) => selectPitchFinancials(s, finVersionId))
 
-  const activeSettingsCategories = useMemo(
-    () => settingsCategories.filter((c) => c.status === 'active'),
-    [settingsCategories],
-  )
-
-  const serviceMaster = useMemo(() => buildServiceMaster(settingsServices), [settingsServices])
   const vendorOptions = useMemo(
     () => vendorItems.filter((v) => v.status === 'Active').map((v) => ({ id: v.id, label: v.name })),
     [vendorItems],
@@ -250,13 +260,10 @@ export default function PitchTab({ project }: { project: Project }) {
     return names
   }, [activeVersion])
 
-  /** Active Settings categories not yet on this offer. */
+  /** Active master categories not yet on this offer. */
   const addablePitchCategories = useMemo(
-    () =>
-      activeSettingsCategories.filter(
-        (cat) => !addedCategoryNames.has(normalizeName(cat.name)),
-      ),
-    [activeSettingsCategories, addedCategoryNames],
+    () => masterCategories.filter((cat) => !addedCategoryNames.has(normalizeName(cat.name))),
+    [masterCategories, addedCategoryNames],
   )
 
   /** Only categories present on the active pitch version (no empty placeholders). */
@@ -324,7 +331,7 @@ export default function PitchTab({ project }: { project: Project }) {
 
   async function addCategoryFromMaster(): Promise<void> {
     if (!activeVersion || !selectedMasterCategoryId) return
-    const master = activeSettingsCategories.find((c) => c.id === selectedMasterCategoryId)
+    const master = masterCategories.find((c) => c.id === selectedMasterCategoryId)
     if (!master) return
     if (addedCategoryNames.has(normalizeName(master.name))) {
       showToast({ title: 'Category already added', variant: 'warning' })
@@ -532,6 +539,77 @@ export default function PitchTab({ project }: { project: Project }) {
       }),
     ).unwrap()
   }
+
+  function serviceSaveKey(categoryId: string, serviceId: string): string {
+    return `${categoryId}::${serviceId}`
+  }
+
+  function scheduleServiceSave(
+    categoryId: string,
+    serviceId: string,
+    data: Partial<PitchService>,
+  ): void {
+    if (!activeVersion) return
+    const key = serviceSaveKey(categoryId, serviceId)
+    const merged = { ...(servicePendingPatchRef.current.get(key) ?? {}), ...data }
+    servicePendingPatchRef.current.set(key, merged)
+    serviceLatestPatchRef.current.set(key, {
+      ...(serviceLatestPatchRef.current.get(key) ?? {}),
+      ...data,
+    })
+    setServiceLocalPatches((prev) => ({
+      ...prev,
+      [serviceId]: { ...(prev[serviceId] ?? {}), ...data },
+    }))
+
+    const existingTimer = serviceSaveTimersRef.current.get(key)
+    if (existingTimer) clearTimeout(existingTimer)
+
+    const timer = setTimeout(() => {
+      serviceSaveTimersRef.current.delete(key)
+      const patch = servicePendingPatchRef.current.get(key)
+      servicePendingPatchRef.current.delete(key)
+      if (!patch || Object.keys(patch).length === 0) return
+
+      const seq = (serviceSaveSeqRef.current.get(key) ?? 0) + 1
+      serviceSaveSeqRef.current.set(key, seq)
+
+      void (async () => {
+        try {
+          await saveService(categoryId, serviceId, patch)
+          if (serviceSaveSeqRef.current.get(key) !== seq) {
+            // Stale response may have overwritten Redux — re-persist the latest patch.
+            if (
+              !serviceSaveTimersRef.current.has(key) &&
+              !servicePendingPatchRef.current.has(key)
+            ) {
+              const latest = serviceLatestPatchRef.current.get(key)
+              if (latest) scheduleServiceSave(categoryId, serviceId, latest)
+            }
+            return
+          }
+          setServiceLocalPatches((prev) => {
+            if (!(serviceId in prev)) return prev
+            const next = { ...prev }
+            delete next[serviceId]
+            return next
+          })
+        } catch {
+          if (serviceSaveSeqRef.current.get(key) !== seq) return
+          showToast({ title: 'Failed to save service', variant: 'error' })
+        }
+      })()
+    }, LISTING_SEARCH_DEBOUNCE_MS)
+
+    serviceSaveTimersRef.current.set(key, timer)
+  }
+
+  useEffect(() => {
+    return () => {
+      for (const timer of serviceSaveTimersRef.current.values()) clearTimeout(timer)
+      serviceSaveTimersRef.current.clear()
+    }
+  }, [])
 
   async function saveMappingsForService(
     serviceId: string,
@@ -878,12 +956,14 @@ export default function PitchTab({ project }: { project: Project }) {
                               {clientOfferDisplayServices(category, isSectionExpanded).map((service) => {
                                 const isDraft = service.id === CLIENT_OFFER_DRAFT_SERVICE_ID
                                 const serviceOptions = serviceMaster.filter((s) => s.categoryId === category.categoryId)
+                                const localPatch = serviceLocalPatches[service.id]
+                                const displayService = localPatch ? { ...service, ...localPatch } : service
                                 return (
                                   <TableRow key={service.id}>
                                     <TableCell sx={{ fontSize: 12, ...TABLE_CELL_PAD }}>
                                       <FormControl size="small" fullWidth>
                                         <MuiSelect
-                                          value={service.subcategoryId ?? ''}
+                                          value={displayService.subcategoryId ?? ''}
                                           displayEmpty
                                           onChange={(e) => {
                                             const m = serviceOptions.find((opt) => opt.id === e.target.value)
@@ -896,7 +976,7 @@ export default function PitchTab({ project }: { project: Project }) {
                                               void persistDraftServiceRow(category, patch)
                                               return
                                             }
-                                            saveService(category.id, service.id, patch)
+                                            scheduleServiceSave(category.id, service.id, patch)
                                           }}
                                           sx={{ fontSize: 12, height: 32 }}
                                         >
@@ -914,14 +994,14 @@ export default function PitchTab({ project }: { project: Project }) {
                                         size="small"
                                         type="number"
                                         fullWidth
-                                        value={service.value}
+                                        value={displayService.value}
                                         onChange={(e) => {
                                           const value = Number(e.target.value) || 0
                                           if (isDraft) {
                                             void persistDraftServiceRow(category, { value })
                                             return
                                           }
-                                          saveService(category.id, service.id, { value })
+                                          scheduleServiceSave(category.id, service.id, { value })
                                         }}
                                         InputProps={{ startAdornment: <InputAdornment position="start">₹</InputAdornment> }}
                                         sx={{ '& input': { fontSize: 12, textAlign: 'right' }, '& .MuiInputBase-root': { height: 32 } }}
@@ -973,7 +1053,7 @@ export default function PitchTab({ project }: { project: Project }) {
                 sx={{ fontSize: 12 }}
                 disabled={!activeVersion}
                 onClick={() => {
-                  void dispatch(fetchCategories())
+                  void loadCategoryAndServiceDropdowns()
                   setAddCategoryDialogOpen(true)
                 }}
               >
@@ -1315,7 +1395,7 @@ export default function PitchTab({ project }: { project: Project }) {
             </FormControl>
             {addablePitchCategories.length === 0 ? (
               <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
-                {activeSettingsCategories.length === 0
+                {masterCategories.length === 0
                   ? 'No active categories in Settings. Add categories under Settings → Categories.'
                   : 'All available categories are already on this offer.'}
               </Typography>
