@@ -15,20 +15,20 @@ import {
   BarChart,
   ChartCard,
   DateRangePicker,
-  LineChart,
   Tabs,
 } from '@/design-system/components'
 import { CHART_COLORS } from '@/design-system/tokens'
 import { formatCurrency } from '@/utils/formatters'
 import {
   getRevenueAnalytics,
-  REVENUE_DATE_TYPE_OPTIONS,
   REVENUE_TIME_PERIOD_OPTIONS,
-  type RevenueDateType,
   type RevenueTimePeriod,
 } from './dashboard1Data'
 import { RevenueKpiCard } from './RevenueKpiCard'
+import { RevenueKpiDrawer, CLICKABLE_KPI_IDS } from './RevenueKpiDrawer'
+import type { RevenueKpi } from './dashboard1Data'
 import { ChartSeriesLegend } from './ChartSeriesLegend'
+import { FinancialRevenueYearSection } from './FinancialRevenueYearSection'
 import { ProjectsOverviewSection } from './ProjectsOverviewSection'
 import { ProjectAnalyticsSection } from './ProjectAnalyticsSection'
 import { SectorAnalyticsSection } from './SectorAnalyticsSection'
@@ -47,7 +47,6 @@ const DASHBOARD_TABS = [
 
 const MENU_ITEM_SX = { fontSize: 12 } as const
 const REVENUE_PERIOD_SELECT_SX = { minWidth: 180, fontSize: 12, height: 32 } as const
-const REVENUE_DATE_TYPE_SELECT_SX = { minWidth: 190, fontSize: 12, height: 32 } as const
 
 function formatAxisAmount(value: number | string): string {
   const n = typeof value === 'number' ? value : Number(value)
@@ -69,11 +68,11 @@ export default function Dashboard1Page() {
   const [activeTab, setActiveTab] = useState<DashboardTab>('revenue')
   const [revenuePeriod, setRevenuePeriod] = useState<RevenueTimePeriod>('This Financial Year')
   const [customRange, setCustomRange] = useState<[Date | null, Date | null]>([null, null])
-  const [revenueDateType, setRevenueDateType] = useState<RevenueDateType>('PO Date')
+  const [drawerKpi, setDrawerKpi] = useState<RevenueKpi | null>(null)
 
   const revenueAnalytics = useMemo(
-    () => getRevenueAnalytics(revenuePeriod, customRange, revenueDateType),
-    [revenuePeriod, customRange, revenueDateType],
+    () => getRevenueAnalytics(revenuePeriod, customRange),
+    [revenuePeriod, customRange],
   )
 
   return (
@@ -186,10 +185,23 @@ export default function Dashboard1Page() {
               <Grid container spacing={2} sx={{ mb: 3 }}>
                 {revenueAnalytics.kpis.map((kpi) => (
                   <Grid key={kpi.id} size={{ xs: 12, sm: 6, md: 4, lg: 3 }}>
-                    <RevenueKpiCard kpi={kpi} />
+                    <RevenueKpiCard
+                      kpi={kpi}
+                      onClick={
+                        CLICKABLE_KPI_IDS.has(kpi.id)
+                          ? () => setDrawerKpi(kpi)
+                          : undefined
+                      }
+                    />
                   </Grid>
                 ))}
               </Grid>
+
+              <RevenueKpiDrawer
+                open={!!drawerKpi}
+                onClose={() => setDrawerKpi(null)}
+                kpi={drawerKpi}
+              />
 
               <Typography
                 variant="overline"
@@ -201,60 +213,6 @@ export default function Dashboard1Page() {
               </Typography>
 
               <Grid container spacing={2} sx={{ mb: 3 }}>
-                <Grid size={{ xs: 12 }}>
-                  <ChartCard
-                    title="Monthly Revenue Trend"
-                    subtitle={chartSubtitle(
-                      revenueAnalytics.granularity,
-                      'Revenue growth month-wise',
-                    )}
-                    action={
-                      <Box>
-                        <Typography
-                          variant="caption"
-                          color="text.secondary"
-                          fontWeight={600}
-                          sx={{
-                            display: 'block',
-                            fontSize: 10,
-                            letterSpacing: 0.5,
-                            textTransform: 'uppercase',
-                            mb: 0.5,
-                          }}
-                        >
-                          Date Type
-                        </Typography>
-                        <MuiSelect
-                          size="small"
-                          value={revenueDateType}
-                          onChange={(e) =>
-                            setRevenueDateType(e.target.value as RevenueDateType)
-                          }
-                          sx={REVENUE_DATE_TYPE_SELECT_SX}
-                        >
-                          {REVENUE_DATE_TYPE_OPTIONS.map((opt) => (
-                            <MenuItem key={opt} value={opt} sx={MENU_ITEM_SX}>
-                              {opt}
-                            </MenuItem>
-                          ))}
-                        </MuiSelect>
-                      </Box>
-                    }
-                  >
-                    <LineChart
-                      data={[...revenueAnalytics.revenueTrend]}
-                      xKey="month"
-                      height={280}
-                      lines={[
-                        { key: 'revenue', label: 'Revenue', color: CHART_COLORS.teal },
-                      ]}
-                      showLegend={false}
-                      formatY={formatAxisAmount}
-                      formatTooltip={formatAxisAmount}
-                    />
-                  </ChartCard>
-                </Grid>
-
                 <Grid size={{ xs: 12 }}>
                   <ChartCard
                     title="Client Revenue Received vs Vendor Payments"
@@ -297,6 +255,13 @@ export default function Dashboard1Page() {
                       formatY={formatAxisAmount}
                     />
                   </ChartCard>
+                </Grid>
+
+                <Grid size={{ xs: 12 }}>
+                  <FinancialRevenueYearSection
+                    period={revenuePeriod}
+                    customRange={customRange}
+                  />
                 </Grid>
               </Grid>
             </Box>

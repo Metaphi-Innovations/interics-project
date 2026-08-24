@@ -18,10 +18,8 @@ import { tokens } from '@/design-system/tokens'
 import { useAppDispatch, useAppSelector } from '../../../../store/hooks'
 import { fetchBaseline, fetchClientPO, fetchVendorPOs } from '../../../../slices/baseline/thunk'
 import { fetchVersions } from '../../../../slices/pitch/thunk'
-import { fetchExpenses } from '../../../../slices/live/thunk'
 import { resolvePitchVersionForProject } from '@/store/selectors/pitchSelectors'
-import type { PlannedExpense } from '@/slices/pitch/reducer'
-import { formatCurrency } from '../../../../utils/formatters'
+import { formatCurrency, formatDate } from '../../../../utils/formatters'
 import {
   TABLE_CELL_SX,
   TABLE_HEADER_SX,
@@ -29,10 +27,13 @@ import {
 import {
   buildFinancialSummaryGroups,
   buildFinancialSummaryTotal,
+  buildOfficeExpenseRows,
+  officeExpensesFromPitch,
   sortWorkstreamRows,
   type FinancialSummaryMetrics,
   type FinancialSummarySortField,
   type FinancialSummaryWorkstreamRow,
+  type OfficeExpenseRow,
 } from './financialSummaryAggregates'
 
 const COLUMN_DEFS: { key: FinancialSummarySortField; label: string }[] = [
@@ -65,6 +66,20 @@ const NUM_CELL_SX = {
   ...TABLE_CELL_SX,
   fontVariantNumeric: 'tabular-nums',
 } as const
+
+const TABLE_SHELL_SX = {
+  border: '1px solid',
+  borderColor: 'divider',
+  borderRadius: 2,
+  bgcolor: 'background.paper',
+  overflow: 'auto',
+} as const
+
+const OFFICE_EXPENSE_COLUMNS: { key: keyof OfficeExpenseRow; label: string }[] = [
+  { key: 'name', label: 'Expense' },
+  { key: 'date', label: 'Date' },
+  { key: 'amount', label: 'Amount (₹)' },
+]
 
 function MetricCells({ metrics }: { metrics: FinancialSummaryMetrics }) {
   return (
@@ -107,11 +122,6 @@ function MetricCells({ metrics }: { metrics: FinancialSummaryMetrics }) {
   )
 }
 
-/** Office Expenses only — sourced from Pitch → Expenses. */
-function officeExpensesFromPitch(planned: PlannedExpense[] | undefined): PlannedExpense[] {
-  return (planned ?? []).filter((pe) => pe.type === 'office_expenses')
-}
-
 interface FinancialSummaryTabProps {
   projectId: string
 }
@@ -120,7 +130,7 @@ export default function FinancialSummaryTab({ projectId }: FinancialSummaryTabPr
   const theme = useTheme()
   const dispatch = useAppDispatch()
   const { baseline, clientPOs, vendorPOs } = useAppSelector((s) => s.baseline)
-  const { invoices, vendorInvoices, expenses } = useAppSelector((s) => s.live)
+  const { invoices, vendorInvoices } = useAppSelector((s) => s.live)
   const { activeVersion, versions } = useAppSelector((s) => s.pitch)
 
   const [sortField, setSortField] = useState<FinancialSummarySortField>('workstream')
@@ -132,7 +142,6 @@ export default function FinancialSummaryTab({ projectId }: FinancialSummaryTabPr
     void dispatch(fetchClientPO(projectId))
     void dispatch(fetchVendorPOs(projectId))
     void dispatch(fetchVersions(projectId))
-    void dispatch(fetchExpenses(projectId))
   }, [dispatch, projectId])
 
   const baselineForProject = baseline?.projectId === projectId ? baseline : null
@@ -143,7 +152,7 @@ export default function FinancialSummaryTab({ projectId }: FinancialSummaryTabPr
   )
 
   /** Prefer live Pitch → Expenses; fall back to baseline snapshot only if pitch is not loaded. */
-  const pitchOfficeExpenses = useMemo((): PlannedExpense[] => {
+  const pitchOfficeExpenses = useMemo(() => {
     if (pitchVersion) {
       return officeExpensesFromPitch(pitchVersion.plannedExpenses)
     }
@@ -159,19 +168,18 @@ export default function FinancialSummaryTab({ projectId }: FinancialSummaryTabPr
         vendorPOs,
         invoices,
         vendorInvoices,
-        expenses,
-        pitchOfficeExpenses,
       ),
-    [
-      baselineForProject,
-      projectId,
-      clientPOs,
-      vendorPOs,
-      invoices,
-      vendorInvoices,
-      expenses,
-      pitchOfficeExpenses,
-    ],
+    [baselineForProject, projectId, clientPOs, vendorPOs, invoices, vendorInvoices],
+  )
+
+  const officeExpenseRows = useMemo(
+    () => buildOfficeExpenseRows(pitchOfficeExpenses),
+    [pitchOfficeExpenses],
+  )
+
+  const officeExpenseTotal = useMemo(
+    () => officeExpenseRows.reduce((sum, row) => sum + row.amount, 0),
+    [officeExpenseRows],
   )
 
   const displayGroups = useMemo(
@@ -235,12 +243,8 @@ export default function FinancialSummaryTab({ projectId }: FinancialSummaryTabPr
       ) : (
         <TableContainer
           sx={{
-            border: '1px solid',
-            borderColor: 'divider',
-            borderRadius: 2,
-            bgcolor: 'background.paper',
+            ...TABLE_SHELL_SX,
             maxHeight: { xs: 'none', md: 'calc(100vh - 320px)' },
-            overflow: 'auto',
           }}
         >
           <Table
@@ -324,6 +328,138 @@ export default function FinancialSummaryTab({ projectId }: FinancialSummaryTabPr
           </Table>
         </TableContainer>
       )}
+
+      <Box sx={{ mt: 4, mb: 2 }}>
+        <Typography variant="h6" sx={{ fontSize: 16, fontWeight: 700 }}>
+          Expenses
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12, mt: 0.25 }}>
+          Office expenses absorbed internally, separate from client and vendor financials.
+        </Typography>
+      </Box>
+
+      {officeExpenseRows.length === 0 ? (
+        <Box
+          sx={{
+            py: 6,
+            px: 3,
+            textAlign: 'center',
+            border: '1px solid',
+            borderColor: 'divider',
+            borderRadius: 2,
+            bgcolor: 'background.paper',
+          }}
+        >
+          <Typography variant="body2" color="text.secondary" sx={{ fontSize: 13 }}>
+            No office expenses recorded for this project yet.
+          </Typography>
+        </Box>
+      ) : (
+        <TableContainer sx={TABLE_SHELL_SX}>
+          <Table
+            size="small"
+            stickyHeader
+            sx={{
+              tableLayout: 'fixed',
+              minWidth: 480,
+              '& .MuiTableCell-root': { verticalAlign: 'middle' },
+            }}
+          >
+            <TableHead>
+              <TableRow>
+                {OFFICE_EXPENSE_COLUMNS.map((col) => (
+                  <TableCell
+                    key={col.key}
+                    align="left"
+                    sx={{
+                      ...TABLE_HEADER_SX,
+                      width: col.key === 'name' ? '50%' : '25%',
+                      bgcolor: tokens.color.neutral[50],
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {col.label}
+                  </TableCell>
+                ))}
+              </TableRow>
+            </TableHead>
+
+            <TableBody>
+              {officeExpenseRows.map((row, idx) => (
+                <TableRow
+                  key={row.id}
+                  sx={{
+                    bgcolor: idx % 2 === 0 ? 'background.paper' : tokens.color.neutral[50],
+                  }}
+                >
+                  <TableCell align="left" sx={TABLE_CELL_SX}>
+                    {row.name}
+                  </TableCell>
+                  <TableCell align="left" sx={TABLE_CELL_SX}>
+                    {formatDate(row.date ?? null)}
+                  </TableCell>
+                  <TableCell align="left" sx={NUM_CELL_SX}>
+                    {fmtInr(row.amount)}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+
+            <TableBody
+              sx={{
+                position: 'sticky',
+                bottom: 0,
+                zIndex: 2,
+                '& .MuiTableCell-root': {
+                  borderTop: `2px solid ${tokens.color.neutral[200]}`,
+                  bgcolor: alpha(theme.palette.primary.main, 0.06),
+                  fontWeight: 700,
+                },
+              }}
+            >
+              <TableRow>
+                <TableCell align="left" sx={{ ...TABLE_CELL_SX, fontSize: 13 }}>
+                  Total
+                </TableCell>
+                <TableCell align="left" sx={TABLE_CELL_SX}>
+                  —
+                </TableCell>
+                <TableCell align="left" sx={NUM_CELL_SX}>
+                  {fmtInr(officeExpenseTotal)}
+                </TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
+        </TableContainer>
+      )}
+
+      <Box
+        sx={{
+          ...TABLE_SHELL_SX,
+          mt: 2,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 2,
+          px: 2,
+          py: 1.5,
+          bgcolor: alpha(theme.palette.primary.main, 0.06),
+        }}
+      >
+        <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 700 }}>
+          Total Expenses
+        </Typography>
+        <Typography
+          variant="body2"
+          sx={{
+            fontSize: 13,
+            fontWeight: 700,
+            fontVariantNumeric: 'tabular-nums',
+          }}
+        >
+          {fmtInr(officeExpenseTotal)}
+        </Typography>
+      </Box>
     </Box>
   )
 }

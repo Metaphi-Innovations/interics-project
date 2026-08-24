@@ -480,3 +480,49 @@ export function getRevenueAnalytics(
     granularity,
   }
 }
+
+export interface FinancialRevenueYearPoint {
+  month: string
+  poValue: number
+  invoiceValue: number
+  amountReceived: number
+}
+
+export interface FinancialRevenueYearAnalytics {
+  chartData: FinancialRevenueYearPoint[]
+  totals: {
+    poValue: number
+    invoiceValue: number
+    amountReceived: number
+  }
+  infoText: string
+}
+
+export const FINANCIAL_REVENUE_YEAR_INFO_TEXT =
+  'PO Value is grouped by PO date. Invoice Value follows invoice dates and typically lags PO bookings. Amount Received reflects cash collections and may lag invoicing.'
+
+/** Month-wise PO, invoice, and received amounts for the Financial Revenue Year chart. */
+export function getFinancialRevenueYearAnalytics(
+  period: RevenueTimePeriod,
+  customRange?: [Date | null, Date | null],
+): FinancialRevenueYearAnalytics {
+  const factor =
+    period === 'Custom Range' ? customRangeFactor(customRange) : periodFactor(period)
+
+  const chartData = FY_MONTHS.map((month, i) => ({
+    month,
+    poValue: scale(BASE_REVENUE_BY_PO_DATE[i], factor),
+    invoiceValue: scale(BASE_REVENUE_BY_INVOICE_DATE[i], factor),
+    amountReceived: scale(BASE_REVENUE_BY_PAYMENT_DATE[i], factor),
+  }))
+
+  return {
+    chartData,
+    totals: {
+      poValue: chartData.reduce((sum, row) => sum + row.poValue, 0),
+      invoiceValue: chartData.reduce((sum, row) => sum + row.invoiceValue, 0),
+      amountReceived: chartData.reduce((sum, row) => sum + row.amountReceived, 0),
+    },
+    infoText: FINANCIAL_REVENUE_YEAR_INFO_TEXT,
+  }
+}

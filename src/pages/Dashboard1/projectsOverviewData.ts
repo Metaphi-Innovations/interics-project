@@ -3,12 +3,14 @@
  */
 import { CHART_COLORS } from '@/design-system/tokens'
 import type { DonutSlice } from '@/design-system/components'
+import type { Project } from '@/slices/projects/reducer'
 
 export interface ProjectOverviewKpi {
   id: string
   title: string
   value: string
   subtitle: string
+  percentage?: number
   icon:
     | 'active'
     | 'completed'
@@ -61,6 +63,7 @@ export const PROJECT_OVERVIEW_KPIS: ProjectOverviewKpi[] = [
     title: 'Repeat Clients',
     value: '9',
     subtitle: 'Clients with more than one project.',
+    percentage: 37.5,
     icon: 'repeat',
   },
   {
@@ -78,6 +81,24 @@ export const PROJECT_OVERVIEW_KPIS: ProjectOverviewKpi[] = [
     icon: 'conversion',
   },
 ]
+
+const KPI_STATUS_MAP: Record<string, Project['status']> = {
+  active: 'Live',
+  completed: 'Completed',
+  pipeline: 'Pitch',
+  cancelled: 'Cancelled',
+  archived: 'Archived',
+}
+
+/** Status KPI counts from the Projects module listing (same source as ProjectsPage tabs). */
+export function buildProjectOverviewKpis(projects: Project[]): ProjectOverviewKpi[] {
+  return PROJECT_OVERVIEW_KPIS.map((kpi) => {
+    const status = KPI_STATUS_MAP[kpi.id]
+    if (!status) return kpi
+    const count = projects.filter((project) => project.status === status).length
+    return { ...kpi, value: String(count) }
+  })
+}
 
 export const PROJECT_STATUS_DISTRIBUTION: DonutSlice[] = [
   { key: 'pipeline', label: 'Pipeline', value: 12, color: CHART_COLORS.blue },

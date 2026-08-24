@@ -5,7 +5,6 @@
 
 import type { Project } from '@/slices/projects/reducer'
 import { projectDurationDays } from '@/pages/Dashboard/dashboardMappings'
-import { getProjectTypes } from '@/pages/Projects/projectTypes'
 import { getProjectAssignedMembers } from '@/utils/projectAssignedTeam'
 import { CHART_COLORS } from '@/design-system/tokens'
 
@@ -64,7 +63,13 @@ export interface TeamAnalyticsBundle {
   kpis: TeamKpi[]
   revenueTrend: Array<Record<string, string | number>>
   revenueTrendXKey: string
-  projectsByStage: Array<{ label: string; pitch: number; live: number; completed: number }>
+  projectsByStage: Array<{
+    label: string
+    pitch: number
+    live: number
+    completed: number
+    archived: number
+  }>
   sqftTrend: Array<{ period: string; sqft: number }>
   sqftSummary: TeamSqftSummary
   revenueVsProfit: Array<{ period: string; revenue: number; profit: number }>
@@ -223,8 +228,9 @@ export function getTeamAnalytics(
   const profit = Math.round(6_800_000 * f)
   const projectsTotal = Math.max(3, Math.round(36 * f))
   const pitch = Math.max(1, Math.round(projectsTotal * 0.17))
-  const live = Math.max(1, Math.round(projectsTotal * 0.58))
-  const completed = Math.max(1, projectsTotal - pitch - live)
+  const live = Math.max(1, Math.round(projectsTotal * 0.52))
+  const archived = Math.max(1, Math.round(projectsTotal * 0.08))
+  const completed = Math.max(0, projectsTotal - pitch - live - archived)
   const avgSize = Math.round(3958 * (0.92 + e * 0.2))
   const avgDuration = Math.round(112 * (0.95 + (1 - e) * 0.15))
 
@@ -311,6 +317,7 @@ export function getTeamAnalytics(
           { label: 'Pitch', value: pitch },
           { label: 'Live', value: live },
           { label: 'Completed', value: completed },
+          { label: 'Archived', value: archived },
         ],
       },
       {
@@ -336,6 +343,7 @@ export function getTeamAnalytics(
         pitch,
         live,
         completed,
+        archived,
       },
     ],
     sqftTrend,
@@ -360,13 +368,11 @@ export function getTeamAnalytics(
 /* -------------------------------------------------------------------------- */
 
 export const TEAM_METRIC_OPTIONS = [
-  'Number of Projects',
-  'Project Size',
-  'Project Duration',
   'Revenue',
-  'Design vs Build',
-  'Pitches vs Live Projects',
-  'Previous Year Comparison',
+  'Project Duration',
+  'Number of Projects',
+  'Completed Projects – Year Comparison',
+  'Pitch vs Live Projects',
 ] as const
 
 export type TeamMetric = (typeof TEAM_METRIC_OPTIONS)[number]
@@ -428,7 +434,10 @@ function parseDate(value: string | null | undefined): Date | null {
 }
 
 function projectAnchorDate(project: Project): Date | null {
-  return parseDate(project.startDate) ?? parseDate(project.createdAt)
+  // Use createdAt as the primary anchor — it is always populated and reflects
+  // when the project record was registered (startDate is the execution start,
+  // which may be in prior years for ongoing projects).
+  return parseDate(project.createdAt) ?? parseDate(project.startDate)
 }
 
 function getPerformancePeriodBounds(period: TeamTimePeriod, now = new Date()): {
@@ -491,6 +500,14 @@ function projectInBounds(project: Project, bounds: DateBounds): boolean {
   return anchor >= bounds.start && anchor <= bounds.end
 }
 
+/** Live segment for Number of Projects: status Live and Live/Start Date in period. */
+function liveProjectStartInBounds(project: Project, bounds: DateBounds): boolean {
+  if (project.status !== 'Live') return false
+  const start = parseDate(project.startDate)
+  if (!start) return false
+  return start >= bounds.start && start <= bounds.end
+}
+
 function projectRevenue(project: Project): number {
   return project.totalClientPOValue || project.projectValue || 0
 }
@@ -501,14 +518,7 @@ function projectSqft(project: Project): number | null {
   return area
 }
 
-function isDesignProject(project: Project): boolean {
-  const types = getProjectTypes(project)
-  return types.some((t) => t === 'ID' || t === 'Branding & Styling' || t === 'TDD' || t === 'LEED')
-}
 
-function isBuildProject(project: Project): boolean {
-  return getProjectTypes(project).includes('Build')
-}
 
 function uniqueAssignedMembers(project: Project): Array<{ userId: string; name: string }> {
   const seen = new Set<string>()
@@ -548,18 +558,18 @@ interface MemberMetrics {
   userId: string
   name: string
   projectCount: number
-  totalSqft: number
-  avgSqft: number
   totalDurationDays: number
   avgDurationDays: number
   totalRevenue: number
   avgRevenue: number
-  designCount: number
-  buildCount: number
   pitches: number
   liveProjects: number
-  previousProjectCount: number
-  previousRevenue: number
+  /** Live projects whose startDate falls in the selected period (Number of Projects chart). */
+  liveProjectsInPeriod: number
+  completedProjects: number
+  cancelledProjects: number
+  archivedProjects: number
+  previousCompletedProjects: number
 }
 
 function metricsForMember(
@@ -572,11 +582,9 @@ function metricsForMember(
   const projects = current?.projects ?? []
   const prevProjects = previous?.projects ?? []
 
-  const sqftValues = projects.map(projectSqft).filter((v): v is number => v != null)
-  const totalSqft = sqftValues.reduce((s, v) => s + v, 0)
-  const avgSqft = sqftValues.length > 0 ? Math.round(totalSqft / sqftValues.length) : 0
-
-  const durations = projects
+  // "Use actual project duration for completed projects."
+  const completedProjectsList = projects.filter((p) => p.status === 'Completed')
+  const durations = completedProjectsList
     .map(projectDurationDays)
     .filter((v): v is number => v != null)
   const totalDurationDays = durations.reduce((s, v) => s + v, 0)
@@ -586,33 +594,36 @@ function metricsForMember(
   const totalRevenue = projects.reduce((s, p) => s + projectRevenue(p), 0)
   const avgRevenue = projects.length > 0 ? Math.round(totalRevenue / projects.length) : 0
 
-  let designCount = 0
-  let buildCount = 0
   let pitches = 0
   let liveProjects = 0
+  let completedProjects = 0
+  let cancelledProjects = 0
+  let archivedProjects = 0
   for (const p of projects) {
-    if (isDesignProject(p)) designCount += 1
-    if (isBuildProject(p)) buildCount += 1
     if (p.status === 'Pitch') pitches += 1
     if (p.status === 'Live') liveProjects += 1
+    if (p.status === 'Completed') completedProjects += 1
+    if (p.status === 'Cancelled') cancelledProjects += 1
+    if (p.status === 'Archived') archivedProjects += 1
   }
+
+  const previousCompletedProjects = prevProjects.filter((p) => p.status === 'Completed').length
 
   return {
     userId,
     name,
     projectCount: projects.length,
-    totalSqft: Math.round(totalSqft),
-    avgSqft,
     totalDurationDays,
     avgDurationDays,
     totalRevenue,
     avgRevenue,
-    designCount,
-    buildCount,
     pitches,
     liveProjects,
-    previousProjectCount: prevProjects.length,
-    previousRevenue: prevProjects.reduce((s, p) => s + projectRevenue(p), 0),
+    liveProjectsInPeriod: 0,
+    completedProjects,
+    cancelledProjects,
+    archivedProjects,
+    previousCompletedProjects,
   }
 }
 
@@ -623,47 +634,9 @@ function buildPerformanceChart(
   const dataBase = members.map((m) => ({ member: m.name, userId: m.userId }))
 
   switch (metric) {
-    case 'Number of Projects':
-      return {
-        subtitle: 'Number of Projects by team member',
-        yAxisLabel: 'Number of Projects',
-        format: 'count',
-        series: [{ key: 'value', label: 'Number of Projects', color: CHART_COLORS.teal }],
-        data: members.map((m, i) => ({ ...dataBase[i], value: m.projectCount })),
-      }
-    case 'Project Size':
-      return {
-        subtitle: 'Average & Total Project Size (sqft) by team member',
-        yAxisLabel: 'Project Size (sqft)',
-        format: 'sqft',
-        series: [
-          { key: 'average', label: 'Average Project Size', color: CHART_COLORS.amber },
-          { key: 'total', label: 'Total Project Size', color: CHART_COLORS.green },
-        ],
-        data: members.map((m, i) => ({
-          ...dataBase[i],
-          average: m.avgSqft,
-          total: m.totalSqft,
-        })),
-      }
-    case 'Project Duration':
-      return {
-        subtitle: 'Average & Total Project Duration (days) by team member',
-        yAxisLabel: 'Project Duration (days)',
-        format: 'days',
-        series: [
-          { key: 'average', label: 'Average Project Duration', color: CHART_COLORS.blue },
-          { key: 'total', label: 'Total Project Duration', color: CHART_COLORS.purple },
-        ],
-        data: members.map((m, i) => ({
-          ...dataBase[i],
-          average: m.avgDurationDays,
-          total: m.totalDurationDays,
-        })),
-      }
     case 'Revenue':
       return {
-        subtitle: 'Average & Total Revenue (₹) by team member',
+        subtitle: 'Average & Total Revenue by team member',
         yAxisLabel: 'Revenue (₹)',
         format: 'currency',
         series: [
@@ -676,49 +649,70 @@ function buildPerformanceChart(
           total: m.totalRevenue,
         })),
       }
-    case 'Design vs Build':
+    case 'Project Duration':
       return {
-        subtitle: 'Design vs Build projects by team member',
-        yAxisLabel: 'Design vs Build',
-        format: 'count',
+        subtitle: 'Average & Total Project Duration by team member',
+        yAxisLabel: 'Project Duration (days)',
+        format: 'days',
         series: [
-          { key: 'design', label: 'Design', color: CHART_COLORS.blue },
-          { key: 'build', label: 'Build', color: CHART_COLORS.amber },
+          { key: 'average', label: 'Average Project Duration', color: CHART_COLORS.blue },
+          { key: 'total', label: 'Total Project Duration', color: CHART_COLORS.purple },
         ],
         data: members.map((m, i) => ({
           ...dataBase[i],
-          design: m.designCount,
-          build: m.buildCount,
+          average: m.avgDurationDays,
+          total: m.totalDurationDays,
         })),
       }
-    case 'Pitches vs Live Projects':
+    case 'Number of Projects':
       return {
-        subtitle: 'Pitches vs Live Projects by team member',
-        yAxisLabel: 'Pitches vs Live Projects',
+        subtitle: 'Project status distribution by team member',
+        yAxisLabel: 'Number of Projects',
         format: 'count',
         series: [
-          { key: 'pitches', label: 'Pitches', color: CHART_COLORS.blue },
-          { key: 'live', label: 'Live Projects', color: CHART_COLORS.teal },
+          { key: 'pitch', label: 'Pitch', color: CHART_COLORS.blue },
+          { key: 'live', label: 'Live', color: CHART_COLORS.teal },
+          { key: 'completed', label: 'Completed', color: CHART_COLORS.green },
+          { key: 'cancelled', label: 'Cancelled', color: CHART_COLORS.red },
+          { key: 'archived', label: 'Archived', color: CHART_COLORS.orange },
         ],
         data: members.map((m, i) => ({
           ...dataBase[i],
-          pitches: m.pitches,
-          live: m.liveProjects,
+          pitch: m.pitches,
+          live: m.liveProjectsInPeriod,
+          completed: m.completedProjects,
+          cancelled: m.cancelledProjects,
+          archived: m.archivedProjects,
         })),
       }
-    case 'Previous Year Comparison':
+    case 'Completed Projects – Year Comparison':
       return {
-        subtitle: 'Current vs Previous Year Revenue (₹) by team member',
-        yAxisLabel: 'Revenue (₹)',
-        format: 'currency',
+        subtitle: 'Completed projects: Current Financial Year vs Previous Financial Year',
+        yAxisLabel: 'Completed Projects',
+        format: 'count',
         series: [
           { key: 'current', label: 'Current Year', color: CHART_COLORS.teal },
           { key: 'previous', label: 'Previous Year', color: CHART_COLORS.grey },
         ],
         data: members.map((m, i) => ({
           ...dataBase[i],
-          current: m.totalRevenue,
-          previous: m.previousRevenue,
+          current: m.completedProjects,
+          previous: m.previousCompletedProjects,
+        })),
+      }
+    case 'Pitch vs Live Projects':
+      return {
+        subtitle: 'Pitch vs Live projects by team member',
+        yAxisLabel: 'Pitch vs Live Projects',
+        format: 'count',
+        series: [
+          { key: 'pitch', label: 'Pitch Projects', color: CHART_COLORS.blue },
+          { key: 'live', label: 'Live Projects', color: CHART_COLORS.teal },
+        ],
+        data: members.map((m, i) => ({
+          ...dataBase[i],
+          pitch: m.pitches,
+          live: m.liveProjects,
         })),
       }
     default:
@@ -737,18 +731,17 @@ function emptyMemberMetrics(userId: string, name: string): MemberMetrics {
     userId,
     name,
     projectCount: 0,
-    totalSqft: 0,
-    avgSqft: 0,
     totalDurationDays: 0,
     avgDurationDays: 0,
     totalRevenue: 0,
     avgRevenue: 0,
-    designCount: 0,
-    buildCount: 0,
     pitches: 0,
     liveProjects: 0,
-    previousProjectCount: 0,
-    previousRevenue: 0,
+    liveProjectsInPeriod: 0,
+    completedProjects: 0,
+    cancelledProjects: 0,
+    archivedProjects: 0,
+    previousCompletedProjects: 0,
   }
 }
 
@@ -765,11 +758,35 @@ function buildMemberOptions(projects: Project[]): TeamMemberOption[] {
   return [{ value: 'all', label: 'All Team Members' }, ...options]
 }
 
+/** Get sort value dynamically based on metric selection for ranking */
+function getMetricSortValue(m: MemberMetrics, metric: TeamMetric): number {
+  switch (metric) {
+    case 'Revenue':
+      return m.totalRevenue
+    case 'Project Duration':
+      return m.totalDurationDays
+    case 'Number of Projects':
+      return (
+        m.pitches +
+        m.liveProjectsInPeriod +
+        m.completedProjects +
+        m.cancelledProjects +
+        m.archivedProjects
+      )
+    case 'Completed Projects – Year Comparison':
+      return m.completedProjects
+    case 'Pitch vs Live Projects':
+      return m.pitches + m.liveProjects
+    default:
+      return m.projectCount
+  }
+}
+
 /** Master Team Performance chart from real project assignments. */
 export function getTeamPerformanceAnalytics(
   projects: Project[],
   timePeriod: TeamTimePeriod,
-  teamMemberId: string,
+  teamMemberIds: string[],
   metric: TeamMetric,
 ): TeamPerformanceBundle {
   const memberOptions = buildMemberOptions(projects)
@@ -784,29 +801,127 @@ export function getTeamPerformanceAnalytics(
   accumulate(currentMap, currentProjects)
   accumulate(previousMap, previousProjects)
 
-  const memberIds = new Set([...currentMap.keys(), ...previousMap.keys()])
-  let members = [...memberIds]
-    .map((id) => metricsForMember(currentMap.get(id), previousMap.get(id)))
-    .filter((m): m is MemberMetrics => m != null)
-    .sort((a, b) => b.totalRevenue - a.totalRevenue || a.name.localeCompare(b.name))
-
-  if (teamMemberId !== 'all') {
-    const selected = members.find((m) => m.userId === teamMemberId)
-    if (selected) {
-      members = [selected]
-    } else {
-      const opt = memberOptions.find((o) => o.value === teamMemberId)
-      members = opt
-        ? [emptyMemberMetrics(opt.value, opt.label)]
-        : []
+  /** Live counts by Live/Start Date in the selected period (Number of Projects only). */
+  const liveInPeriodByMember = new Map<string, { name: string; count: number }>()
+  for (const project of projects) {
+    if (!liveProjectStartInBounds(project, currentBounds)) continue
+    for (const member of uniqueAssignedMembers(project)) {
+      const prev = liveInPeriodByMember.get(member.userId)
+      if (prev) {
+        prev.count += 1
+        if (member.name && (!prev.name || prev.name === 'Unknown')) prev.name = member.name
+      } else {
+        liveInPeriodByMember.set(member.userId, { name: member.name, count: 1 })
+      }
     }
-  } else if (members.length > 5) {
-    // All Team Members: Top 5 by Total Revenue (already sorted highest → lowest)
-    members = members.slice(0, 5)
+  }
+
+  const memberIds = new Set([
+    ...currentMap.keys(),
+    ...previousMap.keys(),
+    ...liveInPeriodByMember.keys(),
+  ])
+  let members = [...memberIds]
+    .map((id) => {
+      const base = metricsForMember(currentMap.get(id), previousMap.get(id))
+      const liveInPeriod = liveInPeriodByMember.get(id)
+      if (base) {
+        return {
+          ...base,
+          liveProjectsInPeriod: liveInPeriod?.count ?? 0,
+        }
+      }
+      if (liveInPeriod) {
+        return {
+          ...emptyMemberMetrics(id, liveInPeriod.name),
+          liveProjectsInPeriod: liveInPeriod.count,
+        }
+      }
+      return null
+    })
+    .filter((m): m is MemberMetrics => m != null)
+
+  // Determine if specific members are filtered
+  const hasSpecificSelection = teamMemberIds.length > 0 && !teamMemberIds.includes('all')
+
+  if (hasSpecificSelection) {
+    // Show only selected team members, sorted by metric descending
+    members = members.filter((m) => teamMemberIds.includes(m.userId))
+    // Add empty metrics for any selected member who has no projects in the period
+    for (const id of teamMemberIds) {
+      if (!members.some((m) => m.userId === id)) {
+        const opt = memberOptions.find((o) => o.value === id)
+        if (opt) {
+          members.push(emptyMemberMetrics(opt.value, opt.label))
+        }
+      }
+    }
+    members.sort((a, b) => getMetricSortValue(b, metric) - getMetricSortValue(a, metric) || a.name.localeCompare(b.name))
+  } else if (metric === 'Completed Projects – Year Comparison') {
+    // Include every team member (even 0 / 0) so year comparison is visible without hover
+    for (const opt of memberOptions) {
+      if (opt.value === 'all') continue
+      if (!members.some((m) => m.userId === opt.value)) {
+        members.push(emptyMemberMetrics(opt.value, opt.label))
+      }
+    }
+    members.sort((a, b) => getMetricSortValue(b, metric) - getMetricSortValue(a, metric) || a.name.localeCompare(b.name))
+  } else {
+    // All Team Members: show everyone with any projects, sorted by metric descending
+    members.sort((a, b) => getMetricSortValue(b, metric) - getMetricSortValue(a, metric) || a.name.localeCompare(b.name))
   }
 
   return {
     memberOptions,
     performanceChart: buildPerformanceChart(members, metric),
   }
+}
+
+export const MAX_SQFT_TEAM_MEMBERS = 10
+
+export interface TeamMemberSqftPoint {
+  userId: string
+  member: string
+  sqft: number
+}
+
+export interface SqftByTeamMemberBundle {
+  memberOptions: TeamMemberOption[]
+  members: TeamMemberSqftPoint[]
+}
+
+/** Total sq.ft designed per team member from real project assignments. */
+export function getSqftDesignedByTeamMember(
+  projects: Project[],
+  timePeriod: TeamTimePeriod,
+): SqftByTeamMemberBundle {
+  const { current: currentBounds } = getPerformancePeriodBounds(timePeriod)
+  const currentProjects = projects.filter((p) => projectInBounds(p, currentBounds))
+  const currentMap = new Map<string, MemberAccumulator>()
+  accumulate(currentMap, currentProjects)
+
+  // Use a map to accumulate sqft per member
+  const memberSqftMap = new Map<string, { name: string; sqft: number }>()
+
+  for (const project of currentProjects) {
+    const sqft = projectSqft(project) || 0
+    for (const member of uniqueAssignedMembers(project)) {
+      const existing = memberSqftMap.get(member.userId)
+      if (existing) {
+        existing.sqft += sqft
+      } else {
+        memberSqftMap.set(member.userId, { name: member.name, sqft })
+      }
+    }
+  }
+
+  const members = [...memberSqftMap.entries()]
+    .map(([userId, val]) => ({ userId, member: val.name, sqft: Math.round(val.sqft) }))
+    .sort((a, b) => b.sqft - a.sqft || a.member.localeCompare(b.member))
+
+  const memberOptions = members
+    .map((m) => ({ value: m.userId, label: m.member }))
+    .sort((a, b) => a.label.localeCompare(b.label))
+
+  return { memberOptions, members }
 }

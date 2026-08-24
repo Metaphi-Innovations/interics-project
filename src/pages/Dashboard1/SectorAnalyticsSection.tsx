@@ -4,25 +4,43 @@
 import { useMemo, useState } from 'react'
 import { Box, Grid, MenuItem, Select as MuiSelect, Typography } from '@mui/material'
 import {
-  BarChart,
+  Bar,
+  BarChart as RechartsBarChart,
+  CartesianGrid,
+  Cell,
+  LabelList,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts'
+import type { TooltipContentProps } from 'recharts'
+import {
   ChartCard,
-  DonutChart,
 } from '@/design-system/components'
-import { CHART_COLORS } from '@/design-system/tokens'
-import { formatCurrency } from '@/utils/formatters'
+import { useChartTheme } from '@/design-system/components/charts/utils/chartTheme'
+import { tokens } from '@/design-system/tokens'
 import { ChartSeriesLegend } from './ChartSeriesLegend'
 import {
-  DESIGN_VS_BUILD,
-  limitSectors,
-  PROJECTS_BY_SECTOR,
-  SECTOR_AVG_PROJECT_SIZE,
+  buildSectorPerformanceChartData,
+  getSectorPerformanceMetricMeta,
   SECTOR_FILTER_OPTIONS,
-  SECTOR_WISE_FEE_AVERAGE,
+  SECTOR_PERFORMANCE_METRIC_OPTIONS,
   type SectorFilterValue,
+  type SectorPerformanceMetric,
 } from './sectorAnalyticsData'
 
 const SELECT_SX = { minWidth: 120, fontSize: 12, height: 32 } as const
+const METRIC_SELECT_SX = { minWidth: 220, fontSize: 12, height: 32 } as const
 const MENU_ITEM_SX = { fontSize: 12 } as const
+
+const FILTER_LABEL_SX = {
+  display: 'block',
+  fontSize: 10,
+  letterSpacing: 0.5,
+  textTransform: 'uppercase',
+  mb: 0.5,
+} as const
 
 function formatSqft(value: number | string): string {
   const n = typeof value === 'number' ? value : Number(value)
@@ -30,16 +48,23 @@ function formatSqft(value: number | string): string {
   return `${n.toLocaleString('en-IN')} sqft`
 }
 
-function formatAxisAmount(value: number | string): string {
+function formatCompletedCount(value: number | string): string {
   const n = typeof value === 'number' ? value : Number(value)
   if (Number.isNaN(n)) return String(value)
-  return `₹${formatCurrency(n)}`
+  return Math.round(n).toLocaleString('en-IN')
 }
 
-const DESIGN_VS_BUILD_COLORS = {
-  design_only: CHART_COLORS.blue,
-  design_build: CHART_COLORS.teal,
-} as const
+function formatBarEndLabel(
+  value: number | string,
+  metric: SectorPerformanceMetric,
+): string {
+  if (metric === 'avgCompletedSqft') {
+    const n = typeof value === 'number' ? value : Number(value)
+    if (Number.isNaN(n)) return String(value)
+    return n.toLocaleString('en-IN')
+  }
+  return formatCompletedCount(value)
+}
 
 function SectorLimitSelect({
   value,
@@ -64,29 +89,172 @@ function SectorLimitSelect({
   )
 }
 
+function SectorPerformanceTooltip({
+  active,
+  payload,
+  metric,
+}: TooltipContentProps & { metric: SectorPerformanceMetric }) {
+  if (!active || !payload?.length) return null
+  const entry = payload[0]
+  if (!entry) return null
+  const sector = String((entry.payload as { sector?: string } | undefined)?.sector ?? '')
+  const raw = typeof entry.value === 'number' ? entry.value : Number(entry.value)
+  if (Number.isNaN(raw)) return null
+  const meta = getSectorPerformanceMetricMeta(metric)
+
+  return (
+    <Box
+      sx={{
+        bgcolor: 'background.paper',
+        border: `1px solid ${tokens.color.neutral[200]}`,
+        borderRadius: '8px',
+        boxShadow: tokens.shadow.sm,
+        px: 1.5,
+        py: 1,
+        minWidth: 160,
+      }}
+    >
+      <Typography variant="caption" fontWeight={600} sx={{ fontSize: 12, display: 'block' }}>
+        {sector}
+      </Typography>
+      <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11, display: 'block', mt: 0.25 }}>
+        {meta.label}:{' '}
+        <Box component="span" sx={{ fontWeight: 600, color: 'text.primary' }}>
+          {metric === 'avgCompletedSqft' ? formatSqft(raw) : formatCompletedCount(raw)}
+        </Box>
+      </Typography>
+    </Box>
+  )
+}
+
+function SectorPerformanceChart({
+  data,
+  metric,
+  xAxisLabel,
+  height = 300,
+}: {
+  data: Array<{ sector: string; value: number; color: string }>
+  metric: SectorPerformanceMetric
+  xAxisLabel: string
+  height?: number
+}) {
+  const ct = useChartTheme()
+  const h = ct.isMobile ? Math.round(height * 0.75) : height
+  const formatX =
+    metric === 'avgCompletedSqft'
+      ? (v: number | string) => {
+          const n = typeof v === 'number' ? v : Number(v)
+          if (Number.isNaN(n)) return String(v)
+          return n.toLocaleString('en-IN')
+        }
+      : (v: number | string) => formatCompletedCount(v)
+
+  return (
+    <Box sx={{ width: '100%' }}>
+      <ResponsiveContainer width="100%" height={h}>
+        <RechartsBarChart
+          data={data}
+          layout="vertical"
+          barCategoryGap="28%"
+          margin={{
+            top: 8,
+            right: ct.isMobile ? 36 : 48,
+            left: ct.isMobile ? 4 : 8,
+            bottom: 28,
+          }}
+        >
+          <CartesianGrid
+            stroke={ct.gridProps.stroke}
+            strokeDasharray={ct.gridProps.strokeDasharray}
+            strokeOpacity={ct.gridProps.strokeOpacity}
+            horizontal={false}
+            vertical
+          />
+          <XAxis
+            type="number"
+            tick={ct.axisStyle}
+            tickLine={false}
+            axisLine={{ stroke: ct.gridProps.stroke }}
+            tickFormatter={formatX}
+            label={{
+              value: xAxisLabel,
+              position: 'insideBottom',
+              offset: -16,
+              style: {
+                fill: tokens.color.neutral[500],
+                fontSize: 11,
+                fontFamily: ct.fontFamily,
+              },
+            }}
+          />
+          <YAxis
+            type="category"
+            dataKey="sector"
+            tick={ct.axisStyle}
+            tickLine={false}
+            axisLine={{ stroke: ct.gridProps.stroke }}
+            width={ct.isMobile ? 72 : 96}
+            label={{
+              value: 'Sectors',
+              angle: -90,
+              position: 'insideLeft',
+              offset: 4,
+              style: {
+                fill: tokens.color.neutral[500],
+                fontSize: 11,
+                fontFamily: ct.fontFamily,
+              },
+            }}
+          />
+          <Tooltip
+            isAnimationActive={false}
+            animationDuration={0}
+            content={(props) => <SectorPerformanceTooltip {...props} metric={metric} />}
+            cursor={{
+              fill: ct.theme.palette.action.hover,
+              stroke: 'none',
+              fillOpacity: 0.45,
+            }}
+          />
+          <Bar
+            dataKey="value"
+            name={xAxisLabel}
+            radius={[0, 8, 8, 0]}
+            maxBarSize={22}
+            isAnimationActive={false}
+            activeBar={false}
+          >
+            {data.map((row) => (
+              <Cell key={row.sector} fill={row.color} />
+            ))}
+            <LabelList
+              dataKey="value"
+              position="right"
+              formatter={(value) => formatBarEndLabel(value as number | string, metric)}
+              style={{
+                fill: tokens.color.neutral[700],
+                fontSize: 12,
+                fontWeight: 600,
+                fontFamily: ct.fontFamily,
+              }}
+            />
+          </Bar>
+        </RechartsBarChart>
+      </ResponsiveContainer>
+    </Box>
+  )
+}
+
 export function SectorAnalyticsSection() {
-  const [projectsFilter, setProjectsFilter] = useState<SectorFilterValue>('top5')
-  const [sizeFilter, setSizeFilter] = useState<SectorFilterValue>('top5')
-  const [feeFilter, setFeeFilter] = useState<SectorFilterValue>('top5')
+  const [performanceFilter, setPerformanceFilter] = useState<SectorFilterValue>('top5')
+  const [performanceMetric, setPerformanceMetric] =
+    useState<SectorPerformanceMetric>('completedCount')
 
-  const projectsBySector = useMemo(
-    () => limitSectors(PROJECTS_BY_SECTOR, projectsFilter),
-    [projectsFilter],
+  const performanceData = useMemo(
+    () => buildSectorPerformanceChartData(performanceFilter, performanceMetric),
+    [performanceFilter, performanceMetric],
   )
-  const avgProjectSize = useMemo(
-    () => limitSectors(SECTOR_AVG_PROJECT_SIZE, sizeFilter),
-    [sizeFilter],
-  )
-  const feeAverage = useMemo(
-    () => limitSectors(SECTOR_WISE_FEE_AVERAGE, feeFilter),
-    [feeFilter],
-  )
-
-  const designBuildTotal = DESIGN_VS_BUILD.reduce((sum, s) => sum + s.value, 0)
-  const donutData = DESIGN_VS_BUILD.map((s) => ({
-    ...s,
-    color: DESIGN_VS_BUILD_COLORS[s.key as keyof typeof DESIGN_VS_BUILD_COLORS],
-  }))
+  const performanceMeta = getSectorPerformanceMetricMeta(performanceMetric)
 
   return (
     <Box sx={{ mb: 3 }}>
@@ -100,84 +268,74 @@ export function SectorAnalyticsSection() {
       </Box>
 
       <Grid container spacing={2}>
-        <Grid size={{ xs: 12, lg: 6 }}>
+        <Grid size={{ xs: 12 }}>
           <ChartCard
-            title="Projects by Sector"
-            subtitle="Count of projects across sectors"
+            title="Sector Performance"
+            subtitle="Compare completed projects and average project size by sector."
             action={
-              <SectorLimitSelect value={projectsFilter} onChange={setProjectsFilter} />
+              <Box
+                sx={{
+                  display: 'flex',
+                  flexDirection: { xs: 'column', sm: 'row' },
+                  alignItems: { xs: 'stretch', sm: 'flex-start' },
+                  gap: 1.5,
+                }}
+              >
+                <Box>
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    fontWeight={600}
+                    sx={FILTER_LABEL_SX}
+                  >
+                    Metric
+                  </Typography>
+                  <MuiSelect
+                    size="small"
+                    value={performanceMetric}
+                    onChange={(e) =>
+                      setPerformanceMetric(e.target.value as SectorPerformanceMetric)
+                    }
+                    sx={METRIC_SELECT_SX}
+                  >
+                    {SECTOR_PERFORMANCE_METRIC_OPTIONS.map((opt) => (
+                      <MenuItem key={opt.value} value={opt.value} sx={MENU_ITEM_SX}>
+                        {opt.label}
+                      </MenuItem>
+                    ))}
+                  </MuiSelect>
+                </Box>
+                <Box>
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    fontWeight={600}
+                    sx={FILTER_LABEL_SX}
+                  >
+                    Show Top
+                  </Typography>
+                  <SectorLimitSelect
+                    value={performanceFilter}
+                    onChange={setPerformanceFilter}
+                  />
+                </Box>
+              </Box>
             }
           >
-            <BarChart
-              data={[...projectsBySector]}
-              xKey="sector"
+            <SectorPerformanceChart
+              data={performanceData}
+              metric={performanceMetric}
+              xAxisLabel={performanceMeta.xAxisLabel}
               height={300}
-              orientation="horizontal"
-              bars={[{ key: 'count', label: 'Projects', color: CHART_COLORS.teal }]}
-              showLegend={false}
-              barSize={20}
             />
-          </ChartCard>
-        </Grid>
-
-        <Grid size={{ xs: 12, lg: 6 }}>
-          <ChartCard
-            title="Design Only vs Design & Build"
-            subtitle="Split of project delivery types"
-          >
-            <DonutChart
-              data={donutData}
-              height={300}
-              centerValue={String(designBuildTotal)}
-              centerLabel="Projects"
-            />
-          </ChartCard>
-        </Grid>
-
-        <Grid size={{ xs: 12, lg: 6 }}>
-          <ChartCard
-            title="Sector Wise Average Project Size"
-            subtitle="Average carpet area by sector"
-            action={<SectorLimitSelect value={sizeFilter} onChange={setSizeFilter} />}
-          >
-            <BarChart
-              data={[...avgProjectSize]}
-              xKey="sector"
-              height={300}
-              bars={[{ key: 'avgSqft', label: 'Avg Size', color: CHART_COLORS.amber }]}
-              showLegend={false}
-              formatY={formatSqft}
-            />
-          </ChartCard>
-        </Grid>
-
-        <Grid size={{ xs: 12, lg: 6 }}>
-          <ChartCard
-            title="Sector Wise Fee Average"
-            subtitle="Average Design, Consultancy, and Build fees by sector"
-            action={<SectorLimitSelect value={feeFilter} onChange={setFeeFilter} />}
-          >
-            <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'center', mt: 1.5 }}>
               <ChartSeriesLegend
-                items={[
-                  { label: 'Design Fee', color: CHART_COLORS.teal },
-                  { label: 'Consultancy Fee', color: CHART_COLORS.blue },
-                  { label: 'Build Fee', color: CHART_COLORS.amber },
-                ]}
+                items={performanceData.map((row) => ({
+                  label: row.sector,
+                  color: row.color,
+                }))}
               />
             </Box>
-            <BarChart
-              data={[...feeAverage]}
-              xKey="sector"
-              height={300}
-              showLegend={false}
-              bars={[
-                { key: 'designFee', label: 'Design Fee', color: CHART_COLORS.teal },
-                { key: 'consultancyFee', label: 'Consultancy Fee', color: CHART_COLORS.blue },
-                { key: 'buildFee', label: 'Build Fee', color: CHART_COLORS.amber },
-              ]}
-              formatY={formatAxisAmount}
-            />
           </ChartCard>
         </Grid>
       </Grid>

@@ -1,12 +1,12 @@
 /**
  * Dashboard 1 — Vendors section
- * Vendor summary KPIs + billing / projects charts (client dashboard document)
- * + Master Vendor Performance interactive graph
+ * Vendor summary KPIs + billing charts + Vendor Project Performance
  */
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   Autocomplete,
   Box,
+  Chip,
   Grid,
   MenuItem,
   Paper,
@@ -16,36 +16,39 @@ import {
 } from '@mui/material'
 import { alpha, useTheme } from '@mui/material/styles'
 import { CircleDollarSign, FolderKanban } from 'lucide-react'
+import {
+  Bar,
+  BarChart as RechartsBarChart,
+  CartesianGrid,
+  Cell,
+  LabelList,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts'
 import type { TooltipContentProps } from 'recharts'
 import {
-  BarChart,
   ChartCard,
-  DateRangePicker,
+  Modal,
 } from '@/design-system/components'
+import { useChartTheme } from '@/design-system/components/charts/utils/chartTheme'
 import { CHART_COLORS, tokens } from '@/design-system/tokens'
 import { formatCurrency } from '@/utils/formatters'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { fetchProjects } from '@/slices/projects/thunk'
 import { fetchVendors } from '@/slices/vendors/thunk'
 import type { VendorInvoice } from '@/slices/live/types'
-import { ChartSeriesLegend } from './ChartSeriesLegend'
-import { LargerMetaDataSection } from './LargerMetaDataSection'
-import { VendorBillingAcrossYearsChart } from './VendorBillingAcrossYearsChart'
 import {
+  formatBillingValue,
   getVendorAnalytics,
-  getVendorPerformanceAnalytics,
-  TOP5_VENDOR_OPTION_VALUE,
-  VENDOR_FILTER_OPTIONS,
-  VENDOR_PERFORMANCE_METRIC_OPTIONS,
-  VENDOR_TIME_PERIOD_OPTIONS,
-  type ProjectsCompletedTogetherPoint,
-  type VendorBillingCurrentYearPoint,
-  type VendorFilterId,
-  type VendorFilterOption,
+  getVendorProjectPerformanceAnalytics,
+  VENDOR_PROJECT_PERFORMANCE_METRIC_OPTIONS,
+  type TotalVendorBillingYearPoint,
   type VendorKpi,
-  type VendorPerformanceMetric,
-  type VendorPerformanceOption,
-  type VendorTimePeriod,
+  type VendorProjectPerformanceMetric,
+  type VendorProjectPerformanceOption,
+  type VendorProjectPerformanceRow,
 } from './vendorsAnalyticsData'
 
 const ICON_MAP: Record<VendorKpi['icon'], { node: ReactNode; color: string }> = {
@@ -59,38 +62,23 @@ const ICON_MAP: Record<VendorKpi['icon'], { node: ReactNode; color: string }> = 
   },
 }
 
-const YEAR_LINE_COLORS = [
-  CHART_COLORS.teal,
-  CHART_COLORS.blue,
-  CHART_COLORS.amber,
-  CHART_COLORS.purple,
-  CHART_COLORS.green,
-]
-
-const SELECT_SX = { minWidth: 180, fontSize: 12, height: 32 } as const
-const METRIC_SELECT_SX = { minWidth: 200, fontSize: 12, height: 32 } as const
+const METRIC_SELECT_SX = { minWidth: 240, fontSize: 12, height: 32 } as const
 const MENU_ITEM_SX = { fontSize: 12 } as const
-const AUTOCOMPLETE_SX = {
-  minWidth: { xs: '100%', sm: 180 },
-  maxWidth: { xs: '100%', sm: 220 },
+
+/** Match Metric Select theme fill (action.hover, no outline) — do not override bgcolor/border. */
+const PERF_VENDOR_MULTI_SX = {
+  minWidth: { xs: '100%', sm: 260 },
+  maxWidth: { xs: '100%', sm: 360 },
   '& .MuiOutlinedInput-root': {
-    height: 32,
+    minHeight: 32,
+    height: 'auto',
+    py: 0.25,
     fontSize: 12,
-    bgcolor: 'background.paper',
-    '& fieldset': {
-      borderColor: tokens.color.neutral[200],
-    },
   },
   '& .MuiInputBase-input': {
     fontSize: 12,
     py: 0,
   },
-} as const
-
-const PERF_VENDOR_AUTOCOMPLETE_SX = {
-  ...AUTOCOMPLETE_SX,
-  minWidth: { xs: '100%', sm: 220 },
-  maxWidth: { xs: '100%', sm: 280 },
 } as const
 
 const FILTER_LABEL_SX = {
@@ -100,11 +88,6 @@ const FILTER_LABEL_SX = {
   textTransform: 'uppercase',
   mb: 0.5,
 } as const
-
-const TOP5_VENDOR_OPTION: VendorPerformanceOption = {
-  value: TOP5_VENDOR_OPTION_VALUE,
-  label: 'All Vendors',
-}
 
 async function fetchJsonArray(url: string): Promise<unknown[]> {
   try {
@@ -129,18 +112,6 @@ function formatAxisAmount(value: number | string): string {
   const n = typeof value === 'number' ? value : Number(value)
   if (Number.isNaN(n)) return String(value)
   return `₹${formatCurrency(n)}`
-}
-
-function formatAxisCount(value: number | string): string {
-  const n = typeof value === 'number' ? value : Number(value)
-  if (Number.isNaN(n)) return String(value)
-  return String(Math.round(n))
-}
-
-function formatAxisDays(value: number | string): string {
-  const n = typeof value === 'number' ? value : Number(value)
-  if (Number.isNaN(n)) return String(value)
-  return `${Math.round(n)}d`
 }
 
 function ChartTooltipShell({ children }: { children: ReactNode }) {
@@ -182,106 +153,377 @@ function TooltipRow({ label, value }: { label: string; value: string }) {
   )
 }
 
-function VendorBillingCurrentYearTooltip({ active, payload }: TooltipContentProps) {
-  if (!active || !payload?.length) return null
-  const point = payload[0]?.payload as VendorBillingCurrentYearPoint | undefined
-  if (!point) return null
-
-  return (
-    <ChartTooltipShell>
-      <TooltipTitle>{point.vendor}</TooltipTitle>
-      <TooltipRow label="Billing Amount" value={formatAxisAmount(point.billing)} />
-      <TooltipRow
-        label="Projects Completed Together"
-        value={String(point.projectsCompleted)}
-      />
-      <TooltipRow
-        label="Average Fee / Sq.ft"
-        value={`₹${point.avgFeePerSqFt} / Sq.ft`}
-      />
-    </ChartTooltipShell>
-  )
+function formatExactBillingAmount(amount: number): string {
+  return `₹${Math.round(amount).toLocaleString('en-IN')}`
 }
 
-function ProjectsCompletedTogetherTooltip({ active, payload }: TooltipContentProps) {
-  if (!active || !payload?.length) return null
-  const point = payload[0]?.payload as ProjectsCompletedTogetherPoint | undefined
-  if (!point) return null
-
-  return (
-    <ChartTooltipShell>
-      <TooltipTitle>{point.vendor}</TooltipTitle>
-      <TooltipRow
-        label="Projects Completed Together"
-        value={String(point.projects)}
-      />
-    </ChartTooltipShell>
-  )
-}
-
-function VendorPerformanceBarTooltip({
+function VendorProjectPerformanceTooltip({
   active,
   payload,
-  format,
-  tooltipDetails,
-}: TooltipContentProps & {
-  format: 'count' | 'currency' | 'days'
-  tooltipDetails?: Record<string, { projects?: string[]; extra?: string }>
-}) {
+  metric,
+}: TooltipContentProps & { metric: VendorProjectPerformanceMetric }) {
   if (!active || !payload?.length) return null
-  const row = payload[0]?.payload as Record<string, string | number> | undefined
-  if (!row) return null
+  const point = payload[0]?.payload as VendorProjectPerformanceRow | undefined
+  if (!point) return null
 
-  const title = String(row.vendor ?? row.project ?? '')
-  const id = String(row.vendorId ?? row.projectId ?? '')
-  const rawValue = row.value
-  const valueNum = typeof rawValue === 'number' ? rawValue : Number(rawValue)
-  const valueLabel =
-    format === 'currency'
-      ? formatAxisAmount(valueNum)
-      : format === 'days'
-        ? formatAxisDays(valueNum)
-        : formatAxisCount(valueNum)
+  if (metric === 'Total Billing for the Year') {
+    return (
+      <ChartTooltipShell>
+        <TooltipTitle>{point.vendor}</TooltipTitle>
+        <TooltipRow
+          label="Total Billing for the Year"
+          value={formatExactBillingAmount(point.totalBilling)}
+        />
+      </ChartTooltipShell>
+    )
+  }
 
-  const details = tooltipDetails?.[id]
-  const projects = details?.projects ?? []
-
+  const countLabel =
+    point.projectCount === 1 ? '1 Project' : `${point.projectCount} Projects`
   return (
     <ChartTooltipShell>
-      <TooltipTitle>{title}</TooltipTitle>
-      <TooltipRow label="Value" value={Number.isNaN(valueNum) ? '—' : valueLabel} />
-      {details?.extra ? <TooltipRow label="Note" value={details.extra} /> : null}
-      {projects.length > 0 ? (
-        <Box sx={{ mt: 0.75 }}>
-          <Typography
-            variant="caption"
-            color="text.secondary"
-            sx={{ fontSize: 11, display: 'block', fontWeight: 600 }}
-          >
-            Projects
-          </Typography>
-          {projects.slice(0, 8).map((name) => (
-            <Typography
-              key={name}
-              variant="caption"
-              color="text.secondary"
-              sx={{ fontSize: 11, display: 'block', mt: 0.15 }}
-            >
-              • {name}
-            </Typography>
-          ))}
-          {projects.length > 8 ? (
-            <Typography
-              variant="caption"
-              color="text.secondary"
-              sx={{ fontSize: 11, display: 'block', mt: 0.15 }}
-            >
-              +{projects.length - 8} more
-            </Typography>
-          ) : null}
-        </Box>
-      ) : null}
+      <TooltipTitle>{point.vendor}</TooltipTitle>
+      <TooltipRow
+        label={metric === 'No. of Projects' ? 'Live Projects' : 'Completed Projects'}
+        value={countLabel}
+      />
+      <TooltipRow label="Total Project Value" value={formatBillingValue(point.totalValue)} />
     </ChartTooltipShell>
+  )
+}
+
+function VendorProjectPerformanceChart({
+  data,
+  metric,
+  height = 300,
+}: {
+  data: VendorProjectPerformanceRow[]
+  metric: VendorProjectPerformanceMetric
+  height?: number
+}) {
+  const ct = useChartTheme()
+  const h = ct.isMobile ? Math.round(height * 0.85) : height
+  const isBilling = metric === 'Total Billing for the Year'
+  const barFill =
+    metric === 'No. of Projects'
+      ? CHART_COLORS.teal
+      : metric === 'Projects Completed by Vendors'
+        ? CHART_COLORS.blue
+        : CHART_COLORS.amber
+
+  return (
+    <Box sx={{ width: '100%' }}>
+      <ResponsiveContainer width="100%" height={h}>
+        <RechartsBarChart
+          data={data}
+          layout="vertical"
+          barCategoryGap="28%"
+          margin={{
+            top: 8,
+            right: ct.isMobile ? 16 : 24,
+            left: 0,
+            bottom: 8,
+          }}
+        >
+          <CartesianGrid
+            stroke={ct.gridProps.stroke}
+            strokeDasharray={ct.gridProps.strokeDasharray}
+            strokeOpacity={ct.gridProps.strokeOpacity}
+            horizontal={false}
+            vertical
+          />
+          <XAxis
+            type="number"
+            allowDecimals={false}
+            domain={[0, 'dataMax']}
+            padding={{ left: 0, right: 8 }}
+            tick={ct.axisStyle}
+            tickLine={false}
+            axisLine={{ stroke: ct.gridProps.stroke }}
+            tickFormatter={isBilling ? (v) => formatBillingValue(Number(v)) : undefined}
+          />
+          <YAxis
+            type="category"
+            dataKey="vendor"
+            tick={{ ...ct.axisStyle, textAnchor: 'end' }}
+            tickLine={false}
+            axisLine={{ stroke: ct.gridProps.stroke }}
+            width={ct.isMobile ? 78 : 100}
+            tickMargin={2}
+            interval={0}
+          />
+          <Tooltip
+            isAnimationActive={false}
+            animationDuration={0}
+            content={(props) => (
+              <VendorProjectPerformanceTooltip {...props} metric={metric} />
+            )}
+            cursor={{
+              fill: ct.theme.palette.action.hover,
+              stroke: 'none',
+              fillOpacity: 0.45,
+            }}
+          />
+          <Bar
+            dataKey={isBilling ? 'totalBilling' : 'projectCount'}
+            name={isBilling ? 'Total Billing' : 'Projects'}
+            fill={barFill}
+            radius={[0, 6, 6, 0]}
+            maxBarSize={22}
+            isAnimationActive={false}
+            activeBar={false}
+          />
+        </RechartsBarChart>
+      </ResponsiveContainer>
+    </Box>
+  )
+}
+
+function TotalVendorBillingYearTooltip({ active, payload }: TooltipContentProps) {
+  if (!active || !payload?.length) return null
+  const point = payload[0]?.payload as TotalVendorBillingYearPoint | undefined
+  if (!point) return null
+  return (
+    <ChartTooltipShell>
+      <TooltipTitle>{point.year}</TooltipTitle>
+      <TooltipRow label="Total Vendor Billing" value={formatBillingValue(point.total)} />
+      <Typography
+        variant="caption"
+        color="text.secondary"
+        sx={{ fontSize: 10, display: 'block', mt: 0.5, fontStyle: 'italic' }}
+      >
+        Click bar for vendor breakdown
+      </Typography>
+    </ChartTooltipShell>
+  )
+}
+
+function TotalVendorBillingOverYearsChart({
+  data,
+  selectedYear,
+  onYearClick,
+  height = 320,
+}: {
+  data: TotalVendorBillingYearPoint[]
+  selectedYear: string | null
+  onYearClick: (year: string) => void
+  height?: number
+}) {
+  const ct = useChartTheme()
+  const h = ct.isMobile ? Math.round(height * 0.85) : height
+
+  return (
+    <Box sx={{ width: '100%' }}>
+      <ResponsiveContainer width="100%" height={h}>
+        <RechartsBarChart
+          data={data}
+          margin={{ top: 28, right: 12, left: 8, bottom: 8 }}
+          barCategoryGap="28%"
+        >
+          <CartesianGrid
+            stroke={ct.gridProps.stroke}
+            strokeDasharray={ct.gridProps.strokeDasharray}
+            strokeOpacity={ct.gridProps.strokeOpacity}
+            vertical={false}
+          />
+          <XAxis
+            dataKey="year"
+            tick={ct.axisStyle}
+            tickLine={false}
+            axisLine={{ stroke: ct.gridProps.stroke }}
+          />
+          <YAxis
+            tick={ct.axisStyle}
+            tickLine={false}
+            axisLine={false}
+            width={ct.isMobile ? 52 : 64}
+            tickFormatter={(v) => formatAxisAmount(v)}
+          />
+          <Tooltip
+            isAnimationActive={false}
+            animationDuration={0}
+            content={TotalVendorBillingYearTooltip}
+            cursor={{ fill: ct.theme.palette.action.hover, fillOpacity: 0.35 }}
+          />
+          <Bar
+            dataKey="total"
+            name="Total Vendor Billing"
+            radius={[6, 6, 0, 0]}
+            maxBarSize={48}
+            isAnimationActive={false}
+            cursor="pointer"
+            onClick={(entry) => {
+              const payload = (entry as { payload?: TotalVendorBillingYearPoint }).payload
+              const year = payload?.year
+              if (year) onYearClick(year)
+            }}
+          >
+            {data.map((row) => (
+              <Cell
+                key={row.year}
+                fill={
+                  selectedYear === row.year
+                    ? CHART_COLORS.blue
+                    : CHART_COLORS.teal
+                }
+                fillOpacity={selectedYear == null || selectedYear === row.year ? 1 : 0.45}
+                stroke={selectedYear === row.year ? CHART_COLORS.blue : 'none'}
+                strokeWidth={selectedYear === row.year ? 2 : 0}
+              />
+            ))}
+            <LabelList
+              dataKey="total"
+              position="top"
+              formatter={(value) => formatBillingValue(Number(value))}
+              style={{
+                fill: tokens.color.neutral[700],
+                fontSize: 11,
+                fontWeight: 600,
+                fontFamily: ct.fontFamily,
+              }}
+            />
+          </Bar>
+        </RechartsBarChart>
+      </ResponsiveContainer>
+    </Box>
+  )
+}
+
+function VendorBillingYearModal({
+  open,
+  yearPoint,
+  onClose,
+}: {
+  open: boolean
+  yearPoint: TotalVendorBillingYearPoint | null
+  onClose: () => void
+}) {
+  const rows = useMemo(
+    () =>
+      yearPoint
+        ? [...yearPoint.vendors].sort((a, b) => b.amount - a.amount || a.vendor.localeCompare(b.vendor))
+        : [],
+    [yearPoint],
+  )
+
+  const vendorCount = rows.length
+  const modalSize = vendorCount > 30 ? 'xl' : vendorCount > 18 ? 'lg' : vendorCount > 8 ? 'md' : 'sm'
+  /** Only the vendor list scrolls; compact when few rows. */
+  const listMaxHeight =
+    vendorCount <= 8
+      ? undefined
+      : vendorCount <= 18
+        ? 'min(36vh, 280px)'
+        : vendorCount <= 30
+          ? 'min(48vh, 400px)'
+          : 'min(56vh, 520px)'
+
+  if (!yearPoint) return null
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={`Vendor Billing – ${yearPoint.year}`}
+      size={modalSize}
+      sx={{
+        maxHeight: 'min(100vh - 64px, 90vh)',
+        width: {
+          xs: undefined,
+          sm: modalSize === 'sm' ? 500 : modalSize === 'md' ? 600 : modalSize === 'lg' ? 800 : 1000,
+        },
+      }}
+      footer={
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 2,
+          }}
+        >
+          <Typography variant="body2" fontWeight={600} sx={{ fontSize: 13 }}>
+            Total Vendor Billing ({yearPoint.year})
+          </Typography>
+          <Typography variant="body2" fontWeight={700} sx={{ fontSize: 14 }}>
+            {formatBillingValue(yearPoint.total)}
+          </Typography>
+        </Box>
+      }
+    >
+      <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12, mb: 1.5 }}>
+        Year: {yearPoint.year}
+      </Typography>
+
+      <Box
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: '1fr auto',
+          columnGap: 3,
+          pb: 1,
+          mb: 0.5,
+          borderBottom: `1px solid ${tokens.color.neutral[200]}`,
+          position: 'sticky',
+          top: 0,
+          zIndex: 1,
+          bgcolor: 'background.paper',
+        }}
+      >
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          fontWeight={700}
+          sx={{ fontSize: 11, letterSpacing: 0.4, textTransform: 'uppercase' }}
+        >
+          Vendor
+        </Typography>
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          fontWeight={700}
+          sx={{
+            fontSize: 11,
+            letterSpacing: 0.4,
+            textTransform: 'uppercase',
+            textAlign: 'right',
+          }}
+        >
+          Amount Paid
+        </Typography>
+      </Box>
+
+      <Box
+        sx={{
+          maxHeight: listMaxHeight,
+          overflowY: listMaxHeight ? 'auto' : 'visible',
+          pr: listMaxHeight ? 0.5 : 0,
+        }}
+      >
+        <Box
+          sx={{
+            display: 'grid',
+            gridTemplateColumns: '1fr auto',
+            columnGap: 3,
+            rowGap: 1,
+            py: 1,
+          }}
+        >
+          {rows.map((row) => (
+            <Box key={row.vendor} sx={{ display: 'contents' }}>
+              <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 500 }}>
+                {row.vendor}
+              </Typography>
+              <Typography
+                variant="body2"
+                sx={{ fontSize: 13, fontWeight: 600, textAlign: 'right' }}
+              >
+                {formatBillingValue(row.amount)}
+              </Typography>
+            </Box>
+          ))}
+        </Box>
+      </Box>
+    </Modal>
   )
 }
 
@@ -359,76 +601,52 @@ export function VendorsSection() {
   const vendorsLoading = useAppSelector((s) => s.vendors.loading)
   const projectsLoading = useAppSelector((s) => s.projects.loading)
 
-  const [timePeriod, setTimePeriod] = useState<VendorTimePeriod>('This Financial Year')
-  const [vendorId, setVendorId] = useState<VendorFilterId>('all')
-  const [customRange, setCustomRange] = useState<[Date | null, Date | null]>([null, null])
-
-  const [performanceVendorId, setPerformanceVendorId] = useState(TOP5_VENDOR_OPTION_VALUE)
-  const [performanceMetric, setPerformanceMetric] =
-    useState<VendorPerformanceMetric>('No. of Projects')
+  const [projectPerfMetric, setProjectPerfMetric] =
+    useState<VendorProjectPerformanceMetric>('No. of Projects')
+  const [projectPerfVendorIds, setProjectPerfVendorIds] = useState<string[]>([])
   const [vendorInvoices, setVendorInvoices] = useState<VendorInvoice[]>([])
   const [invoicesLoading, setInvoicesLoading] = useState(false)
+  const [selectedBillingYear, setSelectedBillingYear] = useState<string | null>(null)
 
   const analytics = useMemo(
-    () => getVendorAnalytics(timePeriod, vendorId, customRange),
-    [timePeriod, vendorId, customRange],
+    () => getVendorAnalytics('This Financial Year', 'all', [null, null]),
+    [],
   )
 
-  const performance = useMemo(
+  const projectPerformance = useMemo(
     () =>
-      getVendorPerformanceAnalytics(
+      getVendorProjectPerformanceAnalytics(
         vendors,
         projects,
         vendorInvoices,
-        timePeriod,
-        performanceVendorId,
-        performanceMetric,
-        customRange,
+        projectPerfMetric,
+        projectPerfVendorIds,
       ),
-    [
-      vendors,
-      projects,
-      vendorInvoices,
-      timePeriod,
-      performanceVendorId,
-      performanceMetric,
-      customRange,
-    ],
+    [vendors, projects, vendorInvoices, projectPerfMetric, projectPerfVendorIds],
   )
 
-  const selectedVendor =
-    VENDOR_FILTER_OPTIONS.find((opt) => opt.value === vendorId) ?? VENDOR_FILTER_OPTIONS[0]
-
-  const selectedPerformanceVendor = useMemo(() => {
-    return (
-      performance.vendorOptions.find((o) => o.value === performanceVendorId) ??
-      TOP5_VENDOR_OPTION
+  const selectedProjectPerfVendors = useMemo(() => {
+    if (projectPerfVendorIds.length === 0) return []
+    const byId = new Map(
+      projectPerformance.vendorOptions.map((o) => [o.value, o] as const),
     )
-  }, [performance.vendorOptions, performanceVendorId])
+    return projectPerfVendorIds
+      .map((id) => byId.get(id))
+      .filter((o): o is VendorProjectPerformanceOption => Boolean(o))
+  }, [projectPerformance.vendorOptions, projectPerfVendorIds])
 
-  const yearLines = analytics.yearLines.map((line, i) => ({
-    key: line.key,
-    label: line.label,
-    color: YEAR_LINE_COLORS[i % YEAR_LINE_COLORS.length],
-  }))
-
-  const perfChart = performance.chart
-  const perfLoading = vendorsLoading || projectsLoading || invoicesLoading
-  const hasPerfData =
-    perfChart.kind === 'years-line'
-      ? perfChart.series.length > 0 && perfChart.data.length > 0
-      : perfChart.data.length > 0
-  const perfChartHeight = Math.max(
-    300,
-    Math.min(520, (perfChart.kind === 'years-line' ? 8 : perfChart.data.length) * 36 + 80),
+  const selectedYearPoint = useMemo(
+    () =>
+      analytics.totalBillingOverYears.find((row) => row.year === selectedBillingYear) ?? null,
+    [analytics.totalBillingOverYears, selectedBillingYear],
   )
 
-  const formatPerfAxis =
-    perfChart.format === 'currency'
-      ? formatAxisAmount
-      : perfChart.format === 'days'
-        ? formatAxisDays
-        : formatAxisCount
+  const projectPerfLoading = vendorsLoading || projectsLoading || invoicesLoading
+  const projectPerfRows = projectPerformance.rows
+  const projectPerfHeight = Math.max(
+    280,
+    Math.min(520, Math.max(projectPerfRows.length, 1) * 44 + 80),
+  )
 
   useEffect(() => {
     void dispatch(fetchVendors({ page: 1, pageSize: 500 }))
@@ -436,10 +654,12 @@ export function VendorsSection() {
   }, [dispatch])
 
   useEffect(() => {
-    if (!performance.vendorOptions.some((o) => o.value === performanceVendorId)) {
-      setPerformanceVendorId(TOP5_VENDOR_OPTION_VALUE)
-    }
-  }, [performance.vendorOptions, performanceVendorId])
+    const valid = new Set(projectPerformance.vendorOptions.map((o) => o.value))
+    setProjectPerfVendorIds((prev) => {
+      const next = prev.filter((id) => valid.has(id))
+      return next.length === prev.length ? prev : next
+    })
+  }, [projectPerformance.vendorOptions])
 
   useEffect(() => {
     if (projects.length === 0) {
@@ -470,107 +690,13 @@ export function VendorsSection() {
 
   return (
     <Box sx={{ mb: 3 }}>
-      <Box
-        sx={{
-          display: 'flex',
-          alignItems: { xs: 'stretch', sm: 'flex-start' },
-          justifyContent: 'space-between',
-          flexWrap: 'wrap',
-          gap: 1.5,
-          mb: 1.5,
-        }}
-      >
-        <Box sx={{ minWidth: 0, flex: '1 1 auto' }}>
-          <Typography variant="h6" fontWeight={700} sx={{ fontSize: 16 }}>
-            Vendors
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12, mt: 0.25 }}>
-            Vendor billing and completed-project partnership overview.
-          </Typography>
-        </Box>
-
-        <Box
-          sx={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            gap: 1.5,
-            alignItems: 'flex-end',
-            flexShrink: 0,
-            width: { xs: '100%', sm: 'auto' },
-          }}
-        >
-          <Box sx={{ minWidth: { xs: '100%', sm: 'auto' } }}>
-            <Typography
-              variant="caption"
-              color="text.secondary"
-              fontWeight={600}
-              sx={FILTER_LABEL_SX}
-            >
-              Time Period
-            </Typography>
-            <MuiSelect
-              size="small"
-              value={timePeriod}
-              onChange={(e) => setTimePeriod(e.target.value as VendorTimePeriod)}
-              sx={{ ...SELECT_SX, width: { xs: '100%', sm: 'auto' } }}
-            >
-              {VENDOR_TIME_PERIOD_OPTIONS.map((opt) => (
-                <MenuItem key={opt} value={opt} sx={MENU_ITEM_SX}>
-                  {opt}
-                </MenuItem>
-              ))}
-            </MuiSelect>
-          </Box>
-
-          {timePeriod === 'Custom Range' ? (
-            <DateRangePicker
-              size="sm"
-              value={customRange}
-              onChange={setCustomRange}
-              startLabel="From"
-              endLabel="To"
-            />
-          ) : null}
-
-          <Box sx={{ minWidth: { xs: '100%', sm: 'auto' }, flex: { xs: '1 1 auto', sm: '0 0 auto' } }}>
-            <Typography
-              variant="caption"
-              color="text.secondary"
-              fontWeight={600}
-              sx={FILTER_LABEL_SX}
-            >
-              Vendor
-            </Typography>
-            <Autocomplete
-              size="small"
-              disableClearable
-              options={[...VENDOR_FILTER_OPTIONS]}
-              value={selectedVendor}
-              onChange={(_, option: VendorFilterOption) => setVendorId(option.value)}
-              getOptionLabel={(option) => option.label}
-              isOptionEqualToValue={(option, value) => option.value === value.value}
-              renderInput={(params) => (
-                <TextField
-                  {...params}
-                  placeholder="Search vendor"
-                  inputProps={{
-                    ...params.inputProps,
-                    'aria-label': 'Search and select vendor',
-                  }}
-                />
-              )}
-              slotProps={{
-                paper: {
-                  sx: {
-                    fontSize: 12,
-                    '& .MuiAutocomplete-option': { fontSize: 12, minHeight: 36 },
-                  },
-                },
-              }}
-              sx={AUTOCOMPLETE_SX}
-            />
-          </Box>
-        </Box>
+      <Box sx={{ mb: 1.5 }}>
+        <Typography variant="h6" fontWeight={700} sx={{ fontSize: 16 }}>
+          Vendors
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12, mt: 0.25 }}>
+          Vendor billing and completed-project partnership overview.
+        </Typography>
       </Box>
 
       <Grid container spacing={2} sx={{ mb: 2.5 }}>
@@ -581,16 +707,10 @@ export function VendorsSection() {
         ))}
       </Grid>
 
-      <LargerMetaDataSection
-        kpis={analytics.largerMetaKpis}
-        highlights={analytics.projectHighlights}
-      />
-
-      {/* Master Vendor Performance — addition only; existing charts unchanged below */}
       <Box sx={{ mb: 2 }}>
         <ChartCard
-          title={perfChart.title}
-          subtitle={`${perfChart.xAxisLabel} · ${perfChart.subtitle}`}
+          title="Vendor Project Performance"
+          subtitle="Compare live and completed projects and their total project value by vendor."
           action={
             <Box
               sx={{
@@ -611,28 +731,47 @@ export function VendorsSection() {
                   Vendor
                 </Typography>
                 <Autocomplete
+                  multiple
                   size="small"
-                  disableClearable
-                  options={performance.vendorOptions}
-                  value={selectedPerformanceVendor}
-                  onChange={(_, option: VendorPerformanceOption | null) => {
-                    if (option == null) return
-                    setPerformanceVendorId(option.value)
+                  options={projectPerformance.vendorOptions}
+                  value={selectedProjectPerfVendors}
+                  onChange={(_, options) => {
+                    setProjectPerfVendorIds(options.map((o) => o.value))
                   }}
                   getOptionLabel={(option) => option.label}
                   isOptionEqualToValue={(option, value) => option.value === value.value}
+                  filterSelectedOptions
+                  limitTags={2}
                   filterOptions={(options, state) => {
                     const query = state.inputValue.trim().toLowerCase()
                     if (!query) return options
                     return options.filter((opt) => opt.label.toLowerCase().includes(query))
                   }}
+                  renderTags={(tagValue, getTagProps) =>
+                    tagValue.map((option, index) => {
+                      const { key, ...tagProps } = getTagProps({ index })
+                      return (
+                        <Chip
+                          key={key}
+                          size="small"
+                          label={option.label}
+                          {...tagProps}
+                          sx={{ height: 22, fontSize: 11 }}
+                        />
+                      )
+                    })
+                  }
                   renderInput={(params) => (
                     <TextField
                       {...params}
-                      placeholder="Search vendors..."
+                      placeholder={
+                        selectedProjectPerfVendors.length === 0
+                          ? 'All Vendors'
+                          : 'Search vendors...'
+                      }
                       inputProps={{
                         ...params.inputProps,
-                        'aria-label': 'Search and select vendor for performance graph',
+                        'aria-label': 'Search and select vendors',
                       }}
                     />
                   )}
@@ -644,7 +783,7 @@ export function VendorsSection() {
                       },
                     },
                   }}
-                  sx={PERF_VENDOR_AUTOCOMPLETE_SX}
+                  sx={PERF_VENDOR_MULTI_SX}
                 />
               </Box>
 
@@ -659,146 +798,71 @@ export function VendorsSection() {
                 </Typography>
                 <MuiSelect
                   size="small"
-                  value={performanceMetric}
+                  value={projectPerfMetric}
                   onChange={(e) =>
-                    setPerformanceMetric(e.target.value as VendorPerformanceMetric)
+                    setProjectPerfMetric(e.target.value as VendorProjectPerformanceMetric)
                   }
                   sx={METRIC_SELECT_SX}
                 >
-                  {VENDOR_PERFORMANCE_METRIC_OPTIONS.map((opt) => (
+                  {VENDOR_PROJECT_PERFORMANCE_METRIC_OPTIONS.map((opt) => (
                     <MenuItem key={opt} value={opt} sx={MENU_ITEM_SX}>
                       {opt}
                     </MenuItem>
                   ))}
                 </MuiSelect>
               </Box>
-
-              {perfChart.kind === 'years-line' && perfChart.series.length > 0 ? (
-                <Box sx={{ alignSelf: 'center', ml: { xs: 0, sm: 0.5 } }}>
-                  <ChartSeriesLegend
-                    items={perfChart.series.map((s) => ({
-                      label: s.label,
-                      color: s.color,
-                    }))}
-                  />
-                </Box>
-              ) : null}
             </Box>
           }
         >
-          {perfLoading && !hasPerfData ? (
+          {projectPerfLoading && projectPerfRows.length === 0 ? (
             <Typography
               variant="body2"
               color="text.secondary"
               sx={{ fontSize: 12, py: 6, textAlign: 'center' }}
             >
-              Loading vendor performance…
+              Loading vendor project performance…
             </Typography>
-          ) : !hasPerfData ? (
+          ) : projectPerfRows.length === 0 ? (
             <Typography
               variant="body2"
               color="text.secondary"
               sx={{ fontSize: 12, py: 6, textAlign: 'center' }}
             >
-              No vendor data for the selected filters.
+              {projectPerfMetric === 'Total Billing for the Year'
+                ? 'No vendor billing for the selected financial year.'
+                : 'No vendor project data for the selected filters.'}
             </Typography>
-          ) : perfChart.kind === 'years-line' ? (
-            <VendorBillingAcrossYearsChart
-              key={`years-${performanceVendorId}-${performanceMetric}`}
-              data={perfChart.data.map((row) => ({
-                year: String(row.year ?? ''),
-                ...row,
-              }))}
-              lines={perfChart.series.map((s) => ({
-                key: s.key,
-                label: s.label,
-                color: s.color,
-              }))}
-              height={perfChartHeight}
-            />
           ) : (
-            <BarChart
-              key={`bars-${performanceVendorId}-${performanceMetric}`}
-              data={[...perfChart.data]}
-              xKey={perfChart.xKey}
-              height={perfChartHeight}
-              orientation="horizontal"
-              showLegend={false}
-              barSize={18}
-              bars={perfChart.series.map((s) => ({
-                key: s.key,
-                label: s.label,
-                color: s.color,
-              }))}
-              formatX={formatPerfAxis}
-              tooltipContent={(props) => (
-                <VendorPerformanceBarTooltip
-                  {...props}
-                  format={perfChart.format}
-                  tooltipDetails={perfChart.tooltipDetails}
-                />
-              )}
+            <VendorProjectPerformanceChart
+              data={projectPerfRows}
+              metric={projectPerfMetric}
+              height={projectPerfHeight}
             />
           )}
         </ChartCard>
       </Box>
 
       <Grid container spacing={2}>
-        <Grid size={{ xs: 12, md: 6 }}>
-          <ChartCard
-            title="Vendor Billing (Current Year)"
-            subtitle="Compare vendor billing for the selected financial year"
-          >
-            <BarChart
-              data={[...analytics.billingCurrentYear]}
-              xKey="vendor"
-              height={300}
-              orientation="horizontal"
-              bars={[{ key: 'billing', label: 'Billing', color: CHART_COLORS.teal }]}
-              showLegend={false}
-              barSize={18}
-              formatX={formatAxisAmount}
-              tooltipContent={VendorBillingCurrentYearTooltip}
-            />
-          </ChartCard>
-        </Grid>
-
-        <Grid size={{ xs: 12, md: 6 }}>
-          <ChartCard
-            title="Vendor Billing Across Years"
-            subtitle="How vendor billing has changed over the years"
-            action={
-              <ChartSeriesLegend
-                items={yearLines.map((l) => ({ label: l.label, color: l.color }))}
-              />
-            }
-          >
-            <VendorBillingAcrossYearsChart
-              data={[...analytics.billingAcrossYears]}
-              lines={yearLines}
-              height={300}
-            />
-          </ChartCard>
-        </Grid>
-
         <Grid size={{ xs: 12 }}>
           <ChartCard
-            title="Projects Completed Together"
-            subtitle="Vendors with the highest number of completed projects"
+            title="Total Vendor Billing – Over the Years"
+            subtitle="Total amount paid to all vendors each year. Click a bar for vendor breakdown."
           >
-            <BarChart
-              data={[...analytics.projectsCompleted]}
-              xKey="vendor"
-              height={300}
-              orientation="horizontal"
-              bars={[{ key: 'projects', label: 'Projects', color: CHART_COLORS.blue }]}
-              showLegend={false}
-              barSize={18}
-              tooltipContent={ProjectsCompletedTogetherTooltip}
+            <TotalVendorBillingOverYearsChart
+              data={analytics.totalBillingOverYears}
+              selectedYear={selectedBillingYear}
+              onYearClick={(year) => setSelectedBillingYear(year)}
+              height={320}
             />
           </ChartCard>
         </Grid>
       </Grid>
+
+      <VendorBillingYearModal
+        open={selectedBillingYear != null && selectedYearPoint != null}
+        yearPoint={selectedYearPoint}
+        onClose={() => setSelectedBillingYear(null)}
+      />
     </Box>
   )
 }
