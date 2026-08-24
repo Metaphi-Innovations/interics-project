@@ -55,15 +55,17 @@ const ICON_MAP: Record<RevenueKpi['icon'], { node: ReactNode; color: string }> =
 
 interface RevenueKpiCardProps {
   kpi: RevenueKpi
+  onClick?: () => void
 }
 
-export function RevenueKpiCard({ kpi }: RevenueKpiCardProps) {
+export function RevenueKpiCard({ kpi, onClick }: RevenueKpiCardProps) {
   const theme = useTheme()
   const iconMeta = ICON_MAP[kpi.icon]
 
   return (
     <Paper
       elevation={0}
+      onClick={onClick}
       sx={{
         height: '100%',
         p: 2,
@@ -74,6 +76,14 @@ export function RevenueKpiCard({ kpi }: RevenueKpiCardProps) {
         flexDirection: 'column',
         gap: 1,
         bgcolor: 'background.paper',
+        ...(onClick && {
+          cursor: 'pointer',
+          transition: 'border-color 0.15s, box-shadow 0.15s',
+          '&:hover': {
+            borderColor: tokens.color.primary[300],
+            boxShadow: `0 2px 8px rgba(0,0,0,0.08)`,
+          },
+        }),
       }}
     >
       <Box

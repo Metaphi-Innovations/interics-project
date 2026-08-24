@@ -1,6 +1,6 @@
 /**
  * Dashboard 1 — Project Design Analytics
- * Project selector + details, financial summary, duration, interactive Live Project fee graph
+ * Project selector + details, financial summary, fee per sq.ft by category
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode, type SyntheticEvent } from 'react'
 import {
@@ -8,9 +8,7 @@ import {
   Box,
   Fade,
   Grid,
-  MenuItem,
   Paper,
-  Select as MuiSelect,
   Skeleton,
   Stack,
   TextField,
@@ -24,24 +22,30 @@ import {
   Wallet,
 } from 'lucide-react'
 import {
-  BarChart,
+  Bar,
+  BarChart as RechartsBarChart,
+  CartesianGrid,
+  Cell,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts'
+import type { TooltipContentProps } from 'recharts'
+import {
   ChartCard,
 } from '@/design-system/components'
+import { useChartTheme } from '@/design-system/components/charts/utils/chartTheme'
 import { CHART_COLORS, tokens } from '@/design-system/tokens'
-import { formatCurrency } from '@/utils/formatters'
-import { useAppDispatch, useAppSelector } from '@/store/hooks'
-import { fetchProjects } from '@/slices/projects/thunk'
 import {
+  buildFeePerSqftChartData,
   DEFAULT_DESIGN_PROJECT_ID,
   DESIGN_PROJECT_ANALYTICS,
   DESIGN_PROJECT_OPTIONS,
-  FEE_METRIC_OPTIONS,
-  getLiveProjectFeeAnalytics,
   type DesignFinancialIcon,
   type DesignProjectId,
   type DesignProjectOption,
-  type FeeMetric,
-  type LiveProjectFeeOption,
+  type FeePerSqftChartRow,
 } from './projectDesignAnalyticsData'
 
 const FINANCIAL_ICON_MAP: Record<DesignFinancialIcon, { node: ReactNode; color: string }> = {
@@ -71,49 +75,23 @@ const AUTOCOMPLETE_SX = {
   '& .MuiOutlinedInput-root': {
     height: 32,
     fontSize: 12,
-    bgcolor: 'background.paper',
+    bgcolor: 'action.hover',
     '& fieldset': {
-      borderColor: tokens.color.neutral[200],
+      border: 'none',
     },
   },
   '& .MuiInputBase-input': {
     fontSize: 12,
     py: 0,
+    color: 'text.primary',
+    opacity: 1,
   },
 } as const
-
-const FEE_METRIC_SELECT_SX = { minWidth: 180, fontSize: 12, height: 32 } as const
-const MENU_ITEM_SX = { fontSize: 12 } as const
-
-const FILTER_LABEL_SX = {
-  display: 'block',
-  fontSize: 10,
-  letterSpacing: 0.5,
-  textTransform: 'uppercase',
-  mb: 0.5,
-} as const
-
-const ALL_LIVE_PROJECTS_OPTION: LiveProjectFeeOption = {
-  value: 'all',
-  label: 'All Live Projects',
-}
 
 function formatFeePerSqft(value: number | string): string {
   const n = typeof value === 'number' ? value : Number(value)
   if (Number.isNaN(n)) return String(value)
-  return `₹${n}`
-}
-
-function formatFeeCurrency(value: number | string): string {
-  const n = typeof value === 'number' ? value : Number(value)
-  if (Number.isNaN(n)) return String(value)
-  return `₹${formatCurrency(n)}`
-}
-
-function formatDays(value: number | string): string {
-  const n = typeof value === 'number' ? value : Number(value)
-  if (Number.isNaN(n)) return String(value)
-  return `${Math.round(n)}d`
+  return `₹${n.toLocaleString('en-IN')}`
 }
 
 function SectionLabel({ title }: { title: string }) {
@@ -274,18 +252,156 @@ function ProjectDetailsSkeleton() {
   )
 }
 
-export function ProjectDesignAnalyticsSection() {
-  const dispatch = useAppDispatch()
-  const projects = useAppSelector((s) => s.projects.items ?? [])
-  const projectsLoading = useAppSelector((s) => s.projects.loading)
+function FeePerSqftTooltip({
+  active,
+  payload,
+  projectName,
+}: TooltipContentProps & { projectName: string }) {
+  if (!active || !payload?.length) return null
+  const entry = payload[0]
+  if (!entry) return null
+  const row = entry.payload as FeePerSqftChartRow | undefined
+  const category = row?.category ?? String(entry.name ?? '')
+  const fee = typeof entry.value === 'number' ? entry.value : Number(entry.value)
+  if (Number.isNaN(fee)) return null
 
+  return (
+    <Box
+      sx={{
+        bgcolor: 'background.paper',
+        border: `1px solid ${tokens.color.neutral[200]}`,
+        borderRadius: '8px',
+        boxShadow: tokens.shadow.sm,
+        px: 1.5,
+        py: 1,
+        minWidth: 180,
+      }}
+    >
+      <Typography variant="caption" sx={{ fontSize: 12, display: 'block', mb: 0.25 }}>
+        <Box component="span" sx={{ color: 'text.secondary' }}>
+          Project Name:{' '}
+        </Box>
+        <Box component="span" sx={{ fontWeight: 600, color: 'text.primary' }}>
+          {projectName}
+        </Box>
+      </Typography>
+      <Typography variant="caption" sx={{ fontSize: 12, display: 'block', mb: 0.25 }}>
+        <Box component="span" sx={{ color: 'text.secondary' }}>
+          Fee Category:{' '}
+        </Box>
+        <Box component="span" sx={{ fontWeight: 600, color: 'text.primary' }}>
+          {category}
+        </Box>
+      </Typography>
+      <Typography variant="caption" sx={{ fontSize: 12, display: 'block' }}>
+        <Box component="span" sx={{ color: 'text.secondary' }}>
+          Fee / sq.ft.:{' '}
+        </Box>
+        <Box component="span" sx={{ fontWeight: 600, color: 'text.primary' }}>
+          {formatFeePerSqft(fee)}
+        </Box>
+      </Typography>
+    </Box>
+  )
+}
+
+function FeePerSqftCategoryChart({
+  data,
+  projectName,
+  height = 280,
+}: {
+  data: FeePerSqftChartRow[]
+  projectName: string
+  height?: number
+}) {
+  const ct = useChartTheme()
+  const h = ct.isMobile ? Math.round(height * 0.85) : height
+
+  return (
+    <Box sx={{ width: '100%' }}>
+      <ResponsiveContainer width="100%" height={h}>
+        <RechartsBarChart
+          data={data}
+          layout="vertical"
+          barCategoryGap="28%"
+          margin={{
+            top: 8,
+            right: ct.isMobile ? 16 : 24,
+            left: 0,
+            bottom: 28,
+          }}
+        >
+          <CartesianGrid
+            stroke={ct.gridProps.stroke}
+            strokeDasharray={ct.gridProps.strokeDasharray}
+            strokeOpacity={ct.gridProps.strokeOpacity}
+            horizontal={false}
+            vertical
+          />
+          <XAxis
+            type="number"
+            domain={[0, 'dataMax']}
+            padding={{ left: 0, right: 8 }}
+            tick={ct.axisStyle}
+            tickLine={false}
+            axisLine={{ stroke: ct.gridProps.stroke }}
+            tickFormatter={formatFeePerSqft}
+            label={{
+              value: 'Fee per Sq.ft. (₹)',
+              position: 'insideBottom',
+              offset: -16,
+              style: {
+                fill: tokens.color.neutral[500],
+                fontSize: 11,
+                fontFamily: ct.fontFamily,
+              },
+            }}
+          />
+          <YAxis
+            type="category"
+            dataKey="category"
+            tick={{ ...ct.axisStyle, textAnchor: 'end' }}
+            tickLine={false}
+            axisLine={{ stroke: ct.gridProps.stroke }}
+            width={ct.isMobile ? 72 : 88}
+            tickMargin={2}
+            interval={0}
+          />
+          <Tooltip
+            isAnimationActive={false}
+            animationDuration={0}
+            content={(props) => (
+              <FeePerSqftTooltip {...props} projectName={projectName} />
+            )}
+            cursor={{
+              fill: ct.theme.palette.action.hover,
+              stroke: 'none',
+              fillOpacity: 0.45,
+            }}
+          />
+          <Bar
+            dataKey="feePerSqft"
+            name="Fee / sq.ft."
+            radius={[0, 4, 4, 0]}
+            maxBarSize={22}
+            isAnimationActive={false}
+            activeBar={false}
+          >
+            {data.map((row) => (
+              <Cell key={row.category} fill={row.color} />
+            ))}
+          </Bar>
+        </RechartsBarChart>
+      </ResponsiveContainer>
+    </Box>
+  )
+}
+
+export function ProjectDesignAnalyticsSection() {
   const [projectId, setProjectId] = useState<DesignProjectId>(DEFAULT_DESIGN_PROJECT_ID)
   const [pendingId, setPendingId] = useState<DesignProjectId | null>(null)
   const [loading, setLoading] = useState(false)
   const switchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  const [liveProjectId, setLiveProjectId] = useState('all')
-  const [feeMetric, setFeeMetric] = useState<FeeMetric>('Fee per Sq.ft')
 
   const selectorId = pendingId ?? projectId
 
@@ -296,21 +412,12 @@ export function ProjectDesignAnalyticsSection() {
 
   const analytics = DESIGN_PROJECT_ANALYTICS[projectId]
 
-  const feeAnalytics = useMemo(
-    () => getLiveProjectFeeAnalytics(projects, liveProjectId, feeMetric),
-    [projects, liveProjectId, feeMetric],
+  const feeChartData = useMemo(
+    () => buildFeePerSqftChartData(analytics.feePerSqft),
+    [analytics.feePerSqft],
   )
 
-  const selectedLiveProjectOption = useMemo(() => {
-    return (
-      feeAnalytics.projectOptions.find((o) => o.value === liveProjectId) ??
-      ALL_LIVE_PROJECTS_OPTION
-    )
-  }, [feeAnalytics.projectOptions, liveProjectId])
-
-  const feeChart = feeAnalytics.chart
-  const hasFeeChartData = feeChart.data.length > 0
-  const feeChartHeight = Math.max(280, Math.min(520, feeChart.data.length * 28 + 80))
+  const feeChartHeight = Math.max(240, Math.min(420, feeChartData.length * 52 + 80))
 
   const detailFields = useMemo(
     () => [
@@ -323,16 +430,6 @@ export function ProjectDesignAnalyticsSection() {
     ],
     [analytics],
   )
-
-  useEffect(() => {
-    void dispatch(fetchProjects({ page: 1, pageSize: 500 }))
-  }, [dispatch])
-
-  useEffect(() => {
-    if (!feeAnalytics.projectOptions.some((o) => o.value === liveProjectId)) {
-      setLiveProjectId('all')
-    }
-  }, [feeAnalytics.projectOptions, liveProjectId])
 
   useEffect(() => {
     return () => {
@@ -361,17 +458,6 @@ export function ProjectDesignAnalyticsSection() {
       switchTimerRef.current = null
     }, PROJECT_SWITCH_DELAY_MS)
   }
-
-  const handleLiveProjectChange = (
-    _event: SyntheticEvent,
-    value: LiveProjectFeeOption | null,
-  ) => {
-    if (value == null) return
-    setLiveProjectId(value.value)
-  }
-
-  const formatFeeAxis =
-    feeChart.format === 'perSqft' ? formatFeePerSqft : formatFeeCurrency
 
   return (
     <Box sx={{ mb: 3 }}>
@@ -514,144 +600,27 @@ export function ProjectDesignAnalyticsSection() {
         </Stack>
       </Fade>
 
-      {/* Fee per Sq.ft above — Project Duration below */}
+      {/* Fee per Sq.ft — driven by section Project selector */}
       <Box sx={{ mt: 2 }}>
         <ChartCard
           title="Fee per Sq.ft"
-          subtitle={`${feeChart.xAxisLabel} across ${feeChart.yAxisLabel.toLowerCase()}`}
-          action={
-            <Box
-              sx={{
-                display: 'flex',
-                flexWrap: 'wrap',
-                gap: 1.5,
-                alignItems: 'flex-end',
-                justifyContent: 'flex-end',
-              }}
-            >
-              <Box sx={{ width: { xs: '100%', sm: 'auto' } }}>
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                  fontWeight={600}
-                  sx={FILTER_LABEL_SX}
-                >
-                  Live Project
-                </Typography>
-                <Autocomplete
-                  size="small"
-                  disableClearable
-                  options={feeAnalytics.projectOptions}
-                  value={selectedLiveProjectOption}
-                  onChange={handleLiveProjectChange}
-                  getOptionLabel={(option) => option.label}
-                  isOptionEqualToValue={(option, value) => option.value === value.value}
-                  filterOptions={(options, state) => {
-                    const query = state.inputValue.trim().toLowerCase()
-                    if (!query) return options
-                    return options.filter((opt) => opt.label.toLowerCase().includes(query))
-                  }}
-                  renderInput={(params) => (
-                    <TextField
-                      {...params}
-                      placeholder="Search live projects..."
-                      inputProps={{
-                        ...params.inputProps,
-                        'aria-label': 'Search and select live project',
-                      }}
-                    />
-                  )}
-                  slotProps={{
-                    paper: {
-                      sx: {
-                        fontSize: 12,
-                        '& .MuiAutocomplete-option': { fontSize: 12, minHeight: 36 },
-                      },
-                    },
-                  }}
-                  sx={AUTOCOMPLETE_SX}
-                />
-              </Box>
-
-              <Box>
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                  fontWeight={600}
-                  sx={FILTER_LABEL_SX}
-                >
-                  Fee Metric
-                </Typography>
-                <MuiSelect
-                  size="small"
-                  value={feeMetric}
-                  onChange={(e) => setFeeMetric(e.target.value as FeeMetric)}
-                  sx={FEE_METRIC_SELECT_SX}
-                >
-                  {FEE_METRIC_OPTIONS.map((opt) => (
-                    <MenuItem key={opt} value={opt} sx={MENU_ITEM_SX}>
-                      {opt}
-                    </MenuItem>
-                  ))}
-                </MuiSelect>
-              </Box>
-            </Box>
-          }
+          subtitle="Fee per Sq.ft. (₹) by fee category for the selected project."
         >
-          {projectsLoading && !hasFeeChartData ? (
+          {feeChartData.length === 0 ? (
             <Typography
               variant="body2"
               color="text.secondary"
               sx={{ fontSize: 12, py: 6, textAlign: 'center' }}
             >
-              Loading live project fees…
-            </Typography>
-          ) : !hasFeeChartData ? (
-            <Typography
-              variant="body2"
-              color="text.secondary"
-              sx={{ fontSize: 12, py: 6, textAlign: 'center' }}
-            >
-              No live projects for the selected filters.
+              No fee categories for the selected project.
             </Typography>
           ) : (
-            <BarChart
-              data={[...feeChart.data]}
-              xKey="project"
+            <FeePerSqftCategoryChart
+              data={feeChartData}
+              projectName={analytics.details.projectName}
               height={feeChartHeight}
-              orientation="horizontal"
-              showLegend={false}
-              barSize={18}
-              bars={[
-                {
-                  key: feeChart.seriesKey,
-                  label: feeChart.seriesLabel,
-                  color: feeChart.color,
-                },
-              ]}
-              formatX={formatFeeAxis}
             />
           )}
-        </ChartCard>
-      </Box>
-
-      <Box sx={{ mt: 2 }}>
-        <ChartCard
-          title="Project Duration (Planned vs Actual)"
-          subtitle="Comparison of planned and actual project duration"
-          loading={loading}
-        >
-          <BarChart
-            data={[...analytics.duration]}
-            xKey="label"
-            height={180}
-            orientation="horizontal"
-            bars={[{ key: 'days', label: 'Days', color: CHART_COLORS.blue }]}
-            showLegend={false}
-            barSize={22}
-            formatX={formatDays}
-            loading={loading}
-          />
         </ChartCard>
       </Box>
     </Box>

@@ -88,7 +88,7 @@ function projectAnchorDate(project: Project): Date | null {
   return parseDate(project.startDate) ?? parseDate(project.createdAt)
 }
 
-function getDateRangeBounds(dateRange: string, now = new Date()): { start: Date | null; end: Date } {
+export function getDateRangeBounds(dateRange: string, now = new Date()): { start: Date | null; end: Date } {
   const end = endOfDay(now)
   if (dateRange === 'All Time') return { start: null, end }
 
@@ -533,4 +533,139 @@ export function buildLiveProjectSizes(projects: Project[]): {
     liveCount: live.length,
     totalSqft,
   }
+}
+
+export type LifecycleEventType = 'Pitch' | 'Live' | 'Completed' | 'Cancelled' | 'Archived'
+
+export interface LifecycleEvent {
+  id: string
+  projectId: string
+  projectName: string
+  eventType: LifecycleEventType
+  date: number
+  dateLabel: string
+  sqft: number
+}
+
+export interface LifecycleProjectLine {
+  projectId: string
+  projectName: string
+  events: LifecycleEvent[]
+}
+
+export function buildProjectLifecycleData(projects: Project[]): {
+  lines: LifecycleProjectLine[]
+  events: LifecycleEvent[]
+} {
+  const lines: LifecycleProjectLine[] = []
+  const allEvents: LifecycleEvent[] = []
+
+  // Sort projects alphabetically
+  const sortedProjects = [...projects].sort((a, b) => a.name.localeCompare(b.name))
+
+  for (const p of sortedProjects) {
+    const sqft = projectSqft(p) ?? 0
+    const projEvents: LifecycleEvent[] = []
+
+    const pitchDate = parseDate(p.createdAt)
+    const liveDate =
+      p.status !== 'Pitch' && p.startDate ? parseDate(p.startDate) : null
+    const isTerminal = (['Completed', 'Cancelled', 'Archived'] as const).includes(
+      p.status as 'Completed' | 'Cancelled' | 'Archived',
+    )
+
+    /**
+     * Pitch only when the project actually had a pitch period:
+     * - currently in Pitch, or
+     * - createdAt is strictly before Live start (Pitch → Live path).
+     * Direct-to-Live / terminal-only projects never get a fabricated Pitch.
+     */
+    const hasPitchStage =
+      pitchDate != null &&
+      (p.status === 'Pitch' ||
+        (liveDate != null && pitchDate.getTime() < liveDate.getTime()))
+
+    if (hasPitchStage && pitchDate) {
+      projEvents.push({
+        id: `${p.id}-pitch`,
+        projectId: p.id,
+        projectName: p.name,
+        eventType: 'Pitch',
+        date: pitchDate.getTime(),
+        dateLabel: pitchDate.toLocaleDateString('en-GB', {
+          day: 'numeric',
+          month: 'short',
+          year: 'numeric',
+        }),
+        sqft,
+      })
+    }
+
+    if (liveDate) {
+      projEvents.push({
+        id: `${p.id}-live`,
+        projectId: p.id,
+        projectName: p.name,
+        eventType: 'Live',
+        date: liveDate.getTime(),
+        dateLabel: liveDate.toLocaleDateString('en-GB', {
+          day: 'numeric',
+          month: 'short',
+          year: 'numeric',
+        }),
+        sqft,
+      })
+    }
+
+    // End event (Completed, Cancelled, Archived) — only when that status is real
+    if (isTerminal && p.expectedEndDate) {
+      const endDate = parseDate(p.expectedEndDate)
+      if (endDate) {
+        const priorTs = liveDate?.getTime() ?? (hasPitchStage ? pitchDate!.getTime() : null)
+        // Allow terminal-only bars when there is no prior stage in history
+        if (priorTs == null || endDate.getTime() >= priorTs) {
+          projEvents.push({
+            id: `${p.id}-${p.status.toLowerCase()}`,
+            projectId: p.id,
+            projectName: p.name,
+            eventType: p.status as LifecycleEventType,
+            date: endDate.getTime(),
+            dateLabel: endDate.toLocaleDateString('en-GB', {
+              day: 'numeric',
+              month: 'short',
+              year: 'numeric',
+            }),
+            sqft,
+          })
+        }
+      }
+    } else if (isTerminal && !p.expectedEndDate && !liveDate && !hasPitchStage && pitchDate) {
+      // Terminal with no end/live dates: use createdAt as the stage date (no fake Pitch/Live)
+      projEvents.push({
+        id: `${p.id}-${p.status.toLowerCase()}`,
+        projectId: p.id,
+        projectName: p.name,
+        eventType: p.status as LifecycleEventType,
+        date: pitchDate.getTime(),
+        dateLabel: pitchDate.toLocaleDateString('en-GB', {
+          day: 'numeric',
+          month: 'short',
+          year: 'numeric',
+        }),
+        sqft,
+      })
+    }
+
+    if (projEvents.length > 0) {
+      projEvents.sort((a, b) => a.date - b.date)
+      lines.push({
+        projectId: p.id,
+        projectName: p.name,
+        events: projEvents,
+      })
+      allEvents.push(...projEvents)
+    }
+  }
+
+  return { lines, events: allEvents }
 }

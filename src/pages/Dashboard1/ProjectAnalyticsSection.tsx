@@ -1,56 +1,42 @@
 /**
  * Dashboard 1 — Project Analytics
- * Live project duration / size, repeat clients, completions, conversion KPI
+ * Project Lifecycle & Size timeline + yearly completions
  */
-import { useEffect, useMemo, useState, type ReactNode, type SyntheticEvent } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type SyntheticEvent,
+} from 'react'
 import {
   Autocomplete,
   Box,
   Grid,
-  Paper,
-  Stack,
   TextField,
   Typography,
 } from '@mui/material'
-import { alpha, useTheme } from '@mui/material/styles'
-import { Clock3, RefreshCw } from 'lucide-react'
-import type { TooltipContentProps } from 'recharts'
-import {
-  CartesianGrid,
-  LabelList,
-  Line,
-  LineChart as RechartsLineChart,
-  ReferenceDot,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts'
-import type { Props as RechartsLabelProps } from 'recharts/types/component/Label'
+import { alpha } from '@mui/material/styles'
 import {
   BarChart,
   ChartCard,
 } from '@/design-system/components'
-import { useChartTheme } from '@/design-system/components/charts/utils/chartTheme'
 import { CHART_COLORS, tokens } from '@/design-system/tokens'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { fetchProjects } from '@/slices/projects/thunk'
 import {
-  ALL_LIVE_PROJECTS_VALUE,
-  buildLiveDurationByMonth,
-  buildLiveProjectDurationTimeline,
-  buildLiveProjectSelectOptions,
-  buildLiveProjectSizes,
-  filterProjectsForLiveAnalytics,
-  PITCH_TO_LIVE_CONVERSION,
+  buildProjectLifecycleData,
+  filterProjectsForDashboard,
   PROJECTS_COMPLETED_BY_YEAR,
-  REPEAT_CLIENTS_KPI,
-  type LiveDurationByMonthPoint,
-  type LiveProjectSelectOption,
-  type LiveProjectSizePoint,
-  type LiveProjectTimelineMeta,
-  type LiveProjectTimelinePoint,
+  type LifecycleEvent,
+  type LifecycleEventType,
+  type LifecycleProjectLine,
 } from './projectAnalyticsData'
+import { ChartSeriesLegend } from './ChartSeriesLegend'
+
+/* ─────────────────── constants ─────────────────── */
 
 const FILTER_LABEL_SX = {
   display: 'block',
@@ -66,481 +52,482 @@ const AUTOCOMPLETE_SX = {
   '& .MuiOutlinedInput-root': {
     height: 32,
     fontSize: 12,
-    bgcolor: 'background.paper',
+    bgcolor: 'action.hover',
     '& fieldset': {
-      borderColor: tokens.color.neutral[200],
+      border: 'none',
     },
   },
   '& .MuiInputBase-input': {
     fontSize: 12,
     py: 0,
+    color: 'text.primary',
+    opacity: 1,
   },
 } as const
 
-const ALL_LIVE_OPTION: LiveProjectSelectOption = {
-  value: ALL_LIVE_PROJECTS_VALUE,
-  label: 'All Live Projects',
+const ALL_PROJECTS_VALUE = 'ALL_PROJECTS'
+const ALL_PROJECTS_OPTION = { value: ALL_PROJECTS_VALUE, label: 'All Projects' }
+
+/** Map event type → fixed color */
+const EVENT_COLORS: Record<LifecycleEventType, string> = {
+  Pitch: CHART_COLORS.blue,
+  Live: CHART_COLORS.teal,
+  Completed: CHART_COLORS.green,
+  Cancelled: CHART_COLORS.red,
+  Archived: CHART_COLORS.orange,
 }
 
-function formatSqft(value: number | string): string {
-  const n = typeof value === 'number' ? value : Number(value)
-  if (Number.isNaN(n)) return String(value)
-  return `${Math.round(n).toLocaleString('en-IN')}`
+const LEGEND_ITEMS = [
+  { label: 'Pitch', color: CHART_COLORS.blue },
+  { label: 'Live', color: CHART_COLORS.teal },
+  { label: 'Completed', color: CHART_COLORS.green },
+  { label: 'Cancelled', color: CHART_COLORS.red },
+  { label: 'Archived', color: CHART_COLORS.orange },
+] as const
+
+/** FY month labels shown on the X-axis (Mar → Apr, no years). */
+const FY_MONTH_SPECS: { month: number; yearOffset: number }[] = [
+  { month: 2, yearOffset: 0 },  // Mar
+  { month: 3, yearOffset: 0 },  // Apr
+  { month: 4, yearOffset: 0 },  // May
+  { month: 5, yearOffset: 0 },  // Jun
+  { month: 6, yearOffset: 0 },  // Jul
+  { month: 7, yearOffset: 0 },  // Aug
+  { month: 8, yearOffset: 0 },  // Sep
+  { month: 9, yearOffset: 0 },  // Oct
+  { month: 10, yearOffset: 0 }, // Nov
+  { month: 11, yearOffset: 0 }, // Dec
+  { month: 0, yearOffset: 1 },  // Jan
+  { month: 1, yearOffset: 1 },  // Feb
+  { month: 2, yearOffset: 1 },  // Mar
+  { month: 3, yearOffset: 1 },  // Apr
+]
+
+const MONTH_SHORT = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+] as const
+
+const VISIBLE_ROWS = 6
+const ROW_HEIGHT = 58
+const BAR_HEIGHT = 18
+const BAR_RADIUS = 9
+const MIN_SEGMENT_PX = 6
+const TERMINAL_SEGMENT_MS = 45 * 24 * 3600 * 1000
+/** Tight left gutter: names end just before the plot (was oversized empty gap). */
+const SVG_LEFT_MARGIN = 128
+const SVG_RIGHT_MARGIN = 20
+const SVG_TOP_MARGIN = 8
+const SVG_BOTTOM_MARGIN = 48
+const NAME_GAP_PX = 8
+
+/* ─────────────────── helpers ─────────────────── */
+
+function formatSqft(value: number): string {
+  return Math.round(value).toLocaleString('en-IN')
 }
 
-function formatSqftAxis(value: number | string): string {
-  const n = typeof value === 'number' ? value : Number(value)
-  if (Number.isNaN(n)) return String(value)
-  if (n >= 1000) return `${(n / 1000).toFixed(n >= 10_000 ? 0 : 1)}k`
-  return String(Math.round(n))
+function resolveFyStartYear(refTs: number): number {
+  const ref = new Date(refTs)
+  const month = ref.getMonth()
+  const year = ref.getFullYear()
+  // Window Mar Y → Apr Y+1. May–Dec belong to Y; Jan–Apr belong to Y-1.
+  return month >= 4 ? year : year - 1
 }
 
-function formatDaysAxis(value: number | string): string {
-  if (value == null || value === '') return ''
-  const n = typeof value === 'number' ? value : Number(value)
-  if (Number.isNaN(n)) return String(value)
-  return `${Math.round(n)}d`
+function buildFyAxis(refTs: number): {
+  domainStart: number
+  domainEnd: number
+  ticks: { ts: number; label: string }[]
+} {
+  const startYear = resolveFyStartYear(refTs)
+  const ticks = FY_MONTH_SPECS.map(({ month, yearOffset }) => {
+    const ts = new Date(startYear + yearOffset, month, 1).getTime()
+    return { ts, label: MONTH_SHORT[month]! }
+  })
+  const domainStart = ticks[0]!.ts
+  // End of final April
+  const last = FY_MONTH_SPECS[FY_MONTH_SPECS.length - 1]!
+  const domainEnd = new Date(
+    startYear + last.yearOffset,
+    last.month + 1,
+    0,
+    23,
+    59,
+    59,
+    999,
+  ).getTime()
+  return { domainStart, domainEnd, ticks }
 }
 
-function shortenProjectLabel(value: number | string): string {
-  const label = String(value)
-  if (label.length <= 14) return label
-  return `${label.slice(0, 12)}…`
+interface LifecycleSegment {
+  event: LifecycleEvent
+  start: number
+  end: number
 }
 
-function ChartTooltipShell({ children }: { children: ReactNode }) {
+function buildLifecycleSegments(
+  events: LifecycleEvent[],
+  now: number,
+): LifecycleSegment[] {
+  const sorted = [...events].sort((a, b) => a.date - b.date)
+  return sorted.map((event, index) => {
+    const start = event.date
+    let end: number
+    if (index < sorted.length - 1) {
+      end = sorted[index + 1]!.date
+    } else if (event.eventType === 'Pitch' || event.eventType === 'Live') {
+      end = Math.max(now, start)
+    } else {
+      end = start + TERMINAL_SEGMENT_MS
+    }
+    if (end <= start) {
+      end = start + 7 * 24 * 3600 * 1000
+    }
+    return { event, start, end }
+  })
+}
+
+/**
+ * Shift each project's timeline so its first real stage begins at the plot
+ * left edge (domainStart). Durations between stages are preserved; calendar
+ * offsets that would leave empty space before the bar are removed.
+ */
+function alignSegmentsToPlotLeft(
+  segments: LifecycleSegment[],
+  domainStart: number,
+  domainEnd: number,
+): LifecycleSegment[] {
+  if (segments.length === 0) return []
+  const origin = segments[0]!.start
+  const aligned: LifecycleSegment[] = []
+
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i]!
+    const start = domainStart + (seg.start - origin)
+    const end = domainStart + (seg.end - origin)
+    if (start >= domainEnd) break
+    aligned.push({
+      event: seg.event,
+      start: i === 0 ? domainStart : Math.max(start, domainStart),
+      end: Math.min(Math.max(end, start + 1), domainEnd),
+    })
+  }
+
+  if (aligned[0]) {
+    aligned[0] = { ...aligned[0], start: domainStart }
+  }
+  return aligned.filter((s) => s.end > s.start)
+}
+
+/** SVG path for a rect with per-corner radii. */
+function roundedRectPath(
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  radii: { tl: number; tr: number; br: number; bl: number },
+): string {
+  const width = Math.max(w, 0)
+  const height = Math.max(h, 0)
+  const r = {
+    tl: Math.min(radii.tl, width / 2, height / 2),
+    tr: Math.min(radii.tr, width / 2, height / 2),
+    br: Math.min(radii.br, width / 2, height / 2),
+    bl: Math.min(radii.bl, width / 2, height / 2),
+  }
+  return [
+    `M ${x + r.tl} ${y}`,
+    `H ${x + width - r.tr}`,
+    r.tr > 0 ? `A ${r.tr} ${r.tr} 0 0 1 ${x + width} ${y + r.tr}` : `L ${x + width} ${y}`,
+    `V ${y + height - r.br}`,
+    r.br > 0 ? `A ${r.br} ${r.br} 0 0 1 ${x + width - r.br} ${y + height}` : `L ${x + width} ${y + height}`,
+    `H ${x + r.bl}`,
+    r.bl > 0 ? `A ${r.bl} ${r.bl} 0 0 1 ${x} ${y + height - r.bl}` : `L ${x} ${y + height}`,
+    `V ${y + r.tl}`,
+    r.tl > 0 ? `A ${r.tl} ${r.tl} 0 0 1 ${x + r.tl} ${y}` : `L ${x} ${y}`,
+    'Z',
+  ].join(' ')
+}
+
+function wrapProjectName(name: string, maxChars = 18): string[] {
+  if (name.length <= maxChars) return [name]
+  const parts = name.split(/\s+[–—-]\s+/)
+  if (parts.length >= 2) {
+    return [parts[0]!, parts.slice(1).join(' – ')].map((line) =>
+      line.length > maxChars ? `${line.slice(0, maxChars - 1)}…` : line,
+    )
+  }
+  const mid = Math.min(maxChars, name.lastIndexOf(' ', maxChars))
+  if (mid > 8) {
+    return [name.slice(0, mid), name.slice(mid + 1, mid + 1 + maxChars)]
+  }
+  return [`${name.slice(0, maxChars - 1)}…`]
+}
+
+/* ─────────────────── tooltip ─────────────────── */
+
+interface TooltipState {
+  event: LifecycleEvent
+  x: number
+  y: number
+}
+
+function LifecycleChartTooltip({ tip }: { tip: TooltipState }) {
+  const { event, x, y } = tip
+  const stageColor = EVENT_COLORS[event.eventType]
   return (
     <Box
       sx={{
-        bgcolor: 'background.paper',
-        border: `1px solid ${tokens.color.neutral[200]}`,
+        position: 'fixed',
+        left: x,
+        top: y,
+        transform: 'translate(-50%, calc(-100% - 12px))',
+        zIndex: 9999,
+        bgcolor: tokens.color.neutral[900],
+        color: tokens.color.neutral[50],
         borderRadius: '8px',
-        boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
-        px: 1.5,
-        py: 1,
-        minWidth: 160,
-        maxWidth: 280,
+        boxShadow: `0 8px 24px ${alpha(tokens.color.neutral[900], 0.35)}`,
+        px: 1.75,
+        py: 1.25,
+        minWidth: 200,
+        pointerEvents: 'none',
+        '&::after': {
+          content: '""',
+          position: 'absolute',
+          left: '50%',
+          bottom: -6,
+          transform: 'translateX(-50%)',
+          width: 0,
+          height: 0,
+          borderLeft: '6px solid transparent',
+          borderRight: '6px solid transparent',
+          borderTop: `6px solid ${tokens.color.neutral[900]}`,
+        },
       }}
     >
-      {children}
+      <Typography variant="caption" sx={{ fontSize: 12, display: 'block', mb: 0.5 }}>
+        <Box component="span" sx={{ color: tokens.color.neutral[400] }}>
+          Project:{' '}
+        </Box>
+        <Box component="span" sx={{ fontWeight: 600, color: tokens.color.neutral[50] }}>
+          {event.projectName}
+        </Box>
+      </Typography>
+      <Typography variant="caption" sx={{ fontSize: 12, display: 'block', mb: 0.25 }}>
+        <Box component="span" sx={{ color: tokens.color.neutral[400] }}>
+          Stage:{' '}
+        </Box>
+        <Box component="span" sx={{ fontWeight: 700, color: stageColor }}>
+          {event.eventType}
+        </Box>
+      </Typography>
+      <Typography variant="caption" sx={{ fontSize: 12, display: 'block', mb: 0.25 }}>
+        <Box component="span" sx={{ color: tokens.color.neutral[400] }}>
+          Date:{' '}
+        </Box>
+        <Box component="span" sx={{ fontWeight: 600, color: tokens.color.neutral[50] }}>
+          {event.dateLabel}
+        </Box>
+      </Typography>
+      <Typography variant="caption" sx={{ fontSize: 12, display: 'block' }}>
+        <Box component="span" sx={{ color: tokens.color.neutral[400] }}>
+          Project Size:{' '}
+        </Box>
+        <Box component="span" sx={{ fontWeight: 600, color: tokens.color.neutral[50] }}>
+          {event.sqft > 0 ? `${formatSqft(event.sqft)} sq.ft.` : '—'}
+        </Box>
+      </Typography>
     </Box>
   )
 }
 
-function LiveDurationTooltip({ active, payload, label }: TooltipContentProps) {
-  if (!active || !payload?.length) return null
-  const point = payload[0]?.payload as LiveDurationByMonthPoint | undefined
-  if (!point) return null
+/* ─────────────────── custom SVG chart ─────────────────── */
 
-  const monthLabel = String(label ?? point.month)
+interface LifecycleChartProps {
+  lines: LifecycleProjectLine[]
+  domainStart: number
+  domainEnd: number
+  ticks: { ts: number; label: string }[]
+  onHover: (tip: TooltipState | null) => void
+}
+
+function LifecycleChart({
+  lines,
+  domainStart,
+  domainEnd,
+  ticks,
+  onHover,
+}: LifecycleChartProps) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [width, setWidth] = useState(700)
+  const now = useMemo(() => Date.now(), [])
+
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width
+      if (w) setWidth(w)
+    })
+    ro.observe(el)
+    setWidth(el.clientWidth || 700)
+    return () => ro.disconnect()
+  }, [])
+
+  const svgWidth = width
+  const plotWidth = Math.max(svgWidth - SVG_LEFT_MARGIN - SVG_RIGHT_MARGIN, 1)
+  /** Cap at configured max; no internal scrollbar — extra projects are not rendered. */
+  const visibleLines = lines.slice(0, VISIBLE_ROWS)
+  const plotHeight = visibleLines.length * ROW_HEIGHT
+  const timeRange = domainEnd - domainStart || 1
+
+  const dateToX = useCallback(
+    (ts: number) => SVG_LEFT_MARGIN + ((ts - domainStart) / timeRange) * plotWidth,
+    [domainStart, timeRange, plotWidth],
+  )
+
+  const handleMouseMove = useCallback(
+    (ev: ReactMouseEvent<SVGElement>, event: LifecycleEvent) => {
+      onHover({ event, x: ev.clientX, y: ev.clientY })
+    },
+    [onHover],
+  )
+  const handleMouseLeave = useCallback(() => onHover(null), [onHover])
 
   return (
-    <ChartTooltipShell>
-      <Typography variant="caption" fontWeight={600} sx={{ fontSize: 12, display: 'block' }}>
-        Month: {monthLabel}
-      </Typography>
-      <Typography
-        variant="caption"
-        color="text.secondary"
-        sx={{ fontSize: 11, display: 'block', mt: 0.25 }}
+    <Box ref={containerRef} sx={{ width: '100%', overflow: 'hidden' }}>
+      <svg
+        width="100%"
+        height={plotHeight + SVG_TOP_MARGIN}
+        style={{ display: 'block' }}
       >
-        Live Projects: {point.liveProjects}
-      </Typography>
-      <Typography
-        variant="caption"
-        color="text.secondary"
-        sx={{ fontSize: 11, display: 'block', mt: 0.25 }}
-      >
-        Avg Running Duration:{' '}
-        {point.avgDurationDays == null ? '—' : `${point.avgDurationDays} days`}
-      </Typography>
-      {point.projects.length > 0 ? (
-        <Box sx={{ mt: 0.75 }}>
-          <Typography
-            variant="caption"
-            color="text.secondary"
-            sx={{ fontSize: 11, display: 'block', fontWeight: 600 }}
-          >
-            Projects
-          </Typography>
-          {point.projects.slice(0, 6).map((p) => (
-            <Typography
-              key={p.name}
-              variant="caption"
-              color="text.secondary"
-              sx={{ fontSize: 11, display: 'block', mt: 0.15 }}
-            >
-              • {p.name}: {p.durationDays} days
-            </Typography>
-          ))}
-          {point.projects.length > 6 ? (
-            <Typography
-              variant="caption"
-              color="text.secondary"
-              sx={{ fontSize: 11, display: 'block', mt: 0.15 }}
-            >
-              +{point.projects.length - 6} more
-            </Typography>
-          ) : null}
-        </Box>
-      ) : null}
-    </ChartTooltipShell>
-  )
-}
-
-function LiveProjectCountLabel(props: RechartsLabelProps) {
-  const { x, y, value } = props
-  if (x == null || y == null || value == null || value === '') return null
-  const count = Number(value)
-  if (!Number.isFinite(count) || count <= 0) return null
-
-  return (
-    <text
-      x={Number(x)}
-      y={Number(y) - 10}
-      textAnchor="middle"
-      fill={tokens.color.neutral[600]}
-      fontSize={10}
-      fontWeight={600}
-    >
-      {count}
-    </text>
-  )
-}
-
-/** Local line chart: Avg Running Duration + Live Project count labels on points. */
-function LiveDurationLineChart({
-  data,
-  height = 300,
-}: {
-  data: LiveDurationByMonthPoint[]
-  height?: number
-}) {
-  const ct = useChartTheme()
-  const h = ct.isMobile ? Math.round(height * 0.75) : height
-
-  return (
-    <ResponsiveContainer width="100%" height={h}>
-        <RechartsLineChart
-          data={data}
-          margin={{
-            top: 20,
-            right: ct.isMobile ? 8 : 16,
-            left: ct.isMobile ? 4 : 8,
-            bottom: 4,
-          }}
-        >
-          <CartesianGrid
-            stroke={ct.gridProps.stroke}
-            strokeDasharray={ct.gridProps.strokeDasharray}
-            strokeOpacity={ct.gridProps.strokeOpacity}
-          />
-          <XAxis
-            dataKey="month"
-            tick={ct.axisStyle}
-            tickLine={false}
-            axisLine={{ stroke: ct.gridProps.stroke }}
-          />
-          <YAxis
-            tick={ct.axisStyle}
-            tickLine={false}
-            axisLine={false}
-            width={ct.isMobile ? 44 : 58}
-            tickMargin={4}
-            tickFormatter={formatDaysAxis}
-          />
-          <Tooltip content={LiveDurationTooltip} isAnimationActive={false} animationDuration={0} />
-          <Line
-            type="monotone"
-            dataKey="avgDurationDays"
-            name="Avg Running Duration"
-            stroke={CHART_COLORS.blue}
-            strokeWidth={2}
-            connectNulls
-            dot={{ r: 3, strokeWidth: 0, fill: CHART_COLORS.blue }}
-            activeDot={{ r: 5, strokeWidth: 0, fill: CHART_COLORS.blue }}
-            isAnimationActive={false}
-          >
-            <LabelList dataKey="liveProjects" content={LiveProjectCountLabel} />
-          </Line>
-        </RechartsLineChart>
-      </ResponsiveContainer>
-  )
-}
-
-function SingleProjectTimelineTooltip({ active, payload }: TooltipContentProps) {
-  if (!active || !payload?.length) return null
-  const point = payload[0]?.payload as LiveProjectTimelinePoint | undefined
-  if (!point) return null
-
-  return (
-    <ChartTooltipShell>
-      <Typography variant="caption" fontWeight={600} sx={{ fontSize: 12, display: 'block' }}>
-        {point.month}
-      </Typography>
-      <Typography
-        variant="caption"
-        color="text.secondary"
-        sx={{ fontSize: 11, display: 'block', mt: 0.25 }}
-      >
-        Running Duration: {point.durationDays} days
-      </Typography>
-    </ChartTooltipShell>
-  )
-}
-
-function TimelineMarkerLabel({
-  viewBox,
-  text,
-  color,
-}: {
-  viewBox?: { x?: number; y?: number }
-  text: string
-  color: string
-}) {
-  const x = viewBox?.x ?? 0
-  const y = viewBox?.y ?? 0
-  return (
-    <text
-      x={x}
-      y={y - 12}
-      textAnchor="middle"
-      fill={color}
-      fontSize={10}
-      fontWeight={700}
-    >
-      {text}
-    </text>
-  )
-}
-
-/** Single Live project: running duration from Start → Today/End. */
-function LiveProjectTimelineChart({
-  series,
-  meta,
-  height = 260,
-}: {
-  series: LiveProjectTimelinePoint[]
-  meta: LiveProjectTimelineMeta
-  height?: number
-}) {
-  const ct = useChartTheme()
-  const h = ct.isMobile ? Math.round(height * 0.75) : height
-  const startPoint = series.find((p) => p.marker === 'start')
-  const endPoint = series.find((p) => p.marker === 'today' || p.marker === 'end')
-  const endMarkerLabel = meta.endIsOngoing ? 'TODAY' : 'END'
-
-  return (
-    <Box>
-      <Box
-        sx={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          gap: { xs: 1, sm: 2.5 },
-          mb: 1.5,
-        }}
-      >
-        <Typography variant="caption" color="text.secondary" sx={{ fontSize: 12 }}>
-          Running Duration:{' '}
-          <Box component="span" sx={{ fontWeight: 600, color: 'text.primary' }}>
-            {meta.runningDays} days
-          </Box>
-        </Typography>
-        <Typography variant="caption" color="text.secondary" sx={{ fontSize: 12 }}>
-          Start:{' '}
-          <Box component="span" sx={{ fontWeight: 600, color: 'text.primary' }}>
-            {meta.startLabel}
-          </Box>
-        </Typography>
-        <Typography variant="caption" color="text.secondary" sx={{ fontSize: 12 }}>
-          End:{' '}
-          <Box component="span" sx={{ fontWeight: 600, color: 'text.primary' }}>
-            {meta.endLabel}
-          </Box>
-        </Typography>
-      </Box>
-
-      <ResponsiveContainer width="100%" height={h}>
-        <RechartsLineChart
-          data={series}
-          margin={{
-            top: 28,
-            right: ct.isMobile ? 12 : 20,
-            left: ct.isMobile ? 4 : 8,
-            bottom: 4,
-          }}
-        >
-          <CartesianGrid
-            stroke={ct.gridProps.stroke}
-            strokeDasharray={ct.gridProps.strokeDasharray}
-            strokeOpacity={ct.gridProps.strokeOpacity}
-          />
-          <XAxis
-            dataKey="monthKey"
-            tick={ct.axisStyle}
-            tickLine={false}
-            axisLine={{ stroke: ct.gridProps.stroke }}
-            tickFormatter={(key: string) => {
-              const point = series.find((p) => p.monthKey === key)
-              return point?.month ?? String(key)
-            }}
-            interval="preserveStartEnd"
-          />
-          <YAxis
-            tick={ct.axisStyle}
-            tickLine={false}
-            axisLine={false}
-            width={ct.isMobile ? 44 : 58}
-            tickMargin={4}
-            tickFormatter={formatDaysAxis}
-          />
-          <Tooltip content={SingleProjectTimelineTooltip} isAnimationActive={false} animationDuration={0} />
-          <Line
-            type="monotone"
-            dataKey="durationDays"
-            name="Running Duration"
-            stroke={CHART_COLORS.teal}
-            strokeWidth={2.5}
-            dot={{ r: 3, strokeWidth: 0, fill: CHART_COLORS.teal }}
-            activeDot={{ r: 5, strokeWidth: 0, fill: CHART_COLORS.teal }}
-            isAnimationActive={false}
-          />
-          {startPoint ? (
-            <ReferenceDot
-              x={startPoint.monthKey}
-              y={startPoint.durationDays}
-              r={6}
-              fill={CHART_COLORS.green}
-              stroke="none"
-              label={(props) => (
-                <TimelineMarkerLabel {...props} text="START" color={CHART_COLORS.green} />
-              )}
+        {ticks.map((tick) => {
+          const x = dateToX(tick.ts)
+          if (x < SVG_LEFT_MARGIN - 1 || x > svgWidth - SVG_RIGHT_MARGIN + 1) return null
+          return (
+            <line
+              key={`grid-${tick.ts}`}
+              x1={x}
+              y1={SVG_TOP_MARGIN}
+              x2={x}
+              y2={SVG_TOP_MARGIN + plotHeight}
+              stroke={tokens.color.neutral[200]}
+              strokeWidth={1}
+              strokeDasharray="3 4"
             />
-          ) : null}
-          {endPoint ? (
-            <ReferenceDot
-              x={endPoint.monthKey}
-              y={endPoint.durationDays}
-              r={6}
-              fill={CHART_COLORS.amber}
-              stroke="none"
-              label={(props) => (
-                <TimelineMarkerLabel
-                  {...props}
-                  text={endMarkerLabel}
-                  color={CHART_COLORS.amber}
-                />
-              )}
-            />
-          ) : null}
-        </RechartsLineChart>
-      </ResponsiveContainer>
+          )
+        })}
+
+        {visibleLines.map((line, rowIdx) => {
+          const rowTop = SVG_TOP_MARGIN + rowIdx * ROW_HEIGHT
+          const barY = rowTop + (ROW_HEIGHT - BAR_HEIGHT) / 2
+          const nameLines = wrapProjectName(line.projectName)
+          const nameBlockHeight = nameLines.length * 14
+          const nameStartY = rowTop + (ROW_HEIGHT - nameBlockHeight) / 2 + 11
+          const segments = alignSegmentsToPlotLeft(
+            buildLifecycleSegments(line.events, now),
+            domainStart,
+            domainEnd,
+          )
+
+          return (
+            <g key={line.projectId}>
+              {nameLines.map((textLine, i) => (
+                <text
+                  key={`${line.projectId}-name-${i}`}
+                  x={SVG_LEFT_MARGIN - NAME_GAP_PX}
+                  y={nameStartY + i * 14}
+                  textAnchor="end"
+                  fontSize={11}
+                  fill={tokens.color.neutral[700]}
+                  style={{ userSelect: 'none' }}
+                >
+                  {textLine}
+                </text>
+              ))}
+
+              {segments.map((seg, segIdx) => {
+                const isFirst = segIdx === 0
+                const isLast = segIdx === segments.length - 1
+                // First segment is locked to the plot left edge — never indented.
+                let x = isFirst ? SVG_LEFT_MARGIN : dateToX(seg.start)
+                let w = dateToX(seg.end) - (isFirst ? SVG_LEFT_MARGIN : dateToX(seg.start))
+                if (w < MIN_SEGMENT_PX) {
+                  w = MIN_SEGMENT_PX
+                  if (!isFirst && x + w > svgWidth - SVG_RIGHT_MARGIN) {
+                    x = svgWidth - SVG_RIGHT_MARGIN - w
+                  }
+                }
+                // Keep first segment flush left even after min-width bump
+                if (isFirst) x = SVG_LEFT_MARGIN
+                const path = roundedRectPath(x, barY, w, BAR_HEIGHT, {
+                  tl: isFirst ? BAR_RADIUS : 0,
+                  bl: isFirst ? BAR_RADIUS : 0,
+                  tr: isLast ? BAR_RADIUS : 0,
+                  br: isLast ? BAR_RADIUS : 0,
+                })
+                return (
+                  <path
+                    key={seg.event.id}
+                    d={path}
+                    fill={EVENT_COLORS[seg.event.eventType]}
+                    style={{ cursor: 'pointer' }}
+                    onMouseMove={(e) => handleMouseMove(e, seg.event)}
+                    onMouseLeave={handleMouseLeave}
+                  />
+                )
+              })}
+            </g>
+          )
+        })}
+      </svg>
+
+      {/* Fixed X-axis */}
+      <svg
+        width="100%"
+        height={SVG_BOTTOM_MARGIN}
+        style={{ display: 'block' }}
+      >
+        <line
+          x1={SVG_LEFT_MARGIN}
+          y1={0}
+          x2={svgWidth - SVG_RIGHT_MARGIN}
+          y2={0}
+          stroke={tokens.color.neutral[200]}
+          strokeWidth={1}
+        />
+        {ticks.map((tick) => {
+          const x = dateToX(tick.ts)
+          if (x < SVG_LEFT_MARGIN - 1 || x > svgWidth - SVG_RIGHT_MARGIN + 1) return null
+          return (
+            <text
+              key={`label-${tick.ts}`}
+              x={x}
+              y={18}
+              textAnchor="middle"
+              fontSize={11}
+              fill={tokens.color.neutral[500]}
+            >
+              {tick.label}
+            </text>
+          )
+        })}
+        <text
+          x={SVG_LEFT_MARGIN + plotWidth / 2}
+          y={38}
+          textAnchor="middle"
+          fontSize={11}
+          fill={tokens.color.neutral[500]}
+        >
+          Financial Year Months
+        </text>
+      </svg>
     </Box>
   )
 }
 
-function LiveSizeTooltip({ active, payload }: TooltipContentProps) {
-  if (!active || !payload?.length) return null
-  const point = payload[0]?.payload as LiveProjectSizePoint | undefined
-  if (!point) return null
-
-  return (
-    <ChartTooltipShell>
-      <Typography variant="caption" fontWeight={600} sx={{ fontSize: 12, display: 'block' }}>
-        {point.project}
-      </Typography>
-      <Typography
-        variant="caption"
-        color="text.secondary"
-        sx={{ fontSize: 11, display: 'block', mt: 0.25 }}
-      >
-        Project Size: {formatSqft(point.sqft)} sqft
-      </Typography>
-    </ChartTooltipShell>
-  )
-}
-
-function MetricKpiCard({
-  icon,
-  iconColor,
-  title,
-  value,
-  subtitle,
-  footer,
-}: {
-  icon: ReactNode
-  iconColor: string
-  title: string
-  value: string
-  subtitle: string
-  footer?: ReactNode
-}) {
-  const theme = useTheme()
-
-  return (
-    <Paper
-      elevation={0}
-      sx={{
-        height: '100%',
-        p: 2,
-        borderRadius: '10px',
-        border: `1px solid ${tokens.color.neutral[200]}`,
-        boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 1,
-        bgcolor: 'background.paper',
-      }}
-    >
-      <Box
-        sx={{
-          display: 'flex',
-          alignItems: 'flex-start',
-          justifyContent: 'space-between',
-          gap: 1,
-        }}
-      >
-        <Typography
-          variant="caption"
-          color="text.secondary"
-          fontWeight={600}
-          sx={{ fontSize: 11, letterSpacing: 0.3, lineHeight: 1.35, pr: 0.5 }}
-        >
-          {title}
-        </Typography>
-        <Box
-          sx={{
-            width: 34,
-            height: 34,
-            borderRadius: '8px',
-            flexShrink: 0,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            bgcolor: alpha(iconColor, theme.palette.mode === 'dark' ? 0.2 : 0.1),
-            color: iconColor,
-          }}
-        >
-          {icon}
-        </Box>
-      </Box>
-
-      <Typography
-        variant="h5"
-        fontWeight={700}
-        sx={{ fontSize: { xs: 22, md: 26 }, lineHeight: 1.15, letterSpacing: -0.3 }}
-      >
-        {value}
-      </Typography>
-
-      <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
-        {subtitle}
-      </Typography>
-
-      {footer != null ? <Box sx={{ mt: 'auto', pt: 0.5 }}>{footer}</Box> : null}
-    </Paper>
-  )
-}
+/* ─────────────────── section component ─────────────────── */
 
 export interface ProjectAnalyticsSectionProps {
   dateRange?: string
@@ -550,7 +537,6 @@ export interface ProjectAnalyticsSectionProps {
 }
 
 export function ProjectAnalyticsSection({
-  dateRange = 'This Year',
   clientFilter = 'All Clients',
   statusFilter = 'All Status',
   pmFilter = 'All Managers',
@@ -558,102 +544,76 @@ export function ProjectAnalyticsSection({
   const dispatch = useAppDispatch()
   const projects = useAppSelector((s) => s.projects.items ?? [])
 
-  const [liveProjectId, setLiveProjectId] = useState(ALL_LIVE_PROJECTS_VALUE)
-  const [sizeProjectId, setSizeProjectId] = useState(ALL_LIVE_PROJECTS_VALUE)
-  const liveDurationDateRange = 'Last 12 Months' as const
+  const [projectId, setProjectId] = useState(ALL_PROJECTS_VALUE)
+  const [tooltip, setTooltip] = useState<TooltipState | null>(null)
 
   useEffect(() => {
     void dispatch(fetchProjects({ page: 1, pageSize: 500 }))
   }, [dispatch])
 
-  const liveProjects = useMemo(
+  // Lifecycle chart ignores date-range filter so spans remain visible.
+  const lifecycleProjects = useMemo(
     () =>
-      filterProjectsForLiveAnalytics(projects, {
-        dateRange,
+      filterProjectsForDashboard(projects, {
+        dateRange: 'All Time',
         clientFilter,
         statusFilter,
         pmFilter,
       }),
-    [projects, dateRange, clientFilter, statusFilter, pmFilter],
+    [projects, clientFilter, statusFilter, pmFilter],
   )
 
-  const liveProjectOptions = useMemo(
-    () => buildLiveProjectSelectOptions(projects),
-    [projects],
+  const lifecycleData = useMemo(
+    () => buildProjectLifecycleData(lifecycleProjects),
+    [lifecycleProjects],
   )
 
-  const selectedLiveProjectOption = useMemo(() => {
-    return (
-      liveProjectOptions.find((o) => o.value === liveProjectId) ?? ALL_LIVE_OPTION
-    )
-  }, [liveProjectOptions, liveProjectId])
+  const projectOptions = useMemo(() => {
+    const ids = new Set(lifecycleData.events.map((e) => e.projectId))
+    return lifecycleProjects
+      .filter((p) => ids.has(p.id))
+      .map((p) => ({ value: p.id, label: p.name }))
+      .sort((a, b) => a.label.localeCompare(b.label))
+  }, [lifecycleProjects, lifecycleData])
 
-  const selectedSizeProjectOption = useMemo(() => {
-    return (
-      liveProjectOptions.find((o) => o.value === sizeProjectId) ?? ALL_LIVE_OPTION
-    )
-  }, [liveProjectOptions, sizeProjectId])
+  const selectedProjectOption = useMemo(
+    () => projectOptions.find((o) => o.value === projectId) ?? ALL_PROJECTS_OPTION,
+    [projectOptions, projectId],
+  )
 
   useEffect(() => {
-    if (!liveProjectOptions.some((o) => o.value === liveProjectId)) {
-      setLiveProjectId(ALL_LIVE_PROJECTS_VALUE)
+    if (!projectOptions.some((o) => o.value === projectId)) {
+      setProjectId(ALL_PROJECTS_VALUE)
     }
-  }, [liveProjectOptions, liveProjectId])
+  }, [projectOptions, projectId])
 
-  useEffect(() => {
-    if (!liveProjectOptions.some((o) => o.value === sizeProjectId)) {
-      setSizeProjectId(ALL_LIVE_PROJECTS_VALUE)
-    }
-  }, [liveProjectOptions, sizeProjectId])
-
-  const isAllLiveProjects = liveProjectId === ALL_LIVE_PROJECTS_VALUE
-
-  const liveDuration = useMemo(
-    () => buildLiveDurationByMonth(liveProjects, liveDurationDateRange),
-    [liveProjects, liveDurationDateRange],
-  )
-
-  const selectedLiveProject = useMemo(
-    () => projects.find((p) => p.id === liveProjectId && p.status === 'Live') ?? null,
-    [projects, liveProjectId],
-  )
-
-  const singleTimeline = useMemo(
-    () => buildLiveProjectDurationTimeline(selectedLiveProject),
-    [selectedLiveProject],
-  )
-
-  const liveSizes = useMemo(() => buildLiveProjectSizes(liveProjects), [liveProjects])
-
-  /** Chart series only — Top 5 by sqft when All, or the selected project. */
-  const liveSizeChartSeries = useMemo(() => {
-    if (sizeProjectId === ALL_LIVE_PROJECTS_VALUE) {
-      return liveSizes.series.slice(0, 5)
-    }
-    return liveSizes.series.filter((row) => row.projectId === sizeProjectId)
-  }, [liveSizes.series, sizeProjectId])
-
-  const hasDurationTrend = liveDuration.liveCount > 0
-  const sizeChartHeight = Math.max(
-    280,
-    Math.min(420, liveSizeChartSeries.length * 8 + 260),
-  )
-
-  const handleLiveProjectChange = (
+  const handleProjectChange = (
     _event: SyntheticEvent,
-    value: LiveProjectSelectOption | null,
+    value: typeof ALL_PROJECTS_OPTION | null,
   ) => {
     if (value == null) return
-    setLiveProjectId(value.value)
+    setProjectId(value.value)
   }
 
-  const handleSizeProjectChange = (
-    _event: SyntheticEvent,
-    value: LiveProjectSelectOption | null,
-  ) => {
-    if (value == null) return
-    setSizeProjectId(value.value)
-  }
+  const { lines } = useMemo(() => {
+    if (projectId === ALL_PROJECTS_VALUE) return lifecycleData
+    return {
+      lines: lifecycleData.lines.filter((l) => l.projectId === projectId),
+      events: lifecycleData.events.filter((e) => e.projectId === projectId),
+    }
+  }, [lifecycleData, projectId])
+
+  const visibleEvents = useMemo(() => {
+    if (projectId === ALL_PROJECTS_VALUE) return lifecycleData.events
+    return lifecycleData.events.filter((e) => e.projectId === projectId)
+  }, [lifecycleData, projectId])
+
+  const fyAxis = useMemo(() => {
+    const refTs = visibleEvents.length
+      ? Math.max(...visibleEvents.map((e) => e.date))
+      : Date.now()
+    return buildFyAxis(refTs)
+  }, [visibleEvents])
 
   return (
     <Box sx={{ mb: 3 }}>
@@ -667,251 +627,85 @@ export function ProjectAnalyticsSection({
       </Box>
 
       <Grid container spacing={2}>
-        <Grid size={{ xs: 12, lg: 6 }}>
+        {/* ── Project Lifecycle & Size ── */}
+        <Grid size={{ xs: 12 }}>
           <ChartCard
-            title="Live Project Duration"
-            subtitle={
-              isAllLiveProjects
-                ? 'Month-wise Live Projects count and average running duration (days)'
-                : 'Running duration timeline from project start to today'
-            }
+            title="Project Lifecycle & Size"
+            subtitle="Project lifecycle distribution by project (Pitch → Live → Completed/Cancelled/Archived)."
             action={
-              <Box sx={{ width: { xs: '100%', sm: 240 } }}>
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                  fontWeight={600}
-                  sx={FILTER_LABEL_SX}
-                >
-                  Project
-                </Typography>
-                <Autocomplete
-                  size="small"
-                  disableClearable
-                  options={liveProjectOptions}
-                  value={selectedLiveProjectOption}
-                  onChange={handleLiveProjectChange}
-                  getOptionLabel={(option) => option.label}
-                  isOptionEqualToValue={(option, value) => option.value === value.value}
-                  filterOptions={(options, state) => {
-                    const query = state.inputValue.trim().toLowerCase()
-                    if (!query) return options
-                    return options.filter((opt) => opt.label.toLowerCase().includes(query))
-                  }}
-                  renderInput={(params) => (
-                    <TextField
-                      {...params}
-                      placeholder="Search live projects..."
-                      inputProps={{
-                        ...params.inputProps,
-                        'aria-label': 'Search and select live project',
-                      }}
-                    />
-                  )}
-                  slotProps={{
-                    paper: {
-                      sx: {
-                        fontSize: 12,
-                        '& .MuiAutocomplete-option': { fontSize: 12, minHeight: 36 },
-                      },
-                    },
-                  }}
-                  sx={{ ...AUTOCOMPLETE_SX, maxWidth: '100%' }}
-                />
-              </Box>
-            }
-          >
-            {isAllLiveProjects ? (
-              <>
-                <Box
-                  sx={{
-                    display: 'flex',
-                    flexWrap: 'wrap',
-                    gap: { xs: 1, sm: 2.5 },
-                    mb: 1.5,
-                  }}
-                >
-                  <Typography variant="caption" color="text.secondary" sx={{ fontSize: 12 }}>
-                    Live Projects:{' '}
-                    <Box component="span" sx={{ fontWeight: 600, color: 'text.primary' }}>
-                      {liveDuration.liveCount}
-                    </Box>
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary" sx={{ fontSize: 12 }}>
-                    Average Live Project Duration:{' '}
-                    <Box component="span" sx={{ fontWeight: 600, color: 'text.primary' }}>
-                      {liveDuration.averageDurationDays == null
-                        ? '—'
-                        : `${liveDuration.averageDurationDays} days`}
-                    </Box>
-                  </Typography>
+              <Box
+                sx={{
+                  display: 'flex',
+                  flexDirection: { xs: 'column', md: 'row' },
+                  alignItems: { xs: 'stretch', md: 'flex-start' },
+                  gap: { xs: 1.5, md: 3 },
+                }}
+              >
+                <Box sx={{ pt: { md: 0.5 } }}>
+                  <ChartSeriesLegend items={[...LEGEND_ITEMS]} />
                 </Box>
-                {!hasDurationTrend ? (
+                <Box sx={{ width: { xs: '100%', sm: 220 } }}>
                   <Typography
-                    variant="body2"
+                    variant="caption"
                     color="text.secondary"
-                    sx={{ fontSize: 12, py: 6, textAlign: 'center' }}
+                    fontWeight={600}
+                    sx={FILTER_LABEL_SX}
                   >
-                    No live projects with valid start dates for the selected filters.
+                    Project
                   </Typography>
-                ) : (
-                  <LiveDurationLineChart data={[...liveDuration.series]} height={300} />
-                )}
-              </>
-            ) : singleTimeline.meta == null || singleTimeline.series.length === 0 ? (
-              <Typography
-                variant="body2"
-                color="text.secondary"
-                sx={{ fontSize: 12, py: 6, textAlign: 'center' }}
-              >
-                No running-duration data for the selected live project.
-              </Typography>
-            ) : (
-              <LiveProjectTimelineChart
-                series={singleTimeline.series}
-                meta={singleTimeline.meta}
-                height={260}
-              />
-            )}
-          </ChartCard>
-        </Grid>
-
-        <Grid size={{ xs: 12, lg: 6 }}>
-          <ChartCard
-            title="Live Project Size"
-            subtitle="Carpet area (sqft) for each live/active project"
-            action={
-              <Box sx={{ width: { xs: '100%', sm: 240 } }}>
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                  fontWeight={600}
-                  sx={FILTER_LABEL_SX}
-                >
-                  Live Project
-                </Typography>
-                <Autocomplete
-                  size="small"
-                  disableClearable
-                  options={liveProjectOptions}
-                  value={selectedSizeProjectOption}
-                  onChange={handleSizeProjectChange}
-                  getOptionLabel={(option) => option.label}
-                  isOptionEqualToValue={(option, value) => option.value === value.value}
-                  filterOptions={(options, state) => {
-                    const query = state.inputValue.trim().toLowerCase()
-                    if (!query) return options
-                    return options.filter((opt) => opt.label.toLowerCase().includes(query))
-                  }}
-                  renderInput={(params) => (
-                    <TextField
-                      {...params}
-                      placeholder="Search live projects..."
-                      inputProps={{
-                        ...params.inputProps,
-                        'aria-label': 'Search and select live project for size graph',
-                      }}
-                    />
-                  )}
-                  slotProps={{
-                    paper: {
-                      sx: {
-                        fontSize: 12,
-                        '& .MuiAutocomplete-option': { fontSize: 12, minHeight: 36 },
+                  <Autocomplete
+                    size="small"
+                    disableClearable
+                    options={[ALL_PROJECTS_OPTION, ...projectOptions]}
+                    value={selectedProjectOption}
+                    onChange={handleProjectChange}
+                    getOptionLabel={(option) => option.label}
+                    isOptionEqualToValue={(option, value) => option.value === value.value}
+                    filterOptions={(options, state) => {
+                      const q = state.inputValue.trim().toLowerCase()
+                      if (!q) return options
+                      return options.filter((o) => o.label.toLowerCase().includes(q))
+                    }}
+                    renderInput={(params) => (
+                      <TextField {...params} placeholder="Search projects..." />
+                    )}
+                    slotProps={{
+                      paper: {
+                        sx: {
+                          fontSize: 12,
+                          '& .MuiAutocomplete-option': { fontSize: 12, minHeight: 36 },
+                        },
                       },
-                    },
-                  }}
-                  sx={{ ...AUTOCOMPLETE_SX, maxWidth: '100%' }}
-                />
+                    }}
+                    sx={{ ...AUTOCOMPLETE_SX, maxWidth: '100%' }}
+                  />
+                </Box>
               </Box>
             }
           >
-            <Box
-              sx={{
-                display: 'flex',
-                flexWrap: 'wrap',
-                gap: { xs: 1, sm: 2.5 },
-                mb: 1.5,
-              }}
-            >
-              <Typography variant="caption" color="text.secondary" sx={{ fontSize: 12 }}>
-                Live Projects:{' '}
-                <Box component="span" sx={{ fontWeight: 600, color: 'text.primary' }}>
-                  {liveSizes.liveCount}
-                </Box>
-              </Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ fontSize: 12 }}>
-                Average Project Size:{' '}
-                <Box component="span" sx={{ fontWeight: 600, color: 'text.primary' }}>
-                  {liveSizes.averageSqft == null
-                    ? '—'
-                    : `${liveSizes.averageSqft.toLocaleString('en-IN')} sqft`}
-                </Box>
-              </Typography>
-            </Box>
-            {liveSizeChartSeries.length === 0 ? (
+            {lines.length === 0 ? (
               <Typography
                 variant="body2"
                 color="text.secondary"
                 sx={{ fontSize: 12, py: 6, textAlign: 'center' }}
               >
-                No live projects with size data for the selected filters.
+                No projects with lifecycle events for the selected filters.
               </Typography>
             ) : (
-              <BarChart
-                data={[...liveSizeChartSeries]}
-                xKey="project"
-                height={sizeChartHeight}
-                orientation="vertical"
-                showLegend={false}
-                barSize={28}
-                bars={[{ key: 'sqft', label: 'Project Size (sqft)', color: CHART_COLORS.amber }]}
-                formatX={shortenProjectLabel}
-                formatY={formatSqftAxis}
-                tooltipContent={LiveSizeTooltip}
+              <LifecycleChart
+                lines={lines}
+                domainStart={fyAxis.domainStart}
+                domainEnd={fyAxis.domainEnd}
+                ticks={fyAxis.ticks}
+                onHover={setTooltip}
               />
             )}
+            {tooltip && <LifecycleChartTooltip tip={tooltip} />}
           </ChartCard>
         </Grid>
 
-        <Grid size={{ xs: 12, lg: 4 }}>
-          <Stack spacing={2} sx={{ height: '100%' }}>
-            <Box sx={{ flex: 1, minHeight: 0 }}>
-              <MetricKpiCard
-                icon={<RefreshCw size={18} strokeWidth={1.75} />}
-                iconColor={CHART_COLORS.purple}
-                title="Repeat Clients"
-                value={String(REPEAT_CLIENTS_KPI.total)}
-                subtitle="Clients with more than one project."
-                footer={
-                  <Stack direction="row" alignItems="baseline" gap={0.75}>
-                    <Typography
-                      variant="subtitle2"
-                      fontWeight={700}
-                      sx={{ fontSize: 16, color: CHART_COLORS.purple }}
-                    >
-                      {REPEAT_CLIENTS_KPI.percentage}%
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
-                      of all clients
-                    </Typography>
-                  </Stack>
-                }
-              />
-            </Box>
-            <Box sx={{ flex: 1, minHeight: 0 }}>
-              <MetricKpiCard
-                icon={<Clock3 size={18} strokeWidth={1.75} />}
-                iconColor={CHART_COLORS.teal}
-                title="Average Pitch to Live Conversion Time"
-                value={`${PITCH_TO_LIVE_CONVERSION.avgDays} days`}
-                subtitle={PITCH_TO_LIVE_CONVERSION.subtitle}
-              />
-            </Box>
-          </Stack>
-        </Grid>
-
-        <Grid size={{ xs: 12, lg: 8 }}>
+        {/* ── Projects Completed by Year ── */}
+        <Grid size={{ xs: 12 }}>
           <ChartCard
             title="Projects Completed by Year"
             subtitle="Yearly completed project count"

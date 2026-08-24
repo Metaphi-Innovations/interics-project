@@ -30,6 +30,12 @@ export interface BarChartProps {
   /** Custom tooltip renderer. When set, replaces the default Recharts tooltip content. */
   tooltipContent?: (props: TooltipContentProps) => ReactNode
   barSize?: number
+  /** Gap between bars in the same category (grouped charts). */
+  barGap?: number | string
+  /** Gap between category groups. */
+  barCategoryGap?: number | string
+  /** When false, numeric axis ticks are whole numbers only (no fractional/duplicate labels). */
+  allowDecimals?: boolean
 }
 
 export default function BarChart({
@@ -47,6 +53,9 @@ export default function BarChart({
   formatY,
   tooltipContent,
   barSize = 32,
+  barGap = 4,
+  barCategoryGap = '20%',
+  allowDecimals = true,
 }: BarChartProps) {
   const ct = useChartTheme()
   const h = ct.isMobile ? Math.round(height * 0.75) : height
@@ -59,7 +68,8 @@ export default function BarChart({
       <RechartsBarChart
         data={data}
         layout={isHorizontal ? 'vertical' : 'horizontal'}
-        barCategoryGap="20%"
+        barCategoryGap={barCategoryGap}
+        barGap={barGap}
         margin={{
           top: isHorizontal ? 4 : 16,
           right: ct.isMobile ? 8 : 16,
@@ -78,7 +88,19 @@ export default function BarChart({
         )}
         {isHorizontal ? (
           <>
-            <XAxis type="number" tick={ct.axisStyle} tickLine={false} axisLine={false} tickFormatter={formatX} />
+            <XAxis
+              type="number"
+              tick={ct.axisStyle}
+              tickLine={false}
+              axisLine={{ stroke: ct.gridProps.stroke }}
+              tickFormatter={formatX}
+              allowDecimals={allowDecimals}
+              domain={
+                allowDecimals
+                  ? undefined
+                  : ([_min, max]: [number, number]) => [0, Math.max(Math.ceil(max), 1)]
+              }
+            />
             <YAxis type="category" dataKey={xKey} tick={ct.axisStyle} tickLine={false} axisLine={{ stroke: ct.gridProps.stroke }} width={ct.isMobile ? 60 : 80} tickFormatter={formatY} />
           </>
         ) : (
@@ -91,6 +113,7 @@ export default function BarChart({
               width={ct.isMobile ? 44 : 58}
               tickMargin={4}
               tickFormatter={formatY}
+              allowDecimals={allowDecimals}
             />
           </>
         )}
@@ -121,10 +144,14 @@ export default function BarChart({
         {showLegend && bars.length > 1 && <Legend {...ct.legendProps} />}
         {bars.map((bar, i) => {
           const color = bar.color ?? ct.colors[i % ct.colors.length]
-          // Only top bar gets rounded corners when stacked
+          // Only top/end bar gets rounded corners when stacked
           const isLast = i === bars.length - 1
           const radius: [number, number, number, number] =
-            stacked && !isLast ? [0, 0, 0, 0] : [4, 4, 0, 0]
+            stacked && !isLast
+              ? [0, 0, 0, 0]
+              : isHorizontal
+                ? [0, 4, 4, 0]
+                : [4, 4, 0, 0]
           return (
             <Bar
               key={bar.key}

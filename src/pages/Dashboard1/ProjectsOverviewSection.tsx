@@ -1,9 +1,9 @@
 /**
  * Dashboard 1 — Projects Overview
- * KPI cards + sector tags + status / monthly pitches vs live
+ * KPI cards + sector tags + status / design delivery distribution
  */
-import { useEffect, useMemo, type ReactNode } from 'react'
-import { Box, Grid, Paper, Typography } from '@mui/material'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Box, Grid, Paper, Stack, Typography } from '@mui/material'
 import { alpha, useTheme } from '@mui/material/styles'
 import {
   Archive,
@@ -16,27 +16,33 @@ import {
   XCircle,
 } from 'lucide-react'
 import {
-  BarChart,
   ChartCard,
   DonutChart,
+  type DonutSlice,
 } from '@/design-system/components'
 import { CHART_COLORS, tokens } from '@/design-system/tokens'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { fetchProjects } from '@/slices/projects/thunk'
-import { ChartSeriesLegend } from './ChartSeriesLegend'
 import {
+  buildProjectOverviewKpis,
   buildSectorTagsFromMaster,
-  PROJECT_OVERVIEW_KPIS,
   PROJECT_STATUS_DISTRIBUTION,
   type ProjectOverviewKpi,
   type SectorTag,
 } from './projectsOverviewData'
-import {
-  buildMonthlyPitchesVsLive,
-  filterProjectsForDashboard,
-} from './projectAnalyticsData'
+import { filterProjectsForDashboard } from './projectAnalyticsData'
+import { DESIGN_VS_BUILD } from './sectorAnalyticsData'
 import { fetchSectors } from '@/slices/settings/thunk'
 import { getSectorTagSx } from '@/utils/sectorTagStyles'
+import {
+  ProjectKpiDrawer,
+  CLICKABLE_PROJECT_KPI_IDS,
+} from './ProjectKpiDrawer'
+
+const DESIGN_VS_BUILD_COLORS = {
+  design_only: CHART_COLORS.blue,
+  design_build: CHART_COLORS.teal,
+} as const
 
 const ICON_MAP: Record<ProjectOverviewKpi['icon'], { node: ReactNode; color: string }> = {
   active: {
@@ -73,13 +79,20 @@ const ICON_MAP: Record<ProjectOverviewKpi['icon'], { node: ReactNode; color: str
   },
 }
 
-function ProjectOverviewKpiCard({ kpi }: { kpi: ProjectOverviewKpi }) {
+function ProjectOverviewKpiCard({
+  kpi,
+  onClick,
+}: {
+  kpi: ProjectOverviewKpi
+  onClick?: () => void
+}) {
   const theme = useTheme()
   const iconMeta = ICON_MAP[kpi.icon]
 
   return (
     <Paper
       elevation={0}
+      onClick={onClick}
       sx={{
         height: '100%',
         p: 2,
@@ -90,6 +103,14 @@ function ProjectOverviewKpiCard({ kpi }: { kpi: ProjectOverviewKpi }) {
         flexDirection: 'column',
         gap: 1,
         bgcolor: 'background.paper',
+        ...(onClick && {
+          cursor: 'pointer',
+          transition: 'border-color 0.15s, box-shadow 0.15s',
+          '&:hover': {
+            borderColor: tokens.color.primary[300],
+            boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+          },
+        }),
       }}
     >
       <Box
@@ -136,7 +157,46 @@ function ProjectOverviewKpiCard({ kpi }: { kpi: ProjectOverviewKpi }) {
       <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11, mt: 'auto' }}>
         {kpi.subtitle}
       </Typography>
+
+      {kpi.percentage != null ? (
+        <Stack direction="row" alignItems="baseline" gap={0.75} sx={{ pt: 0.5 }}>
+          <Typography
+            variant="subtitle2"
+            fontWeight={700}
+            sx={{ fontSize: 14, color: iconMeta.color }}
+          >
+            {kpi.percentage}%
+          </Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
+            of all clients
+          </Typography>
+        </Stack>
+      ) : null}
     </Paper>
+  )
+}
+
+function StatusLegendItem({ slice }: { slice: DonutSlice }) {
+  const projectLabel = slice.value === 1 ? 'Project' : 'Projects'
+
+  return (
+    <Stack direction="row" alignItems="center" gap={1.25} sx={{ minWidth: 0 }}>
+      <Box
+        sx={{
+          width: 10,
+          height: 10,
+          borderRadius: '2px',
+          flexShrink: 0,
+          bgcolor: slice.color ?? tokens.color.neutral[400],
+        }}
+      />
+      <Typography
+        variant="body2"
+        sx={{ fontSize: 12, lineHeight: 1.4, color: 'text.primary' }}
+      >
+        {slice.label} — {slice.value} {projectLabel}
+      </Typography>
+    </Stack>
   )
 }
 
@@ -194,6 +254,8 @@ export function ProjectsOverviewSection({
   const projects = useAppSelector((s) => s.projects.items ?? [])
   const sectors = useAppSelector((s) => s.settings.sectors)
 
+  const [drawerKpi, setDrawerKpi] = useState<ProjectOverviewKpi | null>(null)
+
   useEffect(() => {
     void dispatch(fetchProjects({ page: 1, pageSize: 500 }))
     void dispatch(fetchSectors())
@@ -210,12 +272,14 @@ export function ProjectsOverviewSection({
     [projects, dateRange, clientFilter, statusFilter, pmFilter],
   )
 
-  const monthlyPitchesVsLive = useMemo(
-    () => buildMonthlyPitchesVsLive(filteredProjects, dateRange),
-    [filteredProjects, dateRange],
-  )
+  const overviewKpis = useMemo(() => buildProjectOverviewKpis(projects), [projects])
 
   const totalProjects = PROJECT_STATUS_DISTRIBUTION.reduce((sum, s) => sum + s.value, 0)
+  const designBuildTotal = DESIGN_VS_BUILD.reduce((sum, s) => sum + s.value, 0)
+  const designBuildDonutData = DESIGN_VS_BUILD.map((s) => ({
+    ...s,
+    color: DESIGN_VS_BUILD_COLORS[s.key as keyof typeof DESIGN_VS_BUILD_COLORS],
+  }))
   const sectorTags = useMemo(
     () => buildSectorTagsFromMaster(sectors, filteredProjects),
     [sectors, filteredProjects],
@@ -233,12 +297,26 @@ export function ProjectsOverviewSection({
       </Box>
 
       <Grid container spacing={2} sx={{ mb: 2.5 }}>
-        {PROJECT_OVERVIEW_KPIS.map((kpi) => (
+        {overviewKpis.map((kpi) => (
           <Grid key={kpi.id} size={{ xs: 12, sm: 6, md: 4, lg: 3 }}>
-            <ProjectOverviewKpiCard kpi={kpi} />
+            <ProjectOverviewKpiCard
+              kpi={kpi}
+              onClick={
+                CLICKABLE_PROJECT_KPI_IDS.has(kpi.id)
+                  ? () => setDrawerKpi(kpi)
+                  : undefined
+              }
+            />
           </Grid>
         ))}
       </Grid>
+
+      <ProjectKpiDrawer
+        open={!!drawerKpi}
+        onClose={() => setDrawerKpi(null)}
+        kpi={drawerKpi}
+        projects={projects}
+      />
 
       <Box sx={{ mb: 2.5 }}>
         <ChartCard
@@ -272,48 +350,62 @@ export function ProjectsOverviewSection({
             title="Project Status Distribution"
             subtitle="Quick overview of all project statuses"
           >
-            <DonutChart
-              data={[...PROJECT_STATUS_DISTRIBUTION]}
-              height={300}
-              centerValue={String(totalProjects)}
-              centerLabel="Projects"
-            />
+            <Box
+              sx={{
+                display: 'flex',
+                flexDirection: { xs: 'column', md: 'row' },
+                alignItems: { xs: 'stretch', md: 'center' },
+                gap: { xs: 3, md: 6 },
+              }}
+            >
+              <Box
+                sx={{
+                  flex: { xs: '1 1 auto', md: '0 0 40%' },
+                  maxWidth: { md: 260 },
+                  alignSelf: { md: 'flex-start' },
+                  mr: { md: 1 },
+                }}
+              >
+                <DonutChart
+                  data={[...PROJECT_STATUS_DISTRIBUTION]}
+                  height={300}
+                  showLegend={false}
+                  centerValue={String(totalProjects)}
+                  centerLabel="Projects"
+                />
+              </Box>
+
+              <Box
+                sx={{
+                  flex: 1,
+                  minWidth: 0,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  py: { md: 1 },
+                  pl: { md: 2 },
+                }}
+              >
+                <Stack spacing={1.25}>
+                  {PROJECT_STATUS_DISTRIBUTION.map((slice) => (
+                    <StatusLegendItem key={slice.key} slice={slice} />
+                  ))}
+                </Stack>
+              </Box>
+            </Box>
           </ChartCard>
         </Grid>
 
         <Grid size={{ xs: 12, lg: 6 }}>
           <ChartCard
-            title="Monthly Pitches vs Live Projects"
-            subtitle="Month-wise pitch starts compared with live project starts"
-            action={
-              <ChartSeriesLegend
-                items={[
-                  { label: 'Pitches', color: CHART_COLORS.blue },
-                  { label: 'Live Projects', color: CHART_COLORS.teal },
-                ]}
-              />
-            }
+            title="Design Only vs Design & Build"
+            subtitle="Split of project delivery types"
           >
-            {monthlyPitchesVsLive.every((r) => r.pitches === 0 && r.live === 0) ? (
-              <Typography
-                variant="body2"
-                color="text.secondary"
-                sx={{ fontSize: 12, py: 6, textAlign: 'center' }}
-              >
-                No pitch or live projects for the selected filters.
-              </Typography>
-            ) : (
-              <BarChart
-                data={[...monthlyPitchesVsLive]}
-                xKey="month"
-                height={300}
-                showLegend={false}
-                bars={[
-                  { key: 'pitches', label: 'Pitches', color: CHART_COLORS.blue },
-                  { key: 'live', label: 'Live Projects', color: CHART_COLORS.teal },
-                ]}
-              />
-            )}
+            <DonutChart
+              data={designBuildDonutData}
+              height={300}
+              centerValue={String(designBuildTotal)}
+              centerLabel="Projects"
+            />
           </ChartCard>
         </Grid>
       </Grid>

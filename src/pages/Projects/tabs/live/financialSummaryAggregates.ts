@@ -1,6 +1,6 @@
 import type { Baseline, ClientPO, VendorPO } from '@/slices/baseline/reducer'
 import { vendorPoEffectiveValue } from '@/pages/Projects/tabs/live/vendorPOHelpers'
-import type { ClientInvoice, Expense, VendorInvoice } from '@/slices/live/types'
+import type { ClientInvoice, VendorInvoice } from '@/slices/live/types'
 import type { PlannedExpense } from '@/slices/pitch/reducer'
 import { totalReceivedBank } from './clientInvoiceUtils'
 import { FINANCIALS_EPS } from '../financialsAggregates'
@@ -19,15 +19,20 @@ export interface FinancialSummaryMetrics {
 export interface FinancialSummaryWorkstreamRow extends FinancialSummaryMetrics {
   id: string
   workstreamName: string
-  kind: 'service' | 'expense'
 }
 
 export interface FinancialSummaryCategoryGroup {
   id: string
   name: string
-  kind: 'category' | 'expenses'
   children: FinancialSummaryWorkstreamRow[]
   subtotal: FinancialSummaryMetrics
+}
+
+export interface OfficeExpenseRow {
+  id: string
+  name: string
+  date: string | undefined
+  amount: number
 }
 
 export type FinancialSummarySortField =
@@ -127,20 +132,17 @@ function vendorPaidByService(
   return map
 }
 
-function expensePaidAmount(
-  planned: PlannedExpense,
-  expenses: Expense[],
-  projectId: string,
-): number {
-  return expenses
-    .filter(
-      (e) =>
-        e.projectId === projectId &&
-        e.type === 'office_expenses' &&
-        (e.sourcePlannedExpenseId === planned.id ||
-          e.description.trim().toLowerCase() === planned.name.trim().toLowerCase()),
-    )
-    .reduce((s, e) => s + e.amount, 0)
+export function officeExpensesFromPitch(planned: PlannedExpense[] | undefined): PlannedExpense[] {
+  return (planned ?? []).filter((pe) => pe.type === 'office_expenses')
+}
+
+export function buildOfficeExpenseRows(planned: PlannedExpense[]): OfficeExpenseRow[] {
+  return planned.map((pe) => ({
+    id: pe.id,
+    name: pe.name,
+    date: pe.date,
+    amount: pe.amount,
+  }))
 }
 
 export function buildFinancialSummaryGroups(
@@ -150,12 +152,6 @@ export function buildFinancialSummaryGroups(
   vendorPOs: VendorPO[],
   clientInvoices: ClientInvoice[],
   vendorInvoices: VendorInvoice[],
-  expenses: Expense[],
-  /**
-   * Office expenses from Pitch → Expenses for this project.
-   * When omitted, falls back to baseline.plannedExpenses (legacy).
-   */
-  pitchOfficeExpenses?: PlannedExpense[],
 ): FinancialSummaryCategoryGroup[] {
   if (!baseline || baseline.projectId !== projectId) return []
 
@@ -164,7 +160,7 @@ export function buildFinancialSummaryGroups(
   const vendorPOMap = vendorPOAmountByService(vendorPOs, projectId)
   const vendorPaidMap = vendorPaidByService(vendorInvoices, projectId)
 
-  const categoryGroups: FinancialSummaryCategoryGroup[] = baseline.categories.map((cat) => {
+  return baseline.categories.map((cat) => {
     const children: FinancialSummaryWorkstreamRow[] = cat.services.map((svc) => {
       const clientPOAmount = clientPOMap.get(svc.id) ?? 0
       const clientReceived = clientReceivedMap.get(svc.id) ?? 0
@@ -172,7 +168,6 @@ export function buildFinancialSummaryGroups(
       const vendorPaid = vendorPaidMap.get(svc.id) ?? 0
       return {
         id: svc.id,
-        kind: 'service',
         workstreamName: svc.subcategoryName ?? svc.name ?? svc.customName ?? '—',
         ...buildFinancialSummaryMetrics(
           clientPOAmount,
@@ -186,38 +181,10 @@ export function buildFinancialSummaryGroups(
     return {
       id: cat.id,
       name: cat.categoryName,
-      kind: 'category',
       children,
       subtotal: sumMetrics(children),
     }
   })
-
-  const officeExpenses =
-    pitchOfficeExpenses ??
-    (baseline.plannedExpenses ?? []).filter((pe) => pe.type === 'office_expenses')
-
-  const expenseChildren: FinancialSummaryWorkstreamRow[] = officeExpenses.map((pe) => {
-    const vendorPOAmount = pe.amount
-    const vendorPaid = expensePaidAmount(pe, expenses, projectId)
-    return {
-      id: pe.id,
-      kind: 'expense',
-      workstreamName: pe.name,
-      ...buildFinancialSummaryMetrics(0, 0, vendorPOAmount, vendorPaid),
-    }
-  })
-
-  if (expenseChildren.length > 0) {
-    categoryGroups.push({
-      id: 'expenses',
-      name: 'Expenses',
-      kind: 'expenses',
-      children: expenseChildren,
-      subtotal: sumMetrics(expenseChildren),
-    })
-  }
-
-  return categoryGroups
 }
 
 export function buildFinancialSummaryTotal(

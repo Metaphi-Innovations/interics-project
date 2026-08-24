@@ -1,93 +1,53 @@
 /**
  * Dashboard 1 — Team section
- * Employee + time filters, KPIs, Team Performance master graph, and existing charts
+ * Team Performance master graph and existing charts
  */
-import { useEffect, useMemo, useState, type ReactNode, type SyntheticEvent } from 'react'
+import { useEffect, useMemo, useState, type HTMLAttributes, type ReactNode, type SyntheticEvent } from 'react'
 import {
   Autocomplete,
   Box,
   Grid,
   MenuItem,
-  Paper,
   Select as MuiSelect,
   TextField,
   Typography,
 } from '@mui/material'
-import { alpha, useTheme } from '@mui/material/styles'
-import {
-  Building2,
-  CircleDollarSign,
-  Clock3,
-  FolderKanban,
-  Ruler,
-  TrendingDown,
-  TrendingUp,
-} from 'lucide-react'
+import { useTheme } from '@mui/material/styles'
 import type { TooltipContentProps } from 'recharts'
 import {
   BarChart,
   ChartCard,
+  Checkbox,
   LineChart,
+  useToast,
 } from '@/design-system/components'
-import { CHART_COLORS, tokens, TREND_COLORS } from '@/design-system/tokens'
+import { CHART_COLORS, tokens } from '@/design-system/tokens'
 import { formatCurrency } from '@/utils/formatters'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { fetchProjects } from '@/slices/projects/thunk'
 import { ChartSeriesLegend } from './ChartSeriesLegend'
 import {
+  getSqftDesignedByTeamMember,
   getTeamAnalytics,
   getTeamPerformanceAnalytics,
-  TEAM_EMPLOYEE_OPTIONS,
+  MAX_SQFT_TEAM_MEMBERS,
   TEAM_METRIC_OPTIONS,
-  TEAM_TIME_PERIOD_OPTIONS,
-  type TeamKpi,
   type TeamMemberOption,
   type TeamMetric,
   type TeamPerformanceChartConfig,
   type TeamTimePeriod,
 } from './teamAnalyticsData'
 
-const ICON_MAP: Record<TeamKpi['icon'], { node: ReactNode; color: string }> = {
-  revenue: {
-    node: <CircleDollarSign size={18} strokeWidth={1.75} />,
-    color: CHART_COLORS.teal,
-  },
-  profit: {
-    node: <TrendingUp size={18} strokeWidth={1.75} />,
-    color: CHART_COLORS.green,
-  },
-  sqft: {
-    node: <Ruler size={18} strokeWidth={1.75} />,
-    color: CHART_COLORS.amber,
-  },
-  projects: {
-    node: <FolderKanban size={18} strokeWidth={1.75} />,
-    color: CHART_COLORS.blue,
-  },
-  size: {
-    node: <Building2 size={18} strokeWidth={1.75} />,
-    color: CHART_COLORS.purple,
-  },
-  duration: {
-    node: <Clock3 size={18} strokeWidth={1.75} />,
-    color: CHART_COLORS.grey,
-  },
-}
-
-const SELECT_SX = { minWidth: 160, fontSize: 12, height: 32 } as const
 const METRIC_SELECT_SX = { minWidth: 200, fontSize: 12, height: 32 } as const
 const MENU_ITEM_SX = { fontSize: 12 } as const
 
+/** Match Metric Select theme fill (action.hover, no outline) — do not override bgcolor/border. */
 const MEMBER_AUTOCOMPLETE_SX = {
   minWidth: { xs: '100%', sm: 200 },
   maxWidth: { xs: '100%', sm: 240 },
   '& .MuiOutlinedInput-root': {
     height: 32,
     fontSize: 12,
-    bgcolor: 'background.paper',
-    '& fieldset': {
-      borderColor: tokens.color.neutral[200],
-    },
   },
   '& .MuiInputBase-input': {
     fontSize: 12,
@@ -167,6 +127,20 @@ function TeamPerformanceTooltip({
   if (!active || !payload?.length) return null
   const member = String(payload[0]?.payload?.member ?? '')
 
+  // Calculate total projects if it's the Number of Projects status breakdown
+  const isNumberProjects = payload.some((entry) =>
+    ['pitch', 'live', 'completed', 'cancelled', 'archived'].includes(String(entry.dataKey)),
+  )
+  let totalProjectsSum = 0
+  if (isNumberProjects) {
+    payload.forEach(entry => {
+      const val = Number(entry.value)
+      if (!Number.isNaN(val)) {
+        totalProjectsSum += val
+      }
+    })
+  }
+
   return (
     <ChartTooltipShell>
       {member ? (
@@ -194,182 +168,37 @@ function TeamPerformanceTooltip({
           </Typography>
         )
       })}
-    </ChartTooltipShell>
-  )
-}
-
-function TeamKpiCard({ kpi }: { kpi: TeamKpi }) {
-  const theme = useTheme()
-  const iconMeta = ICON_MAP[kpi.icon]
-  const comparisonColor =
-    kpi.comparison?.direction === 'up' ? TREND_COLORS.up.color : TREND_COLORS.down.color
-
-  return (
-    <Paper
-      elevation={0}
-      sx={{
-        height: '100%',
-        p: 2,
-        borderRadius: '10px',
-        border: `1px solid ${tokens.color.neutral[200]}`,
-        boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 1,
-        bgcolor: 'background.paper',
-      }}
-    >
-      <Box
-        sx={{
-          display: 'flex',
-          alignItems: 'flex-start',
-          justifyContent: 'space-between',
-          gap: 1,
-        }}
-      >
+      {isNumberProjects && (
         <Typography
           variant="caption"
           color="text.secondary"
-          fontWeight={600}
-          sx={{ fontSize: 11, letterSpacing: 0.3, lineHeight: 1.35, pr: 0.5 }}
+          sx={{ fontSize: 11, display: 'block', mt: 0.75, pt: 0.5, borderTop: `1px solid ${tokens.color.neutral[200]}` }}
         >
-          {kpi.title}
-        </Typography>
-        <Box
-          sx={{
-            width: 34,
-            height: 34,
-            borderRadius: '8px',
-            flexShrink: 0,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            bgcolor: alpha(iconMeta.color, theme.palette.mode === 'dark' ? 0.2 : 0.1),
-            color: iconMeta.color,
-          }}
-        >
-          {iconMeta.node}
-        </Box>
-      </Box>
-
-      <Box>
-        <Typography
-          variant="h5"
-          fontWeight={700}
-          sx={{ fontSize: { xs: 18, md: 20 }, lineHeight: 1.2, letterSpacing: -0.3 }}
-        >
-          {kpi.value}
-        </Typography>
-        {kpi.valueLabel ? (
-          <Typography
-            variant="caption"
-            color="text.secondary"
-            sx={{ fontSize: 11, fontWeight: 600, display: 'block', mt: 0.25 }}
-          >
-            {kpi.valueLabel}
-          </Typography>
-        ) : null}
-      </Box>
-
-      {kpi.comparison ? (
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.35, mt: 'auto' }}>
-          <Box
-            sx={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 0.5,
-              color: comparisonColor,
-            }}
-          >
-            {kpi.comparison.direction === 'up' ? (
-              <TrendingUp size={12} strokeWidth={2} />
-            ) : (
-              <TrendingDown size={12} strokeWidth={2} />
-            )}
-            <Typography variant="caption" fontWeight={700} sx={{ fontSize: 11, color: 'inherit' }}>
-              {kpi.comparison.percent}%
-            </Typography>
+          Total Projects:{' '}
+          <Box component="span" sx={{ fontWeight: 600, color: 'text.primary' }}>
+            {totalProjectsSum}
           </Box>
-          {kpi.comparison.previousValue ? (
-            <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
-              Previous Year:{' '}
-              <Box component="span" sx={{ fontWeight: 600, color: 'text.primary' }}>
-                {kpi.comparison.previousValue}
-              </Box>
-            </Typography>
-          ) : null}
-          <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
-            {kpi.comparison.label}
-          </Typography>
-        </Box>
-      ) : null}
-
-      {kpi.breakdown ? (
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, mt: 'auto' }}>
-          {kpi.breakdown.map((item) => (
-            <Box
-              key={item.label}
-              sx={{
-                display: 'flex',
-                alignItems: 'baseline',
-                gap: 0.75,
-                minWidth: 0,
-              }}
-            >
-              <Typography
-                variant="caption"
-                color="text.secondary"
-                sx={{ fontSize: 11, flexShrink: 0 }}
-              >
-                {item.label}
-              </Typography>
-              <Box
-                sx={{
-                  flex: 1,
-                  minWidth: 8,
-                  borderBottom: `1px dotted ${tokens.color.neutral[300]}`,
-                  transform: 'translateY(-3px)',
-                }}
-              />
-              <Typography
-                variant="caption"
-                fontWeight={600}
-                sx={{ fontSize: 11, color: 'text.primary', flexShrink: 0 }}
-              >
-                {item.value}
-              </Typography>
-            </Box>
-          ))}
-        </Box>
-      ) : null}
-
-      {!kpi.comparison && !kpi.breakdown ? (
-        <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11, mt: 'auto' }}>
-          {kpi.subtitle}
         </Typography>
-      ) : null}
-    </Paper>
+      )}
+    </ChartTooltipShell>
   )
 }
 
 export function TeamSection() {
   const dispatch = useAppDispatch()
+  const toast = useToast()
   const projects = useAppSelector((s) => s.projects.items ?? [])
   const projectsLoading = useAppSelector((s) => s.projects.loading)
 
-  const [employeeId, setEmployeeId] = useState('all')
-  const [timePeriod, setTimePeriod] = useState<TeamTimePeriod>('This Year')
-  const [teamMemberId, setTeamMemberId] = useState('all')
+  const [teamMemberIds, setTeamMemberIds] = useState<string[]>([])
   const [metric, setMetric] = useState<TeamMetric>('Number of Projects')
+  const [sqftMemberIds, setSqftMemberIds] = useState<string[]>([])
+  const employeeId = 'all'
+  const timePeriod: TeamTimePeriod = 'This Year'
 
   useEffect(() => {
     void dispatch(fetchProjects({ page: 1, pageSize: 500 }))
   }, [dispatch])
-
-  const employeeLabel = useMemo(() => {
-    const match = TEAM_EMPLOYEE_OPTIONS.find((o) => o.value === employeeId)
-    return match?.label ?? 'All Employees'
-  }, [employeeId])
 
   const analytics = useMemo(
     () => getTeamAnalytics(employeeId, timePeriod),
@@ -377,35 +206,75 @@ export function TeamSection() {
   )
 
   const performance = useMemo(
-    () => getTeamPerformanceAnalytics(projects, timePeriod, teamMemberId, metric),
-    [projects, timePeriod, teamMemberId, metric],
+    () => getTeamPerformanceAnalytics(projects, timePeriod, teamMemberIds, metric),
+    [projects, timePeriod, teamMemberIds, metric],
   )
 
+  // Filter out any selected member IDs that are not present in options
   useEffect(() => {
-    if (!performance.memberOptions.some((o) => o.value === teamMemberId)) {
-      setTeamMemberId('all')
-    }
-  }, [performance.memberOptions, teamMemberId])
-
-  const selectedTeamMemberOption = useMemo((): TeamMemberOption => {
-    return (
-      performance.memberOptions.find((o) => o.value === teamMemberId) ?? {
-        value: 'all',
-        label: 'All Team Members',
-      }
+    const validIds = teamMemberIds.filter((id) =>
+      performance.memberOptions.some((o) => o.value === id),
     )
-  }, [performance.memberOptions, teamMemberId])
+    if (validIds.length !== teamMemberIds.length) {
+      setTeamMemberIds(validIds)
+    }
+  }, [performance.memberOptions, teamMemberIds])
+
+  const selectedTeamMemberOptions = useMemo((): TeamMemberOption[] => {
+    return performance.memberOptions.filter((opt) => teamMemberIds.includes(opt.value))
+  }, [performance.memberOptions, teamMemberIds])
 
   const handleTeamMemberChange = (
     _event: SyntheticEvent,
-    value: TeamMemberOption | null,
+    value: TeamMemberOption[],
   ) => {
-    if (value == null) return
-    setTeamMemberId(value.value)
+    // If selecting "All Team Members" (value contains 'all') or no members selected, clear to default top 10
+    if (value.some((o) => o.value === 'all')) {
+      setTeamMemberIds([])
+    } else {
+      setTeamMemberIds(value.map((o) => o.value))
+    }
   }
 
-  const scopeLabel = employeeId === 'all' ? 'team' : employeeLabel
-  const { sqftSummary } = analytics
+  const scopeLabel = 'team'
+
+  const sqftByMember = useMemo(
+    () => getSqftDesignedByTeamMember(projects, timePeriod),
+    [projects, timePeriod],
+  )
+
+  const selectedSqftMembers = useMemo(
+    () =>
+      sqftByMember.memberOptions.filter((opt) => sqftMemberIds.includes(opt.value)),
+    [sqftByMember.memberOptions, sqftMemberIds],
+  )
+
+  const sqftChartData = useMemo(() => {
+    const ranked =
+      sqftMemberIds.length === 0
+        ? sqftByMember.members.slice(0, MAX_SQFT_TEAM_MEMBERS)
+        : sqftByMember.members
+            .filter((row) => sqftMemberIds.includes(row.userId))
+            .sort((a, b) => b.sqft - a.sqft || a.member.localeCompare(b.member))
+            .slice(0, MAX_SQFT_TEAM_MEMBERS)
+    return [...ranked].reverse()
+  }, [sqftByMember.members, sqftMemberIds])
+
+  const sqftChartHeight = Math.max(280, Math.min(420, sqftChartData.length * 36 + 72))
+
+  const handleSqftMembersChange = (
+    _event: SyntheticEvent,
+    value: TeamMemberOption[],
+  ) => {
+    if (value.length > MAX_SQFT_TEAM_MEMBERS) {
+      toast.warning(
+        'Maximum 10 team members',
+        'A maximum of 10 team members can be compared at a time.',
+      )
+      return
+    }
+    setSqftMemberIds(value.map((opt) => opt.value))
+  }
 
   const chart = performance.performanceChart
   const formatPerfY =
@@ -416,90 +285,24 @@ export function TeamSection() {
         : chart.format === 'days'
           ? formatDays
           : formatCount
-  const chartHeight = Math.max(300, Math.min(520, chart.data.length * 40 + 80))
+  const isYearComparison = metric === 'Completed Projects – Year Comparison'
+  // Grouped year-comparison needs taller rows so Current / Previous bars sit side-by-side
+  const chartHeight = Math.max(
+    300,
+    chart.data.length * (isYearComparison ? 64 : 44) + 80,
+  )
   const hasChartData = chart.data.length > 0
-  const dualSeries = chart.series.length > 1
 
   return (
     <Box sx={{ mb: 3 }}>
-      <Box
-        sx={{
-          display: 'flex',
-          alignItems: { xs: 'stretch', sm: 'flex-end' },
-          justifyContent: 'space-between',
-          flexWrap: 'wrap',
-          gap: 1.5,
-          mb: 1.5,
-        }}
-      >
-        <Box>
-          <Typography variant="h6" fontWeight={700} sx={{ fontSize: 16 }}>
-            Team
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12, mt: 0.25 }}>
-            Individual performance across revenue, delivery, and capacity.
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12, mt: 0.25 }}>
-            Employee: {employeeLabel} • Time Period: {timePeriod}
-          </Typography>
-        </Box>
-
-        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5, alignItems: 'flex-end' }}>
-          <Box>
-            <Typography
-              variant="caption"
-              color="text.secondary"
-              fontWeight={600}
-              sx={FILTER_LABEL_SX}
-            >
-              Employee
-            </Typography>
-            <MuiSelect
-              size="small"
-              value={employeeId}
-              onChange={(e) => setEmployeeId(e.target.value)}
-              sx={SELECT_SX}
-            >
-              {TEAM_EMPLOYEE_OPTIONS.map((opt) => (
-                <MenuItem key={opt.value} value={opt.value} sx={MENU_ITEM_SX}>
-                  {opt.label}
-                </MenuItem>
-              ))}
-            </MuiSelect>
-          </Box>
-
-          <Box>
-            <Typography
-              variant="caption"
-              color="text.secondary"
-              fontWeight={600}
-              sx={FILTER_LABEL_SX}
-            >
-              Time Period
-            </Typography>
-            <MuiSelect
-              size="small"
-              value={timePeriod}
-              onChange={(e) => setTimePeriod(e.target.value as TeamTimePeriod)}
-              sx={{ ...SELECT_SX, minWidth: 140 }}
-            >
-              {TEAM_TIME_PERIOD_OPTIONS.map((opt) => (
-                <MenuItem key={opt} value={opt} sx={MENU_ITEM_SX}>
-                  {opt}
-                </MenuItem>
-              ))}
-            </MuiSelect>
-          </Box>
-        </Box>
+      <Box sx={{ mb: 1.5 }}>
+        <Typography variant="h6" fontWeight={700} sx={{ fontSize: 16 }}>
+          Team
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12, mt: 0.25 }}>
+          Individual performance across revenue, delivery, and capacity.
+        </Typography>
       </Box>
-
-      <Grid container spacing={2} sx={{ mb: 2.5 }}>
-        {analytics.kpis.map((kpi) => (
-          <Grid key={kpi.id} size={{ xs: 12, sm: 6, md: 4, lg: 2 }}>
-            <TeamKpiCard kpi={kpi} />
-          </Grid>
-        ))}
-      </Grid>
 
       <Box sx={{ mb: 2 }}>
         <ChartCard
@@ -525,10 +328,11 @@ export function TeamSection() {
                   Team Member
                 </Typography>
                 <Autocomplete
+                  multiple
+                  disableCloseOnSelect
                   size="small"
-                  disableClearable
                   options={performance.memberOptions}
-                  value={selectedTeamMemberOption}
+                  value={selectedTeamMemberOptions}
                   onChange={handleTeamMemberChange}
                   getOptionLabel={(option) => option.label}
                   isOptionEqualToValue={(option, value) => option.value === value.value}
@@ -537,17 +341,49 @@ export function TeamSection() {
                     if (!query) return options
                     return options.filter((opt) => opt.label.toLowerCase().includes(query))
                   }}
+                  renderOption={(props, option, { selected }) => {
+                    const { key, ...rest } = props as {
+                      key: string
+                    } & HTMLAttributes<HTMLLIElement>
+                    return (
+                      <li key={key} {...rest}>
+                        <Checkbox
+                          checked={selected}
+                          size="sm"
+                          sx={{ mr: 1, pointerEvents: 'none' }}
+                        />
+                        <Typography variant="body2" sx={{ fontSize: 12 }}>
+                          {option.label}
+                        </Typography>
+                      </li>
+                    )
+                  }}
+                  renderTags={(selected) => (
+                    <Typography
+                      variant="caption"
+                      sx={{ fontSize: 12, pl: 0.5, whiteSpace: 'nowrap' }}
+                    >
+                      {selected.length} selected
+                    </Typography>
+                  )}
                   renderInput={(params) => (
                     <TextField
                       {...params}
-                      placeholder="Search team members..."
+                      placeholder={
+                        selectedTeamMemberOptions.length === 0
+                          ? 'All Team Members'
+                          : undefined
+                      }
                       inputProps={{
                         ...params.inputProps,
-                        'aria-label': 'Search and select team member',
+                        'aria-label': 'Search and select team members',
                       }}
                     />
                   )}
                   slotProps={{
+                    listbox: {
+                      sx: { maxHeight: 280, overflow: 'auto' },
+                    },
                     paper: {
                       sx: {
                         fontSize: 12,
@@ -555,7 +391,16 @@ export function TeamSection() {
                       },
                     },
                   }}
-                  sx={{ ...MEMBER_AUTOCOMPLETE_SX, maxWidth: '100%' }}
+                  sx={{
+                    ...MEMBER_AUTOCOMPLETE_SX,
+                    maxWidth: '100%',
+                    '& .MuiOutlinedInput-root': {
+                      ...MEMBER_AUTOCOMPLETE_SX['& .MuiOutlinedInput-root'],
+                      height: 'auto',
+                      minHeight: 32,
+                      flexWrap: 'nowrap',
+                    },
+                  }}
                 />
               </Box>
 
@@ -602,15 +447,38 @@ export function TeamSection() {
               No team member data for the selected filters.
             </Typography>
           ) : (
-            <Box>
+            <Box
+              sx={{
+                maxHeight: 520,
+                overflowY: 'auto',
+                overflowX: 'hidden',
+                // Custom thin scrollbar styling
+                '&::-webkit-scrollbar': { width: 6 },
+                '&::-webkit-scrollbar-track': { bgcolor: 'transparent' },
+                '&::-webkit-scrollbar-thumb': {
+                  bgcolor: 'divider',
+                  borderRadius: 3,
+                },
+              }}
+            >
               <BarChart
-                key={`${teamMemberId}-${metric}`}
+                key={`${teamMemberIds.join(',')}-${metric}`}
                 data={[...chart.data]}
                 xKey="member"
                 height={chartHeight}
                 orientation="horizontal"
+                stacked={metric === 'Number of Projects'}
                 showLegend={false}
-                barSize={dualSeries ? 12 : 18}
+                barSize={
+                  isYearComparison
+                    ? 14
+                    : chart.series.length > 1 && metric !== 'Number of Projects'
+                      ? 12
+                      : 18
+                }
+                barGap={isYearComparison ? 6 : 4}
+                barCategoryGap={isYearComparison ? '28%' : '20%'}
+                allowDecimals={chart.format === 'count' ? false : true}
                 bars={chart.series.map((s) => ({
                   key: s.key,
                   label: s.label,
@@ -621,7 +489,7 @@ export function TeamSection() {
                   <TeamPerformanceTooltip {...props} format={chart.format} />
                 )}
               />
-              {dualSeries ? (
+              {chart.series.length > 1 ? (
                 <Box sx={{ mt: 1, display: 'flex', justifyContent: 'center' }}>
                   <ChartSeriesLegend
                     items={chart.series.map((s) => ({ label: s.label, color: s.color }))}
@@ -634,96 +502,126 @@ export function TeamSection() {
       </Box>
 
       <Grid container spacing={2}>
-        <Grid size={{ xs: 12, lg: 6 }}>
+        <Grid size={{ xs: 12 }}>
           <ChartCard
-            title="Revenue Trend"
-            subtitle={`Revenue growth for ${scopeLabel} with previous-year comparison`}
+            title="Sq.ft Designed by Team Member"
+            subtitle="Total sq.ft designed by each team member"
             action={
-              <ChartSeriesLegend
-                items={[
-                  { label: 'Current', color: CHART_COLORS.teal },
-                  { label: 'Previous Year', color: CHART_COLORS.grey },
-                ]}
-              />
+              <Box sx={{ width: { xs: '100%', sm: 220 } }}>
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  fontWeight={600}
+                  sx={FILTER_LABEL_SX}
+                >
+                  Team Members
+                </Typography>
+                <Autocomplete
+                  multiple
+                  disableCloseOnSelect
+                  size="small"
+                  options={sqftByMember.memberOptions}
+                  value={selectedSqftMembers}
+                  onChange={handleSqftMembersChange}
+                  getOptionLabel={(option) => option.label}
+                  isOptionEqualToValue={(option, value) => option.value === value.value}
+                  filterOptions={(options, state) => {
+                    const query = state.inputValue.trim().toLowerCase()
+                    if (!query) return options
+                    return options.filter((opt) => opt.label.toLowerCase().includes(query))
+                  }}
+                  renderOption={(props, option, { selected }) => {
+                    const { key, ...rest } = props as {
+                      key: string
+                    } & HTMLAttributes<HTMLLIElement>
+                    return (
+                      <li key={key} {...rest}>
+                        <Checkbox
+                          checked={selected}
+                          size="sm"
+                          sx={{ mr: 1, pointerEvents: 'none' }}
+                        />
+                        <Typography variant="body2" sx={{ fontSize: 12 }}>
+                          {option.label}
+                        </Typography>
+                      </li>
+                    )
+                  }}
+                  renderTags={(selected) => (
+                    <Typography
+                      variant="caption"
+                      sx={{ fontSize: 12, pl: 0.5, whiteSpace: 'nowrap' }}
+                    >
+                      {selected.length} selected
+                    </Typography>
+                  )}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      placeholder={
+                        selectedSqftMembers.length === 0
+                          ? 'Top 10 team members'
+                          : undefined
+                      }
+                      inputProps={{
+                        ...params.inputProps,
+                        'aria-label': 'Search and select team members',
+                      }}
+                    />
+                  )}
+                  slotProps={{
+                    listbox: {
+                      sx: { maxHeight: 280, overflow: 'auto' },
+                    },
+                    paper: {
+                      sx: {
+                        fontSize: 12,
+                        '& .MuiAutocomplete-option': { fontSize: 12, minHeight: 36 },
+                      },
+                    },
+                  }}
+                  sx={{
+                    ...MEMBER_AUTOCOMPLETE_SX,
+                    maxWidth: '100%',
+                    '& .MuiOutlinedInput-root': {
+                      ...MEMBER_AUTOCOMPLETE_SX['& .MuiOutlinedInput-root'],
+                      height: 'auto',
+                      minHeight: 32,
+                      flexWrap: 'nowrap',
+                    },
+                  }}
+                />
+              </Box>
             }
           >
-            <LineChart
-              data={[...analytics.revenueTrend]}
-              xKey={analytics.revenueTrendXKey}
-              height={300}
-              lines={[
-                { key: 'current', label: 'Current', color: CHART_COLORS.teal },
-                { key: 'previous', label: 'Previous Year', color: CHART_COLORS.grey },
-              ]}
-              showLegend={false}
-              formatY={formatAxisAmount}
-              formatTooltip={formatAxisAmount}
-            />
-          </ChartCard>
-        </Grid>
-
-        <Grid size={{ xs: 12, lg: 6 }}>
-          <ChartCard
-            title="Projects by Stage"
-            subtitle={`Pitch, Live, and Completed mix for ${scopeLabel}`}
-            action={
-              <ChartSeriesLegend
-                items={[
-                  { label: 'Pitch', color: CHART_COLORS.blue },
-                  { label: 'Live', color: CHART_COLORS.teal },
-                  { label: 'Completed', color: CHART_COLORS.green },
-                ]}
+            {projectsLoading && sqftChartData.length === 0 ? (
+              <Typography
+                variant="body2"
+                color="text.secondary"
+                sx={{ fontSize: 12, py: 6, textAlign: 'center' }}
+              >
+                Loading team sq.ft data…
+              </Typography>
+            ) : sqftChartData.length === 0 ? (
+              <Typography
+                variant="body2"
+                color="text.secondary"
+                sx={{ fontSize: 12, py: 6, textAlign: 'center' }}
+              >
+                No sq.ft designed data for team members.
+              </Typography>
+            ) : (
+              <BarChart
+                data={sqftChartData}
+                xKey="member"
+                height={sqftChartHeight}
+                orientation="horizontal"
+                showLegend={false}
+                barSize={22}
+                bars={[{ key: 'sqft', label: 'Total Sq.ft Designed', color: CHART_COLORS.amber }]}
+                formatX={formatSqft}
               />
-            }
-          >
-            <BarChart
-              data={[...analytics.projectsByStage]}
-              xKey="label"
-              height={300}
-              orientation="horizontal"
-              stacked
-              showLegend={false}
-              barSize={28}
-              bars={[
-                { key: 'pitch', label: 'Pitch', color: CHART_COLORS.blue },
-                { key: 'live', label: 'Live', color: CHART_COLORS.teal },
-                { key: 'completed', label: 'Completed', color: CHART_COLORS.green },
-              ]}
-            />
-          </ChartCard>
-        </Grid>
-
-        <Grid size={{ xs: 12, lg: 6 }}>
-          <ChartCard title="Sq.ft Designed Trend" subtitle={`Sq.ft designed for ${scopeLabel}`}>
-            <Box
-              sx={{
-                display: 'flex',
-                flexWrap: 'wrap',
-                gap: { xs: 1, sm: 2.5 },
-                mb: 1.5,
-              }}
-            >
-              <Typography variant="caption" color="text.secondary" sx={{ fontSize: 12 }}>
-                {sqftSummary.averageLabel} :{' '}
-                <Box component="span" sx={{ fontWeight: 600, color: 'text.primary' }}>
-                  {formatSqft(sqftSummary.averageValue)} Sq.ft
-                </Box>
-              </Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ fontSize: 12 }}>
-                {sqftSummary.totalLabel} :{' '}
-                <Box component="span" sx={{ fontWeight: 600, color: 'text.primary' }}>
-                  {formatSqft(sqftSummary.totalValue)} Sq.ft
-                </Box>
-              </Typography>
-            </Box>
-            <BarChart
-              data={[...analytics.sqftTrend]}
-              xKey="period"
-              height={280}
-              bars={[{ key: 'sqft', label: 'Sq.ft', color: CHART_COLORS.amber }]}
-              showLegend={false}
-              formatY={formatSqft}
-            />
+            )}
           </ChartCard>
         </Grid>
 
