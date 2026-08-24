@@ -1,6 +1,30 @@
 import client from './client'
 import { unwrapApiData } from '@/modules/system-settings/shared/api'
 
+export type TeamMemberAssignmentApi = {
+  projectId: string
+  projectName: string
+  projectCode: string
+  projectStatus: string
+  statusLabel?: string
+  progressLabel?: string
+  projectLeadId?: string
+  projectLeadName?: string
+  location?: string | null
+  city?: string | null
+  state?: string | null
+  headcount?: number | null
+  workstations?: string | null
+  cabins?: string | null
+  meetingRooms?: string | null
+  startDate?: string | null
+  expectedEndDate?: string | null
+  revenue?: number
+  vendorOfferAmount?: number
+  profit?: number
+  profitPct?: number | null
+}
+
 export const teamsApi = {
   async getMembers(params?: Record<string, unknown>) {
     const res = await client.get('/teams/members', { params })
@@ -24,7 +48,7 @@ export const teamsApi = {
     const res = await client.get(`/teams/members/${userId}`)
     return unwrapApiData<{
       user: Record<string, unknown>
-      assignments: Array<Record<string, unknown>>
+      assignments: TeamMemberAssignmentApi[]
     }>(res.data)
   },
 }

@@ -47,6 +47,7 @@ import {
 } from './ContactPersonAutocomplete'
 import { QuickAddVendorModal } from './QuickAddVendorModal'
 import { parseSettingsApiError } from '@/modules/system-settings/shared/api-errors'
+import { sanitizeMobileInput } from '@/utils/mobile'
 
 interface CreateContactPersonModalProps {
   open: boolean
@@ -63,7 +64,7 @@ interface CreateContactPersonModalProps {
   onAssigned?: (info: ContactInfo) => void | Promise<void>
 }
 
-interface VendorOption {
+export interface VendorOption {
   id: string
   label: string
 }
@@ -87,7 +88,7 @@ interface FormErrors {
   email?: string
 }
 
-interface NewPersonForm {
+export interface NewPersonForm {
   name: string
   phone: string
   email: string
@@ -95,7 +96,7 @@ interface NewPersonForm {
 }
 
 function phoneDigits(value: string): string {
-  return value.replace(/\D/g, '').slice(0, 10)
+  return sanitizeMobileInput(value)
 }
 
 const EMPTY_FORM: FormState = {
@@ -659,6 +660,7 @@ export function CreateContactPersonModal({
               onAddNewVendor={() => setAddVendorOpen(true)}
               error={errors.vendor}
               loading={vendorsLoading}
+              required
             />
           ) : null}
 
@@ -833,7 +835,7 @@ function ContactPersonSelectField({
   )
 }
 
-function AddNewPersonModal({
+export function AddNewPersonModal({
   open,
   onClose,
   onSave,
@@ -1053,26 +1055,28 @@ function SelectField({
 
 const ADD_VENDOR_VALUE = '__add_new_vendor__'
 
-function VendorSelectField({
+export function VendorSelectField({
   value,
   options,
   onChange,
   onAddNewVendor,
   error,
   loading,
+  required = false,
 }: {
   value: string
   options: VendorOption[]
   onChange: (vendorId: string) => void
-  onAddNewVendor: () => void
+  onAddNewVendor?: () => void
   error?: string
   loading?: boolean
+  required?: boolean
 }) {
   const selectedLabel = options.find((opt) => opt.id === value)?.label
 
   return (
     <Box>
-      <FieldLabel label="Vendor" required />
+      <FieldLabel label="Vendor" required={required} />
       <FormControl fullWidth size="small" error={Boolean(error)}>
         <MuiSelect
           value={value}
@@ -1081,7 +1085,7 @@ function VendorSelectField({
           onChange={(e) => {
             const next = e.target.value
             if (next === ADD_VENDOR_VALUE) {
-              onAddNewVendor()
+              onAddNewVendor?.()
               return
             }
             onChange(next)
@@ -1112,25 +1116,36 @@ function VendorSelectField({
               {loading ? 'Loading…' : 'No vendors found'}
             </MenuItem>
           ) : (
-            options.map((opt) => (
-              <MenuItem key={opt.id} value={opt.id} sx={{ fontSize: 13 }}>
-                {opt.label}
-              </MenuItem>
-            ))
+            [
+              !required ? (
+                <MenuItem key="__none__" value="" sx={{ fontSize: 13, color: 'text.secondary' }}>
+                  No vendor
+                </MenuItem>
+              ) : null,
+              ...options.map((opt) => (
+                <MenuItem key={opt.id} value={opt.id} sx={{ fontSize: 13 }}>
+                  {opt.label}
+                </MenuItem>
+              )),
+            ]
           )}
-          <ListSubheader sx={{ lineHeight: '8px', height: 8, p: 0 }}>
-            <Divider />
-          </ListSubheader>
-          <MenuItem
-            value={ADD_VENDOR_VALUE}
-            sx={{
-              fontSize: 13,
-              fontWeight: 600,
-              color: 'primary.main',
-            }}
-          >
-            + Add New Vendor
-          </MenuItem>
+          {onAddNewVendor ? (
+            <>
+              <ListSubheader sx={{ lineHeight: '8px', height: 8, p: 0 }}>
+                <Divider />
+              </ListSubheader>
+              <MenuItem
+                value={ADD_VENDOR_VALUE}
+                sx={{
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: 'primary.main',
+                }}
+              >
+                + Add New Vendor
+              </MenuItem>
+            </>
+          ) : null}
         </MuiSelect>
         {error ? (
           <Box component="span" sx={{ fontSize: 11, color: 'error.main', mt: 0.5 }}>

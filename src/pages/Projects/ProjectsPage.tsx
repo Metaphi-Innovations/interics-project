@@ -1050,18 +1050,38 @@ export default function ProjectsPage() {
 
   // ── Computed ─────────────────────────────────────────────────────────────
 
-  const [projectSummary, setProjectSummary] = useState({ total: 0, live: 0, completed: 0 })
+  const [projectSummary, setProjectSummary] = useState({
+    total: 0,
+    all: 0,
+    live: 0,
+    pitch: 0,
+    completed: 0,
+    cancelled: 0,
+    archived: 0,
+  })
 
   useEffect(() => {
     void financeApi
       .getProjectsSummary()
       .then((res) => {
-        const data = unwrapApiData<{ total?: number; live?: number; completed?: number }>(res.data)
+        const data = unwrapApiData<{
+          total?: number
+          all?: number
+          live?: number
+          pitch?: number
+          completed?: number
+          cancelled?: number
+          archived?: number
+        }>(res.data)
         if (data) {
           setProjectSummary({
-            total: data.total ?? 0,
+            total: data.total ?? data.all ?? 0,
+            all: data.all ?? data.total ?? 0,
             live: data.live ?? 0,
+            pitch: data.pitch ?? 0,
             completed: data.completed ?? 0,
+            cancelled: data.cancelled ?? 0,
+            archived: data.archived ?? 0,
           })
         }
       })
@@ -1090,24 +1110,12 @@ export default function ProjectsPage() {
   ]
 
   const tabs = [
-    { label: 'All', value: 'all', count: items.length },
-    { label: 'Pitch', value: 'Pitch', count: items.filter((p) => p.status === 'Pitch').length },
-    { label: 'Live', value: 'Live', count: items.filter((p) => p.status === 'Live').length },
-    {
-      label: 'Completed',
-      value: 'Completed',
-      count: items.filter((p) => p.status === 'Completed').length,
-    },
-    {
-      label: 'Cancelled',
-      value: 'Cancelled',
-      count: items.filter((p) => p.status === 'Cancelled').length,
-    },
-    {
-      label: 'Archived',
-      value: 'Archived',
-      count: items.filter((p) => p.status === 'Archived').length,
-    },
+    { label: 'All', value: 'all', count: projectSummary.all },
+    { label: 'Pitch', value: 'Pitch', count: projectSummary.pitch },
+    { label: 'Live', value: 'Live', count: projectSummary.live },
+    { label: 'Completed', value: 'Completed', count: projectSummary.completed },
+    { label: 'Cancelled', value: 'Cancelled', count: projectSummary.cancelled },
+    { label: 'Archived', value: 'Archived', count: projectSummary.archived },
   ]
 
   const activeTab = filters.status || 'all'

@@ -22,6 +22,8 @@ export interface ProjectListItemApi {
   expectedEndDate?: string | null
   totalDesignFee?: number | null
   totalBuildValue?: number | null
+  totalClientPOValue?: number | null
+  totalVendorPOValue?: number | null
   createdAt?: string
   wentLiveAt?: string | null
   completedAt?: string | null
@@ -100,6 +102,10 @@ export interface ProjectDetailApi {
   isActive?: boolean
   createdAt?: string
   updatedAt?: string
+  /** Canonical Client PO amount (Live Overview semantics); optional on detail. */
+  totalClientPOValue?: number | null
+  /** Canonical Vendor Offer amount (Live Overview semantics); optional on detail. */
+  totalVendorPOValue?: number | null
 }
 
 export interface ProjectCreateFormInput {
@@ -107,6 +113,8 @@ export interface ProjectCreateFormInput {
   customerName?: string
   name: string
   contactIds: string[]
+  vendorId?: string
+  vendorContactIds?: string[]
   projectTypes: string[]
   sector: string
   address?: string
@@ -180,6 +188,8 @@ export interface ProjectFiltersApi {
 export type ProjectCreateApiPayload = {
   customerId: string
   contactIds: string[]
+  vendorId?: string
+  vendorContactIds?: string[]
   projectName: string
   projectTypes: string[]
   sector: string

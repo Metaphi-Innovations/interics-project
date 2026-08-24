@@ -241,6 +241,22 @@ const vendorsSlice = createSlice({
       })
       .addCase(fetchVendorById.fulfilled, (state, action) => {
         state.selectedItem = action.payload
+        const idx = state.items.findIndex((v) => v.id === action.payload.id)
+        if (idx !== -1) {
+          const prev = state.items[idx]
+          state.items[idx] = {
+            ...prev,
+            ...action.payload,
+            rating: action.payload.rating ?? prev.rating,
+            activeProjects: action.payload.activeProjects || prev.activeProjects,
+            totalPayables: action.payload.totalPayables || prev.totalPayables,
+            contacts: action.payload.contacts?.length
+              ? action.payload.contacts
+              : prev.contacts,
+          }
+        } else {
+          state.items.unshift(action.payload)
+        }
       })
       .addCase(createVendor.pending, (state) => {
         state.saving = true

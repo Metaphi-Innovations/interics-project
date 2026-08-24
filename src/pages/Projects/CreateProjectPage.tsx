@@ -17,19 +17,35 @@ import {
 import { Add, PersonOutline, Check } from '@mui/icons-material'
 import { useNavigate } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
-import { fetchCustomers, createCustomer, fetchCustomerById } from '../../slices/customers/thunk'
+import {
+  fetchCustomers,
+  createCustomer,
+  createCustomerContact,
+  fetchCustomerById,
+} from '../../slices/customers/thunk'
 import { fetchUsers } from '../../slices/users/thunk'
 import { fetchRoles } from '../../slices/roles/thunk'
+import { createVendorContact, fetchVendorById, fetchVendors } from '../../slices/vendors/thunk'
 import { isProjectLeadRole } from './projectManagerRoles'
 import { ContactPersonAutocomplete } from './components/ContactPersonAutocomplete'
-import { CreateContactPersonModal } from './components/CreateContactPersonModal'
+import {
+  AddNewPersonModal,
+  type NewPersonForm,
+  VendorSelectField,
+  type VendorOption as VendorSelectOption,
+} from './components/CreateContactPersonModal'
+import {
+  isValidIndianMobileDigits,
+  MOBILE_VALIDATION_MESSAGE,
+  sanitizeMobileInput,
+} from '@/utils/mobile'
 import {
   ProjectDetailsFields,
   ProjectSetupFields,
   validateProjectSetupForm,
 } from './components/ProjectSetupFormFields'
 import { createProject } from '../../slices/projects/thunk'
-import type { Contact, Customer } from '../../slices/customers/reducer'
+import type { Customer } from '../../slices/customers/reducer'
 import type { User } from '../../slices/users/reducer'
 import { FullPageForm, FullPageFormSection } from '../../components/templates/FullPageForm'
 import { FormField } from '../../components/templates/DrawerForm'
@@ -42,6 +58,9 @@ import { formatAddressLine } from '@/constants/locations'
 import {
   getContactsForCustomer,
   getDefaultContactIds,
+  getVendorContactsForProjectCreate,
+  isPersistedContactId,
+  vendorSelectionAfterChange,
   findContactsByIds,
   clientTeamFromContacts,
   buildProjectDocumentsFromForm,
@@ -58,6 +77,9 @@ interface WizardFormData {
   customerId: string
   customerName: string
   contactIds: string[]
+  // Step 1 — Vendor (optional)
+  vendorId: string
+  vendorContactIds: string[]
   // Step 2 — Project Setup
   name: string
   projectTypes: string[]
@@ -114,6 +136,8 @@ interface WizardFormData {
 interface StepErrors {
   customerId?: string
   contactId?: string
+  vendorId?: string
+  vendorContactId?: string
   name?: string
   projectTypes?: string
   sector?: string
@@ -191,7 +215,8 @@ function Step1Customer({
   const sectors = useAppSelector((s) => s.settings.sectors)
   const activeSectors = sectors.filter((s) => s.status === 'active')
 
-  const [createContactOpen, setCreateContactOpen] = useState(false)
+  const [addPersonOpen, setAddPersonOpen] = useState(false)
+  const [addVendorPersonOpen, setAddVendorPersonOpen] = useState(false)
   const [showInlineCustomer, setShowInlineCustomer] = useState(false)
   const [savingCustomer, setSavingCustomer] = useState(false)
   const [newCustomerData, setNewCustomerData] = useState({
@@ -202,6 +227,10 @@ function Step1Customer({
     email: '',
     city: '',
     state: '',
+  })
+  const [customerPhoneInputMeta, setCustomerPhoneInputMeta] = useState({
+    hasNonDigitChars: false,
+    hasTooManyDigits: false,
   })
 
   const selectedCustomer =
@@ -216,17 +245,59 @@ function Step1Customer({
     [customerContacts, formData.contactIds],
   )
 
-  function handleContactSaved(contact: Contact) {
-    setFormData((prev) => ({
-      ...prev,
-      contactIds: [...new Set([...prev.contactIds, contact.id])],
-    }))
-    setErrors((prev) => ({ ...prev, contactId: undefined }))
-  }
+  const vendors = useAppSelector((s) => s.vendors.items ?? [])
+  const vendorsLoading = useAppSelector((s) => s.vendors.loading)
+  const vendorDetail = useAppSelector((s) => s.vendors.selectedItem)
+  const selectedVendor = useMemo(() => {
+    const fromList = vendors.find((v) => v.id === formData.vendorId) ?? null
+    if (vendorDetail?.id === formData.vendorId) {
+      return {
+        ...(fromList ?? vendorDetail),
+        ...vendorDetail,
+        // Prefer detail contacts (real VendorContact rows) over list-row shape.
+        contacts: vendorDetail.contacts?.length
+          ? vendorDetail.contacts
+          : fromList?.contacts,
+      }
+    }
+    return fromList
+  }, [vendors, formData.vendorId, vendorDetail])
+  const vendorContacts = useMemo(
+    () => getVendorContactsForProjectCreate(selectedVendor),
+    [selectedVendor],
+  )
+  const selectedVendorContacts = useMemo(
+    () => vendorContacts.filter((c) => formData.vendorContactIds.includes(c.id)),
+    [vendorContacts, formData.vendorContactIds],
+  )
+  const vendorOptions = useMemo<VendorSelectOption[]>(
+    () =>
+      vendors
+        .map((v) => ({ id: v.id, label: v.name }))
+        .sort((a, b) => a.label.localeCompare(b.label)),
+    [vendors],
+  )
+  const existingVendorPhones = useMemo(
+    () => vendors.map((v) => v.phone.trim()).filter(Boolean),
+    [vendors],
+  )
 
   async function handleCreateCustomer() {
-    if (!newCustomerData.name || !newCustomerData.contactPerson || !newCustomerData.phone) {
+    const sanitizedPhone = sanitizeMobileInput(newCustomerData.phone)
+    if (!newCustomerData.name || !newCustomerData.contactPerson || !sanitizedPhone) {
       toast.error('Please fill in company name, contact person, and phone')
+      return
+    }
+    if (customerPhoneInputMeta.hasTooManyDigits) {
+      toast.error('Mobile number must be exactly 10 digits')
+      return
+    }
+    if (customerPhoneInputMeta.hasNonDigitChars) {
+      toast.error('Mobile number must contain numeric characters only')
+      return
+    }
+    if (!isValidIndianMobileDigits(sanitizedPhone)) {
+      toast.error(MOBILE_VALIDATION_MESSAGE)
       return
     }
     if (!newCustomerData.sector?.trim()) {
@@ -241,7 +312,7 @@ function Step1Customer({
           sector: newCustomerData.sector.trim(),
           contactPerson: newCustomerData.contactPerson,
           designation: '',
-          phone: newCustomerData.phone,
+          phone: sanitizedPhone,
           email: newCustomerData.email || '',
           city: newCustomerData.city || '',
           state: newCustomerData.state || '',
@@ -273,6 +344,7 @@ function Step1Customer({
         city: '',
         state: '',
       })
+      setCustomerPhoneInputMeta({ hasNonDigitChars: false, hasTooManyDigits: false })
       toast.success('Customer created')
     } catch (err: unknown) {
       const message =
@@ -361,7 +433,66 @@ function Step1Customer({
             setErrors((prev) => ({ ...prev, contactId: undefined }))
           }}
           onCreateClick={
-            formData.customerId ? () => setCreateContactOpen(true) : undefined
+            formData.customerId ? () => setAddPersonOpen(true) : undefined
+          }
+        />
+      </FormField>
+
+      <Box>
+        <VendorSelectField
+          value={formData.vendorId}
+          options={vendorOptions}
+          loading={vendorsLoading}
+          error={errors.vendorId}
+          onChange={(vendorId) => {
+            if (!vendorId) {
+              setFormData((prev) => ({
+                ...prev,
+                vendorId: '',
+                vendorContactIds: [],
+              }))
+              setErrors((prev) => ({ ...prev, vendorId: undefined, vendorContactId: undefined }))
+              return
+            }
+
+            setFormData((prev) => ({
+              ...prev,
+              vendorId,
+              vendorContactIds: [],
+            }))
+            setErrors((prev) => ({ ...prev, vendorId: undefined, vendorContactId: undefined }))
+
+            void dispatch(fetchVendorById(vendorId))
+              .unwrap()
+              .then((detail) => {
+                const contacts = getVendorContactsForProjectCreate(detail)
+                setFormData((prev) => ({
+                  ...prev,
+                  ...vendorSelectionAfterChange(detail.id, contacts),
+                }))
+              })
+              .catch(() => {
+                toast.error('Failed to load vendor contacts')
+              })
+          }}
+        />
+      </Box>
+
+      <FormField label="Vendor Contact Person" error={errors.vendorContactId}>
+        <ContactPersonAutocomplete
+          contacts={formData.vendorId ? vendorContacts : []}
+          value={formData.vendorId ? selectedVendorContacts : []}
+          error={errors.vendorContactId}
+          placeholder={formData.vendorId ? 'Search vendor contacts…' : 'Select a vendor first…'}
+          onChange={(val) => {
+            setFormData((prev) => ({
+              ...prev,
+              vendorContactIds: val.map((c) => c.id).filter(isPersistedContactId),
+            }))
+            setErrors((prev) => ({ ...prev, vendorContactId: undefined }))
+          }}
+          onCreateClick={
+            formData.vendorId ? () => setAddVendorPersonOpen(true) : undefined
           }
         />
       </FormField>
@@ -450,7 +581,21 @@ function Step1Customer({
                   fullWidth
                   size="small"
                   value={newCustomerData.phone}
-                  onChange={(e) => setNewCustomerData((prev) => ({ ...prev, phone: e.target.value }))}
+                  onChange={(e) => {
+                    const raw = e.target.value
+                    const rawDigits = raw.replace(/\D/g, '')
+                    const hasNonDigitChars = raw.trim().length > 0 && /[^0-9]/.test(raw)
+                    const hasTooManyDigits = rawDigits.length > 10
+
+                    setCustomerPhoneInputMeta({
+                      hasNonDigitChars,
+                      hasTooManyDigits,
+                    })
+                    setNewCustomerData((prev) => ({
+                      ...prev,
+                      phone: sanitizeMobileInput(raw),
+                    }))
+                  }}
                   placeholder="+91 98765 43210"
                 />
               </Box>
@@ -495,6 +640,7 @@ function Step1Customer({
                     city: '',
                     state: '',
                   })
+                  setCustomerPhoneInputMeta({ hasNonDigitChars: false, hasTooManyDigits: false })
                 }}
               >
                 Cancel
@@ -514,12 +660,107 @@ function Step1Customer({
       </Box>
     </FullPageFormSection>
 
-    <CreateContactPersonModal
-      open={createContactOpen}
-      onClose={() => setCreateContactOpen(false)}
-      customerId={formData.customerId}
-      existingCustomerContacts={normalizeContacts(selectedCustomer?.contacts ?? [])}
-      onSaved={handleContactSaved}
+    <AddNewPersonModal
+      open={addPersonOpen}
+      onClose={() => setAddPersonOpen(false)}
+      peers={customerContacts}
+      existingVendorPhones={[]}
+      isVendor={false}
+      onSave={async (person: NewPersonForm) => {
+        const customerId = formData.customerId
+        if (!customerId) return false
+
+        try {
+          const phone = sanitizeMobileInput(person.phone)
+
+          const result = await dispatch(
+            createCustomerContact({
+              customerId,
+              data: {
+                name: person.name.trim(),
+                phone,
+                email: person.email.trim(),
+                designation: person.designation.trim(),
+                isPrimary: customerContacts.length === 0,
+              },
+            }),
+          ).unwrap()
+
+          const full = await dispatch(fetchCustomerById(customerId)).unwrap()
+          void dispatch(fetchCustomers({}))
+
+          setFormData((prev) => ({
+            ...prev,
+            customerId: full.id,
+            customerName: full.name,
+            contactIds: [...new Set([...prev.contactIds, result.contact.id])],
+          }))
+          setErrors((prev) => ({ ...prev, contactId: undefined }))
+          setAddPersonOpen(false)
+
+          return true
+        } catch (err: unknown) {
+          const message =
+            typeof err === 'string'
+              ? err
+              : err && typeof err === 'object' && 'message' in err && typeof (err as any).message === 'string'
+                ? String((err as any).message)
+                : 'Failed to create contact person'
+          toast.error(message)
+          return false
+        }
+      }}
+    />
+
+    <AddNewPersonModal
+      open={addVendorPersonOpen}
+      onClose={() => setAddVendorPersonOpen(false)}
+      peers={vendorContacts}
+      existingVendorPhones={existingVendorPhones}
+      isVendor={true}
+      onSave={async (person: NewPersonForm) => {
+        const vendorId = formData.vendorId
+        if (!vendorId) return false
+
+        try {
+          const phone = sanitizeMobileInput(person.phone)
+
+          const result = await dispatch(
+            createVendorContact({
+              vendorId,
+              data: {
+                name: person.name.trim(),
+                phone,
+                email: person.email.trim(),
+                designation: person.designation.trim(),
+                isPrimary: vendorContacts.length === 0,
+              },
+            }),
+          ).unwrap()
+
+          // Refresh this vendor's contacts into list+selectedItem (do not replace
+          // the whole list first — that would drop contacts from list rows).
+          await dispatch(fetchVendorById(vendorId)).unwrap()
+
+          setFormData((prev) => ({
+            ...prev,
+            vendorId,
+            vendorContactIds: [...new Set([...prev.vendorContactIds, result.contact.id].filter(isPersistedContactId))],
+          }))
+          setErrors((prev) => ({ ...prev, vendorContactId: undefined }))
+          setAddVendorPersonOpen(false)
+          return true
+        } catch (err: unknown) {
+          const message =
+            typeof err === 'string'
+              ? err
+              : err && typeof err === 'object' && 'message' in err && typeof (err as any).message === 'string'
+                ? String((err as any).message)
+                : 'Failed to create vendor contact person'
+          toast.error(message)
+          return false
+        }
+      }}
     />
     </>
   )
@@ -807,6 +1048,8 @@ const INITIAL_FORM: WizardFormData = {
   customerId: '',
   customerName: '',
   contactIds: [],
+  vendorId: '',
+  vendorContactIds: [],
   name: '',
   projectTypes: [],
   sector: '',
@@ -877,6 +1120,7 @@ export default function CreateProjectPage() {
     dispatch(fetchCustomers({}))
     dispatch(fetchUsers({}))
     dispatch(fetchRoles(undefined))
+    dispatch(fetchVendors({ pageSize: 500 }))
     dispatch(fetchSectors())
     dispatch(fetchStatuses())
   }, [dispatch])
@@ -899,6 +1143,10 @@ export default function CreateProjectPage() {
       if (!formData.customerId) newErrors.customerId = 'Please select a customer'
       if (formData.contactIds.length === 0) {
         newErrors.contactId = 'Please select at least one contact person'
+      }
+      // Vendor + vendor contacts are optional; contacts without a vendor are invalid.
+      if (!formData.vendorId?.trim() && formData.vendorContactIds.length > 0) {
+        newErrors.vendorId = 'Vendor is required when vendor contacts are selected'
       }
     }
     if (step === 1) {
@@ -940,6 +1188,8 @@ export default function CreateProjectPage() {
       customerId: formData.customerId,
       customerName: formData.customerName,
       contactIds: formData.contactIds,
+      vendorId: formData.vendorId,
+      vendorContactIds: formData.vendorContactIds,
       name: formData.name,
       location,
       address: formData.address.trim(),
