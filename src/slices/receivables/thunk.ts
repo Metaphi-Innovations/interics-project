@@ -21,6 +21,7 @@ export interface FetchInvoicesParams {
   totalAmount?: number
   received?: number
   netReceivable?: number
+  columns?: string[]
   sortBy?: string
   sortOrder?: 'asc' | 'desc'
 }
@@ -109,6 +110,19 @@ export const convertDraftToTax = createAsyncThunk(
     } catch (err: unknown) {
       const error = err as { response?: { data?: { message?: string } } }
       return rejectWithValue(error.response?.data?.message ?? 'Failed to convert draft invoice')
+    }
+  },
+)
+
+export const deleteInvoice = createAsyncThunk(
+  'receivables/delete',
+  async (id: string, { rejectWithValue }) => {
+    try {
+      await receivablesApi.delete(id)
+      return id
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { message?: string } } }
+      return rejectWithValue(error.response?.data?.message ?? 'Failed to delete invoice')
     }
   },
 )

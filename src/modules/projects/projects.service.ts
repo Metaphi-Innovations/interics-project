@@ -41,6 +41,10 @@ const DEFAULT_LIST_COLUMNS = [
   'totalDesignFee',
   'totalBuildValue',
   'createdAt',
+  'wentLiveAt',
+  'completedAt',
+  'archivedAt',
+  'cancelledAt',
 ] as const
 
 function unwrapListPayload(payload: unknown): {
@@ -107,6 +111,11 @@ export const projectsService = {
         projectType: params.projectType || undefined,
         expectedStartDate: params.expectedStartDate || undefined,
         expectedEndDate: params.expectedEndDate || undefined,
+        createdAt: params.createdAt || undefined,
+        wentLiveAt: params.wentLiveAt || undefined,
+        completedAt: params.completedAt || undefined,
+        archivedAt: params.archivedAt || undefined,
+        cancelledAt: params.cancelledAt || undefined,
         columns: (params.columns ?? DEFAULT_LIST_COLUMNS).join(','),
         sortBy: params.sortBy || undefined,
         sortOrder: params.sortOrder || undefined,
@@ -142,6 +151,21 @@ export const projectsService = {
 
   async markLive(id: string): Promise<Project> {
     const res = await client.patch(`${BASE}/${id}/live`)
+    return toProjectFromDetail(unwrapApiData<ProjectDetailApi>(res.data))
+  },
+
+  async markCompleted(id: string): Promise<Project> {
+    const res = await client.patch(`${BASE}/${id}/complete`)
+    return toProjectFromDetail(unwrapApiData<ProjectDetailApi>(res.data))
+  },
+
+  async markArchived(id: string): Promise<Project> {
+    const res = await client.patch(`${BASE}/${id}/archive`)
+    return toProjectFromDetail(unwrapApiData<ProjectDetailApi>(res.data))
+  },
+
+  async markCancelled(id: string): Promise<Project> {
+    const res = await client.patch(`${BASE}/${id}/cancel`)
     return toProjectFromDetail(unwrapApiData<ProjectDetailApi>(res.data))
   },
 }

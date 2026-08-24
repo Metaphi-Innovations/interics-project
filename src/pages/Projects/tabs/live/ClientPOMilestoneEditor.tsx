@@ -117,6 +117,8 @@ interface ClientPOMilestoneEditorProps {
   serviceOptions: ClientPOServiceOption[]
   hideServiceColumn?: boolean
   disabled?: boolean
+  /** When false, hides Add Milestone (edit PO). Default true. */
+  allowAddMilestone?: boolean
   lockedMilestoneIds?: Set<string>
   lockedRetentionIds?: Set<string>
 }
@@ -205,6 +207,7 @@ export function ClientPOMilestoneEditor({
   serviceOptions,
   hideServiceColumn = false,
   disabled = false,
+  allowAddMilestone = true,
   lockedMilestoneIds,
   lockedRetentionIds,
 }: ClientPOMilestoneEditorProps) {
@@ -300,7 +303,9 @@ export function ClientPOMilestoneEditor({
             color="text.secondary"
             sx={{ fontSize: 12, py: 1, textAlign: 'center' }}
           >
-            No milestones yet. Click Add Milestone to create one.
+            {allowAddMilestone
+              ? 'No milestones yet. Click Add Milestone to create one.'
+              : 'No milestones yet.'}
           </Typography>
         ) : (
           milestones.map((m, idx) => {
@@ -459,16 +464,18 @@ export function ClientPOMilestoneEditor({
         )}
       </Box>
 
-      <MuiButton
-        size="small"
-        variant="outlined"
-        startIcon={<Add sx={{ fontSize: 14 }} />}
-        onClick={addMilestoneRow}
-        disabled={disabled || serviceOptions.length === 0}
-        sx={{ fontSize: 11, mt: 1 }}
-      >
-        Add Milestone
-      </MuiButton>
+      {allowAddMilestone ? (
+        <MuiButton
+          size="small"
+          variant="outlined"
+          startIcon={<Add sx={{ fontSize: 14 }} />}
+          onClick={addMilestoneRow}
+          disabled={disabled || serviceOptions.length === 0}
+          sx={{ fontSize: 11, mt: 1 }}
+        >
+          Add Milestone
+        </MuiButton>
+      ) : null}
 
       <Typography variant="caption" color="text.secondary" sx={{ fontSize: 10, display: 'block', mt: 1.5 }}>
         Total of milestones and retention must equal 100%.

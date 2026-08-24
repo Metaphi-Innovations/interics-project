@@ -90,13 +90,8 @@ export function totalTdsFromPayments(payments: ClientInvoicePayment[]): number {
 }
 
 export function balancePending(inv: ClientInvoice): number {
-  const tds = inv.tdsAmount ?? 0
-  const settled = totalSettledFromPayments(inv.payments)
-  // If no payments yet, TDS counts immediately as settled (deducted at source)
-  if (settled <= 0 && tds > 0) {
-    return roundMoney(inv.grossAmount - tds)
-  }
-  return roundMoney(inv.grossAmount - settled)
+  const netPayable = roundMoney(inv.grossAmount - (inv.tdsAmount ?? 0));
+  return roundMoney(netPayable - totalReceivedBank(inv.payments));
 }
 
 export function isInvoiceFullyPaid(inv: ClientInvoice): boolean {

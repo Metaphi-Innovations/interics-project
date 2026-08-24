@@ -98,10 +98,19 @@ export const payablesService = {
     invoiceAmount?: number
     tdsAmount?: number
     paymentStatus?: string
+    columns?: string[] | string
     sortBy?: string
     sortOrder?: 'asc' | 'desc'
   }): Promise<PayablesListResult> {
-    const res = await client.get('/finance/payables', { params })
+    const { columns, ...rest } = params
+    const res = await client.get('/finance/payables', {
+      params: {
+        ...rest,
+        ...(columns
+          ? { columns: Array.isArray(columns) ? columns.join(',') : columns }
+          : {}),
+      },
+    })
     const data = unwrapApiData<PayablesListItem[]>(res.data)
     const meta =
       res.data && typeof res.data === 'object' && 'meta' in res.data

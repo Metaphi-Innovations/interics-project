@@ -462,12 +462,13 @@ export function VendorPOMilestoneEditor({
                         >
                           <Add sx={{ fontSize: 16 }} />
                         </MuiIconButton>
+                      ) : isMilestoneLocked(m.id) ? (
+                        <Box sx={{ width: 28, height: 28 }} />
                       ) : (
                         <MuiIconButton
                           size="small"
                           aria-label="Remove milestone row"
                           onClick={() => removeMilestone(idx)}
-                          disabled={isMilestoneLocked(m.id)}
                           sx={ROW_ICON_ACTION_BUTTON_DANGER_SX}
                         >
                           <Trash2 size={14} strokeWidth={2} />
@@ -554,15 +555,18 @@ export function VendorPOMilestoneEditor({
                     ) : null}
                     {showRetentionActionColumn ? (
                       <Box sx={CARD_ACTION_CELL_SX}>
-                        <MuiIconButton
-                          size="small"
-                          aria-label="Remove retention"
-                          onClick={() => onRetentionChange(null)}
-                          disabled={isRetentionLocked()}
-                          sx={ROW_ICON_ACTION_BUTTON_DANGER_SX}
-                        >
-                          <Trash2 size={14} strokeWidth={2} />
-                        </MuiIconButton>
+                        {isRetentionLocked() ? (
+                          <Box sx={{ width: 28, height: 28 }} />
+                        ) : (
+                          <MuiIconButton
+                            size="small"
+                            aria-label="Remove retention"
+                            onClick={() => onRetentionChange(null)}
+                            sx={ROW_ICON_ACTION_BUTTON_DANGER_SX}
+                          >
+                            <Trash2 size={14} strokeWidth={2} />
+                          </MuiIconButton>
+                        )}
                       </Box>
                     ) : null}
                   </Box>
@@ -622,15 +626,18 @@ export function VendorPOMilestoneEditor({
                 />
                 {!lockStructure ? (
                   <Box sx={CARD_ACTION_CELL_SX}>
-                    <MuiIconButton
-                      size="small"
-                      aria-label="Remove milestone row"
-                      onClick={() => removeMilestone(idx)}
-                      disabled={isMilestoneLocked(m.id)}
-                      sx={ROW_ICON_ACTION_BUTTON_DANGER_SX}
-                    >
-                      <Trash2 size={14} strokeWidth={2} />
-                    </MuiIconButton>
+                    {isMilestoneLocked(m.id) ? (
+                      <Box sx={{ width: 28, height: 28 }} />
+                    ) : (
+                      <MuiIconButton
+                        size="small"
+                        aria-label="Remove milestone row"
+                        onClick={() => removeMilestone(idx)}
+                        sx={ROW_ICON_ACTION_BUTTON_DANGER_SX}
+                      >
+                        <Trash2 size={14} strokeWidth={2} />
+                      </MuiIconButton>
+                    )}
                   </Box>
                 ) : null}
               </Fragment>
@@ -711,14 +718,17 @@ export function VendorPOMilestoneEditor({
               sx={{ '& .MuiInputBase-input': { fontSize: 11 } }}
             />
             {!lockStructure ? (
-              <MuiIconButton
-                size="small"
-                onClick={() => onRetentionChange(null)}
-                disabled={isRetentionLocked()}
-                sx={ROW_ICON_ACTION_BUTTON_DANGER_SX}
-              >
-                <Trash2 size={14} strokeWidth={2} />
-              </MuiIconButton>
+              isRetentionLocked() ? (
+                <Box sx={{ width: 28, height: 28 }} />
+              ) : (
+                <MuiIconButton
+                  size="small"
+                  onClick={() => onRetentionChange(null)}
+                  sx={ROW_ICON_ACTION_BUTTON_DANGER_SX}
+                >
+                  <Trash2 size={14} strokeWidth={2} />
+                </MuiIconButton>
+              )
             ) : null}
           </Box>
         ) : null}

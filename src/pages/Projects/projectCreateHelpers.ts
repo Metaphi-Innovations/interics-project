@@ -160,6 +160,31 @@ export function getContactsForCustomer(customer: Customer | null | undefined): C
   return normalizeContacts(getCustomerContactsList(customer))
 }
 
+/**
+ * Vendor contacts for Create Project: only real VendorContact UUIDs from the
+ * vendor detail `contacts` array — never list-row placeholders like `legacy-primary`.
+ */
+export function getVendorContactsForProjectCreate(
+  vendor: { contacts?: Contact[] | null } | null | undefined,
+): Contact[] {
+  if (!vendor) return []
+  return getPersistedContacts(normalizeContacts(vendor.contacts ?? []))
+}
+
+/**
+ * When the selected vendor changes, clear prior contact IDs and default to this
+ * vendor's primary (or first) persisted contact — same idea as customer select.
+ */
+export function vendorSelectionAfterChange(
+  vendorId: string,
+  contacts: Contact[],
+): { vendorId: string; vendorContactIds: string[] } {
+  return {
+    vendorId,
+    vendorContactIds: getDefaultContactIds(contacts),
+  }
+}
+
 /** Compare phone numbers ignoring spaces, dashes, and country-code formatting. */
 export function normalizePhoneNumber(phone: string): string {
   return phone.replace(/\D/g, '')
@@ -177,8 +202,21 @@ export function getDefaultContactId(contacts: Contact[]): string {
   return primary?.id ?? contacts[0].id
 }
 
+/** True for persisted contact UUIDs — excludes UI placeholders like `legacy-primary`. */
+export function isPersistedContactId(id: string | null | undefined): boolean {
+  if (!id?.trim()) return false
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    id.trim(),
+  )
+}
+
+export function getPersistedContacts(contacts: Contact[]): Contact[] {
+  return contacts.filter((c) => isPersistedContactId(c.id))
+}
+
 export function getDefaultContactIds(contacts: Contact[]): string[] {
-  const id = getDefaultContactId(contacts)
+  const persisted = getPersistedContacts(contacts)
+  const id = getDefaultContactId(persisted)
   return id ? [id] : []
 }
 

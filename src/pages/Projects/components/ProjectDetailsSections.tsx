@@ -107,11 +107,6 @@ export function ProjectDetailsSections({ project }: ProjectDetailsSectionsProps)
         <Box sx={getRecordDetailFlatSectionSx(theme, { isLast: false })}>
           <RecordDetailSectionTitle>Project Profile</RecordDetailSectionTitle>
           <Box sx={PROJECT_DETAILS_GRID_SX}>
-            <LabelValue label="Project Name">
-              <Typography variant="body2" sx={{ ...METADATA_BODY_SX, fontWeight: 500 }}>
-                {project.name}
-              </Typography>
-            </LabelValue>
             <LabelValue label="Project Code">
               <Typography variant="body2" sx={METADATA_BODY_SX}>
                 {project.projectCode}
@@ -130,6 +125,11 @@ export function ProjectDetailsSections({ project }: ProjectDetailsSectionsProps)
             <LabelValue label="Expected End Date">
               <Typography variant="body2" sx={METADATA_BODY_SX}>
                 {formatDate(project.expectedEndDate)}
+              </Typography>
+            </LabelValue>
+            <LabelValue label="Expected Duration">
+              <Typography variant="body2" sx={METADATA_BODY_SX}>
+                {formatExpectedDuration(project.startDate, project.expectedEndDate)}
               </Typography>
             </LabelValue>
             <LabelValue label="Sector">
@@ -170,11 +170,6 @@ export function ProjectDetailsSections({ project }: ProjectDetailsSectionsProps)
             </LabelValue>
             <LabelValue label="Support Function">
               <ExpandableOverviewText value={project.supportFunction} />
-            </LabelValue>
-            <LabelValue label="Expected Duration">
-              <Typography variant="body2" sx={METADATA_BODY_SX}>
-                {formatExpectedDuration(project.startDate, project.expectedEndDate)}
-              </Typography>
             </LabelValue>
           </Box>
         </Box>

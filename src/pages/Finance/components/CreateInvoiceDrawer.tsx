@@ -17,6 +17,7 @@ import { dropdownsApi, type ProjectDropdownOption } from '@/api/dropdownsApi'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { createInvoice, updateInvoice, sendInvoice } from '@/slices/receivables/thunk'
 import { fetchClientPO, fetchClientPoById, fetchBaseline } from '@/slices/baseline/thunk'
+import { baselineService } from '@/modules/projects/baseline.service'
 import { fetchServices, fetchSACCodes } from '@/slices/settings/thunk'
 import type { Invoice } from '@/slices/receivables/reducer'
 import type { Project } from '@/slices/projects/reducer'
@@ -195,6 +196,7 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved, pre
   const [selectedPoId, setSelectedPoId] = useState('')
   const [selectedMilestoneIds, setSelectedMilestoneIds] = useState<string[]>([])
   const [projectInvoices, setProjectInvoices] = useState<Invoice[]>([])
+  const [billablePos, setBillablePos] = useState<ClientPO[]>([])
   const [invoiceDate, setInvoiceDate] = useState<Date | null>(new Date())
   const [paymentTermDays, setPaymentTermDays] = useState('30')
   const [dueDate, setDueDate] = useState<Date | null>(null)
@@ -257,10 +259,11 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved, pre
     return liveProjects
   }, [mode, invoice, liveProjects, presetProject])
 
-  const projectPos = useMemo(
-    () => (project ? clientPOs.filter((p) => p.projectId === project.id) : []),
-    [clientPOs, project],
-  )
+  const projectPos = useMemo(() => {
+    if (!project) return []
+    if (mode === 'create') return billablePos.filter((p) => p.projectId === project.id)
+    return clientPOs.filter((p) => p.projectId === project.id)
+  }, [billablePos, clientPOs, mode, project])
 
   const selectedPo = useMemo(
     () => projectPos.find((p) => p.id === selectedPoId) ?? null,
@@ -280,10 +283,15 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved, pre
   useEffect(() => {
     if (!open || !project) {
       setProjectInvoices([])
+      setBillablePos([])
       return
     }
     dispatch(fetchClientPO(project.id))
     dispatch(fetchBaseline(project.id))
+    void baselineService
+      .listClientPos(project.id, { pendingInvoiceOnly: true })
+      .then(setBillablePos)
+      .catch(() => setBillablePos([]))
     void receivablesApi
       .getAll({ projectId: project.id, pageSize: 500 })
       .then((r) => {

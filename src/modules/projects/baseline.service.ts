@@ -6,8 +6,13 @@ import type { ClientPO, Baseline, VendorPO } from '@/slices/baseline/reducer'
 const projectPath = (projectId: string) => `/projects/${projectId}`
 
 export const baselineService = {
-  async listClientPos(projectId: string): Promise<ClientPO[]> {
-    const res = await client.get(`${projectPath(projectId)}/po`)
+  async listClientPos(
+    projectId: string,
+    options?: { pendingInvoiceOnly?: boolean },
+  ): Promise<ClientPO[]> {
+    const res = await client.get(`${projectPath(projectId)}/po`, {
+      params: options?.pendingInvoiceOnly ? { pendingInvoiceOnly: true } : undefined,
+    })
     return unwrapApiData<ClientPO[]>(res.data) ?? []
   },
 

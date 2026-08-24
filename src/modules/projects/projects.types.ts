@@ -1,6 +1,6 @@
 import type { Project, ProjectTeamMember } from '@/slices/projects/reducer'
 
-export type ProjectStatusApi = 'PITCH' | 'LIVE'
+export type ProjectStatusApi = 'PITCH' | 'LIVE' | 'COMPLETED' | 'ARCHIVED' | 'CANCELLED'
 
 export interface ProjectListItemApi {
   id: string
@@ -22,7 +22,13 @@ export interface ProjectListItemApi {
   expectedEndDate?: string | null
   totalDesignFee?: number | null
   totalBuildValue?: number | null
+  totalClientPOValue?: number | null
+  totalVendorPOValue?: number | null
   createdAt?: string
+  wentLiveAt?: string | null
+  completedAt?: string | null
+  archivedAt?: string | null
+  cancelledAt?: string | null
 }
 
 export interface ProjectDetailApi {
@@ -32,6 +38,9 @@ export interface ProjectDetailApi {
   status: ProjectStatusApi
   statusLabel?: string
   wentLiveAt?: string | null
+  completedAt?: string | null
+  archivedAt?: string | null
+  cancelledAt?: string | null
   customer: {
     id: string
     customerName: string
@@ -93,6 +102,10 @@ export interface ProjectDetailApi {
   isActive?: boolean
   createdAt?: string
   updatedAt?: string
+  /** Canonical Client PO amount (Live Overview semantics); optional on detail. */
+  totalClientPOValue?: number | null
+  /** Canonical Vendor Offer amount (Live Overview semantics); optional on detail. */
+  totalVendorPOValue?: number | null
 }
 
 export interface ProjectCreateFormInput {
@@ -100,6 +113,8 @@ export interface ProjectCreateFormInput {
   customerName?: string
   name: string
   contactIds: string[]
+  vendorId?: string
+  vendorContactIds?: string[]
   projectTypes: string[]
   sector: string
   address?: string
@@ -137,6 +152,11 @@ export interface ProjectListParams {
   projectType?: string
   expectedStartDate?: string
   expectedEndDate?: string
+  createdAt?: string
+  wentLiveAt?: string
+  completedAt?: string
+  archivedAt?: string
+  cancelledAt?: string
   columns?: string[]
   sortBy?: string
   sortOrder?: 'asc' | 'desc'
@@ -158,11 +178,18 @@ export interface ProjectFiltersApi {
   projectLeadId?: Array<{ value: string; label: string }>
   expectedStartDate?: Array<{ value: string; label: string }>
   expectedEndDate?: Array<{ value: string; label: string }>
+  createdAt?: Array<{ value: string; label: string }>
+  wentLiveAt?: Array<{ value: string; label: string }>
+  completedAt?: Array<{ value: string; label: string }>
+  archivedAt?: Array<{ value: string; label: string }>
+  cancelledAt?: Array<{ value: string; label: string }>
 }
 
 export type ProjectCreateApiPayload = {
   customerId: string
   contactIds: string[]
+  vendorId?: string
+  vendorContactIds?: string[]
   projectName: string
   projectTypes: string[]
   sector: string

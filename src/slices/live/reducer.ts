@@ -7,6 +7,7 @@ import {
   fetchVendorInvoices,
   uploadVendorInvoice,
   updateVendorInvoice,
+  deleteVendorInvoice,
   fetchPayments,
   createPayment,
   fetchExpenses,
@@ -210,6 +211,18 @@ const liveSlice = createSlice({
         }
       })
       .addCase(updateVendorInvoice.rejected, (state) => {
+        state.saving = false
+      })
+
+      .addCase(deleteVendorInvoice.pending, (state) => {
+        state.saving = true
+      })
+      .addCase(deleteVendorInvoice.fulfilled, (state, action) => {
+        state.saving = false
+        const { invoiceId } = action.payload
+        state.vendorInvoices = state.vendorInvoices.filter((v) => v.id !== invoiceId)
+      })
+      .addCase(deleteVendorInvoice.rejected, (state) => {
         state.saving = false
       })
 

@@ -8,6 +8,7 @@ import {
   convertDraftToTax,
   recordPayment,
   sendInvoice,
+  deleteInvoice,
 } from './thunk'
 
 export type InvoiceStatus =
@@ -268,6 +269,21 @@ const receivablesSlice = createSlice({
         if (state.selectedItem?.id === inv.id) state.selectedItem = inv
       })
       .addCase(convertDraftToTax.rejected, (state, action) => {
+        state.saving = false
+        state.error = action.payload as string
+      })
+      .addCase(deleteInvoice.pending, (state) => {
+        state.saving = true
+        state.error = null
+      })
+      .addCase(deleteInvoice.fulfilled, (state, action) => {
+        state.saving = false
+        const id = action.payload
+        state.items = state.items.filter((x) => x.id !== id)
+        state.pagination.total = Math.max(0, state.pagination.total - 1)
+        if (state.selectedItem?.id === id) state.selectedItem = null
+      })
+      .addCase(deleteInvoice.rejected, (state, action) => {
         state.saving = false
         state.error = action.payload as string
       })

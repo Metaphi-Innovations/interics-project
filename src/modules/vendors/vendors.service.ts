@@ -130,10 +130,14 @@ export const vendorsService = {
 
   async getAll(params: VendorListParams = {}): Promise<VendorListResult> {
     const columns = params.columns?.length ? params.columns : [...DEFAULT_LIST_COLUMNS]
+    const ratingFilter = params.rating?.trim()
+    // Rating is still client-persisted; fetch a wider page then filter locally.
+    const page = ratingFilter ? 1 : (params.page ?? 1)
+    const limit = ratingFilter ? 100 : (params.limit ?? 20)
     const res = await client.get(BASE, {
       params: {
-        page: params.page ?? 1,
-        limit: params.limit ?? 20,
+        page,
+        limit,
         ...(params.search?.trim() ? { search: params.search.trim() } : {}),
         ...(params.isActive !== undefined ? { isActive: params.isActive } : {}),
         ...(params.gstStatus ? { gstStatus: params.gstStatus } : {}),
@@ -142,6 +146,7 @@ export const vendorsService = {
         ...(params.website ? { website: params.website } : {}),
         ...(params.location ? { location: params.location } : {}),
         ...(params.specialization ? { specialization: params.specialization } : {}),
+        ...(ratingFilter ? { rating: ratingFilter } : {}),
         ...(params.contactPerson ? { contactPerson: params.contactPerson } : {}),
         ...(params.mobile ? { mobile: params.mobile } : {}),
         ...(params.email ? { email: params.email } : {}),
@@ -153,11 +158,26 @@ export const vendorsService = {
       },
     })
     const list = unwrapListPayload(res.data)
+    let items = list.items.map(toVendorFromListItem)
+    let total = list.total
+    let resultPage = list.page
+    let pageSize = list.pageSize
+    if (ratingFilter) {
+      const needle = ratingFilter.toLowerCase()
+      items = items.filter((vendor) => (vendor.rating ?? '').trim().toLowerCase() === needle)
+      total = items.length
+      const pageLimit = params.limit ?? 20
+      const pageNum = params.page ?? 1
+      const skip = (Math.max(1, pageNum) - 1) * pageLimit
+      items = items.slice(skip, skip + pageLimit)
+      resultPage = pageNum
+      pageSize = pageLimit
+    }
     return {
-      items: list.items.map(toVendorFromListItem),
-      total: list.total,
-      page: list.page,
-      pageSize: list.pageSize,
+      items,
+      total,
+      page: resultPage,
+      pageSize,
     }
   },
 

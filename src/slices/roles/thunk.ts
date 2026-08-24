@@ -83,7 +83,11 @@ export const createRole = createAsyncThunk(
   'roles/create',
   async (data: Omit<Role, 'id' | 'userCount'>, { rejectWithValue }) => {
     try {
-      const response = await rolesApi.create(data as unknown as Record<string, unknown>)
+      const response = await rolesApi.create({
+        name: data.name,
+        description: data.description,
+        status: data.status === 'inactive' ? 'INACTIVE' : 'ACTIVE',
+      })
       return toUiRole(unwrapApiData<ApiRole>(response.data))
     } catch (err: unknown) {
       const error = err as { response?: { data?: { message?: string } } }

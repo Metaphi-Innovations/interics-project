@@ -4,7 +4,7 @@ import { Banknote, CircleCheck, Clock } from 'lucide-react'
 import { KpiStatCard } from '@/components/templates/KpiStatCard'
 import type { VendorPO } from '@/slices/baseline/reducer'
 import type { VendorPayment } from '@/slices/live/reducer'
-import { formatCurrency } from '@/utils/formatters'
+import { formatInr } from '@/utils/formatters'
 import {
   computePayableSummaryKpis,
   type PayableSummaryKpis,
@@ -32,19 +32,19 @@ export function SettlementSummaryStrip({
   }[] = [
     {
       label: 'Total Vendor Offer',
-      value: `₹${formatCurrency(kpis.totalVendorPoValue)}`,
+      value: `₹${formatInr(kpis.totalVendorPoValue)}`,
       variant: 'default',
       icon: <Banknote size={24} strokeWidth={1.75} />,
     },
     {
       label: 'Paid Till Date',
-      value: `₹${formatCurrency(kpis.paidTillDate)}`,
+      value: `₹${formatInr(kpis.paidTillDate)}`,
       variant: 'success',
       icon: <CircleCheck size={24} strokeWidth={1.75} />,
     },
     {
       label: 'Remaining',
-      value: `₹${formatCurrency(kpis.pendingPayment)}`,
+      value: `₹${formatInr(kpis.pendingPayment)}`,
       variant: 'warning',
       icon: <Clock size={24} strokeWidth={1.75} />,
     },

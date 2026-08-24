@@ -256,7 +256,19 @@ export default function CustomerDetailPage() {
     let cancelled = false
     setLinkedProjectsLoading(true)
     void projectsService
-      .getAll({ customerId: customer.id, limit: 100 })
+      .getAll({
+        customerId: customer.id,
+        limit: 100,
+        columns: [
+          'id',
+          'projectCode',
+          'projectName',
+          'status',
+          'statusLabel',
+          'projectLeadName',
+          'totalClientPOValue',
+        ],
+      })
       .then((result) => {
         if (cancelled) return
         setLinkedProjects(result.items)
@@ -788,7 +800,7 @@ export default function CustomerDetailPage() {
                   />
                 </TableCell>
                 <TableCell sx={{ fontSize: 13, borderColor: 'divider' }}>
-                  {formatCurrency(project.projectValue)}
+                  {formatCurrency(project.totalClientPOValue || 0)}
                 </TableCell>
                 <TableCell sx={{ fontSize: 13, borderColor: 'divider' }}>
                   {project.projectManager || '—'}

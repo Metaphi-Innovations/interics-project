@@ -83,7 +83,7 @@ export type VendorMilestoneValidation = {
 
 /**
  * If any regular milestone or retention exists, require >=1 regular milestone
- * and total % === 100. Empty breakdown: valid (no breakdown yet).
+ * and total % === exactly 100. Empty breakdown: valid (no breakdown yet).
  */
 export function validateVendorMilestonePercents(m: VendorMapping): VendorMilestoneValidation {
   const milestones = m.milestones ?? []
@@ -104,11 +104,11 @@ export function validateVendorMilestonePercents(m: VendorMapping): VendorMilesto
     }
   }
 
-  if (currentPct > 100 + VENDOR_MILESTONE_PCT_EPS) {
+  if (Math.abs(currentPct - 100) > VENDOR_MILESTONE_PCT_EPS) {
     return {
       valid: false,
       currentPct,
-      pctMessage: `Total must not exceed 100% (currently ${currentPct.toFixed(1)}%)`,
+      pctMessage: `Total must equal exactly 100% (currently ${currentPct.toFixed(1)}%)`,
     }
   }
 

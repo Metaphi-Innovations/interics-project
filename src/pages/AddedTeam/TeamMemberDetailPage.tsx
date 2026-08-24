@@ -43,7 +43,7 @@ import { ProjectOverviewTab } from '@/pages/Projects/components/ProjectOverviewT
 import { formatBuildingFloor } from '@/pages/Projects/projectOverviewHelpers'
 import { getProjectAssignedMembers } from '@/utils/projectAssignedTeam'
 import { formatCurrency, formatDate, getAvatarColor, getInitials } from '@/utils/formatters'
-import { teamsApi } from '@/api/teamsApi'
+import { teamsApi, type TeamMemberAssignmentApi } from '@/api/teamsApi'
 
 type AssignedPeriod =
   | 'Last 1 Year'
@@ -234,6 +234,73 @@ function projectProfitPct(project: Project): number | null {
   return (100 * projectProfit(project)) / revenue
 }
 
+function toUiProjectStatus(status?: string): Project['status'] {
+  const normalized = String(status ?? 'PITCH').toUpperCase()
+  if (normalized === 'LIVE') return 'Live'
+  if (normalized === 'COMPLETED') return 'Completed'
+  if (normalized === 'ARCHIVED') return 'Archived'
+  if (normalized === 'CANCELLED') return 'Cancelled'
+  return 'Pitch'
+}
+
+function assignmentSites(row: TeamMemberAssignmentApi): string {
+  return formatBuildingFloor({
+    building: undefined,
+    floor: undefined,
+    location: row.location ?? '',
+    address: null,
+    city: row.city ?? null,
+    state: row.state ?? null,
+    country: null,
+    pincode: null,
+  })
+}
+
+function mapTeamAssignmentRow(row: TeamMemberAssignmentApi): AssignedProjectRow {
+  const status = toUiProjectStatus(row.projectStatus)
+  const project: Project = {
+    id: String(row.projectId ?? ''),
+    projectCode: String(row.projectCode ?? ''),
+    name: String(row.projectName ?? '—'),
+    customerId: '',
+    customerName: '',
+    projectTypes: [],
+    status,
+    progress: row.progressLabel ?? row.statusLabel ?? status,
+    location: row.location ?? '',
+    city: row.city ?? null,
+    state: row.state ?? null,
+    carpetArea: null,
+    headcount: row.headcount ?? null,
+    projectManager: row.projectLeadName ?? '—',
+    projectManagerId: row.projectLeadId ?? '',
+    startDate: row.startDate ?? null,
+    expectedEndDate: row.expectedEndDate ?? null,
+    projectValue: 0,
+    totalClientPOValue: Number(row.revenue ?? 0),
+    totalVendorPOValue: Number(row.vendorOfferAmount ?? 0),
+    invoicedAmount: 0,
+    paidVendorAmount: 0,
+    createdAt: new Date().toISOString(),
+    assignedTeam: [],
+  }
+
+  return {
+    id: String(row.projectId ?? ''),
+    projectName: String(row.projectName ?? '—'),
+    projectLead: row.projectLeadName?.trim() || '—',
+    status,
+    progress: row.progressLabel ?? row.statusLabel ?? status,
+    startDate: row.startDate ?? null,
+    expectedEndDate: row.expectedEndDate ?? null,
+    sites: assignmentSites(row),
+    revenue: Number(row.revenue ?? 0),
+    profit: Number(row.profit ?? 0),
+    profitPct: row.profitPct ?? null,
+    project,
+  }
+}
+
 function fmtInr(amount: number): string {
   return `₹${formatCurrency(amount)}`
 }
@@ -351,7 +418,7 @@ export default function TeamMemberDetailPage() {
   const selectedUser = useMemo(() => users.find((user) => user.id === memberId) ?? null, [users, memberId])
   const [teamDetail, setTeamDetail] = useState<{
     user: Record<string, unknown>
-    assignments: Array<Record<string, unknown>>
+    assignments: TeamMemberAssignmentApi[]
   } | null>(null)
   const roleName = useMemo(() => {
     if (!selectedUser) return '—'
@@ -402,26 +469,7 @@ export default function TeamMemberDetailPage() {
 
   const assignedProjects = useMemo<AssignedProjectRow[]>(() => {
     if (teamDetail?.assignments?.length) {
-      return teamDetail.assignments.map((row) => ({
-        id: String(row.projectId ?? ''),
-        projectName: String(row.projectName ?? '—'),
-        projectLead: '—',
-        status: String(row.projectStatus ?? 'PITCH') as Project['status'],
-        progress: '—',
-        startDate: (row.startDate as string | null) ?? null,
-        expectedEndDate: (row.expectedEndDate as string | null) ?? null,
-        sites: '—',
-        revenue: Number(row.revenue ?? 0),
-        profit: Number(row.profit ?? 0),
-        profitPct: null,
-        project:
-          projects.find((p) => p.id === row.projectId) ??
-          ({
-            id: String(row.projectId ?? ''),
-            name: String(row.projectName ?? '—'),
-            status: String(row.projectStatus ?? 'PITCH') as Project['status'],
-          } as Project),
-      }))
+      return teamDetail.assignments.map(mapTeamAssignmentRow)
     }
     if (!selectedUser) return []
     return projects

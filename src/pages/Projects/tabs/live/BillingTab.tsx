@@ -29,6 +29,7 @@ import { tokens } from '@/design-system/tokens'
 import { DEFAULT_GST_RATE } from '@/config/billingRates'
 import { useAppDispatch, useAppSelector } from '../../../../store/hooks'
 import { createInvoice, fetchInvoices } from '../../../../slices/live/thunk'
+import { convertDraftToTax } from '../../../../slices/receivables/thunk'
 import type { ClientInvoice, ClientInvoiceLineItem } from '../../../../slices/live/types'
 import { formatDate, formatInr } from '../../../../utils/formatters'
 import { buildBillableFromClientPOs, type BillableMilestone } from './billableMilestones'
@@ -85,10 +86,11 @@ function toIsoDate(d: Date | null): string {
   return `${y}-${mo}-${day}`
 }
 
-type MilestoneBillPhase = 'not_invoiced' | 'invoiced' | 'overdue' | 'paid' | 'partially_paid'
+type MilestoneBillPhase = 'not_invoiced' | 'draft' | 'invoiced' | 'overdue' | 'paid' | 'partially_paid'
 
 function milestoneBillPhase(inv: ClientInvoice | undefined): MilestoneBillPhase {
   if (!inv) return 'not_invoiced'
+  if (inv.status === 'draft') return 'draft'
   const pending = balancePending(inv)
   if (pending <= MONEY_EPS) return 'paid'
   // TDS is reflected in `balancePending()`, so using `gross - pending` would
@@ -104,6 +106,8 @@ function milestoneStatusBadge(phase: MilestoneBillPhase): { type: StatusType; la
   switch (phase) {
     case 'not_invoiced':
       return { type: 'draft', label: 'Not Invoiced' }
+    case 'draft':
+      return { type: 'draft', label: 'Draft' }
     case 'invoiced':
       return { type: 'sent', label: 'Invoiced' }
     case 'paid':
@@ -200,6 +204,7 @@ function AmountBreakdownColumn({
   base,
   gstRate,
   gstAmount,
+  labourCess = 0,
   tdsRate,
   tdsAmount,
   net,
@@ -207,6 +212,7 @@ function AmountBreakdownColumn({
   base: number
   gstRate: number
   gstAmount: number
+  labourCess?: number
   tdsRate?: number | null
   tdsAmount: number
   net: number
@@ -216,6 +222,11 @@ function AmountBreakdownColumn({
       <Typography variant="caption" sx={{ color: 'text.secondary' }}>
         Base: ₹{formatInr(base)}
       </Typography>
+      {labourCess > MONEY_EPS ? (
+        <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+          Labour cess: ₹{formatInr(labourCess)}
+        </Typography>
+      ) : null}
       <Typography variant="caption" sx={{ color: 'text.secondary' }}>
         GST ({gstRate}%): ₹{formatInr(gstAmount)}
       </Typography>
@@ -264,10 +275,12 @@ function InvoiceDetailsColumn({
 
 function PaymentSummaryColumn({
   tds,
+  labourCess = 0,
   received,
   outstanding,
 }: {
   tds: number
+  labourCess?: number
   received: number
   outstanding: number
 }) {
@@ -278,6 +291,11 @@ function PaymentSummaryColumn({
       <Typography variant="caption" sx={{ color: 'text.secondary' }}>
         TDS: ₹{formatInr(tds)}
       </Typography>
+      {labourCess > MONEY_EPS ? (
+        <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+          Labour cess: ₹{formatInr(labourCess)}
+        </Typography>
+      ) : null}
       <Typography variant="caption" sx={{ color: 'text.secondary' }}>
         Received: ₹{formatInr(received)}
       </Typography>
@@ -315,7 +333,18 @@ function formatLabourCessPercent(rate: number | null): string {
   return `${Number.isInteger(rounded) ? rounded : rounded.toFixed(2)}%`
 }
 
-function ClientInvoiceTaxSummary({ roll }: { roll: InvoiceLineRollups }) {
+function ClientInvoiceTaxSummary({
+  roll,
+  tdsAmount = 0,
+  tdsRate,
+  showNetPayable = true,
+}: {
+  roll: InvoiceLineRollups
+  tdsAmount?: number
+  tdsRate?: number | null
+  showNetPayable?: boolean
+}) {
+  const netPayable = roll.grossAmount - tdsAmount
   return (
     <>
       <ReadOnlySummaryRow label="Base amount" value={`₹${formatInr(roll.baseAmount)}`} />
@@ -326,12 +355,23 @@ function ClientInvoiceTaxSummary({ roll }: { roll: InvoiceLineRollups }) {
       <ReadOnlySummaryRow label="Labour cess amount" value={`₹${formatInr(roll.labourCessAmount)}`} />
       <ReadOnlySummaryRow label="Taxable amount" value={`₹${formatInr(roll.taxableAmount)}`} />
       <ReadOnlySummaryRow label="GST amount" value={`₹${formatInr(roll.gstAmount)}`} />
-      <Divider sx={{ my: 1 }} />
-      <ReadOnlySummaryRow
-        label="Final invoice amount"
-        value={`₹${formatInr(roll.grossAmount)}`}
-        valueSx={{ fontWeight: 700, typography: 'body1' }}
-      />
+      {tdsAmount > 0 ? (
+        <ReadOnlySummaryRow
+          label={tdsRate != null ? `TDS (${tdsRate}%)` : 'TDS'}
+          value={`−₹${formatInr(tdsAmount)}`}
+          valueSx={{ color: 'text.secondary' }}
+        />
+      ) : null}
+      {showNetPayable ? (
+        <>
+          <Divider sx={{ my: 1 }} />
+          <ReadOnlySummaryRow
+            label="Net payable"
+            value={`₹${formatInr(netPayable)}`}
+            valueSx={{ fontWeight: 700, typography: 'body1' }}
+          />
+        </>
+      ) : null}
     </>
   )
 }
@@ -479,7 +519,7 @@ function GenerateInvoiceDrawer({
           projectName,
           clientId,
           clientName,
-          sendNow: true,
+          sendNow: false,
           data: {
             milestoneId: preset.milestoneId,
             milestoneName: preset.milestoneName,
@@ -498,14 +538,14 @@ function GenerateInvoiceDrawer({
             invoiceNumber: invoiceNumber.trim(),
             invoiceDate: invDate,
             dueDate: due,
-            status: 'sent',
+            status: 'draft',
             payments: [],
             notes: notes.trim() || undefined,
           },
         }),
       ).unwrap()
       void dispatch(fetchInvoices(projectId))
-      showToast({ title: 'Invoice generated', variant: 'success' })
+      showToast({ title: 'Draft invoice created', variant: 'success' })
       onClose()
     } catch {
       showToast({ title: 'Failed to generate invoice', variant: 'error' })
@@ -684,7 +724,7 @@ function GenerateInvoiceDrawer({
               borderColor: 'divider',
             }}
           >
-            <ClientInvoiceTaxSummary roll={roll} />
+            <ClientInvoiceTaxSummary roll={roll} tdsAmount={0} showNetPayable={false} />
             {preset.tdsRate ? (
               <>
                 <Divider sx={{ my: 1 }} />
@@ -854,7 +894,11 @@ function ViewInvoiceDrawer({
               borderColor: 'divider',
             }}
           >
-            <ClientInvoiceTaxSummary roll={roll} />
+            <ClientInvoiceTaxSummary
+              roll={roll}
+              tdsAmount={tdsTotal}
+              tdsRate={invoice.tdsRate}
+            />
             <Divider sx={{ my: 1 }} />
             <ReadOnlySummaryRow
               label="Total received"
@@ -863,17 +907,6 @@ function ViewInvoiceDrawer({
                 color: bankReceived > 0 ? 'success.main' : 'text.secondary',
               }}
             />
-            <ReadOnlySummaryRow
-              label={invoice.tdsRate != null ? `TDS (${invoice.tdsRate}%)` : 'TDS'}
-              value={`−₹${formatInr(tdsTotal)}`}
-              valueSx={{ color: 'text.secondary' }}
-            />
-            <ReadOnlySummaryRow
-              label="Net invoice amount"
-              value={`₹${formatInr(invoice.grossAmount - tdsTotal)}`}
-              valueSx={{ fontWeight: 700, typography: 'body1' }}
-            />
-            <Divider sx={{ my: 1 }} />
             <ReadOnlySummaryRow
               label="Balance pending"
               value={`₹${formatInr(bal)}`}
@@ -1019,11 +1052,13 @@ export default function BillingTab({ projectId, projectName, clientId, clientNam
               let base: number
               let gstRate: number
               let gstAmount: number
+              let labourCess = 0
               let tdsAmount: number
               let net: number
               if (inv) {
                 const roll = rollupsFromLineItems(inv.lineItems)
                 base = roll.baseAmount
+                labourCess = roll.labourCessAmount
                 gstRate =
                   inv.baseAmount > 0
                     ? Math.round((100 * inv.gstAmount) / inv.baseAmount)
@@ -1031,7 +1066,7 @@ export default function BillingTab({ projectId, projectName, clientId, clientNam
                 gstAmount = inv.gstAmount
                 const effectiveTdsRate = inv.tdsRate ?? poTdsRate
                 tdsAmount = calcTdsAmount(base, effectiveTdsRate)
-                net = base + gstAmount - tdsAmount
+                net = base + labourCess + gstAmount - tdsAmount
               } else {
                 base = m.baseAmount
                 gstRate = DEFAULT_GST_RATE
@@ -1080,6 +1115,7 @@ export default function BillingTab({ projectId, projectName, clientId, clientNam
                       base={base}
                       gstRate={gstRate}
                       gstAmount={gstAmount}
+                      labourCess={labourCess}
                       tdsRate={inv?.tdsRate ?? poTdsRate}
                       tdsAmount={tdsAmount}
                       net={net}
@@ -1089,6 +1125,7 @@ export default function BillingTab({ projectId, projectName, clientId, clientNam
                     {inv ? (
                       <PaymentSummaryColumn
                         tds={tds}
+                        labourCess={labourCess}
                         received={received}
                         outstanding={outstanding}
                       />
@@ -1117,8 +1154,22 @@ export default function BillingTab({ projectId, projectName, clientId, clientNam
                           size="sm"
                           variant="contained"
                           color="primary"
-                          label="Generate Invoice"
+                          label="Draft Invoice"
                           onClick={() => openGenerate(m)}
+                          sx={RECEIVABLES_ACTION_BUTTON_SX}
+                        />
+                      ) : phase === 'draft' ? (
+                        <Button
+                          size="sm"
+                          variant="contained"
+                          color="secondary"
+                          label="Convert to Tax"
+                          onClick={() => {
+                            if (!inv) return
+                            void dispatch(convertDraftToTax(inv.id)).then(() => {
+                              void dispatch(fetchInvoices(projectId))
+                            })
+                          }}
                           sx={RECEIVABLES_ACTION_BUTTON_SX}
                         />
                       ) : (

@@ -87,6 +87,35 @@ interface ColumnVisibility {
   dates: boolean
 }
 
+/** API list projection keys from Toggle Columns visibility. */
+function buildProjectListColumns(cols: ColumnVisibility): string[] {
+  return [
+    'id',
+    'projectCode',
+    'projectName',
+    'status',
+    'statusLabel',
+    'customerId',
+    'customerName',
+    'sector',
+    'sectorLabel',
+    'location',
+    'city',
+    'state',
+    ...(cols.type ? (['projectTypes'] as const) : []),
+    ...(cols.projectLead ? (['projectLeadName'] as const) : []),
+    'carpetAreaSqFt',
+    ...(cols.dates ? (['expectedStartDate', 'expectedEndDate'] as const) : []),
+    'totalDesignFee',
+    'totalBuildValue',
+    'createdAt',
+    'wentLiveAt',
+    'completedAt',
+    'archivedAt',
+    'cancelledAt',
+  ]
+}
+
 // ─── Project Avatar ───────────────────────────────────────────────────────────
 
 function ProjectAvatar({ name }: { name: string }) {
@@ -146,6 +175,7 @@ interface RowActionsProps {
   onView: () => void
   onEdit: () => void
   onChangeStatus: () => void
+  onComplete: () => void
   onArchive: () => void
   onCancel: () => void
 }
@@ -158,6 +188,7 @@ function RowActions({
   onView,
   onEdit,
   onChangeStatus,
+  onComplete,
   onArchive,
   onCancel,
 }: RowActionsProps) {
@@ -208,6 +239,12 @@ function RowActions({
         {showLifecycleActions ? (
           <>
             <MenuItem
+              onClick={() => { setAnchor(null); onComplete() }}
+              sx={{ fontSize: 13, gap: 1 }}
+            >
+              <CheckCircle sx={{ fontSize: 14 }} /> Complete Project
+            </MenuItem>
+            <MenuItem
               onClick={() => { setAnchor(null); onArchive() }}
               sx={{ fontSize: 13, gap: 1 }}
             >
@@ -241,9 +278,12 @@ interface ProjectsTableProps {
   colFilters: Record<string, string>
   filterOptions: Record<string, ColumnFilterOption[]>
   onColumnFilter: (field: string, value: string) => void
+  statusDateField: 'createdAt' | 'wentLiveAt' | 'completedAt' | 'archivedAt' | 'cancelledAt'
+  statusDateLabel: string
   onView: (project: Project) => void
   onEdit: (project: Project) => void
   onChangeStatus: (project: Project) => void
+  onComplete: (project: Project) => void
   onArchive: (project: Project) => void
   onCancel: (project: Project) => void
 }
@@ -261,9 +301,12 @@ function ProjectsTable({
   colFilters,
   filterOptions,
   onColumnFilter,
+  statusDateField,
+  statusDateLabel,
   onView,
   onEdit,
   onChangeStatus,
+  onComplete,
   onArchive,
   onCancel,
 }: ProjectsTableProps) {
@@ -374,7 +417,7 @@ function ProjectsTable({
             )}
             {columns.dates && (
               <FilterableSortHeader
-                label="Dates"
+                label="Start/End Date"
                 field="expectedStartDate"
                 sortField={sortField ?? undefined}
                 sortDirection={sortDirection}
@@ -385,6 +428,17 @@ function ProjectsTable({
                 sx={{ ...headSx, display: { xs: 'none', xl: 'table-cell' } }}
               />
             )}
+            <FilterableSortHeader
+              label={statusDateLabel}
+              field={statusDateField}
+              sortField={sortField ?? undefined}
+              sortDirection={sortDirection}
+              onSort={onSort}
+              filterValue={colFilters[statusDateField] ?? ''}
+              filterOptions={filterOptions[statusDateField] ?? []}
+              onFilter={(v) => onColumnFilter(statusDateField, v)}
+              sx={{ ...headSx, display: { xs: 'none', lg: 'table-cell' } }}
+            />
             {hasActions ? <TableCell sx={actionHeadSx}>Action</TableCell> : null}
           </TableRow>
         </TableHead>
@@ -452,7 +506,7 @@ function ProjectsTable({
                   </TableCell>
                 )}
 
-                {/* Dates */}
+                {/* Start/End Date */}
                 {columns.dates && (
                   <TableCell sx={{ ...cellSx, display: { xs: 'none', xl: 'table-cell' } }}>
                     <Stack gap="2px">
@@ -493,6 +547,22 @@ function ProjectsTable({
                   </TableCell>
                 )}
 
+                <TableCell sx={{ ...cellSx, display: { xs: 'none', lg: 'table-cell' } }}>
+                  <Typography variant="caption" sx={{ fontSize: 11, color: 'text.secondary' }}>
+                    {formatDate(
+                      statusDateField === 'createdAt'
+                        ? (project.createdAt ?? null)
+                        : statusDateField === 'wentLiveAt'
+                          ? (project.wentLiveAt ?? null)
+                          : statusDateField === 'completedAt'
+                            ? (project.completedAt ?? null)
+                            : statusDateField === 'archivedAt'
+                              ? (project.archivedAt ?? null)
+                              : (project.cancelledAt ?? null),
+                    )}
+                  </Typography>
+                </TableCell>
+
                 {/* Actions */}
                 {hasActions ? (
                   <TableCell sx={actionCellSx} onClick={(e) => e.stopPropagation()}>
@@ -512,6 +582,7 @@ function ProjectsTable({
                         onView={() => onView(project)}
                         onEdit={() => onEdit(project)}
                         onChangeStatus={() => onChangeStatus(project)}
+                        onComplete={() => onComplete(project)}
                         onArchive={() => onArchive(project)}
                         onCancel={() => onCancel(project)}
                       />
@@ -537,6 +608,7 @@ interface ProjectGridCardProps {
   onView: (project: Project) => void
   onEdit: (project: Project) => void
   onChangeStatus: (project: Project) => void
+  onComplete: (project: Project) => void
   onArchive: (project: Project) => void
   onCancel: (project: Project) => void
 }
@@ -549,6 +621,7 @@ function ProjectGridCard({
   onView,
   onEdit,
   onChangeStatus,
+  onComplete,
   onArchive,
   onCancel,
 }: ProjectGridCardProps) {
@@ -634,6 +707,9 @@ function ProjectGridCard({
               ) : null}
               {showLifecycleActions ? (
                 <>
+                  <MenuItem onClick={() => { setAnchor(null); onComplete(project) }} sx={{ fontSize: 13, gap: 1 }}>
+                    <CheckCircle sx={{ fontSize: 14 }} /> Complete Project
+                  </MenuItem>
                   <MenuItem onClick={() => { setAnchor(null); onArchive(project) }} sx={{ fontSize: 13, gap: 1 }}>
                     <Archive sx={{ fontSize: 14 }} /> Archive Project
                   </MenuItem>
@@ -711,6 +787,7 @@ interface ProjectsGridProps {
   onView: (project: Project) => void
   onEdit: (project: Project) => void
   onChangeStatus: (project: Project) => void
+  onComplete: (project: Project) => void
   onArchive: (project: Project) => void
   onCancel: (project: Project) => void
 }
@@ -724,6 +801,7 @@ function ProjectsGrid({
   onView,
   onEdit,
   onChangeStatus,
+  onComplete,
   onArchive,
   onCancel,
 }: ProjectsGridProps) {
@@ -776,6 +854,7 @@ function ProjectsGrid({
           onView={onView}
           onEdit={onEdit}
           onChangeStatus={onChangeStatus}
+          onComplete={onComplete}
           onArchive={onArchive}
           onCancel={onCancel}
         />
@@ -956,7 +1035,7 @@ export default function ProjectsPage() {
   const [statusDialogProject, setStatusDialogProject] = useState<Project | null>(null)
   const [lifecycleConfirm, setLifecycleConfirm] = useState<{
     project: Project
-    status: 'Archived' | 'Cancelled'
+    status: 'Archived' | 'Completed' | 'Cancelled'
   } | null>(null)
   const [lifecycleSaving, setLifecycleSaving] = useState(false)
   const [viewMode, setViewMode] = useState<'table' | 'grid'>('table')
@@ -982,6 +1061,11 @@ export default function ProjectsPage() {
           projectLeadId: data.projectLeadId ?? [],
           expectedStartDate: data.expectedStartDate ?? [],
           expectedEndDate: data.expectedEndDate ?? [],
+          createdAt: data.createdAt ?? [],
+          wentLiveAt: data.wentLiveAt ?? [],
+          completedAt: data.completedAt ?? [],
+          archivedAt: data.archivedAt ?? [],
+          cancelledAt: data.cancelledAt ?? [],
         })
       })
       .catch(() => undefined)
@@ -992,24 +1076,51 @@ export default function ProjectsPage() {
     setSearchInput(filters.search)
   }, [filters.search])
 
-  const refetch = useCallback(() => {
-    const statusParam = colFilters.status || filters.status || undefined
-    dispatch(
-      fetchProjects({
-        page: pagination.page,
-        pageSize: pagination.pageSize || 20,
-        search: filters.search || undefined,
-        status: statusParam,
-        type: colFilters.projectType || filters.type || undefined,
-        projectManager: colFilters.projectLeadId || filters.projectManager || undefined,
-        projectName: colFilters.projectName || undefined,
-        expectedStartDate: colFilters.expectedStartDate || undefined,
-        expectedEndDate: colFilters.expectedEndDate || undefined,
-        sortBy: sortConfig.field || undefined,
-        sortOrder: sortConfig.field ? sortConfig.direction : undefined,
-      })
-    )
-  }, [dispatch, pagination.page, pagination.pageSize, filters, colFilters, sortConfig.field, sortConfig.direction])
+  const refetch = useCallback(
+    (
+      overrides: {
+        page?: number
+        colFilters?: Record<string, string>
+        columnVisibility?: ColumnVisibility
+      } = {},
+    ) => {
+      const nextCols = { ...colFilters, ...overrides.colFilters }
+      const nextPage = overrides.page ?? pagination.page
+      const statusParam = nextCols.status || filters.status || undefined
+      const visibility = overrides.columnVisibility ?? columnVisibility
+      dispatch(
+        fetchProjects({
+          page: nextPage,
+          pageSize: pagination.pageSize || 20,
+          search: filters.search || undefined,
+          status: statusParam,
+          type: nextCols.projectType || filters.type || undefined,
+          projectManager: nextCols.projectLeadId || filters.projectManager || undefined,
+          projectName: nextCols.projectName || undefined,
+          expectedStartDate: nextCols.expectedStartDate || undefined,
+          expectedEndDate: nextCols.expectedEndDate || undefined,
+          createdAt: nextCols.createdAt || undefined,
+          wentLiveAt: nextCols.wentLiveAt || undefined,
+          completedAt: nextCols.completedAt || undefined,
+          archivedAt: nextCols.archivedAt || undefined,
+          cancelledAt: nextCols.cancelledAt || undefined,
+          columns: buildProjectListColumns(visibility),
+          sortBy: sortConfig.field || undefined,
+          sortOrder: sortConfig.field ? sortConfig.direction : undefined,
+        }),
+      )
+    },
+    [
+      dispatch,
+      pagination.page,
+      pagination.pageSize,
+      filters,
+      colFilters,
+      columnVisibility,
+      sortConfig.field,
+      sortConfig.direction,
+    ],
+  )
 
   useEffect(() => {
     refetch()
@@ -1017,18 +1128,38 @@ export default function ProjectsPage() {
 
   // ── Computed ─────────────────────────────────────────────────────────────
 
-  const [projectSummary, setProjectSummary] = useState({ total: 0, live: 0, completed: 0 })
+  const [projectSummary, setProjectSummary] = useState({
+    total: 0,
+    all: 0,
+    live: 0,
+    pitch: 0,
+    completed: 0,
+    cancelled: 0,
+    archived: 0,
+  })
 
   useEffect(() => {
     void financeApi
       .getProjectsSummary()
       .then((res) => {
-        const data = unwrapApiData<{ total?: number; live?: number; completed?: number }>(res.data)
+        const data = unwrapApiData<{
+          total?: number
+          all?: number
+          live?: number
+          pitch?: number
+          completed?: number
+          cancelled?: number
+          archived?: number
+        }>(res.data)
         if (data) {
           setProjectSummary({
-            total: data.total ?? 0,
+            total: data.total ?? data.all ?? 0,
+            all: data.all ?? data.total ?? 0,
             live: data.live ?? 0,
+            pitch: data.pitch ?? 0,
             completed: data.completed ?? 0,
+            cancelled: data.cancelled ?? 0,
+            archived: data.archived ?? 0,
           })
         }
       })
@@ -1057,27 +1188,25 @@ export default function ProjectsPage() {
   ]
 
   const tabs = [
-    { label: 'All', value: 'all', count: items.length },
-    { label: 'Pitch', value: 'Pitch', count: items.filter((p) => p.status === 'Pitch').length },
-    { label: 'Live', value: 'Live', count: items.filter((p) => p.status === 'Live').length },
-    {
-      label: 'Completed',
-      value: 'Completed',
-      count: items.filter((p) => p.status === 'Completed').length,
-    },
-    {
-      label: 'Cancelled',
-      value: 'Cancelled',
-      count: items.filter((p) => p.status === 'Cancelled').length,
-    },
-    {
-      label: 'Archived',
-      value: 'Archived',
-      count: items.filter((p) => p.status === 'Archived').length,
-    },
+    { label: 'All', value: 'all', count: projectSummary.all },
+    { label: 'Pitch', value: 'Pitch', count: projectSummary.pitch },
+    { label: 'Live', value: 'Live', count: projectSummary.live },
+    { label: 'Completed', value: 'Completed', count: projectSummary.completed },
+    { label: 'Cancelled', value: 'Cancelled', count: projectSummary.cancelled },
+    { label: 'Archived', value: 'Archived', count: projectSummary.archived },
   ]
 
   const activeTab = filters.status || 'all'
+  const statusDateConfig =
+    activeTab === 'Live'
+      ? { field: 'wentLiveAt' as const, label: 'Live Date' }
+      : activeTab === 'Completed'
+        ? { field: 'completedAt' as const, label: 'Completed Date' }
+        : activeTab === 'Archived'
+          ? { field: 'archivedAt' as const, label: 'Archived Date' }
+          : activeTab === 'Cancelled'
+            ? { field: 'cancelledAt' as const, label: 'Cancelled Date' }
+            : { field: 'createdAt' as const, label: 'Created Date' }
 
   const managerOptions = users
     .filter((u) => isProjectLeadRole(u.role, roles))
@@ -1120,7 +1249,7 @@ export default function ProjectsPage() {
   const columnItems = [
     { field: 'type', label: 'Scope', visible: columnVisibility.type },
     { field: 'projectLead', label: 'Project Lead', visible: columnVisibility.projectLead },
-    { field: 'dates', label: 'Dates', visible: columnVisibility.dates },
+    { field: 'dates', label: 'Start/End Date', visible: columnVisibility.dates },
   ]
 
   const activeFilterCount = [filters.status, filters.type, filters.projectManager].filter(
@@ -1166,6 +1295,7 @@ export default function ProjectsPage() {
 
   function handleColumnToggle(field: string, visible: boolean) {
     setColumnVisibility((prev) => ({ ...prev, [field]: visible }))
+    dispatch(setPage(1))
   }
 
   function handlePageChange(newPage: number) {
@@ -1244,14 +1374,18 @@ export default function ProjectsPage() {
       toast.success(
         status === 'Archived'
           ? 'Project archived'
-          : 'Project cancelled',
+          : status === 'Completed'
+            ? 'Project completed'
+            : 'Project cancelled',
       )
       setLifecycleConfirm(null)
     } catch {
       toast.error(
         status === 'Archived'
           ? 'Failed to archive project'
-          : 'Failed to cancel project',
+          : status === 'Completed'
+            ? 'Failed to complete project'
+            : 'Failed to cancel project',
       )
     } finally {
       setLifecycleSaving(false)
@@ -1307,6 +1441,7 @@ export default function ProjectsPage() {
             onView={handleView}
             onEdit={handleEdit}
             onChangeStatus={(p) => setStatusDialogProject(p)}
+            onComplete={(p) => setLifecycleConfirm({ project: p, status: 'Completed' })}
             onArchive={(p) => setLifecycleConfirm({ project: p, status: 'Archived' })}
             onCancel={(p) => setLifecycleConfirm({ project: p, status: 'Cancelled' })}
           />
@@ -1326,10 +1461,14 @@ export default function ProjectsPage() {
             onColumnFilter={(field, value) => {
               setColFilters((prev) => ({ ...prev, [field]: value }))
               dispatch(setPage(1))
+              refetch({ page: 1, colFilters: { [field]: value } })
             }}
+            statusDateField={statusDateConfig.field}
+            statusDateLabel={statusDateConfig.label}
             onView={handleView}
             onEdit={handleEdit}
             onChangeStatus={(p) => setStatusDialogProject(p)}
+            onComplete={(p) => setLifecycleConfirm({ project: p, status: 'Completed' })}
             onArchive={(p) => setLifecycleConfirm({ project: p, status: 'Archived' })}
             onCancel={(p) => setLifecycleConfirm({ project: p, status: 'Cancelled' })}
           />
@@ -1376,15 +1515,23 @@ export default function ProjectsPage() {
         title={
           lifecycleConfirm?.status === 'Archived'
             ? 'Archive Project?'
-            : 'Cancel Project?'
+            : lifecycleConfirm?.status === 'Completed'
+              ? 'Complete Project?'
+              : 'Cancel Project?'
         }
         description={
           lifecycleConfirm?.status === 'Archived'
             ? `“${lifecycleConfirm.project.name}” will be moved to the Archived tab. All project data will be preserved.`
-            : `“${lifecycleConfirm?.project.name ?? ''}” will be moved to the Cancelled tab. All project data will be preserved for historical records.`
+            : lifecycleConfirm?.status === 'Completed'
+              ? `“${lifecycleConfirm.project.name}” will be moved to the Completed tab. All project data will be preserved.`
+              : `“${lifecycleConfirm?.project.name ?? ''}” will be moved to the Cancelled tab. All project data will be preserved for historical records.`
         }
         confirmLabel={
-          lifecycleConfirm?.status === 'Archived' ? 'Archive Project' : 'Cancel Project'
+          lifecycleConfirm?.status === 'Archived'
+            ? 'Archive Project'
+            : lifecycleConfirm?.status === 'Completed'
+              ? 'Complete Project'
+              : 'Cancel Project'
         }
         cancelLabel="Keep Project"
       />

@@ -152,9 +152,19 @@ export function clientPOHasBilledMilestone(
   milestones: ClientPOMilestone[],
   invoices: ClientInvoice[],
 ): boolean {
-  return milestones.some((m) =>
-    clientMilestoneIsLocked(invoices, m.id, m.serviceId, m.name),
-  )
+  return milestones.some((m) => {
+    if (isClientRetentionRow(m)) {
+      return clientMilestoneIsLocked(invoices, m.id, m.serviceId, m.name)
+    }
+    if (clientMilestoneIsLocked(invoices, m.id, m.serviceId, m.name)) return true
+    if (!m.retention) return false
+    return clientMilestoneIsLocked(
+      invoices,
+      `${m.id}-retention`,
+      m.serviceId,
+      `${m.name} — Retention`,
+    )
+  })
 }
 
 export function vendorPOHasBilledMilestone(

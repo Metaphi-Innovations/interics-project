@@ -19,11 +19,16 @@ function toUiStatus(status?: string): Project['status'] {
   return 'Pitch'
 }
 
-function toApiStatus(status?: string): 'PITCH' | 'LIVE' | undefined {
+function toApiStatus(
+  status?: string,
+): 'PITCH' | 'LIVE' | 'COMPLETED' | 'ARCHIVED' | 'CANCELLED' | undefined {
   if (!status) return undefined
   const normalized = status.toUpperCase()
   if (normalized === 'LIVE' || status === 'Live') return 'LIVE'
   if (normalized === 'PITCH' || status === 'Pitch') return 'PITCH'
+  if (normalized === 'COMPLETED' || status === 'Completed') return 'COMPLETED'
+  if (normalized === 'ARCHIVED' || status === 'Archived') return 'ARCHIVED'
+  if (normalized === 'CANCELLED' || status === 'Cancelled') return 'CANCELLED'
   return undefined
 }
 
@@ -88,11 +93,15 @@ export function toProjectFromListItem(api: ProjectListItemApi): Project {
     startDate: dateOnly(api.expectedStartDate) ?? null,
     expectedEndDate: dateOnly(api.expectedEndDate) ?? null,
     projectValue: Number(api.totalBuildValue ?? api.totalDesignFee ?? 0),
-    totalClientPOValue: 0,
-    totalVendorPOValue: 0,
+    totalClientPOValue: Number(api.totalClientPOValue ?? 0),
+    totalVendorPOValue: Number(api.totalVendorPOValue ?? 0),
     invoicedAmount: 0,
     paidVendorAmount: 0,
     createdAt: api.createdAt ?? new Date().toISOString(),
+    wentLiveAt: api.wentLiveAt ?? null,
+    completedAt: api.completedAt ?? null,
+    archivedAt: api.archivedAt ?? null,
+    cancelledAt: api.cancelledAt ?? null,
     sector: api.sectorLabel ?? api.sector,
   }
   return {
@@ -142,11 +151,15 @@ export function toProjectFromDetail(api: ProjectDetailApi): Project {
     startDate: dateOnly(setup.expectedStartDate) ?? null,
     expectedEndDate: dateOnly(setup.expectedEndDate) ?? null,
     projectValue: Number(setup.totalBuildValue ?? setup.totalDesignFee ?? 0),
-    totalClientPOValue: 0,
-    totalVendorPOValue: 0,
+    totalClientPOValue: Number(api.totalClientPOValue ?? 0),
+    totalVendorPOValue: Number(api.totalVendorPOValue ?? 0),
     invoicedAmount: 0,
     paidVendorAmount: 0,
     createdAt: api.createdAt ?? new Date().toISOString(),
+    wentLiveAt: api.wentLiveAt ?? null,
+    completedAt: api.completedAt ?? null,
+    archivedAt: api.archivedAt ?? null,
+    cancelledAt: api.cancelledAt ?? null,
     sector: setup.sector,
     designFeePerSqft: setup.designFeePerSqFt ?? null,
     buildValuePerSqft: setup.buildValuePerSqFt ?? null,
@@ -180,9 +193,15 @@ export function toCreatePayload(form: ProjectCreateFormInput): ProjectCreateApiP
       country: form.country,
     })
 
+  const uuidRe =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+  const vendorContactIds = [...new Set((form.vendorContactIds ?? []).filter((id) => uuidRe.test(id)))]
+
   return {
     customerId: form.customerId,
     contactIds: form.contactIds,
+    ...(form.vendorId ? { vendorId: form.vendorId } : {}),
+    ...(vendorContactIds.length ? { vendorContactIds } : {}),
     projectName: form.name.trim(),
     projectTypes: form.projectTypes,
     sector: form.sector.trim(),
