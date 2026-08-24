@@ -43,6 +43,7 @@ import {
   expenseStatusDisplay,
   expenseVendorCell,
 } from '@/components/expenses/expenseShared'
+import { usePermission } from '@/hooks/usePermission'
 
 type StatusFilter = 'all' | 'pending' | 'included_in_payment'
 type TypeTab = 'all' | ExpenseType
@@ -173,6 +174,9 @@ export default function ExpensesPage() {
   const navigate = useNavigate()
   const theme = useTheme()
   const { showToast } = useToast()
+  const canCreateExpense = usePermission('expenses', 'create')
+  const canEditExpense = usePermission('expenses', 'edit')
+  const canDeleteExpense = usePermission('expenses', 'delete')
   const hoverBg = alpha(theme.palette.primary.main, 0.04)
 
   const projects = useAppSelector((s) => s.projects.items ?? [])
@@ -465,6 +469,7 @@ export default function ExpensesPage() {
   }
 
   async function confirmDelete() {
+    if (!canDeleteExpense) return
     if (!deleteTarget) return
     try {
       await dispatch(
@@ -587,11 +592,15 @@ export default function ExpensesPage() {
         icon={<Receipt size={20} strokeWidth={1.75} />}
         title="Expenses"
         subtitle="Cross-project expense tracking"
-        primaryAction={{
-          label: 'Add Expense',
-          onClick: () => setDrawerOpen(true),
-          startIcon: <Plus size={16} strokeWidth={2} />,
-        }}
+        primaryAction={
+          canCreateExpense
+            ? {
+                label: 'Add Expense',
+                onClick: () => setDrawerOpen(true),
+                startIcon: <Plus size={16} strokeWidth={2} />,
+              }
+            : undefined
+        }
         statCards={statCards}
         tabs={tabs}
         activeTab={typeTab}
@@ -856,27 +865,31 @@ export default function ExpensesPage() {
         >
           View
         </MuiMenuItem>
-        {menuExpense?.status === 'pending' && (
+        {menuExpense?.status === 'pending' && (canEditExpense || canDeleteExpense) && (
           <>
             <Divider />
-            <MuiMenuItem
-              sx={menuItemSx}
-              onClick={() => {
-                if (menuExpense) goEditProject(menuExpense)
-                closeMenu()
-              }}
-            >
-              Edit
-            </MuiMenuItem>
-            <MuiMenuItem
-              sx={{ ...menuItemSx, color: 'error.main' }}
-              onClick={() => {
-                if (menuExpense) setDeleteTarget(menuExpense)
-                closeMenu()
-              }}
-            >
-              Delete
-            </MuiMenuItem>
+            {canEditExpense ? (
+              <MuiMenuItem
+                sx={menuItemSx}
+                onClick={() => {
+                  if (menuExpense) goEditProject(menuExpense)
+                  closeMenu()
+                }}
+              >
+                Edit
+              </MuiMenuItem>
+            ) : null}
+            {canDeleteExpense ? (
+              <MuiMenuItem
+                sx={{ ...menuItemSx, color: 'error.main' }}
+                onClick={() => {
+                  if (menuExpense) setDeleteTarget(menuExpense)
+                  closeMenu()
+                }}
+              >
+                Delete
+              </MuiMenuItem>
+            ) : null}
           </>
         )}
       </Menu>

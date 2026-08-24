@@ -67,6 +67,7 @@ import {
   type VendorServiceRow,
   type VendorPayableDrawerFocus,
 } from '@/pages/Projects/tabs/live/vendorSettlement'
+import { usePermission } from '@/hooks/usePermission'
 
 interface CardEntry {
   projectId: string
@@ -277,6 +278,8 @@ export default function PaymentsPage() {
   const dispatch = useAppDispatch()
   const theme = useTheme()
   const { showToast } = useToast()
+  const canCreatePayable = usePermission('payables', 'create')
+  const canEditPayable = usePermission('payables', 'edit')
   const { items: rawProjects, loading: projectsLoading } = useAppSelector((s) => s.projects)
   const [liveProjectIds, setLiveProjectIds] = useState<string[] | null>(null)
   const liveProjectIdSet = useMemo(() => new Set(liveProjectIds ?? []), [liveProjectIds])
@@ -683,6 +686,7 @@ export default function PaymentsPage() {
   )
 
   function openUploadInvoice(selection?: UploadVendorInvoiceInitialSelection | null) {
+    if (!canCreatePayable) return
     setUploadInitialSelection(selection ?? null)
     setUploadOpen(true)
   }
@@ -732,6 +736,7 @@ export default function PaymentsPage() {
 
     switch (label) {
       case 'Release Payment':
+        if (!canEditPayable) return
         setWorkflowDrawer({
           entry,
           focus: 'payment',
@@ -856,11 +861,15 @@ export default function PaymentsPage() {
           icon={<Banknote size={20} strokeWidth={1.75} />}
           title="Payable"
           subtitle="Cross-project vendor payments and settlement workflow"
-          primaryAction={{
-            label: 'Upload Invoice',
-            onClick: () => openUploadInvoice(),
-            startIcon: <Upload size={16} strokeWidth={1.75} />,
-          }}
+          primaryAction={
+            canCreatePayable
+              ? {
+                  label: 'Upload Invoice',
+                  onClick: () => openUploadInvoice(),
+                  startIcon: <Upload size={16} strokeWidth={1.75} />,
+                }
+              : undefined
+          }
           customSummary={<SettlementSummaryStrip kpis={summaryKpis} />}
           tabs={statusTabs}
           activeTab={statusTab}
@@ -1021,11 +1030,13 @@ export default function PaymentsPage() {
           onClick={(e) => e.stopPropagation()}
           slotProps={{ paper: { elevation: 2 } }}
         >
-          {(menuContext ? actionMenuItemsForStatus(menuContext.payableSt) : []).map((label) => (
-            <MenuItem key={label} sx={menuItemSx} onClick={() => handleActionMenuItem(label)}>
-              {label}
-            </MenuItem>
-          ))}
+          {(menuContext ? actionMenuItemsForStatus(menuContext.payableSt) : [])
+            .filter((label) => label !== 'Release Payment' || canEditPayable)
+            .map((label) => (
+              <MenuItem key={label} sx={menuItemSx} onClick={() => handleActionMenuItem(label)}>
+                {label}
+              </MenuItem>
+            ))}
         </Menu>
 
         <VendorPayableWorkflowDrawer

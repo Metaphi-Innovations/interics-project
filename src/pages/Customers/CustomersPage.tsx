@@ -43,6 +43,7 @@ import { getInitials, getAvatarColor } from '../../utils/formatters'
 import { getPrimaryContact } from '../../utils/customerContacts'
 import { tokens } from '@/design-system/tokens'
 import { getSectorTagSx } from '../../utils/sectorTagStyles'
+import { usePermission } from '@/hooks/usePermission'
 import { fetchSectors } from '../../slices/settings/thunk'
 
 const TABLE_CELL_SX = {
@@ -134,6 +135,9 @@ function CustomerAvatar({ name }: { name: string }) {
 
 interface RowActionsProps {
   customer: Customer
+  canEdit: boolean
+  canCreateProject: boolean
+  canArchive: boolean
   onView: () => void
   onEdit: () => void
   onAddProject: () => void
@@ -141,7 +145,17 @@ interface RowActionsProps {
   onArchive: () => void
 }
 
-function RowActions({ customer, onView, onEdit, onAddProject, onBillingSummary, onArchive }: RowActionsProps) {
+function RowActions({
+  customer,
+  canEdit,
+  canCreateProject,
+  canArchive,
+  onView,
+  onEdit,
+  onAddProject,
+  onBillingSummary,
+  onArchive,
+}: RowActionsProps) {
   const [anchor, setAnchor] = useState<null | HTMLElement>(null)
 
   function open(e: React.MouseEvent<HTMLElement>) {
@@ -159,29 +173,37 @@ function RowActions({ customer, onView, onEdit, onAddProject, onBillingSummary, 
         <MenuItem onClick={() => { onView(); close() }} sx={{ fontSize: 13, gap: 1 }}>
           <Eye size={14} /> View
         </MenuItem>
-        <MenuItem onClick={() => { onEdit(); close() }} sx={{ fontSize: 13, gap: 1 }}>
-          <Pencil size={14} /> Edit
-        </MenuItem>
-        <MenuItem onClick={() => { onAddProject(); close() }} sx={{ fontSize: 13, gap: 1 }}>
-          <FolderPlus size={14} /> Add Project
-        </MenuItem>
+        {canEdit ? (
+          <MenuItem onClick={() => { onEdit(); close() }} sx={{ fontSize: 13, gap: 1 }}>
+            <Pencil size={14} /> Edit
+          </MenuItem>
+        ) : null}
+        {canCreateProject ? (
+          <MenuItem onClick={() => { onAddProject(); close() }} sx={{ fontSize: 13, gap: 1 }}>
+            <FolderPlus size={14} /> Add Project
+          </MenuItem>
+        ) : null}
         <MenuItem onClick={() => { onBillingSummary(); close() }} sx={{ fontSize: 13, gap: 1 }}>
           <Receipt size={14} /> Billing Summary
         </MenuItem>
-        <Divider />
-        {customer.status === 'Inactive' ? (
-          <Tooltip title="Customer is already archived" placement="left">
-            <span>
-              <MenuItem disabled sx={{ fontSize: 13, gap: 1 }}>
+        {canArchive ? (
+          <>
+            <Divider />
+            {customer.status === 'Inactive' ? (
+              <Tooltip title="Customer is already archived" placement="left">
+                <span>
+                  <MenuItem disabled sx={{ fontSize: 13, gap: 1 }}>
+                    <Archive size={14} /> Archive
+                  </MenuItem>
+                </span>
+              </Tooltip>
+            ) : (
+              <MenuItem onClick={() => { onArchive(); close() }} sx={{ fontSize: 13, gap: 1 }}>
                 <Archive size={14} /> Archive
               </MenuItem>
-            </span>
-          </Tooltip>
-        ) : (
-          <MenuItem onClick={() => { onArchive(); close() }} sx={{ fontSize: 13, gap: 1 }}>
-            <Archive size={14} /> Archive
-          </MenuItem>
-        )}
+            )}
+          </>
+        ) : null}
       </Menu>
     </>
   )
@@ -264,6 +286,9 @@ interface CustomerTableProps {
   sectorOptions: ColumnFilterOption[]
   projectCountOptions: ColumnFilterOption[]
   onColumnFilter: (field: keyof CustomerColumnFilters, value: string) => void
+  canEdit: boolean
+  canCreateProject: boolean
+  canArchive: boolean
   onView: (id: string) => void
   onEdit: (customer: Customer) => void
   onProjects: (customer: Customer) => void
@@ -285,6 +310,9 @@ function CustomerTable({
   sectorOptions,
   projectCountOptions,
   onColumnFilter,
+  canEdit,
+  canCreateProject,
+  canArchive,
   onView,
   onEdit,
   onProjects,
@@ -472,6 +500,9 @@ function CustomerTable({
               >
                 <RowActions
                   customer={customer}
+                  canEdit={canEdit}
+                  canCreateProject={canCreateProject}
+                  canArchive={canArchive}
                   onView={() => onView(customer.id)}
                   onEdit={() => onEdit(customer)}
                   onAddProject={() => onAddProject(customer)}
@@ -497,6 +528,9 @@ interface GridCardProps {
   onAddProject: () => void
   onBillingSummary: () => void
   onArchive: () => void
+  canEdit: boolean
+  canCreateProject: boolean
+  canArchive: boolean
 }
 
 function CustomerGridCard({
@@ -507,6 +541,9 @@ function CustomerGridCard({
   onAddProject,
   onBillingSummary,
   onArchive,
+  canEdit,
+  canCreateProject,
+  canArchive,
 }: GridCardProps) {
   const projectCount = getTotalProjectCount(customer)
   return (
@@ -525,6 +562,9 @@ function CustomerGridCard({
       <Box sx={{ position: 'absolute', top: 8, right: 8 }} onClick={(e) => e.stopPropagation()}>
         <RowActions
           customer={customer}
+          canEdit={canEdit}
+          canCreateProject={canCreateProject}
+          canArchive={canArchive}
           onView={onView}
           onEdit={onEdit}
           onAddProject={onAddProject}
@@ -658,6 +698,10 @@ export default function CustomersPage() {
   const sectors = useAppSelector((s) => s.settings.sectors)
   const { showToast } = useToast()
   const navigate = useNavigate()
+  const canCreateCustomer = usePermission('customers', 'create')
+  const canEditCustomer = usePermission('customers', 'edit')
+  const canArchiveCustomer = usePermission('customers', 'delete')
+  const canCreateProject = usePermission('projects', 'create')
 
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('list')
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -922,12 +966,14 @@ export default function CustomersPage() {
   }
 
   function openAddDrawer() {
+    if (!canCreateCustomer) return
     setDrawerMode('add')
     setEditingCustomer(null)
     setDrawerOpen(true)
   }
 
   function openEditDrawer(customer: Customer) {
+    if (!canEditCustomer) return
     setDrawerMode('edit')
     setEditingCustomer(customer)
     setDrawerOpen(true)
@@ -964,6 +1010,7 @@ export default function CustomersPage() {
   }
 
   async function handleArchive() {
+    if (!canArchiveCustomer) return
     if (!archiveTarget) return
     try {
       await dispatch(setCustomerActive({ id: archiveTarget.id, isActive: false })).unwrap()
@@ -986,11 +1033,15 @@ export default function CustomersPage() {
         icon={<Building2 size={20} />}
         title="Customers"
         subtitle="Client directory and relationship management"
-        primaryAction={{
-          label: 'Add Customer',
-          onClick: openAddDrawer,
-          startIcon: <Plus size={16} strokeWidth={2} />,
-        }}
+        primaryAction={
+          canCreateCustomer
+            ? {
+                label: 'Add Customer',
+                onClick: openAddDrawer,
+                startIcon: <Plus size={16} strokeWidth={2} />,
+              }
+            : undefined
+        }
         showViewToggle
         searchPlaceholder="Search customers..."
         searchValue={filters.search}
@@ -1032,6 +1083,9 @@ export default function CustomersPage() {
                 <CustomerGridCard
                   key={customer.id}
                   customer={customer}
+                  canEdit={canEditCustomer}
+                  canCreateProject={canCreateProject}
+                  canArchive={canArchiveCustomer}
                   onView={() => navigate(customerDetailPath(customer))}
                   onEdit={() => openEditDrawer(customer)}
                   onProjects={() => handleProjectsClick(customer)}
@@ -1056,6 +1110,9 @@ export default function CustomersPage() {
             sectorOptions={sectorOptions}
             projectCountOptions={projectCountOptions}
             onColumnFilter={handleColumnFilter}
+            canEdit={canEditCustomer}
+            canCreateProject={canCreateProject}
+            canArchive={canArchiveCustomer}
             onView={handleNavigateToCustomer}
             onEdit={openEditDrawer}
             onProjects={handleProjectsClick}

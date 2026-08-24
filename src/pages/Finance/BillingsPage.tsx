@@ -55,6 +55,7 @@ import { dropdownsApi } from '@/api/dropdownsApi'
 import { unwrapApiData } from '@/modules/system-settings/shared/api'
 import { downloadCsv } from '@/api/downloadCsv'
 import { invoiceStatusToBadgeType, mapInvoiceStatus, showPartialPaidAlongsideTabStatus } from './invoiceStatus'
+import { usePermission } from '@/hooks/usePermission'
 
 type ReceivableKpiPeriod =
   | 'Today'
@@ -208,6 +209,7 @@ function RowActions({
   onSend,
   onConvertTax,
   onPdf,
+  canEdit,
 }: {
   inv: Invoice
   onView: () => void
@@ -215,11 +217,13 @@ function RowActions({
   onSend: () => void
   onConvertTax: () => void
   onPdf: () => void
+  canEdit: boolean
 }) {
   const [anchor, setAnchor] = useState<null | HTMLElement>(null)
   const canRecordPayment = inv.status !== 'draft' && inv.status !== 'paid' && inv.balance > 0
   const canMarkSent = inv.status === 'draft'
   const canConvertTax = inv.status === 'draft'
+  const showEditActions = canEdit && (canRecordPayment || canConvertTax || canMarkSent)
 
   return (
     <Box sx={CENTER_CELL_CONTENT_SX}>
@@ -250,7 +254,7 @@ function RowActions({
         >
           View
         </MenuItem>
-        {canRecordPayment && (
+        {canEdit && canRecordPayment && (
           <MenuItem
             sx={menuItemSx}
             onClick={() => {
@@ -270,7 +274,7 @@ function RowActions({
         >
           Download PDF
         </MenuItem>
-        {(canConvertTax || canMarkSent) && (
+        {showEditActions && (
           <>
             <Divider />
             {canConvertTax && (
@@ -306,6 +310,8 @@ export default function BillingsPage() {
   const dispatch = useAppDispatch()
   const { showToast } = useToast()
   const theme = useTheme()
+  const canCreateReceivable = usePermission('receivables', 'create')
+  const canEditReceivable = usePermission('receivables', 'edit')
   const hoverBg = alpha(theme.palette.primary.main, 0.04)
 
   const { items: rawItems, loading, filters, sortConfig, pagination, saving } = useAppSelector((s) => s.receivables)
@@ -428,6 +434,7 @@ export default function BillingsPage() {
   }
 
   function openGenerateInvoice(inv: Invoice) {
+    if (!canCreateReceivable) return
     setGeneratePreset({
       projectId: inv.projectId,
       projectName: inv.projectName,
@@ -440,7 +447,7 @@ export default function BillingsPage() {
   }
 
   function handleInvoiceRowClick(inv: Invoice) {
-    if (isPendingGeneration(inv)) {
+    if (isPendingGeneration(inv) && canCreateReceivable) {
       openGenerateInvoice(inv)
       return
     }
@@ -858,14 +865,18 @@ export default function BillingsPage() {
         icon={<TrendingUp size={20} />}
         title="Receivable"
         subtitle="Cross-project client invoices and payments"
-        primaryAction={{
-          label: 'Create Invoice',
-          onClick: () => {
-            setGeneratePreset(null)
-            setDrawerCreate(true)
-          },
-          startIcon: <Plus size={16} />,
-        }}
+        primaryAction={
+          canCreateReceivable
+            ? {
+                label: 'Create Invoice',
+                onClick: () => {
+                  setGeneratePreset(null)
+                  setDrawerCreate(true)
+                },
+                startIcon: <Plus size={16} />,
+              }
+            : undefined
+        }
         customSummary={kpiSummary}
         tabs={tabs}
         activeTab={filters.statusTab}
@@ -1161,17 +1172,20 @@ export default function BillingsPage() {
                             onClick={(e) => e.stopPropagation()}
                           >
                             {pendingRow ? (
-                              <Box sx={CENTER_CELL_CONTENT_SX}>
-                                <Button
-                                  size="sm"
-                                  variant="contained"
-                                  label="Generate Invoice"
-                                  onClick={() => openGenerateInvoice(inv)}
-                                />
-                              </Box>
+                              canCreateReceivable ? (
+                                <Box sx={CENTER_CELL_CONTENT_SX}>
+                                  <Button
+                                    size="sm"
+                                    variant="contained"
+                                    label="Generate Invoice"
+                                    onClick={() => openGenerateInvoice(inv)}
+                                  />
+                                </Box>
+                              ) : null
                             ) : (
                               <RowActions
                                 inv={inv}
+                                canEdit={canEditReceivable}
                                 onView={() => setDetailId(inv.id)}
                                 onPay={() => setPaymentInv(inv)}
                                 onSend={() => setSendTarget(inv)}
@@ -1263,13 +1277,17 @@ export default function BillingsPage() {
           dispatch(clearSelected())
         }}
         invoiceId={detailId}
-        onEdit={(inv) => {
-          setDetailId(null)
-          dispatch(clearSelected())
-          setDrawerEdit(inv)
-        }}
-        onRecordPayment={(inv) => setPaymentInv(inv)}
-        onConvertTax={(inv) => setConvertTaxTarget(inv)}
+        onEdit={
+          canEditReceivable
+            ? (inv) => {
+                setDetailId(null)
+                dispatch(clearSelected())
+                setDrawerEdit(inv)
+              }
+            : undefined
+        }
+        onRecordPayment={canEditReceivable ? (inv) => setPaymentInv(inv) : undefined}
+        onConvertTax={canEditReceivable ? (inv) => setConvertTaxTarget(inv) : undefined}
         onDownloadPdf={() => {
           showToast({ title: 'PDF download (placeholder)', variant: 'success' })
         }}
