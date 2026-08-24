@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { API_BASE_URL } from './config'
+import { clearStoredAuth, getStoredToken } from '@/utils/authStorage'
 
 const client = axios.create({
   baseURL: API_BASE_URL,
@@ -12,7 +13,7 @@ const client = axios.create({
 
 // Request interceptor — attach auth token
 client.interceptors.request.use((config) => {
-  const token = localStorage.getItem('auth_token')
+  const token = getStoredToken()
   if (token) config.headers.Authorization = `Bearer ${token}`
   return config
 })
@@ -22,10 +23,10 @@ client.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      const token = localStorage.getItem('auth_token')
+      const token = getStoredToken()
       // Only hard-redirect for expired sessions, not failed login attempts
       if (token) {
-        localStorage.removeItem('auth_token')
+        clearStoredAuth()
         window.location.href = '/dashboard'
       }
     }

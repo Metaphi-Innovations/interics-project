@@ -75,6 +75,7 @@ import {
   lifecycleStatusForMasterName,
 } from '../../utils/masterChipStyles'
 import type { StatusMaster } from '../../slices/settings/reducer'
+import { usePermission } from '@/hooks/usePermission'
 
 // ─── Column visibility state ──────────────────────────────────────────────────
 
@@ -168,6 +169,9 @@ function ProgressBadge({ label }: { label: string }) {
 
 interface RowActionsProps {
   project: Project
+  canView: boolean
+  canEdit: boolean
+  canDelete: boolean
   onView: () => void
   onEdit: () => void
   onChangeStatus: () => void
@@ -178,6 +182,9 @@ interface RowActionsProps {
 
 function RowActions({
   project,
+  canView,
+  canEdit,
+  canDelete,
   onView,
   onEdit,
   onChangeStatus,
@@ -186,7 +193,10 @@ function RowActions({
   onCancel,
 }: RowActionsProps) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
-  const showLifecycleActions = project.status === 'Live'
+  const showLifecycleActions = canDelete && project.status === 'Live'
+  const hasActions = canView || canEdit || showLifecycleActions
+
+  if (!hasActions) return null
 
   return (
     <>
@@ -199,25 +209,33 @@ function RowActions({
         onClose={() => setAnchor(null)}
         PaperProps={{ sx: { minWidth: 160 } }}
       >
-        <MenuItem
-          onClick={() => { setAnchor(null); onView() }}
-          sx={{ fontSize: 13, gap: 1 }}
-        >
-          <Visibility sx={{ fontSize: 14 }} /> View
-        </MenuItem>
-        <MenuItem
-          onClick={() => { setAnchor(null); onEdit() }}
-          sx={{ fontSize: 13, gap: 1 }}
-        >
-          <Edit sx={{ fontSize: 14 }} /> Edit Basic Info
-        </MenuItem>
-        <Divider />
-        <MenuItem
-          onClick={() => { setAnchor(null); onChangeStatus() }}
-          sx={{ fontSize: 13 }}
-        >
-          Change Status
-        </MenuItem>
+        {canView ? (
+          <MenuItem
+            onClick={() => { setAnchor(null); onView() }}
+            sx={{ fontSize: 13, gap: 1 }}
+          >
+            <Visibility sx={{ fontSize: 14 }} /> View
+          </MenuItem>
+        ) : null}
+        {canEdit ? (
+          <MenuItem
+            onClick={() => { setAnchor(null); onEdit() }}
+            sx={{ fontSize: 13, gap: 1 }}
+          >
+            <Edit sx={{ fontSize: 14 }} /> Edit Basic Info
+          </MenuItem>
+        ) : null}
+        {canEdit ? (
+          <>
+            <Divider />
+            <MenuItem
+              onClick={() => { setAnchor(null); onChangeStatus() }}
+              sx={{ fontSize: 13 }}
+            >
+              Change Status
+            </MenuItem>
+          </>
+        ) : null}
         {showLifecycleActions ? (
           <>
             <MenuItem
@@ -250,6 +268,9 @@ function RowActions({
 interface ProjectsTableProps {
   items: Project[]
   loading: boolean
+  canView: boolean
+  canEdit: boolean
+  canDelete: boolean
   columns: ColumnVisibility
   sortField: string | null
   sortDirection: 'asc' | 'desc'
@@ -270,6 +291,9 @@ interface ProjectsTableProps {
 function ProjectsTable({
   items,
   loading,
+  canView,
+  canEdit,
+  canDelete,
   columns,
   sortField,
   sortDirection,
@@ -287,6 +311,7 @@ function ProjectsTable({
   onCancel,
 }: ProjectsTableProps) {
   const theme = useTheme()
+  const hasActions = canView || canEdit || canDelete
 
   if (loading) {
     return (
@@ -434,8 +459,8 @@ function ProjectsTable({
               <TableRow
                 key={project.id}
                 hover
-                onClick={() => onView(project)}
-                sx={{ cursor: 'pointer', '&:last-child td': { borderBottom: 0 } }}
+                onClick={canView ? () => onView(project) : undefined}
+                sx={{ cursor: canView ? 'pointer' : 'default', '&:last-child td': { borderBottom: 0 } }}
               >
                 {/* Project Name */}
                 <TableCell sx={cellSx}>
@@ -572,6 +597,9 @@ function ProjectsTable({
 
 interface ProjectGridCardProps {
   project: Project
+  canView: boolean
+  canEdit: boolean
+  canDelete: boolean
   onView: (project: Project) => void
   onEdit: (project: Project) => void
   onChangeStatus: (project: Project) => void
@@ -582,6 +610,9 @@ interface ProjectGridCardProps {
 
 function ProjectGridCard({
   project,
+  canView,
+  canEdit,
+  canDelete,
   onView,
   onEdit,
   onChangeStatus,
@@ -592,17 +623,18 @@ function ProjectGridCard({
   const theme = useTheme()
   const gridColors = getAvatarColor(project.name)
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
-  const showLifecycleActions = project.status === 'Live'
+  const showLifecycleActions = canDelete && project.status === 'Live'
+  const hasActions = canView || canEdit || showLifecycleActions
 
   return (
     <MuiCard
       elevation={0}
-      onClick={() => onView(project)}
+      onClick={canView ? () => onView(project) : undefined}
       sx={{
         p: 2,
         border: `1px solid ${tokens.color.neutral[100]}`,
         borderRadius: 2,
-        cursor: 'pointer',
+        cursor: canView ? 'pointer' : 'default',
         transition: 'box-shadow 0.15s',
         '&:hover': { boxShadow: tokens.shadow.md },
       }}
@@ -732,6 +764,9 @@ function ProjectGridCard({
 interface ProjectsGridProps {
   items: Project[]
   loading: boolean
+  canView: boolean
+  canEdit: boolean
+  canDelete: boolean
   onView: (project: Project) => void
   onEdit: (project: Project) => void
   onChangeStatus: (project: Project) => void
@@ -743,6 +778,9 @@ interface ProjectsGridProps {
 function ProjectsGrid({
   items,
   loading,
+  canView,
+  canEdit,
+  canDelete,
   onView,
   onEdit,
   onChangeStatus,
@@ -793,6 +831,9 @@ function ProjectsGrid({
         <ProjectGridCard
           key={project.id}
           project={project}
+          canView={canView}
+          canEdit={canEdit}
+          canDelete={canDelete}
           onView={onView}
           onEdit={onEdit}
           onChangeStatus={onChangeStatus}
@@ -942,6 +983,26 @@ export default function ProjectsPage() {
   const users = useAppSelector((s) => s.users.items ?? [])
   const roles = useAppSelector((s) => s.roles.items ?? [])
   const statusMasters = useAppSelector((s) => s.settings.statuses)
+  const canViewProjectModule = usePermission('projects', 'view')
+  const canViewProjectOverview = usePermission('projectOverview', 'view')
+  const canViewProjectPitch = usePermission('projectPitch', 'view')
+  const canViewProjectLive = usePermission('projectLive', 'view')
+  const canViewProjectFinancials = usePermission('projectFinancials', 'view')
+  const canViewProjectDocuments = usePermission('projectDocuments', 'view')
+  const canViewProjectActivity = usePermission('projectActivity', 'view')
+  const canViewProjectManagement = usePermission('projectManagement', 'view')
+  const canViewAnyProjectTab =
+    canViewProjectOverview ||
+    canViewProjectPitch ||
+    canViewProjectLive ||
+    canViewProjectFinancials ||
+    canViewProjectDocuments ||
+    canViewProjectActivity ||
+    canViewProjectManagement
+  const canViewProject = canViewProjectModule || canViewAnyProjectTab
+  const canCreateProject = usePermission('projects', 'create')
+  const canEditProject = usePermission('projects', 'edit')
+  const canDeleteProject = usePermission('projects', 'delete')
 
   // Local state
   const [columnVisibility, setColumnVisibility] = useState<ColumnVisibility>({
@@ -1327,11 +1388,15 @@ export default function ProjectsPage() {
         icon={<FolderKanban size={20} strokeWidth={1.75} />}
         title="Projects"
         subtitle="Track and manage all design projects"
-        primaryAction={{
-          label: 'Create Project',
-          onClick: () => navigate('/projects/create'),
-          startIcon: <Plus size={16} strokeWidth={2} />,
-        }}
+        primaryAction={
+          canCreateProject
+            ? {
+                label: 'Create Project',
+                onClick: () => navigate('/projects/create'),
+                startIcon: <Plus size={16} strokeWidth={2} />,
+              }
+            : undefined
+        }
         statCards={statCards}
         tabs={tabs}
         activeTab={activeTab}
@@ -1358,6 +1423,9 @@ export default function ProjectsPage() {
           <ProjectsGrid
             items={items}
             loading={loading}
+            canView={canViewProject}
+            canEdit={canEditProject}
+            canDelete={canDeleteProject}
             onView={handleView}
             onEdit={handleEdit}
             onChangeStatus={(p) => setStatusDialogProject(p)}
@@ -1369,6 +1437,9 @@ export default function ProjectsPage() {
           <ProjectsTable
             items={items}
             loading={loading}
+            canView={canViewProject}
+            canEdit={canEditProject}
+            canDelete={canDeleteProject}
             columns={columnVisibility}
             sortField={sortConfig.field}
             sortDirection={sortConfig.direction}

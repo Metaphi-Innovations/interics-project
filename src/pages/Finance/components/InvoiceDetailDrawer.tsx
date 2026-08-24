@@ -28,9 +28,9 @@ export interface InvoiceDetailDrawerProps {
   open: boolean
   onClose: () => void
   invoiceId: string | null
-  onEdit: (inv: Invoice) => void
-  onRecordPayment: (inv: Invoice) => void
-  onConvertTax: (inv: Invoice) => void
+  onEdit?: (inv: Invoice) => void
+  onRecordPayment?: (inv: Invoice) => void
+  onConvertTax?: (inv: Invoice) => void
   onDownloadPdf: (inv: Invoice) => void
 }
 
@@ -75,9 +75,9 @@ export function InvoiceDetailDrawer({
   }
 
   const inv = invoice
-  const canEdit = inv?.status === 'draft'
-  const canPay = inv && inv.status !== 'paid' && inv.status !== 'draft'
-  const canConvertTax = inv?.status === 'draft'
+  const canEdit = Boolean(onEdit && inv?.status === 'draft')
+  const canPay = Boolean(onRecordPayment && inv && inv.status !== 'paid' && inv.status !== 'draft')
+  const canConvertTax = Boolean(onConvertTax && inv?.status === 'draft')
   const showFooter = Boolean(inv && (canEdit || canConvertTax))
   const taxRoll = inv
     ? rollupsFromLineItems(
@@ -103,12 +103,12 @@ export function InvoiceDetailDrawer({
   const footerBar = showFooter && inv ? (
     <Stack direction="row" justifyContent="flex-end" gap={1} sx={{ px: '20px', py: '14px' }}>
       {canEdit ? (
-        <Button variant="outlined" size="sm" onClick={() => onEdit(inv)}>
+        <Button variant="outlined" size="sm" onClick={() => onEdit?.(inv)}>
           Edit
         </Button>
       ) : null}
       {canConvertTax ? (
-        <Button variant="contained" size="sm" color="primary" onClick={() => onConvertTax(inv)}>
+        <Button variant="contained" size="sm" color="primary" onClick={() => onConvertTax?.(inv)}>
           Convert to tax Invoice
         </Button>
       ) : null}
@@ -311,7 +311,7 @@ export function InvoiceDetailDrawer({
                   variant="contained"
                   size="sm"
                   startIcon={<Plus size={14} strokeWidth={2} />}
-                  onClick={() => onRecordPayment(inv)}
+                  onClick={() => onRecordPayment?.(inv)}
                 >
                   Record Payment
                 </Button>

@@ -64,6 +64,7 @@ import {
   getAvatarColor,
   fromSlug,
 } from '../../utils/formatters'
+import { usePermission } from '@/hooks/usePermission'
 
 // ─── Loading skeleton ─────────────────────────────────────────────────────────
 
@@ -105,11 +106,20 @@ function NotFound() {
 
 interface TabConfig {
   label: string
-  value: string
+  value: ProjectTabValue
   icon: React.ReactNode
   locked: boolean
   lockReason: string | null
 }
+
+type ProjectTabValue =
+  | 'overview'
+  | 'pitch'
+  | 'live'
+  | 'financials'
+  | 'documents'
+  | 'activity'
+  | 'project-management'
 
 function getTabConfig(status: string): TabConfig[] {
   const isLiveProject = status === 'Live'
@@ -286,10 +296,20 @@ export default function ProjectDetailPage() {
   const [editDrawerOpen, setEditDrawerOpen] = useState(false)
   const [statusDialogOpen, setStatusDialogOpen] = useState(false)
   const [convertingToLive, setConvertingToLive] = useState(false)
+  const canEditProject = usePermission('projects', 'edit')
+  const projectTabPermissions: Record<ProjectTabValue, boolean> = {
+    overview: usePermission('projectOverview', 'view'),
+    pitch: usePermission('projectPitch', 'view'),
+    live: usePermission('projectLive', 'view'),
+    financials: usePermission('projectFinancials', 'view'),
+    documents: usePermission('projectDocuments', 'view'),
+    activity: usePermission('projectActivity', 'view'),
+    'project-management': usePermission('projectManagement', 'view'),
+  }
 
   function isTabAccessible(tabValue: string, status: string): boolean {
     const tab = getTabConfig(status).find((t) => t.value === tabValue)
-    return Boolean(tab && !tab.locked)
+    return Boolean(tab && !tab.locked && projectTabPermissions[tab.value])
   }
 
   // Derive tab from hash (block hidden / locked tabs)
@@ -311,7 +331,10 @@ export default function ProjectDetailPage() {
   useEffect(() => {
     if (!project) return
     if (activeTab === 'transition' || !isTabAccessible(activeTab, project.status)) {
-      setActiveTab('overview')
+      const firstAccessible = getTabConfig(project.status).find(
+        (tab) => !tab.locked && projectTabPermissions[tab.value],
+      )
+      setActiveTab(firstAccessible?.value ?? '')
     }
   }, [project?.status, activeTab, project?.id])
 
@@ -404,12 +427,14 @@ export default function ProjectDetailPage() {
   // ── Tab config ────────────────────────────────────────────────────────────
 
   const tabConfig = getTabConfig(project.status)
-  const workspaceTabs = tabConfig.map((t) => ({
-    label: t.label,
-    value: t.value,
-    icon: t.icon,
-    disabled: t.locked,
-  }))
+  const workspaceTabs = tabConfig
+    .filter((t) => projectTabPermissions[t.value])
+    .map((t) => ({
+      label: t.label,
+      value: t.value,
+      icon: t.icon,
+      disabled: t.locked,
+    }))
   const progressChipColors = project.progress
     ? getStatusMasterChipColors(
         project.progress,
@@ -421,6 +446,17 @@ export default function ProjectDetailPage() {
 
   function renderTabContent() {
     const current = tabConfig.find((t) => t.value === activeTab)
+    if (!current || !projectTabPermissions[current.value]) {
+      return (
+        <WorkspaceSection>
+          <EmptyState
+            icon={<Lock sx={{ fontSize: 48 }} />}
+            title="Access not available"
+            description="You do not have permission to view this project section."
+          />
+        </WorkspaceSection>
+      )
+    }
     if (current?.locked) {
       return (
         <WorkspaceSection>
@@ -491,22 +527,26 @@ export default function ProjectDetailPage() {
             ? [{ label: project.customerName.trim() }]
             : []
         }
-        primaryAction={{
-          label: 'Edit Project',
-          icon: <Edit sx={{ fontSize: 14 }} />,
-          onClick: () => setEditDrawerOpen(true),
-        }}
+        primaryAction={
+          canEditProject
+            ? {
+                label: 'Edit Project',
+                icon: <Edit sx={{ fontSize: 14 }} />,
+                onClick: () => setEditDrawerOpen(true),
+              }
+            : undefined
+        }
         secondaryActions={[]}
         metrics={[]}
         tabs={workspaceTabs}
         activeTab={activeTab}
         onTabChange={(val) => {
           const tab = tabConfig.find((t) => t.value === val)
-          if (!tab || tab.locked) return
+          if (!tab || tab.locked || !projectTabPermissions[tab.value]) return
           setActiveTab(val)
         }}
         tabsEnd={
-          activeTab === 'pitch' ? (
+          activeTab === 'pitch' && canEditProject ? (
             <Toggle
               label="Convert Live"
               size="sm"

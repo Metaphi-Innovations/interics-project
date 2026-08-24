@@ -2,7 +2,7 @@ import { createAsyncThunk } from '@reduxjs/toolkit'
 import { usersApi } from '../../api/usersApi'
 import { unwrapApiData } from '@/modules/system-settings/shared/api'
 import { normalizeArrayResponse } from '@/utils/normalizeListResponse'
-import { makeEmptyUserPermissions } from '@/types/permissions'
+import { backendAccessToUserPermissions, makeEmptyUserPermissions, type BackendAccessResponse, type BackendModuleAccessInput } from '@/types/permissions'
 import type { User } from './reducer'
 
 type ApiUser = {
@@ -16,7 +16,9 @@ type ApiUser = {
   employeeCode?: string
   role?: string | { id?: string; name?: string } | null
   roleId?: string
+  permissionTemplateId?: string | null
   permissions?: User['permissions']
+  access?: BackendAccessResponse
   projectAccess?: User['projectAccess']
   assignedProjects?: string[]
   status?: string
@@ -63,7 +65,8 @@ export function toUiUser(api: ApiUser): User {
     phone: api.phone ?? undefined,
     employeeId: api.employeeCode ?? api.employeeId,
     role: roleId,
-    permissions: api.permissions ?? makeEmptyUserPermissions(),
+    permissionTemplateId: api.permissionTemplateId ?? null,
+    permissions: api.access ? backendAccessToUserPermissions(api.access) : api.permissions ?? makeEmptyUserPermissions(),
     projectAccess: api.projectAccess ?? 'all',
     assignedProjects: api.assignedProjects ?? [],
     status: inactive ? 'inactive' : 'active',
@@ -91,7 +94,10 @@ export const fetchUsers = createAsyncThunk(
 )
 
 function toApiUserPayload(
-  data: Omit<User, 'id' | 'createdAt' | 'lastLogin'> & { password?: string },
+  data: Omit<User, 'id' | 'createdAt' | 'lastLogin'> & {
+    password?: string
+    access?: BackendModuleAccessInput[]
+  },
 ): Record<string, unknown> {
   const payload: Record<string, unknown> = {
     firstName: data.name.trim(),
@@ -101,14 +107,19 @@ function toApiUserPayload(
   }
   if (data.phone?.trim()) payload.phone = data.phone.trim()
   if (data.employeeId?.trim()) payload.employeeCode = data.employeeId.trim()
+  if (data.permissionTemplateId !== undefined) payload.permissionTemplateId = data.permissionTemplateId
   if (data.password) payload.password = data.password
+  if (data.access) payload.access = data.access
   return payload
 }
 
 export const createUser = createAsyncThunk(
   'users/create',
   async (
-    data: Omit<User, 'id' | 'createdAt' | 'lastLogin'> & { password: string },
+    data: Omit<User, 'id' | 'createdAt' | 'lastLogin'> & {
+      password: string
+      access?: BackendModuleAccessInput[]
+    },
     { rejectWithValue },
   ) => {
     try {
@@ -123,7 +134,10 @@ export const createUser = createAsyncThunk(
 
 export const updateUser = createAsyncThunk(
   'users/update',
-  async ({ id, data }: { id: string; data: Partial<User> }, { rejectWithValue }) => {
+  async (
+    { id, data }: { id: string; data: Partial<User> & { access?: BackendModuleAccessInput[] } },
+    { rejectWithValue },
+  ) => {
     try {
       const payload = toApiUserPayload({
         name: data.name ?? '',
@@ -131,10 +145,12 @@ export const updateUser = createAsyncThunk(
         phone: data.phone,
         employeeId: data.employeeId,
         role: data.role ?? '',
+        permissionTemplateId: data.permissionTemplateId,
         permissions: data.permissions ?? makeEmptyUserPermissions(),
         projectAccess: data.projectAccess ?? 'all',
         assignedProjects: data.assignedProjects ?? [],
         status: data.status ?? 'active',
+        access: data.access as BackendModuleAccessInput[] | undefined,
       })
       delete payload.password
       const response = await usersApi.update(id, payload)

@@ -6,8 +6,10 @@ import { Eye, EyeOff } from 'lucide-react'
 import { Input, Button, IconButton, Checkbox } from '@/design-system/components'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { loginThunk } from '@/slices/auth/thunk'
+import type { AuthUser } from '@/slices/auth/reducer'
 import AuthSplitLayout from '@/pages/Auth/components/AuthSplitLayout'
 import { REMEMBER_EMAIL_KEY, SAVED_EMAIL_KEY } from '@/pages/Auth/authConstants'
+import { resolveAccess } from '@/utils/resolveAccess'
 
 function validateEmail(value: string): string {
   if (!value) return 'Email is required'
@@ -19,6 +21,26 @@ function validatePassword(value: string): string {
   if (!value) return 'Password is required'
   if (value.length < 6) return 'Password must be at least 6 characters'
   return ''
+}
+
+function resolvePostLoginPath(user: AuthUser | null | undefined): string {
+  if (!user) return '/dashboard'
+  if (resolveAccess(user, 'dashboard', 'view')) return '/dashboard'
+  if (resolveAccess(user, 'projects', 'view')) return '/projects'
+  if (resolveAccess(user, 'customers', 'view')) return '/customers'
+  if (resolveAccess(user, 'vendors', 'view')) return '/vendors'
+  if (resolveAccess(user, 'team', 'view')) return '/added-team'
+  if (resolveAccess(user, 'receivables', 'view')) return '/finance/receivables'
+  if (resolveAccess(user, 'payables', 'view')) return '/finance/payables'
+  if (resolveAccess(user, 'expenses', 'view')) return '/finance/expenses'
+  if (resolveAccess(user, 'compliance', 'view')) return '/finance/compliance/filing-summary'
+  if (resolveAccess(user, 'settings', 'view')) return '/settings'
+  if (resolveAccess(user, 'userManagementUsers', 'view') || resolveAccess(user, 'userManagement', 'view')) {
+    return '/user-management/users'
+  }
+  if (resolveAccess(user, 'userManagementRoles', 'view')) return '/user-management/roles'
+  if (resolveAccess(user, 'userManagementTemplates', 'view')) return '/user-management/templates'
+  return '/dashboard'
 }
 
 export default function LoginPage() {
@@ -45,7 +67,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (user && token) {
-      navigate('/dashboard', { replace: true })
+      navigate(resolvePostLoginPath(user), { replace: true })
     }
   }, [user, token, navigate])
 
@@ -57,7 +79,7 @@ export default function LoginPage() {
     if (eErr || pErr) return
 
     try {
-      await dispatch(loginThunk({ email, password })).unwrap()
+      const result = await dispatch(loginThunk({ email, password })).unwrap()
       if (rememberMe) {
         localStorage.setItem(REMEMBER_EMAIL_KEY, '1')
         localStorage.setItem(SAVED_EMAIL_KEY, email)
@@ -65,7 +87,7 @@ export default function LoginPage() {
         localStorage.removeItem(REMEMBER_EMAIL_KEY)
         localStorage.removeItem(SAVED_EMAIL_KEY)
       }
-      const from = (location.state as { from?: { pathname?: string } })?.from?.pathname || '/dashboard'
+      const from = (location.state as { from?: { pathname?: string } })?.from?.pathname || resolvePostLoginPath(result.user)
       navigate(from, { replace: true })
     } catch {
       // authError from Redux state shows the Alert

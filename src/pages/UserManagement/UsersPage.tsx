@@ -658,10 +658,10 @@ export default function UsersPage() {
   const items = rawItems ?? []
   const roles = useAppSelector((s) => s.roles.items ?? [])
   const { showToast } = useToast()
-  const canCreate = usePermission('userManagement', 'create')
-  const canView = usePermission('userManagement', 'view')
-  const canEdit = usePermission('userManagement', 'edit')
-  const canDelete = usePermission('userManagement', 'delete')
+  const canCreate = usePermission('userManagementUsers', 'create') || usePermission('userManagement', 'create')
+  const canView = usePermission('userManagementUsers', 'view') || usePermission('userManagement', 'view')
+  const canEdit = usePermission('userManagementUsers', 'edit') || usePermission('userManagement', 'edit')
+  const canDelete = usePermission('userManagementUsers', 'delete') || usePermission('userManagement', 'delete')
 
   const [toggleTarget, setToggleTarget] = useState<User | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<User | null>(null)
