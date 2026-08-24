@@ -460,16 +460,6 @@ interface VendorAccumulator {
   billingByYear: Map<string, number>
 }
 
-const PERFORMANCE_LINE_COLORS = [
-  CHART_COLORS.teal,
-  CHART_COLORS.blue,
-  CHART_COLORS.amber,
-  CHART_COLORS.purple,
-  CHART_COLORS.green,
-  CHART_COLORS.red,
-  CHART_COLORS.grey,
-]
-
 function startOfDay(d: Date): Date {
   const next = new Date(d)
   next.setHours(0, 0, 0, 0)
@@ -519,10 +509,6 @@ function inBounds(iso: string | null | undefined, bounds: DateBounds): boolean {
   const d = parseDate(iso)
   if (!d) return false
   return d >= bounds.start && d <= bounds.end
-}
-
-function vendorSeriesKey(vendorId: string): string {
-  return `v_${vendorId.replace(/[^a-zA-Z0-9]/g, '_')}`
 }
 
 function projectDurationForVendor(project: Project | undefined, now = new Date()): number | null {
@@ -728,37 +714,6 @@ function projectNames(acc: VendorAccumulator): string[] {
     .sort((a, b) => a.localeCompare(b))
 }
 
-function buildYearsLineChart(
-  scoped: VendorAccumulator[],
-  allYears: string[],
-): VendorPerformanceChartConfig {
-  const series = scoped.map((v, i) => ({
-    key: vendorSeriesKey(v.vendorId),
-    label: v.vendorName,
-    color: PERFORMANCE_LINE_COLORS[i % PERFORMANCE_LINE_COLORS.length],
-  }))
-
-  const data = allYears.map((year) => {
-    const row: Record<string, string | number> = { year }
-    for (const v of scoped) {
-      row[vendorSeriesKey(v.vendorId)] = v.billingByYear.get(year) ?? 0
-    }
-    return row
-  })
-
-  return {
-    title: 'Vendor Performance',
-    subtitle: 'Billing over the years',
-    kind: 'years-line',
-    xKey: 'year',
-    yAxisLabel: 'Billing',
-    xAxisLabel: 'Years',
-    format: 'currency',
-    series,
-    data,
-  }
-}
-
 function buildHorizontalChart(
   metric: VendorPerformanceMetric,
   scoped: VendorAccumulator[],
@@ -766,8 +721,8 @@ function buildHorizontalChart(
 ): VendorPerformanceChartConfig {
   const tooltipDetails: Record<string, { projects?: string[]; extra?: string }> = {}
 
-  // Projects metric — single vendor: project-wise bars when named projects exist
-  if (metric === 'Projects' && performanceVendorId !== TOP5_VENDOR_OPTION_VALUE && scoped[0]) {
+  // No. of Projects — single vendor: project-wise bars when named projects exist
+  if (metric === 'No. of Projects' && performanceVendorId !== TOP5_VENDOR_OPTION_VALUE && scoped[0]) {
     const vendor = scoped[0]
     const rows = realProjects(vendor)
       .sort((a, b) => b.billing - a.billing || a.projectName.localeCompare(b.projectName))
@@ -817,12 +772,9 @@ function buildHorizontalChart(
     let extra: string | undefined
 
     switch (metric) {
-      case 'Projects':
-        value = vendorProjectCount(v)
-        extra = names.length > 0 ? undefined : 'No named projects linked'
-        break
       case 'No. of Projects':
         value = vendorProjectCount(v)
+        extra = names.length > 0 ? undefined : 'No named projects linked'
         break
       default:
         value = vendorProjectCount(v)
@@ -839,12 +791,6 @@ function buildHorizontalChart(
 
   const meta = (() => {
     switch (metric) {
-      case 'Projects':
-        return {
-          subtitle: 'Projects associated with each vendor (see tooltip for names)',
-          xAxisLabel: 'No. of Projects',
-          color: CHART_COLORS.blue,
-        }
       case 'No. of Projects':
         return {
           subtitle: 'Number of projects per vendor',

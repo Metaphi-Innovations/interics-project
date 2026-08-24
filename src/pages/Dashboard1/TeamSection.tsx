@@ -18,7 +18,6 @@ import {
   BarChart,
   ChartCard,
   Checkbox,
-  LineChart,
   useToast,
 } from '@/design-system/components'
 import { CHART_COLORS, tokens } from '@/design-system/tokens'

@@ -95,11 +95,7 @@ export default function BarChart({
               axisLine={{ stroke: ct.gridProps.stroke }}
               tickFormatter={formatX}
               allowDecimals={allowDecimals}
-              domain={
-                allowDecimals
-                  ? undefined
-                  : ([_min, max]: [number, number]) => [0, Math.max(Math.ceil(max), 1)]
-              }
+              domain={allowDecimals ? undefined : [0, 'dataMax']}
             />
             <YAxis type="category" dataKey={xKey} tick={ct.axisStyle} tickLine={false} axisLine={{ stroke: ct.gridProps.stroke }} width={ct.isMobile ? 60 : 80} tickFormatter={formatY} />
           </>
