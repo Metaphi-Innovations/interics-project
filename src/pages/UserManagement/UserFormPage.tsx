@@ -20,9 +20,17 @@ import PageHeader from '@/components/layout/PageHeader'
 import { Button, useToast } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { usersApi } from '@/api/usersApi'
+import { modulesApi } from '@/api/modulesApi'
+import { permissionTemplatesApi, type PermissionTemplate } from '@/api/permissionTemplatesApi'
 import { unwrapApiData } from '@/modules/system-settings/shared/api'
-import type { UserPermissions } from '@/types/permissions'
-import { cloneUserPermissions, makeEmptyUserPermissions } from '@/types/permissions'
+import type { PermissionModuleTree, UserPermissions } from '@/types/permissions'
+import {
+  accessInputToUserPermissions,
+  cloneUserPermissions,
+  makeEmptyUserPermissions,
+  userPermissionsToAccessInput,
+} from '@/types/permissions'
+import { normalizeArrayResponse } from '@/utils/normalizeListResponse'
 import { MODULE_DEFS, RolePermissionsPanel } from './components/RolePermissionsPanel'
 
 interface FormState {
@@ -106,10 +114,21 @@ export default function UserFormPage() {
     isCreate ? 'ready' : 'loading',
   )
   const [loadedUser, setLoadedUser] = useState<User | null>(null)
+  const [moduleTree, setModuleTree] = useState<PermissionModuleTree | null>(null)
+  const [templates, setTemplates] = useState<PermissionTemplate[]>([])
+  const [selectedTemplateId, setSelectedTemplateId] = useState('')
 
   useEffect(() => {
     dispatch(fetchRoles())
     dispatch(fetchUsers({}))
+    void modulesApi.getTree().then(setModuleTree).catch(() => setModuleTree(null))
+    void permissionTemplatesApi
+      .getAll({ limit: 100 })
+      .then((res) => {
+        const raw = normalizeArrayResponse<PermissionTemplate>(unwrapApiData(res.data) ?? res.data)
+        setTemplates(raw)
+      })
+      .catch(() => setTemplates([]))
   }, [dispatch])
 
   useEffect(() => {
@@ -121,6 +140,7 @@ export default function UserFormPage() {
       setStatus('active')
       setErrors({})
       setTouched({})
+      setSelectedTemplateId('')
       setExpandedModules(MODULE_DEFS.map((m) => m.id))
       return
     }
@@ -162,6 +182,7 @@ export default function UserFormPage() {
     setStatus(loadedUser.status)
     setErrors({})
     setTouched({})
+    setSelectedTemplateId(loadedUser.permissionTemplateId ?? '')
     setExpandedModules(MODULE_DEFS.map((m) => m.id))
   }, [loadedUser, loadUserState, isCreate])
 
@@ -182,6 +203,15 @@ export default function UserFormPage() {
     navigate('/user-management/users')
   }
 
+  function handleTemplateChange(templateId: string) {
+    setSelectedTemplateId(templateId)
+    if (!templateId || !moduleTree) return
+    const template = templates.find((item) => item.id === templateId)
+    if (template) {
+      setPermissions(accessInputToUserPermissions(template.access, moduleTree))
+    }
+  }
+
   function handleSubmit() {
     const allTouched: Record<string, boolean> = {
       name: true,
@@ -196,6 +226,10 @@ export default function UserFormPage() {
     })
     setErrors(errs)
     if (Object.keys(errs).length > 0) return
+    if (!moduleTree) {
+      showToast({ title: 'Permission modules are still loading', variant: 'error' })
+      return
+    }
 
     const projectAccess = isCreate ? 'all' : loadedUser!.projectAccess
     const assignedProjects = isCreate ? [] : [...(loadedUser!.assignedProjects ?? [])]
@@ -206,14 +240,16 @@ export default function UserFormPage() {
       phone: form.phone.trim() || undefined,
       employeeId: form.employeeId.trim() || undefined,
       role: form.role,
+      permissionTemplateId: selectedTemplateId || null,
       permissions: cloneUserPermissions(permissions),
       projectAccess,
       assignedProjects,
       status: !isCreate && loadedUser ? status : 'active',
     }
+    const access = userPermissionsToAccessInput(permissions, moduleTree)
 
     if (isCreate) {
-      dispatch(createUser({ ...payload, password: form.password }))
+      dispatch(createUser({ ...payload, password: form.password, access }))
         .unwrap()
         .then(() => {
           showToast({ title: 'User created successfully', variant: 'success' })
@@ -221,7 +257,7 @@ export default function UserFormPage() {
         })
         .catch(() => showToast({ title: 'Failed to create user', variant: 'error' }))
     } else if (loadedUser) {
-      dispatch(updateUser({ id: loadedUser.id, data: payload }))
+      dispatch(updateUser({ id: loadedUser.id, data: { ...payload, access } }))
         .unwrap()
         .then(() => {
           showToast({ title: 'User updated successfully', variant: 'success' })
@@ -393,6 +429,29 @@ export default function UserFormPage() {
                   Role is for display and grouping only — it does not change permissions automatically.
                 </Typography>
               </FormField>
+              <FormField label="Permission Template">
+                <TextField
+                  select
+                  size="small"
+                  fullWidth
+                  value={selectedTemplateId}
+                  onChange={(e) => handleTemplateChange(e.target.value)}
+                  inputProps={{ style: { fontSize: 13 } }}
+                >
+                  <MenuItem value="">
+                    <Typography variant="body2" sx={{ fontSize: 13 }}>
+                      Custom permissions
+                    </Typography>
+                  </MenuItem>
+                  {templates.map((template) => (
+                    <MenuItem key={template.id} value={template.id}>
+                      <Typography variant="body2" sx={{ fontSize: 13 }}>
+                        {template.templateName}
+                      </Typography>
+                    </MenuItem>
+                  ))}
+                </TextField>
+              </FormField>
             </FormSection>
 
             {!isCreate && loadedUser && (
@@ -421,7 +480,10 @@ export default function UserFormPage() {
                   expanded ? [...new Set([...prev, modId])] : prev.filter((x) => x !== modId),
                 )
               }}
-              onChange={setPermissions}
+              onChange={(next) => {
+                setPermissions(next)
+                setSelectedTemplateId('')
+              }}
               onExpandAll={() => setExpandedModules(MODULE_DEFS.map((m) => m.id))}
               onCollapseAll={() => setExpandedModules([])}
             />

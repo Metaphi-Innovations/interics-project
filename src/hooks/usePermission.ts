@@ -2,8 +2,6 @@ import { useAppSelector } from '../store/hooks'
 import type { ModuleCrudAction, UserPermissionModuleKey } from '../types/permissions'
 import { resolveAccess } from '@/utils/resolveAccess'
 
-const ADMIN_ROLE_ID = 'r-001'
-
 /**
  * Check permission from the logged-in user's user-level permissions (V2).
  * @param module — e.g. `userManagement`, `projects`
@@ -17,5 +15,5 @@ export function usePermission(module: UserPermissionModuleKey, action: ModuleCru
 
 export function useIsAdmin(): boolean {
   const user = useAppSelector((s) => s.auth.user)
-  return user?.role === ADMIN_ROLE_ID
+  return user?.role === 'SUPER_ADMIN'
 }

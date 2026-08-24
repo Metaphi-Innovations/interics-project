@@ -1,5 +1,11 @@
 import type { AuthUser } from '@/slices/auth/reducer'
-import { makeFullUserPermissions } from '@/types/permissions'
+import {
+  backendAccessToUserPermissions,
+  makeEmptyUserPermissions,
+  makeFullUserPermissions,
+  type BackendAccessResponse,
+  type UserPermissions,
+} from '@/types/permissions'
 
 /** Unwrap `{ success, data }` envelopes while accepting flat payloads. */
 export function unwrapApiData<T>(payload: unknown): T {
@@ -23,10 +29,12 @@ type BackendUser = {
   avatar?: string | null
   role?: BackendRole
   roleId?: string
+  access?: BackendAccessResponse
 }
 
 type BackendLoginData = {
   accessToken?: string
+  refreshToken?: string
   token?: string
   user?: BackendUser
 }
@@ -34,11 +42,16 @@ type BackendLoginData = {
 function resolveRole(role: BackendRole, roleId?: string): string {
   if (typeof role === 'string' && role.length > 0) return role
   if (role && typeof role === 'object') {
-    if (typeof role.id === 'string' && role.id.length > 0) return role.id
     if (typeof role.name === 'string' && role.name.length > 0) return role.name
+    if (typeof role.id === 'string' && role.id.length > 0) return role.id
   }
   if (typeof roleId === 'string' && roleId.length > 0) return roleId
   return ''
+}
+
+function resolvePermissions(role: string, access?: BackendAccessResponse): UserPermissions {
+  if (access) return backendAccessToUserPermissions(access)
+  return role === 'SUPER_ADMIN' ? makeFullUserPermissions() : makeEmptyUserPermissions()
 }
 
 export function mapBackendUserToAuthUser(user: BackendUser | null | undefined): AuthUser {
@@ -46,18 +59,21 @@ export function mapBackendUserToAuthUser(user: BackendUser | null | undefined): 
   const lastName = user?.lastName?.trim() ?? ''
   const fullName = `${firstName} ${lastName}`.trim()
 
+  const role = resolveRole(user?.role, user?.roleId)
+
   return {
     id: user?.id ?? '',
     name: user?.name?.trim() || fullName || user?.email || 'User',
     email: user?.email ?? '',
-    role: resolveRole(user?.role, user?.roleId),
+    role,
     avatar: user?.avatar ?? null,
-    // Frontend permission model is not fully wired to backend access yet.
-    permissions: makeFullUserPermissions(),
+    permissions: resolvePermissions(role, user?.access),
   }
 }
 
-export function mapBackendLoginResponse(payload: unknown): { token: string; user: AuthUser } {
+export function mapBackendLoginResponse(
+  payload: unknown,
+): { token: string; refreshToken: string | null; user: AuthUser } {
   const data = unwrapApiData<BackendLoginData>(payload)
   const token = data.accessToken ?? data.token
   if (!token) {
@@ -65,6 +81,7 @@ export function mapBackendLoginResponse(payload: unknown): { token: string; user
   }
   return {
     token,
+    refreshToken: data.refreshToken ?? null,
     user: mapBackendUserToAuthUser(data.user),
   }
 }

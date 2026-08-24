@@ -1,4 +1,5 @@
 import { API_BASE_URL } from '@/api/config'
+import { getStoredToken } from '@/utils/authStorage'
 
 /** Turn API-relative file paths into absolute URLs the browser can open. */
 export function resolveApiAssetUrl(pathOrUrl?: string | null): string | null {
@@ -41,7 +42,7 @@ export async function openAuthenticatedDocument(
 
   try {
     newTab.document.title = 'Loading document…'
-    const token = localStorage.getItem('auth_token')
+    const token = getStoredToken()
     const response = await fetch(absolute, {
       method: 'GET',
       credentials: 'include',
@@ -83,7 +84,7 @@ export async function downloadAuthenticatedDocument(
     : absolute
 
   try {
-    const token = localStorage.getItem('auth_token')
+    const token = getStoredToken()
     const response = await fetch(downloadUrl, {
       method: 'GET',
       credentials: 'include',

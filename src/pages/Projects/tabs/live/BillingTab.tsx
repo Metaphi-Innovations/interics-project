@@ -48,7 +48,6 @@ import {
   MONEY_EPS,
   rollupsFromLineItems,
   totalReceivedBank,
-  totalTdsFromPayments,
   type InvoiceLineRollups,
 } from './clientInvoiceUtils'
 import { downloadClientInvoiceDocument } from './downloadClientInvoice'

@@ -16,6 +16,7 @@ export interface User {
   phone?: string
   employeeId?: string
   role: string          // role ID reference (e.g. 'r-001')
+  permissionTemplateId?: string | null
   permissions: UserPermissions
   projectAccess: 'all' | 'selected'
   assignedProjects: string[]
