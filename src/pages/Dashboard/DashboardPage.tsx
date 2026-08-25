@@ -1,39 +1,13 @@
 ﻿/**
- * Dashboard — Revenue-focused dashboard (sample data UI).
+ * Dashboard page shell. Tab internals live in their own tab folders.
  */
-import { useMemo, useState } from 'react'
-import {
-  Box,
-  Grid,
-  MenuItem,
-  Paper,
-  Select as MuiSelect,
-  Typography,
-} from '@mui/material'
-import {
-  BarChart,
-  ChartCard,
-  DateRangePicker,
-  Tabs,
-} from '@/design-system/components'
-import { CHART_COLORS } from '@/design-system/tokens'
-import { formatCurrency } from '@/utils/formatters'
-import {
-  getRevenueAnalytics,
-  REVENUE_TIME_PERIOD_OPTIONS,
-  type RevenueTimePeriod,
-} from './dashboardData'
-import { RevenueKpiCard } from './RevenueKpiCard'
-import { RevenueKpiDrawer, CLICKABLE_KPI_IDS } from './RevenueKpiDrawer'
-import type { RevenueKpi } from './dashboardData'
-import { ChartSeriesLegend } from './ChartSeriesLegend'
-import { FinancialRevenueYearSection } from './FinancialRevenueYearSection'
-import { ProjectsOverviewSection } from './ProjectsOverviewSection'
-import { ProjectAnalyticsSection } from './ProjectAnalyticsSection'
-import { SectorAnalyticsSection } from './SectorAnalyticsSection'
-import { ProjectDesignAnalyticsSection } from './ProjectDesignAnalyticsSection'
-import { TeamSection } from './TeamSection'
-import { VendorsSection } from './VendorsSection'
+import { useState } from 'react'
+import { Box, Paper, Typography } from '@mui/material'
+import { Tabs } from '@/design-system/components'
+import { RevenueTab } from './Revenue/Revenue'
+import { ProjectsTab } from './Projects/Projects'
+import { TeamTab } from './Teams/Teams'
+import { VendorsTab } from './Vendors/Vendors'
 
 type DashboardTab = 'revenue' | 'projects' | 'team' | 'vendors'
 
@@ -44,35 +18,8 @@ const DASHBOARD_TABS = [
   { label: 'Vendors', value: 'vendors' },
 ] as const
 
-const MENU_ITEM_SX = { fontSize: 12 } as const
-const REVENUE_PERIOD_SELECT_SX = { minWidth: 180, fontSize: 12, height: 32 } as const
-
-function formatAxisAmount(value: number | string): string {
-  const n = typeof value === 'number' ? value : Number(value)
-  if (Number.isNaN(n)) return String(value)
-  return `₹${formatCurrency(n)}`
-}
-
-function chartSubtitle(granularity: 'daily' | 'monthly' | 'yearly', base: string): string {
-  if (granularity === 'daily') {
-    return base.replace('month-wise', 'day-wise').replace('Monthly', 'Daily')
-  }
-  if (granularity === 'yearly') {
-    return base.replace('month-wise', 'year-wise').replace('Monthly', 'Yearly')
-  }
-  return base
-}
-
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState<DashboardTab>('revenue')
-  const [revenuePeriod, setRevenuePeriod] = useState<RevenueTimePeriod>('This Financial Year')
-  const [customRange, setCustomRange] = useState<[Date | null, Date | null]>([null, null])
-  const [drawerKpi, setDrawerKpi] = useState<RevenueKpi | null>(null)
-
-  const revenueAnalytics = useMemo(
-    () => getRevenueAnalytics(revenuePeriod, customRange),
-    [revenuePeriod, customRange],
-  )
 
   return (
     <Box>
@@ -105,182 +52,10 @@ export default function DashboardPage() {
         />
 
         <Box sx={{ p: 2 }}>
-          {activeTab === 'revenue' && (
-            <Box>
-              <Box
-                sx={{
-                  display: 'flex',
-                  alignItems: 'flex-start',
-                  justifyContent: 'space-between',
-                  flexWrap: 'wrap',
-                  gap: 1.5,
-                  mb: 1,
-                }}
-              >
-                <Box>
-                  <Typography variant="h6" fontWeight={700} sx={{ fontSize: 16 }}>
-                    Revenue
-                  </Typography>
-                  <Typography
-                    variant="body2"
-                    color="text.secondary"
-                    sx={{ fontSize: 12, mt: 0.25 }}
-                  >
-                    Key commercial metrics for the selected period.
-                  </Typography>
-                </Box>
-
-                <Box
-                  sx={{
-                    display: 'flex',
-                    flexWrap: 'wrap',
-                    gap: 1.5,
-                    alignItems: 'flex-end',
-                  }}
-                >
-                  <Box>
-                    <Typography
-                      variant="caption"
-                      color="text.secondary"
-                      fontWeight={600}
-                      sx={{
-                        display: 'block',
-                        fontSize: 10,
-                        letterSpacing: 0.5,
-                        textTransform: 'uppercase',
-                        mb: 0.5,
-                      }}
-                    >
-                      Time Period
-                    </Typography>
-                    <MuiSelect
-                      size="small"
-                      value={revenuePeriod}
-                      onChange={(e) =>
-                        setRevenuePeriod(e.target.value as RevenueTimePeriod)
-                      }
-                      sx={REVENUE_PERIOD_SELECT_SX}
-                    >
-                      {REVENUE_TIME_PERIOD_OPTIONS.map((opt) => (
-                        <MenuItem key={opt} value={opt} sx={MENU_ITEM_SX}>
-                          {opt}
-                        </MenuItem>
-                      ))}
-                    </MuiSelect>
-                  </Box>
-
-                  {revenuePeriod === 'Custom Range' ? (
-                    <DateRangePicker
-                      size="sm"
-                      value={customRange}
-                      onChange={setCustomRange}
-                      startLabel="From"
-                      endLabel="To"
-                    />
-                  ) : null}
-                </Box>
-              </Box>
-
-              <Grid container spacing={2} sx={{ mb: 3 }}>
-                {revenueAnalytics.kpis.map((kpi) => (
-                  <Grid key={kpi.id} size={{ xs: 12, sm: 6, md: 4, lg: 3 }}>
-                    <RevenueKpiCard
-                      kpi={kpi}
-                      onClick={
-                        CLICKABLE_KPI_IDS.has(kpi.id)
-                          ? () => setDrawerKpi(kpi)
-                          : undefined
-                      }
-                    />
-                  </Grid>
-                ))}
-              </Grid>
-
-              <RevenueKpiDrawer
-                open={!!drawerKpi}
-                onClose={() => setDrawerKpi(null)}
-                kpi={drawerKpi}
-              />
-
-              <Typography
-                variant="overline"
-                color="text.secondary"
-                fontWeight={600}
-                sx={{ fontSize: 10, letterSpacing: 1, display: 'block', mb: 1.5 }}
-              >
-                Revenue Analytics
-              </Typography>
-
-              <Grid container spacing={2} sx={{ mb: 3 }}>
-                <Grid size={{ xs: 12 }}>
-                  <ChartCard
-                    title="Client Revenue Received vs Vendor Payments"
-                    subtitle={chartSubtitle(
-                      revenueAnalytics.granularity,
-                      'Client collections vs vendor payments month-wise',
-                    )}
-                    action={
-                      <ChartSeriesLegend
-                        items={[
-                          {
-                            label: 'Client Revenue Received',
-                            color: CHART_COLORS.green,
-                          },
-                          {
-                            label: 'Vendor Payments',
-                            color: CHART_COLORS.blue,
-                          },
-                        ]}
-                      />
-                    }
-                  >
-                    <BarChart
-                      data={[...revenueAnalytics.clientReceivedVsVendorPayments]}
-                      xKey="month"
-                      height={280}
-                      showLegend={false}
-                      bars={[
-                        {
-                          key: 'clientReceived',
-                          label: 'Client Revenue Received',
-                          color: CHART_COLORS.green,
-                        },
-                        {
-                          key: 'vendorPaid',
-                          label: 'Vendor Payments',
-                          color: CHART_COLORS.blue,
-                        },
-                      ]}
-                      formatY={formatAxisAmount}
-                    />
-                  </ChartCard>
-                </Grid>
-
-                <Grid size={{ xs: 12 }}>
-                  <FinancialRevenueYearSection
-                    period={revenuePeriod}
-                    customRange={customRange}
-                  />
-                </Grid>
-              </Grid>
-            </Box>
-          )}
-
-          {activeTab === 'projects' && (
-            <Box>
-              <ProjectsOverviewSection />
-
-              <ProjectAnalyticsSection />
-
-              <SectorAnalyticsSection />
-
-              <ProjectDesignAnalyticsSection />
-            </Box>
-          )}
-
-          {activeTab === 'team' && <TeamSection />}
-
-          {activeTab === 'vendors' && <VendorsSection />}
+          {activeTab === 'revenue' && <RevenueTab />}
+          {activeTab === 'projects' && <ProjectsTab />}
+          {activeTab === 'team' && <TeamTab />}
+          {activeTab === 'vendors' && <VendorsTab />}
         </Box>
       </Paper>
     </Box>

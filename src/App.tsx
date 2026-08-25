@@ -84,7 +84,7 @@ const navConfig: NavConfig[] = [
         type: 'item',
         label: 'Dashboard',
         icon: <LayoutDashboard size={16} strokeWidth={1.75} />,
-        href: '/dashboard/dashboard-1',
+        href: '/dashboard',
       },
       {
         type: 'item',
@@ -270,7 +270,7 @@ function canShowNavItem(item: NavConfig, user: AuthUser | null): boolean {
   if (item.type === 'group' && item.children) return item.children.length > 0
 
   switch (item.href) {
-    case '/dashboard/dashboard-1':
+    case '/dashboard':
       return hasViewAccess(user, 'dashboard')
     case '/projects':
       return hasViewAccess(user, 'projects')
@@ -426,15 +426,15 @@ function AppInner() {
           }
         >
           <Route index element={<DefaultAppRedirect />} />
-          <Route path="dashboard" element={<DefaultAppRedirect />} />
           <Route
-            path="dashboard/dashboard-1"
+            path="dashboard"
             element={
               <ModuleViewRoute moduleKey="dashboard">
                 <DashboardPage />
               </ModuleViewRoute>
             }
           />
+          <Route path="dashboard/dashboard-1" element={<Navigate to="/dashboard" replace />} />
           <Route path="projects" element={<ProjectsPage />} />
           <Route path="projects/:id" element={<ProjectDetailPage />} />
           <Route path="customers" element={<CustomersPage />} />
