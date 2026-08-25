@@ -2,7 +2,7 @@
 
 export const INDIAN_MOBILE_DIGITS_REGEX = /^[6-9]\d{9}$/
 export const MOBILE_VALIDATION_MESSAGE =
-  'Enter a valid 10-digit mobile number starting with 6–9'
+  'Please enter a valid 10-digit mobile number.'
 
 /** Strip to local 10-digit mobile when value includes +91 / 0 / formatting. */
 export function extractIndianMobileDigits(phone: string | null | undefined): string {

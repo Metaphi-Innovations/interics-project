@@ -43,6 +43,7 @@ import { PendingVendorContactsTable } from './PendingVendorContactsTable'
 import { PendingVendorViewDrawer } from './PendingVendorViewDrawer'
 import { useToast, Modal, Button } from '@/design-system/components'
 import { vendorsService } from '@/modules/vendors'
+import { fetchVendorTabCounts } from '@/modules/vendors/vendorTabCounts'
 import { isPendingVendor } from '@/utils/vendorProfileStatus'
 import { getInitials, getAvatarColor } from '../../utils/formatters'
 import { getSpecializationTagSx } from '../../utils/specializationTagStyles'
@@ -835,12 +836,8 @@ export default function VendorsPage() {
 
   const refreshTabCounts = useCallback(async () => {
     try {
-      const activeRes = await vendorsService.getAll({ page: 1, limit: 1 })
-      setTabCounts({
-        active: activeRes.total,
-        // Backend has no pending profileStatus yet
-        pending: 0,
-      })
+      const counts = await fetchVendorTabCounts((params) => vendorsService.getAll(params))
+      setTabCounts(counts)
     } catch {
       // Tab counts are non-blocking; listing fetch still drives the table.
     }

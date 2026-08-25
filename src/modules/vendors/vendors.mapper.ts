@@ -286,6 +286,11 @@ export function toCreatePayload(form: VendorFormInput): Record<string, unknown> 
     specializationTags: form.tags?.length ? form.tags : undefined,
     notes: form.notes?.trim() || undefined,
     insuranceExpiryDate: form.insuranceExpiryDate || undefined,
+    ...(form.status === 'Inactive'
+      ? { isActive: false }
+      : form.status === 'Active'
+        ? { isActive: true }
+        : {}),
     ...(form.removeDocuments?.length ? { removeDocuments: form.removeDocuments } : {}),
   }
 }

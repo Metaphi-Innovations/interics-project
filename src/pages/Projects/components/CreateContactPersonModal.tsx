@@ -47,7 +47,8 @@ import {
 } from './ContactPersonAutocomplete'
 import { QuickAddVendorModal } from './QuickAddVendorModal'
 import { parseSettingsApiError } from '@/modules/system-settings/shared/api-errors'
-import { sanitizeMobileInput } from '@/utils/mobile'
+import { isValidIndianMobileDigits, MOBILE_VALIDATION_MESSAGE, sanitizeMobileInput } from '@/utils/mobile'
+import { validateAddNewPersonForm } from '../createContactPersonValidation'
 
 interface CreateContactPersonModalProps {
   open: boolean
@@ -172,9 +173,9 @@ function validateForm(
 
   const trimmedPhone = form.phone.trim()
   if (!trimmedPhone) {
-    errors.phone = 'Mobile number is required'
-  } else if (!/^\d{10}$/.test(trimmedPhone)) {
-    errors.phone = 'Mobile number must be exactly 10 digits'
+    errors.phone = 'Mobile number is required.'
+  } else if (!isValidIndianMobileDigits(trimmedPhone)) {
+    errors.phone = MOBILE_VALIDATION_MESSAGE
   } else {
     const peers =
       form.contactType === 'vendor'
@@ -193,11 +194,11 @@ function validateForm(
             ),
       )
       if (phoneTaken || vendorPhoneTaken) {
-        errors.phone = 'A contact with this mobile number already exists'
+        errors.phone = 'A contact with this mobile number already exists.'
       }
     } else if (phoneTaken) {
       errors.phone =
-        'A contact with this mobile number already exists for this customer'
+        'A contact with this mobile number already exists for this customer.'
     }
   }
 
@@ -210,30 +211,7 @@ function validateNewPerson(
   existingVendorPhones: string[],
   isVendor: boolean,
 ): Partial<Record<keyof NewPersonForm, string>> {
-  const errors: Partial<Record<keyof NewPersonForm, string>> = {}
-  if (!form.name.trim()) errors.name = 'Contact person name is required'
-
-  const trimmedPhone = form.phone.trim()
-  if (!trimmedPhone) {
-    errors.phone = 'Mobile number is required'
-  } else if (!/^\d{10}$/.test(trimmedPhone)) {
-    errors.phone = 'Mobile number must be exactly 10 digits'
-  } else {
-    const phoneTaken = contactPhoneExists(peers, trimmedPhone)
-    if (isVendor) {
-      const vendorPhoneTaken = existingVendorPhones.some(
-        (p) => normalizePhoneNumber(p) === normalizePhoneNumber(trimmedPhone),
-      )
-      if (phoneTaken || vendorPhoneTaken) {
-        errors.phone = 'A contact with this mobile number already exists'
-      }
-    } else if (phoneTaken) {
-      errors.phone =
-        'A contact with this mobile number already exists for this customer'
-    }
-  }
-
-  return errors
+  return validateAddNewPersonForm(form, peers, existingVendorPhones, isVendor)
 }
 
 export function CreateContactPersonModal({
@@ -265,7 +243,13 @@ export function CreateContactPersonModal({
   const activeVendorOptions = useMemo<VendorOption[]>(
     () =>
       vendors
-        .filter((v) => (v.status === 'Active' && isActiveVendorContact(v)) || isPendingVendor(v))
+        // Active complete vendors + Inactive (Pending Contacts / QuickAdd) vendors.
+        .filter(
+          (v) =>
+            (v.status === 'Active' && isActiveVendorContact(v)) ||
+            v.status === 'Inactive' ||
+            isPendingVendor(v),
+        )
         .map((v) => ({ id: v.id, label: v.name }))
         .sort((a, b) => a.label.localeCompare(b.label)),
     [vendors],

@@ -34,6 +34,7 @@ import {
   VendorSelectField,
   type VendorOption as VendorSelectOption,
 } from './components/CreateContactPersonModal'
+import { QuickAddVendorModal } from './components/QuickAddVendorModal'
 import {
   isValidIndianMobileDigits,
   MOBILE_VALIDATION_MESSAGE,
@@ -217,6 +218,7 @@ function Step1Customer({
 
   const [addPersonOpen, setAddPersonOpen] = useState(false)
   const [addVendorPersonOpen, setAddVendorPersonOpen] = useState(false)
+  const [addVendorOpen, setAddVendorOpen] = useState(false)
   const [showInlineCustomer, setShowInlineCustomer] = useState(false)
   const [savingCustomer, setSavingCustomer] = useState(false)
   const [newCustomerData, setNewCustomerData] = useState({
@@ -444,6 +446,7 @@ function Step1Customer({
           options={vendorOptions}
           loading={vendorsLoading}
           error={errors.vendorId}
+          onAddNewVendor={() => setAddVendorOpen(true)}
           onChange={(vendorId) => {
             if (!vendorId) {
               setFormData((prev) => ({
@@ -499,17 +502,28 @@ function Step1Customer({
 
       <Box sx={{ gridColumn: '1 / -1' }}>
         <Divider sx={{ my: 2 }} />
-        {!showInlineCustomer ? (
+        <Box display="flex" flexWrap="wrap" gap={1}>
+          {!showInlineCustomer ? (
+            <MuiButton
+              variant="outlined"
+              size="small"
+              startIcon={<Add />}
+              sx={{ fontSize: 13 }}
+              onClick={() => setShowInlineCustomer(true)}
+            >
+              Create New Customer
+            </MuiButton>
+          ) : null}
           <MuiButton
             variant="outlined"
             size="small"
             startIcon={<Add />}
             sx={{ fontSize: 13 }}
-            onClick={() => setShowInlineCustomer(true)}
+            onClick={() => setAddVendorOpen(true)}
           >
-            Create New Customer
+            Create New Vendor
           </MuiButton>
-        ) : null}
+        </Box>
 
         <Collapse in={showInlineCustomer}>
           <Box
@@ -703,8 +717,8 @@ function Step1Customer({
           const message =
             typeof err === 'string'
               ? err
-              : err && typeof err === 'object' && 'message' in err && typeof (err as any).message === 'string'
-                ? String((err as any).message)
+              : err && typeof err === 'object' && 'message' in err && typeof (err as { message?: unknown }).message === 'string'
+                ? String((err as { message: string }).message)
                 : 'Failed to create contact person'
           toast.error(message)
           return false
@@ -754,12 +768,40 @@ function Step1Customer({
           const message =
             typeof err === 'string'
               ? err
-              : err && typeof err === 'object' && 'message' in err && typeof (err as any).message === 'string'
-                ? String((err as any).message)
+              : err && typeof err === 'object' && 'message' in err && typeof (err as { message?: unknown }).message === 'string'
+                ? String((err as { message: string }).message)
                 : 'Failed to create vendor contact person'
           toast.error(message)
           return false
         }
+      }}
+    />
+
+    <QuickAddVendorModal
+      open={addVendorOpen}
+      onClose={() => setAddVendorOpen(false)}
+      onCreated={(vendor) => {
+        const createdVendorId = vendor.id
+        setFormData((prev) => ({
+          ...prev,
+          vendorId: createdVendorId,
+          vendorContactIds: [],
+        }))
+        setErrors((prev) => ({ ...prev, vendorId: undefined, vendorContactId: undefined }))
+        setAddVendorOpen(false)
+
+        void dispatch(fetchVendorById(createdVendorId))
+          .unwrap()
+          .then((detail) => {
+            const contacts = getVendorContactsForProjectCreate(detail)
+            setFormData((prev) => ({
+              ...prev,
+              ...vendorSelectionAfterChange(detail.id, contacts),
+            }))
+          })
+          .catch(() => {
+            toast.error('Failed to load vendor contacts')
+          })
       }}
     />
     </>

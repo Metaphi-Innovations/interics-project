@@ -4,6 +4,11 @@ import { Button, Modal, useToast } from '@/design-system/components'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { createVendor } from '@/slices/vendors/thunk'
 import type { Vendor } from '@/slices/vendors/reducer'
+import {
+  isValidIndianMobileDigits,
+  MOBILE_VALIDATION_MESSAGE,
+  sanitizeMobileInput,
+} from '@/utils/mobile'
 
 interface FormState {
   name: string
@@ -45,9 +50,13 @@ export function QuickAddVendorModal({ open, onClose, onCreated }: QuickAddVendor
 
   function validate(): boolean {
     const next: Partial<Record<keyof FormState, string>> = {}
-    if (!form.name.trim()) next.name = 'Vendor name is required'
+    if (!form.name.trim()) next.name = 'Vendor name is required.'
+    const phone = sanitizeMobileInput(form.phone)
+    if (form.phone.trim() && !isValidIndianMobileDigits(phone)) {
+      next.phone = MOBILE_VALIDATION_MESSAGE
+    }
     if (form.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
-      next.email = 'Enter a valid email'
+      next.email = 'Please enter a valid email address.'
     }
     setErrors(next)
     return Object.keys(next).length === 0
@@ -57,7 +66,7 @@ export function QuickAddVendorModal({ open, onClose, onCreated }: QuickAddVendor
     if (!validate()) return
 
     const contactPerson = form.contactPerson.trim()
-    const phone = form.phone.trim()
+    const phone = sanitizeMobileInput(form.phone)
     const email = form.email.trim()
     const contacts =
       contactPerson || phone || email
@@ -164,8 +173,10 @@ export function QuickAddVendorModal({ open, onClose, onCreated }: QuickAddVendor
             fullWidth
             size="small"
             value={form.phone}
-            onChange={(e) => setField('phone', e.target.value)}
-            placeholder="+91 98765 43210"
+            onChange={(e) => setField('phone', sanitizeMobileInput(e.target.value))}
+            placeholder="9876543210"
+            error={Boolean(errors.phone)}
+            helperText={errors.phone}
           />
         </Box>
         <Box sx={{ gridColumn: { xs: '1', sm: '1 / -1' } }}>
