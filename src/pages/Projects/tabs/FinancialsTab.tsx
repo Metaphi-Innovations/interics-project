@@ -194,7 +194,7 @@ function CommercialRatesSection({
 
 export default function FinancialsTab({ project }: FinancialsTabProps) {
   const [activeSubTab, setActiveSubTab] = useState<FinancialSubTab>('overview')
-  const canViewFinancialMetrics = usePermission('financial', 'view')
+  const canViewFinancialMetrics = usePermission('projectFinancials', 'view')
   const canViewCompliance = usePermission('compliance', 'view')
 
   const [overview, setOverview] = useState<FinancialOverviewDto | null>(null)

@@ -1,7 +1,5 @@
 import type { ModuleCrudAction, UserPermissions, UserPermissionModuleKey } from '@/types/permissions'
 
-const ADMIN_ROLE_ID = 'r-001'
-
 export interface UserLikeForAccess {
   role: string
   permissions?: UserPermissions
@@ -9,14 +7,14 @@ export interface UserLikeForAccess {
 
 /**
  * Resolve boolean access for a module + CRUD action.
- * Admin role (r-001) bypasses all checks.
+ * Only Super Admin bypasses user-level checks; Admin must use assigned permissions.
  */
 export function resolveAccess(
   user: UserLikeForAccess,
   module: UserPermissionModuleKey,
   action: ModuleCrudAction,
 ): boolean {
-  if (user.role === ADMIN_ROLE_ID) return true
+  if (user.role === 'SUPER_ADMIN') return true
   const mod = user.permissions?.[module]
   if (!mod) return false
   return mod[action] === true

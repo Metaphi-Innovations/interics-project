@@ -15,9 +15,10 @@ import receivablesReducer from '../slices/receivables/reducer'
 import complianceReducer from '../slices/compliance/reducer'
 import financeReducer from '../slices/finance/reducer'
 import transitionReducer from '../slices/transition/reducer'
+import { getStoredToken, getStoredUserJson } from '@/utils/authStorage'
 
-const savedToken = localStorage.getItem('auth_token')
-const savedUserRaw = localStorage.getItem('ids_user')
+const savedToken = getStoredToken()
+const savedUserRaw = getStoredUserJson()
 let savedUser: AuthUser | null = null
 try {
   savedUser = savedUserRaw ? (JSON.parse(savedUserRaw) as AuthUser) : null

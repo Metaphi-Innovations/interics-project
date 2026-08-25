@@ -1,4 +1,4 @@
-import { Component, type ErrorInfo, type ReactNode } from 'react'
+import { Component, useEffect, type ErrorInfo, type ReactNode } from 'react'
 import {
   BrowserRouter,
   Navigate,
@@ -32,6 +32,10 @@ import {
 } from 'lucide-react'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { logout } from '@/slices/auth/reducer'
+import { fetchMeThunk } from '@/slices/auth/thunk'
+import type { AuthUser } from '@/slices/auth/reducer'
+import type { UserPermissionModuleKey } from '@/types/permissions'
+import { resolveAccess } from '@/utils/resolveAccess'
 
 import LoginPage from '@/pages/Auth/LoginPage'
 import ForgotPasswordPage from '@/pages/Auth/ForgotPasswordPage'
@@ -66,6 +70,8 @@ import UsersPage from '@/pages/UserManagement/UsersPage'
 import UserViewPage from '@/pages/UserManagement/UserViewPage'
 import UserFormPage from '@/pages/UserManagement/UserFormPage'
 import RolesPage from '@/pages/UserManagement/RolesPage'
+import TemplatesPage from '@/pages/UserManagement/TemplatesPage'
+import TemplateFormPage from '@/pages/UserManagement/TemplateFormPage'
 import { UserManagementPermissionRoute } from '@/pages/UserManagement/UserManagementPermissionRoute'
 import SettingsPage from '@/pages/Settings/SettingsPage'
 
@@ -204,11 +210,110 @@ const navConfig: NavConfig[] = [
             href: '/user-management/roles',
             activeMatch: 'prefix',
           },
+          {
+            type: 'item',
+            label: 'Templates',
+            href: '/user-management/templates',
+            activeMatch: 'prefix',
+          },
         ],
       },
     ],
   },
 ]
+
+function hasViewAccess(user: AuthUser | null, key: UserPermissionModuleKey): boolean {
+  return Boolean(user && resolveAccess(user, key, 'view'))
+}
+
+function firstAccessibleHref(items: NavConfig[]): string | null {
+  for (const item of items) {
+    if (item.href) return item.href
+    if (item.children) {
+      const childHref = firstAccessibleHref(item.children)
+      if (childHref) return childHref
+    }
+  }
+  return null
+}
+
+function AccessUnavailable() {
+  return (
+    <div style={{ padding: 24, fontFamily: 'system-ui, sans-serif' }}>
+      <h1 style={{ fontSize: 18, margin: 0 }}>Access not available</h1>
+      <p style={{ color: '#666', marginTop: 8 }}>
+        You do not have permission to view any module.
+      </p>
+    </div>
+  )
+}
+
+function DefaultAppRedirect() {
+  const authUser = useAppSelector((s) => s.auth.user)
+  const href = firstAccessibleHref(filterNavConfig(navConfig, authUser))
+  return href ? <Navigate to={href} replace /> : <AccessUnavailable />
+}
+
+function ModuleViewRoute({
+  moduleKey,
+  children,
+}: {
+  moduleKey: UserPermissionModuleKey
+  children: ReactNode
+}) {
+  const authUser = useAppSelector((s) => s.auth.user)
+  return hasViewAccess(authUser, moduleKey) ? <>{children}</> : <DefaultAppRedirect />
+}
+
+function canShowNavItem(item: NavConfig, user: AuthUser | null): boolean {
+  if (item.type === 'divider') return true
+  if (item.type === 'group' && item.children) return item.children.length > 0
+
+  switch (item.href) {
+    case '/dashboard/dashboard-1':
+      return hasViewAccess(user, 'dashboard')
+    case '/projects':
+      return hasViewAccess(user, 'projects')
+    case '/customers':
+      return hasViewAccess(user, 'customers')
+    case '/vendors':
+      return hasViewAccess(user, 'vendors')
+    case '/added-team':
+      return hasViewAccess(user, 'team')
+    case '/finance/receivables':
+      return hasViewAccess(user, 'receivables')
+    case '/finance/payables':
+      return hasViewAccess(user, 'payables')
+    case '/finance/expenses':
+      return hasViewAccess(user, 'expenses')
+    case '/finance/compliance/filing-summary':
+    case '/finance/compliance/gst':
+    case '/finance/compliance/tds':
+      return hasViewAccess(user, 'compliance')
+    case '/settings':
+      return hasViewAccess(user, 'settings')
+    case '/user-management/users':
+      return hasViewAccess(user, 'userManagementUsers') || hasViewAccess(user, 'userManagement')
+    case '/user-management/roles':
+      return hasViewAccess(user, 'userManagementRoles') || hasViewAccess(user, 'userManagement')
+    case '/user-management/templates':
+      return hasViewAccess(user, 'userManagementTemplates') || hasViewAccess(user, 'userManagement')
+    default:
+      return true
+  }
+}
+
+function filterNavConfig(items: NavConfig[], user: AuthUser | null): NavConfig[] {
+  return items
+    .map((item) => {
+      if (!item.children) return item
+      return {
+        ...item,
+        children: filterNavConfig(item.children, user),
+      }
+    })
+    .filter((item) => canShowNavItem(item, user))
+}
 
 interface AppShellLayoutProps {
   user: UserMenuUser
@@ -217,10 +322,12 @@ interface AppShellLayoutProps {
 
 function AppShellLayout({ user, onLogout }: AppShellLayoutProps) {
   const navigate = useNavigate()
+  const authUser = useAppSelector((s) => s.auth.user)
+  const visibleNavConfig = filterNavConfig(navConfig, authUser)
   return (
     <ToastProvider>
       <AppShell
-        navConfig={navConfig}
+        navConfig={visibleNavConfig}
         user={user}
         appName="IDC Project Accounts"
         logoMark="DC"
@@ -237,8 +344,14 @@ function AppShellLayout({ user, onLogout }: AppShellLayoutProps) {
 }
 
 function ProtectedRoute() {
+  const dispatch = useAppDispatch()
   const { user, token } = useAppSelector(s => s.auth)
   const location = useLocation()
+  useEffect(() => {
+    if (token) {
+      void dispatch(fetchMeThunk())
+    }
+  }, [dispatch, token])
   if (!user || !token) {
     return <Navigate to="/login" replace state={{ from: location }} />
   }
@@ -312,9 +425,16 @@ function AppInner() {
             <AppShellLayout user={topbarUser} onLogout={handleLogout} />
           }
         >
-          <Route index element={<Navigate to="/dashboard/dashboard-1" replace />} />
-          <Route path="dashboard" element={<Navigate to="/dashboard/dashboard-1" replace />} />
-          <Route path="dashboard/dashboard-1" element={<Dashboard1Page />} />
+          <Route index element={<DefaultAppRedirect />} />
+          <Route path="dashboard" element={<DefaultAppRedirect />} />
+          <Route
+            path="dashboard/dashboard-1"
+            element={
+              <ModuleViewRoute moduleKey="dashboard">
+                <Dashboard1Page />
+              </ModuleViewRoute>
+            }
+          />
           <Route path="projects" element={<ProjectsPage />} />
           <Route path="projects/:id" element={<ProjectDetailPage />} />
           <Route path="customers" element={<CustomersPage />} />
@@ -323,9 +443,30 @@ function AppInner() {
           <Route path="vendors/:id" element={<VendorDetailPage />} />
           <Route path="added-team" element={<AddedTeamPage />} />
           <Route path="added-team/:memberId" element={<TeamMemberDetailPage />} />
-          <Route path="finance/receivables" element={<BillingsPage />} />
-          <Route path="finance/payables" element={<PaymentsPage />} />
-          <Route path="finance/expenses" element={<ExpensesPage />} />
+          <Route
+            path="finance/receivables"
+            element={
+              <ModuleViewRoute moduleKey="receivables">
+                <BillingsPage />
+              </ModuleViewRoute>
+            }
+          />
+          <Route
+            path="finance/payables"
+            element={
+              <ModuleViewRoute moduleKey="payables">
+                <PaymentsPage />
+              </ModuleViewRoute>
+            }
+          />
+          <Route
+            path="finance/expenses"
+            element={
+              <ModuleViewRoute moduleKey="expenses">
+                <ExpensesPage />
+              </ModuleViewRoute>
+            }
+          />
           <Route path="finance/compliance" element={<ComplianceLayout />}>
             <Route index element={<Navigate to="filing-summary" replace />} />
             <Route path="filing" element={<Navigate to="filing-summary" replace />} />
@@ -381,8 +522,40 @@ function AppInner() {
               </UserManagementPermissionRoute>
             }
           />
+          <Route
+            path="user-management/templates/create"
+            element={
+              <UserManagementPermissionRoute>
+                <TemplateFormPage />
+              </UserManagementPermissionRoute>
+            }
+          />
+          <Route
+            path="user-management/templates/:id/edit"
+            element={
+              <UserManagementPermissionRoute>
+                <TemplateFormPage />
+              </UserManagementPermissionRoute>
+            }
+          />
+          <Route
+            path="user-management/templates/:id"
+            element={
+              <UserManagementPermissionRoute>
+                <TemplateFormPage />
+              </UserManagementPermissionRoute>
+            }
+          />
+          <Route
+            path="user-management/templates"
+            element={
+              <UserManagementPermissionRoute>
+                <TemplatesPage />
+              </UserManagementPermissionRoute>
+            }
+          />
           <Route path="settings" element={<SettingsPage />} />
-          <Route path="*" element={<Navigate to="/dashboard/dashboard-1" replace />} />
+          <Route path="*" element={<DefaultAppRedirect />} />
         </Route>
       </Route>
     </Routes>

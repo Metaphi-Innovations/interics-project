@@ -1,6 +1,7 @@
 import { createSlice } from '@reduxjs/toolkit'
 import type { PayloadAction } from '@reduxjs/toolkit'
 import type { UserPermissions } from '@/types/permissions'
+import { clearStoredAuth, getStoredToken, storeAuthSession } from '@/utils/authStorage'
 import { loginThunk, logoutThunk, fetchMeThunk } from './thunk'
 
 export interface AuthUser {
@@ -22,7 +23,7 @@ interface AuthState {
 
 const initialState: AuthState = {
   user: null,
-  token: localStorage.getItem('auth_token'),
+  token: getStoredToken(),
   loading: false,
   error: null,
 }
@@ -50,8 +51,7 @@ const authSlice = createSlice({
       state.user = null
       state.token = null
       state.error = null
-      localStorage.removeItem('auth_token')
-      localStorage.removeItem('ids_user')
+      clearStoredAuth()
     },
   },
   extraReducers: (builder) => {
@@ -64,7 +64,7 @@ const authSlice = createSlice({
         state.loading = false
         state.user = action.payload.user
         state.token = action.payload.token
-        localStorage.setItem('ids_user', JSON.stringify(action.payload.user))
+        storeAuthSession(action.payload.token, action.payload.refreshToken, action.payload.user)
       })
       .addCase(loginThunk.rejected, (state, action) => {
         state.loading = false
@@ -73,7 +73,7 @@ const authSlice = createSlice({
       .addCase(logoutThunk.fulfilled, (state) => {
         state.user = null
         state.token = null
-        localStorage.removeItem('ids_user')
+        clearStoredAuth()
       })
       .addCase(fetchMeThunk.fulfilled, (state, action) => {
         state.user = action.payload
@@ -81,7 +81,7 @@ const authSlice = createSlice({
       .addCase(fetchMeThunk.rejected, (state) => {
         state.user = null
         state.token = null
-        localStorage.removeItem('ids_user')
+        clearStoredAuth()
       })
   },
 })

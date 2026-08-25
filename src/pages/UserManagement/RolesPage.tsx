@@ -273,9 +273,9 @@ export default function RolesPage() {
     filters: { name: '', level: '', type: '', status: '' },
   })
 
-  const canEdit = usePermission('userManagement', 'edit')
-  const canCreate = usePermission('userManagement', 'create')
-  const canDelete = usePermission('userManagement', 'delete')
+  const canEdit = usePermission('userManagementRoles', 'edit') || usePermission('userManagement', 'edit')
+  const canCreate = usePermission('userManagementRoles', 'create') || usePermission('userManagement', 'create')
+  const canDelete = usePermission('userManagementRoles', 'delete') || usePermission('userManagement', 'delete')
 
   const [deleteTarget, setDeleteTarget] = useState<Role | null>(null)
   const [toggleTarget, setToggleTarget] = useState<Role | null>(null)

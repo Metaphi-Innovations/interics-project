@@ -75,6 +75,7 @@ import {
   lifecycleStatusForMasterName,
 } from '../../utils/masterChipStyles'
 import type { StatusMaster } from '../../slices/settings/reducer'
+import { usePermission } from '@/hooks/usePermission'
 
 // ─── Column visibility state ──────────────────────────────────────────────────
 
@@ -168,6 +169,9 @@ function ProgressBadge({ label }: { label: string }) {
 
 interface RowActionsProps {
   project: Project
+  canView: boolean
+  canEdit: boolean
+  canDelete: boolean
   onView: () => void
   onEdit: () => void
   onChangeStatus: () => void
@@ -178,6 +182,9 @@ interface RowActionsProps {
 
 function RowActions({
   project,
+  canView,
+  canEdit,
+  canDelete,
   onView,
   onEdit,
   onChangeStatus,
@@ -186,7 +193,10 @@ function RowActions({
   onCancel,
 }: RowActionsProps) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
-  const showLifecycleActions = project.status === 'Live'
+  const showLifecycleActions = canDelete && project.status === 'Live'
+  const hasActions = canView || canEdit || showLifecycleActions
+
+  if (!hasActions) return null
 
   return (
     <>
@@ -199,25 +209,33 @@ function RowActions({
         onClose={() => setAnchor(null)}
         PaperProps={{ sx: { minWidth: 160 } }}
       >
-        <MenuItem
-          onClick={() => { setAnchor(null); onView() }}
-          sx={{ fontSize: 13, gap: 1 }}
-        >
-          <Visibility sx={{ fontSize: 14 }} /> View
-        </MenuItem>
-        <MenuItem
-          onClick={() => { setAnchor(null); onEdit() }}
-          sx={{ fontSize: 13, gap: 1 }}
-        >
-          <Edit sx={{ fontSize: 14 }} /> Edit Basic Info
-        </MenuItem>
-        <Divider />
-        <MenuItem
-          onClick={() => { setAnchor(null); onChangeStatus() }}
-          sx={{ fontSize: 13 }}
-        >
-          Change Status
-        </MenuItem>
+        {canView ? (
+          <MenuItem
+            onClick={() => { setAnchor(null); onView() }}
+            sx={{ fontSize: 13, gap: 1 }}
+          >
+            <Visibility sx={{ fontSize: 14 }} /> View
+          </MenuItem>
+        ) : null}
+        {canEdit ? (
+          <MenuItem
+            onClick={() => { setAnchor(null); onEdit() }}
+            sx={{ fontSize: 13, gap: 1 }}
+          >
+            <Edit sx={{ fontSize: 14 }} /> Edit Basic Info
+          </MenuItem>
+        ) : null}
+        {canEdit ? (
+          <>
+            <Divider />
+            <MenuItem
+              onClick={() => { setAnchor(null); onChangeStatus() }}
+              sx={{ fontSize: 13 }}
+            >
+              Change Status
+            </MenuItem>
+          </>
+        ) : null}
         {showLifecycleActions ? (
           <>
             <MenuItem
@@ -250,6 +268,9 @@ function RowActions({
 interface ProjectsTableProps {
   items: Project[]
   loading: boolean
+  canView: boolean
+  canEdit: boolean
+  canDelete: boolean
   columns: ColumnVisibility
   sortField: string | null
   sortDirection: 'asc' | 'desc'
@@ -270,6 +291,9 @@ interface ProjectsTableProps {
 function ProjectsTable({
   items,
   loading,
+  canView,
+  canEdit,
+  canDelete,
   columns,
   sortField,
   sortDirection,
@@ -287,6 +311,7 @@ function ProjectsTable({
   onCancel,
 }: ProjectsTableProps) {
   const theme = useTheme()
+  const hasActions = canView || canEdit || canDelete
 
   if (loading) {
     return (
@@ -414,7 +439,7 @@ function ProjectsTable({
               onFilter={(v) => onColumnFilter(statusDateField, v)}
               sx={{ ...headSx, display: { xs: 'none', lg: 'table-cell' } }}
             />
-            <TableCell sx={actionHeadSx}>Action</TableCell>
+            {hasActions ? <TableCell sx={actionHeadSx}>Action</TableCell> : null}
           </TableRow>
         </TableHead>
         <TableBody>
@@ -434,8 +459,8 @@ function ProjectsTable({
               <TableRow
                 key={project.id}
                 hover
-                onClick={() => onView(project)}
-                sx={{ cursor: 'pointer', '&:last-child td': { borderBottom: 0 } }}
+                onClick={canView ? () => onView(project) : undefined}
+                sx={{ cursor: canView ? 'pointer' : 'default', '&:last-child td': { borderBottom: 0 } }}
               >
                 {/* Project Name */}
                 <TableCell sx={cellSx}>
@@ -526,39 +551,44 @@ function ProjectsTable({
                   <Typography variant="caption" sx={{ fontSize: 11, color: 'text.secondary' }}>
                     {formatDate(
                       statusDateField === 'createdAt'
-                        ? project.createdAt
+                        ? (project.createdAt ?? null)
                         : statusDateField === 'wentLiveAt'
-                          ? project.wentLiveAt
+                          ? (project.wentLiveAt ?? null)
                           : statusDateField === 'completedAt'
-                            ? project.completedAt
+                            ? (project.completedAt ?? null)
                             : statusDateField === 'archivedAt'
-                              ? project.archivedAt
-                              : project.cancelledAt,
+                              ? (project.archivedAt ?? null)
+                              : (project.cancelledAt ?? null),
                     )}
                   </Typography>
                 </TableCell>
 
                 {/* Actions */}
-                <TableCell sx={actionCellSx} onClick={(e) => e.stopPropagation()}>
-                  <Box
-                    sx={{
-                      display: 'flex',
-                      justifyContent: 'center',
-                      alignItems: 'center',
-                      width: '100%',
-                    }}
-                  >
-                    <RowActions
-                      project={project}
-                      onView={() => onView(project)}
-                      onEdit={() => onEdit(project)}
-                      onChangeStatus={() => onChangeStatus(project)}
-                      onComplete={() => onComplete(project)}
-                      onArchive={() => onArchive(project)}
-                      onCancel={() => onCancel(project)}
-                    />
-                  </Box>
-                </TableCell>
+                {hasActions ? (
+                  <TableCell sx={actionCellSx} onClick={(e) => e.stopPropagation()}>
+                    <Box
+                      sx={{
+                        display: 'flex',
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        width: '100%',
+                      }}
+                    >
+                      <RowActions
+                        project={project}
+                        canView={canView}
+                        canEdit={canEdit}
+                        canDelete={canDelete}
+                        onView={() => onView(project)}
+                        onEdit={() => onEdit(project)}
+                        onChangeStatus={() => onChangeStatus(project)}
+                        onComplete={() => onComplete(project)}
+                        onArchive={() => onArchive(project)}
+                        onCancel={() => onCancel(project)}
+                      />
+                    </Box>
+                  </TableCell>
+                ) : null}
               </TableRow>
             )
           })}
@@ -572,6 +602,9 @@ function ProjectsTable({
 
 interface ProjectGridCardProps {
   project: Project
+  canView: boolean
+  canEdit: boolean
+  canDelete: boolean
   onView: (project: Project) => void
   onEdit: (project: Project) => void
   onChangeStatus: (project: Project) => void
@@ -582,6 +615,9 @@ interface ProjectGridCardProps {
 
 function ProjectGridCard({
   project,
+  canView,
+  canEdit,
+  canDelete,
   onView,
   onEdit,
   onChangeStatus,
@@ -592,17 +628,18 @@ function ProjectGridCard({
   const theme = useTheme()
   const gridColors = getAvatarColor(project.name)
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
-  const showLifecycleActions = project.status === 'Live'
+  const showLifecycleActions = canDelete && project.status === 'Live'
+  const hasActions = canView || canEdit || showLifecycleActions
 
   return (
     <MuiCard
       elevation={0}
-      onClick={() => onView(project)}
+      onClick={canView ? () => onView(project) : undefined}
       sx={{
         p: 2,
         border: `1px solid ${tokens.color.neutral[100]}`,
         borderRadius: 2,
-        cursor: 'pointer',
+        cursor: canView ? 'pointer' : 'default',
         transition: 'box-shadow 0.15s',
         '&:hover': { boxShadow: tokens.shadow.md },
       }}
@@ -634,47 +671,59 @@ function ProjectGridCard({
             {project.name}
           </Typography>
         </Stack>
-        <IconButton
-          size="small"
-          onClick={(e) => { e.stopPropagation(); setAnchor(e.currentTarget) }}
-          sx={{ flexShrink: 0, ml: 0.5 }}
-        >
-          <MoreVert sx={{ fontSize: 16 }} />
-        </IconButton>
-        <Menu
-          anchorEl={anchor}
-          open={Boolean(anchor)}
-          onClose={() => setAnchor(null)}
-          PaperProps={{ sx: { minWidth: 160 } }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <MenuItem onClick={() => { setAnchor(null); onView(project) }} sx={{ fontSize: 13, gap: 1 }}>
-            <Visibility sx={{ fontSize: 14 }} /> View
-          </MenuItem>
-          <MenuItem onClick={() => { setAnchor(null); onEdit(project) }} sx={{ fontSize: 13, gap: 1 }}>
-            <Edit sx={{ fontSize: 14 }} /> Edit
-          </MenuItem>
-          <Divider />
-          <MenuItem onClick={() => { setAnchor(null); onChangeStatus(project) }} sx={{ fontSize: 13 }}>
-            Change Status
-          </MenuItem>
-          {showLifecycleActions ? (
-            <>
-              <MenuItem onClick={() => { setAnchor(null); onComplete(project) }} sx={{ fontSize: 13, gap: 1 }}>
-                <CheckCircle sx={{ fontSize: 14 }} /> Complete Project
-              </MenuItem>
-              <MenuItem onClick={() => { setAnchor(null); onArchive(project) }} sx={{ fontSize: 13, gap: 1 }}>
-                <Archive sx={{ fontSize: 14 }} /> Archive Project
-              </MenuItem>
-              <MenuItem
-                onClick={() => { setAnchor(null); onCancel(project) }}
-                sx={{ fontSize: 13, gap: 1, color: 'error.main' }}
-              >
-                <CancelOutlined sx={{ fontSize: 14 }} /> Cancel Project
-              </MenuItem>
-            </>
-          ) : null}
-        </Menu>
+        {hasActions ? (
+          <>
+            <IconButton
+              size="small"
+              onClick={(e) => { e.stopPropagation(); setAnchor(e.currentTarget) }}
+              sx={{ flexShrink: 0, ml: 0.5 }}
+            >
+              <MoreVert sx={{ fontSize: 16 }} />
+            </IconButton>
+            <Menu
+              anchorEl={anchor}
+              open={Boolean(anchor)}
+              onClose={() => setAnchor(null)}
+              PaperProps={{ sx: { minWidth: 160 } }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {canView ? (
+                <MenuItem onClick={() => { setAnchor(null); onView(project) }} sx={{ fontSize: 13, gap: 1 }}>
+                  <Visibility sx={{ fontSize: 14 }} /> View
+                </MenuItem>
+              ) : null}
+              {canEdit ? (
+                <MenuItem onClick={() => { setAnchor(null); onEdit(project) }} sx={{ fontSize: 13, gap: 1 }}>
+                  <Edit sx={{ fontSize: 14 }} /> Edit
+                </MenuItem>
+              ) : null}
+              {canEdit ? (
+                <>
+                  <Divider />
+                  <MenuItem onClick={() => { setAnchor(null); onChangeStatus(project) }} sx={{ fontSize: 13 }}>
+                    Change Status
+                  </MenuItem>
+                </>
+              ) : null}
+              {showLifecycleActions ? (
+                <>
+                  <MenuItem onClick={() => { setAnchor(null); onComplete(project) }} sx={{ fontSize: 13, gap: 1 }}>
+                    <CheckCircle sx={{ fontSize: 14 }} /> Complete Project
+                  </MenuItem>
+                  <MenuItem onClick={() => { setAnchor(null); onArchive(project) }} sx={{ fontSize: 13, gap: 1 }}>
+                    <Archive sx={{ fontSize: 14 }} /> Archive Project
+                  </MenuItem>
+                  <MenuItem
+                    onClick={() => { setAnchor(null); onCancel(project) }}
+                    sx={{ fontSize: 13, gap: 1, color: 'error.main' }}
+                  >
+                    <CancelOutlined sx={{ fontSize: 14 }} /> Cancel Project
+                  </MenuItem>
+                </>
+              ) : null}
+            </Menu>
+          </>
+        ) : null}
       </Stack>
 
       {/* Project code */}
@@ -732,6 +781,9 @@ function ProjectGridCard({
 interface ProjectsGridProps {
   items: Project[]
   loading: boolean
+  canView: boolean
+  canEdit: boolean
+  canDelete: boolean
   onView: (project: Project) => void
   onEdit: (project: Project) => void
   onChangeStatus: (project: Project) => void
@@ -743,6 +795,9 @@ interface ProjectsGridProps {
 function ProjectsGrid({
   items,
   loading,
+  canView,
+  canEdit,
+  canDelete,
   onView,
   onEdit,
   onChangeStatus,
@@ -793,6 +848,9 @@ function ProjectsGrid({
         <ProjectGridCard
           key={project.id}
           project={project}
+          canView={canView}
+          canEdit={canEdit}
+          canDelete={canDelete}
           onView={onView}
           onEdit={onEdit}
           onChangeStatus={onChangeStatus}
@@ -942,6 +1000,26 @@ export default function ProjectsPage() {
   const users = useAppSelector((s) => s.users.items ?? [])
   const roles = useAppSelector((s) => s.roles.items ?? [])
   const statusMasters = useAppSelector((s) => s.settings.statuses)
+  const canViewProjectModule = usePermission('projects', 'view')
+  const canViewProjectOverview = usePermission('projectOverview', 'view')
+  const canViewProjectPitch = usePermission('projectPitch', 'view')
+  const canViewProjectLive = usePermission('projectLive', 'view')
+  const canViewProjectFinancials = usePermission('projectFinancials', 'view')
+  const canViewProjectDocuments = usePermission('projectDocuments', 'view')
+  const canViewProjectActivity = usePermission('projectActivity', 'view')
+  const canViewProjectManagement = usePermission('projectManagement', 'view')
+  const canViewAnyProjectTab =
+    canViewProjectOverview ||
+    canViewProjectPitch ||
+    canViewProjectLive ||
+    canViewProjectFinancials ||
+    canViewProjectDocuments ||
+    canViewProjectActivity ||
+    canViewProjectManagement
+  const canViewProject = canViewProjectModule || canViewAnyProjectTab
+  const canCreateProject = usePermission('projects', 'create')
+  const canEditProject = usePermission('projects', 'edit')
+  const canDeleteProject = usePermission('projects', 'delete')
 
   // Local state
   const [columnVisibility, setColumnVisibility] = useState<ColumnVisibility>({
@@ -1129,11 +1207,6 @@ export default function ProjectsPage() {
           : activeTab === 'Cancelled'
             ? { field: 'cancelledAt' as const, label: 'Cancelled Date' }
             : { field: 'createdAt' as const, label: 'Created Date' }
-  const TARGET_PROJECT_ID = 'a7b37aca-bfba-454e-80c5-241c43ad2f19'
-  const targetInList = items.some((p) => p.id === TARGET_PROJECT_ID || p.name.includes('1786442761297'))
-  // #region agent log
-  fetch('http://127.0.0.1:7520/ingest/820d80bd-911d-41c2-805b-1434b6b6fe3d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'df06a2'},body:JSON.stringify({sessionId:'df06a2',runId:'post-fix',hypothesisId:'E',location:'ProjectsPage.tsx:render',message:'listing render visibility',data:{targetInList,loading,activeTab,filtersStatus:filters.status,itemCount:items.length,itemIds:items.map((p)=>p.id),itemNames:items.map((p)=>p.name),itemStatuses:items.map((p)=>p.status)},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
 
   const managerOptions = users
     .filter((u) => isProjectLeadRole(u.role, roles))
@@ -1327,11 +1400,15 @@ export default function ProjectsPage() {
         icon={<FolderKanban size={20} strokeWidth={1.75} />}
         title="Projects"
         subtitle="Track and manage all design projects"
-        primaryAction={{
-          label: 'Create Project',
-          onClick: () => navigate('/projects/create'),
-          startIcon: <Plus size={16} strokeWidth={2} />,
-        }}
+        primaryAction={
+          canCreateProject
+            ? {
+                label: 'Create Project',
+                onClick: () => navigate('/projects/create'),
+                startIcon: <Plus size={16} strokeWidth={2} />,
+              }
+            : undefined
+        }
         statCards={statCards}
         tabs={tabs}
         activeTab={activeTab}
@@ -1358,6 +1435,9 @@ export default function ProjectsPage() {
           <ProjectsGrid
             items={items}
             loading={loading}
+            canView={canViewProject}
+            canEdit={canEditProject}
+            canDelete={canDeleteProject}
             onView={handleView}
             onEdit={handleEdit}
             onChangeStatus={(p) => setStatusDialogProject(p)}
@@ -1369,6 +1449,9 @@ export default function ProjectsPage() {
           <ProjectsTable
             items={items}
             loading={loading}
+            canView={canViewProject}
+            canEdit={canEditProject}
+            canDelete={canDeleteProject}
             columns={columnVisibility}
             sortField={sortConfig.field}
             sortDirection={sortConfig.direction}

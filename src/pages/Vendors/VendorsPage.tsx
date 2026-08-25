@@ -44,6 +44,7 @@ import { PendingVendorViewDrawer } from './PendingVendorViewDrawer'
 import { useToast, Modal, Button } from '@/design-system/components'
 import { vendorsService } from '@/modules/vendors'
 import { fetchVendorTabCounts } from '@/modules/vendors/vendorTabCounts'
+import { usePermission } from '@/hooks/usePermission'
 import { isPendingVendor } from '@/utils/vendorProfileStatus'
 import { getInitials, getAvatarColor } from '../../utils/formatters'
 import { getSpecializationTagSx } from '../../utils/specializationTagStyles'
@@ -242,12 +243,14 @@ function VendorAvatar({ name }: { name: string }) {
 
 interface RowActionsProps {
   vendor: Vendor
+  canEdit: boolean
+  canDelete: boolean
   onView: () => void
   onEdit: () => void
   onDelete: () => void
 }
 
-function RowActions({ vendor, onView, onEdit, onDelete }: RowActionsProps) {
+function RowActions({ vendor, canEdit, canDelete, onView, onEdit, onDelete }: RowActionsProps) {
   const [anchor, setAnchor] = useState<null | HTMLElement>(null)
 
   function open(e: React.MouseEvent<HTMLElement>) {
@@ -265,23 +268,29 @@ function RowActions({ vendor, onView, onEdit, onDelete }: RowActionsProps) {
         <MenuItem onClick={() => { onView(); close() }} sx={{ fontSize: 13, gap: 1 }}>
           <Eye size={14} /> View
         </MenuItem>
-        <MenuItem onClick={() => { onEdit(); close() }} sx={{ fontSize: 13, gap: 1 }}>
-          <Pencil size={14} /> Edit
-        </MenuItem>
-        <Divider />
-        {vendor.activeProjects > 0 ? (
-          <Tooltip title="Cannot delete vendor with active projects" placement="left">
-            <span>
-              <MenuItem disabled sx={{ fontSize: 13, gap: 1, color: 'error.main' }}>
+        {canEdit ? (
+          <MenuItem onClick={() => { onEdit(); close() }} sx={{ fontSize: 13, gap: 1 }}>
+            <Pencil size={14} /> Edit
+          </MenuItem>
+        ) : null}
+        {canDelete ? (
+          <>
+            <Divider />
+            {vendor.activeProjects > 0 ? (
+              <Tooltip title="Cannot delete vendor with active projects" placement="left">
+                <span>
+                  <MenuItem disabled sx={{ fontSize: 13, gap: 1, color: 'error.main' }}>
+                    <Trash2 size={14} /> Delete
+                  </MenuItem>
+                </span>
+              </Tooltip>
+            ) : (
+              <MenuItem onClick={() => { onDelete(); close() }} sx={{ fontSize: 13, gap: 1, color: 'error.main' }}>
                 <Trash2 size={14} /> Delete
               </MenuItem>
-            </span>
-          </Tooltip>
-        ) : (
-          <MenuItem onClick={() => { onDelete(); close() }} sx={{ fontSize: 13, gap: 1, color: 'error.main' }}>
-            <Trash2 size={14} /> Delete
-          </MenuItem>
-        )}
+            )}
+          </>
+        ) : null}
       </Menu>
     </>
   )
@@ -302,6 +311,8 @@ interface VendorTableProps {
   locationOptions: ColumnFilterOption[]
   specializationOptions: ColumnFilterOption[]
   ratingOptions: ColumnFilterOption[]
+  canEdit: boolean
+  canDelete: boolean
   onColumnFilter: (field: keyof ActiveVendorColumnFilters, value: string) => void
   onView: (id: string) => void
   onEdit: (vendor: Vendor) => void
@@ -321,6 +332,8 @@ function VendorTable({
   locationOptions,
   specializationOptions,
   ratingOptions,
+  canEdit,
+  canDelete,
   onColumnFilter,
   onView,
   onEdit,
@@ -532,6 +545,8 @@ function VendorTable({
                   <TableCell sx={TABLE_CELL_ACTION_SX} onClick={(e) => e.stopPropagation()}>
                     <RowActions
                       vendor={vendor}
+                      canEdit={canEdit}
+                      canDelete={canDelete}
                       onView={() => onView(vendor.id)}
                       onEdit={() => onEdit(vendor)}
                       onDelete={() => onDelete(vendor)}
@@ -550,12 +565,14 @@ function VendorTable({
 
 interface VendorGridCardProps {
   vendor: Vendor
+  canEdit: boolean
+  canDelete: boolean
   onView: (id: string) => void
   onEdit: (vendor: Vendor) => void
   onDelete: (vendor: Vendor) => void
 }
 
-function VendorGridCard({ vendor, onView, onEdit, onDelete }: VendorGridCardProps) {
+function VendorGridCard({ vendor, canEdit, canDelete, onView, onEdit, onDelete }: VendorGridCardProps) {
   const theme = useTheme()
   const tagMode = theme.palette.mode === 'dark' ? 'dark' : 'light'
   const [anchor, setAnchor] = useState<null | HTMLElement>(null)
@@ -598,23 +615,29 @@ function VendorGridCard({ vendor, onView, onEdit, onDelete }: VendorGridCardProp
           <MenuItem onClick={() => { onView(vendor.id); setAnchor(null) }} sx={{ fontSize: 13, gap: 1 }}>
             <Eye size={14} /> View
           </MenuItem>
-          <MenuItem onClick={() => { onEdit(vendor); setAnchor(null) }} sx={{ fontSize: 13, gap: 1 }}>
-            <Pencil size={14} /> Edit
-          </MenuItem>
-          <Divider />
-          {vendor.activeProjects > 0 ? (
-            <Tooltip title="Cannot delete vendor with active projects" placement="left">
-              <span>
-                <MenuItem disabled sx={{ fontSize: 13, gap: 1, color: 'error.main' }}>
+          {canEdit ? (
+            <MenuItem onClick={() => { onEdit(vendor); setAnchor(null) }} sx={{ fontSize: 13, gap: 1 }}>
+              <Pencil size={14} /> Edit
+            </MenuItem>
+          ) : null}
+          {canDelete ? (
+            <>
+              <Divider />
+              {vendor.activeProjects > 0 ? (
+                <Tooltip title="Cannot delete vendor with active projects" placement="left">
+                  <span>
+                    <MenuItem disabled sx={{ fontSize: 13, gap: 1, color: 'error.main' }}>
+                      <Trash2 size={14} /> Delete
+                    </MenuItem>
+                  </span>
+                </Tooltip>
+              ) : (
+                <MenuItem onClick={() => { onDelete(vendor); setAnchor(null) }} sx={{ fontSize: 13, gap: 1, color: 'error.main' }}>
                   <Trash2 size={14} /> Delete
                 </MenuItem>
-              </span>
-            </Tooltip>
-          ) : (
-            <MenuItem onClick={() => { onDelete(vendor); setAnchor(null) }} sx={{ fontSize: 13, gap: 1, color: 'error.main' }}>
-              <Trash2 size={14} /> Delete
-            </MenuItem>
-          )}
+              )}
+            </>
+          ) : null}
         </Menu>
       </Stack>
 
@@ -671,12 +694,14 @@ function VendorGridCard({ vendor, onView, onEdit, onDelete }: VendorGridCardProp
 interface VendorsGridProps {
   items: Vendor[]
   loading: boolean
+  canEdit: boolean
+  canDelete: boolean
   onView: (id: string) => void
   onEdit: (vendor: Vendor) => void
   onDelete: (vendor: Vendor) => void
 }
 
-function VendorsGrid({ items, loading, onView, onEdit, onDelete }: VendorsGridProps) {
+function VendorsGrid({ items, loading, canEdit, canDelete, onView, onEdit, onDelete }: VendorsGridProps) {
   if (loading) {
     return (
       <Box
@@ -716,6 +741,8 @@ function VendorsGrid({ items, loading, onView, onEdit, onDelete }: VendorsGridPr
         <VendorGridCard
           key={vendor.id}
           vendor={vendor}
+          canEdit={canEdit}
+          canDelete={canDelete}
           onView={onView}
           onEdit={onEdit}
           onDelete={onDelete}
@@ -799,6 +826,9 @@ export default function VendorsPage() {
   const items = rawItems ?? []
   const { showToast } = useToast()
   const navigate = useNavigate()
+  const canCreateVendor = usePermission('vendors', 'create')
+  const canEditVendor = usePermission('vendors', 'edit')
+  const canDeleteVendor = usePermission('vendors', 'delete')
   const [filterOptions, setFilterOptions] = useState<Awaited<ReturnType<typeof vendorsService.getFilters>> | null>(null)
 
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -1172,12 +1202,14 @@ export default function VendorsPage() {
   }
 
   function openAddDrawer() {
+    if (!canCreateVendor) return
     setDrawerMode('add')
     setEditingVendor(null)
     setDrawerOpen(true)
   }
 
   function openEditDrawer(vendor: Vendor) {
+    if (!canEditVendor) return
     setDrawerMode('edit')
     setEditingVendor(vendor)
     setDrawerOpen(true)
@@ -1197,6 +1229,7 @@ export default function VendorsPage() {
   }
 
   async function handleDelete() {
+    if (!canDeleteVendor) return
     if (!deleteTarget) return
     try {
       await dispatch(deleteVendor(deleteTarget.id)).unwrap()
@@ -1218,11 +1251,15 @@ export default function VendorsPage() {
         tabs={contactsTabs}
         activeTab={contactsTab}
         onTabChange={handleContactsTabChange}
-        primaryAction={{
-          label: 'Add Vendor',
-          onClick: openAddDrawer,
-          startIcon: <Plus size={16} strokeWidth={2} />,
-        }}
+        primaryAction={
+          canCreateVendor
+            ? {
+                label: 'Add Vendor',
+                onClick: openAddDrawer,
+                startIcon: <Plus size={16} strokeWidth={2} />,
+              }
+            : undefined
+        }
         searchPlaceholder={
           contactsTab === 'pending'
             ? 'Search by name, mobile, or email…'
@@ -1264,6 +1301,8 @@ export default function VendorsPage() {
           <VendorsGrid
             items={items}
             loading={loading}
+            canEdit={canEditVendor}
+            canDelete={canDeleteVendor}
             onView={handleNavigateToVendor}
             onEdit={openEditDrawer}
             onDelete={setDeleteTarget}
@@ -1282,6 +1321,8 @@ export default function VendorsPage() {
             locationOptions={locationOptions}
             specializationOptions={specializationOptions}
             ratingOptions={ratingOptions}
+            canEdit={canEditVendor}
+            canDelete={canDeleteVendor}
             onColumnFilter={handleActiveColumnFilter}
             onView={handleNavigateToVendor}
             onEdit={openEditDrawer}
