@@ -280,7 +280,7 @@ const receivablesSlice = createSlice({
         state.saving = false
         const id = action.payload
         state.items = state.items.filter((x) => x.id !== id)
-        state.total = Math.max(0, state.total - 1)
+        state.pagination.total = Math.max(0, state.pagination.total - 1)
         if (state.selectedItem?.id === id) state.selectedItem = null
       })
       .addCase(deleteInvoice.rejected, (state, action) => {

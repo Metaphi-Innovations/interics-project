@@ -62,7 +62,7 @@ export const fromSlug = (
 ): string | undefined =>
   items.find((item) => toSlug(item.name) === slug)?.id
 
-export const formatDate = (date: string | null): string => {
+export const formatDate = (date: string | null | undefined): string => {
   if (!date) return '—'
   return new Date(date).toLocaleDateString('en-IN', {
     day: '2-digit',

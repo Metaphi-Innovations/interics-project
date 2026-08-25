@@ -957,7 +957,7 @@ export default function ProjectsPage() {
   const [statusDialogProject, setStatusDialogProject] = useState<Project | null>(null)
   const [lifecycleConfirm, setLifecycleConfirm] = useState<{
     project: Project
-    status: 'Archived' | 'Cancelled'
+    status: 'Completed' | 'Archived' | 'Cancelled'
   } | null>(null)
   const [lifecycleSaving, setLifecycleSaving] = useState(false)
   const [viewMode, setViewMode] = useState<'table' | 'grid'>('table')
