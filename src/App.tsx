@@ -44,7 +44,7 @@ import ForgotPasswordPage from '@/pages/Auth/ForgotPasswordPage'
 import FullPageFormDemo from '@/pages/Demo/FullPageFormDemo'
 
 // App pages
-import Dashboard1Page from '@/pages/Dashboard1/Dashboard1Page'
+import DashboardPage from '@/pages/Dashboard/DashboardPage'
 import ProjectsPage from '@/pages/Projects/ProjectsPage'
 import ProjectDetailPage from '@/pages/Projects/ProjectDetailPage'
 import CreateProjectPage from '@/pages/Projects/CreateProjectPage'
@@ -431,7 +431,7 @@ function AppInner() {
             path="dashboard/dashboard-1"
             element={
               <ModuleViewRoute moduleKey="dashboard">
-                <Dashboard1Page />
+                <DashboardPage />
               </ModuleViewRoute>
             }
           />

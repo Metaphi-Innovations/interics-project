@@ -148,6 +148,7 @@ export const CHART_COLORS = {
   green:  '#10B981',
   blue:   '#3B82F6',
   amber:  '#F59E0B',
+  orange: '#F97316',
   red:    '#EF4444',
   purple: '#8B5CF6',
   grey:   '#9CA3AF',
