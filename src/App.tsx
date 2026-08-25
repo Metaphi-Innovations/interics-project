@@ -40,7 +40,7 @@ import ForgotPasswordPage from '@/pages/Auth/ForgotPasswordPage'
 import FullPageFormDemo from '@/pages/Demo/FullPageFormDemo'
 
 // App pages
-import Dashboard1Page from '@/pages/Dashboard1/Dashboard1Page'
+import DashboardPage from '@/pages/Dashboard/DashboardPage'
 import ProjectsPage from '@/pages/Projects/ProjectsPage'
 import ProjectDetailPage from '@/pages/Projects/ProjectDetailPage'
 import CreateProjectPage from '@/pages/Projects/CreateProjectPage'
@@ -78,7 +78,7 @@ const navConfig: NavConfig[] = [
         type: 'item',
         label: 'Dashboard',
         icon: <LayoutDashboard size={16} strokeWidth={1.75} />,
-        href: '/dashboard/dashboard-1',
+        href: '/dashboard',
       },
       {
         type: 'item',
@@ -312,9 +312,9 @@ function AppInner() {
             <AppShellLayout user={topbarUser} onLogout={handleLogout} />
           }
         >
-          <Route index element={<Navigate to="/dashboard/dashboard-1" replace />} />
-          <Route path="dashboard" element={<Navigate to="/dashboard/dashboard-1" replace />} />
-          <Route path="dashboard/dashboard-1" element={<Dashboard1Page />} />
+          <Route index element={<Navigate to="/dashboard" replace />} />
+          <Route path="dashboard" element={<DashboardPage />} />
+          <Route path="dashboard/dashboard-1" element={<Navigate to="/dashboard" replace />} />
           <Route path="projects" element={<ProjectsPage />} />
           <Route path="projects/:id" element={<ProjectDetailPage />} />
           <Route path="customers" element={<CustomersPage />} />
@@ -382,7 +382,7 @@ function AppInner() {
             }
           />
           <Route path="settings" element={<SettingsPage />} />
-          <Route path="*" element={<Navigate to="/dashboard/dashboard-1" replace />} />
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Route>
       </Route>
     </Routes>
