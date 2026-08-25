@@ -2,7 +2,7 @@
  * Dashboard 1 — Revenue KPI detail drawer.
  * View-only listing table for the selected KPI.
  */
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Box,
   Drawer,
@@ -25,6 +25,7 @@ import type { RevenueKpi } from './dashboard1Data'
 export type ClickableKpiId =
   | 'total-po'
   | 'live-po'
+  | 'received'
   | 'pending-claim'
   | 'paid-vendors'
   | 'payable'
@@ -32,6 +33,7 @@ export type ClickableKpiId =
 export const CLICKABLE_KPI_IDS: Set<string> = new Set<string>([
   'total-po',
   'live-po',
+  'received',
   'pending-claim',
   'paid-vendors',
   'payable',
@@ -42,6 +44,7 @@ interface DrawerColumn {
   label: string
   align?: 'left' | 'right'
   format?: 'currency' | 'date' | 'status'
+  width?: string
 }
 
 interface DrawerConfig {
@@ -65,10 +68,19 @@ const LIVE_PO_ROWS = [
   { project: 'NovaTech Workspace', poNumber: 'PO-2025-003', poDate: '03 Jun 2025', poValue: 11_500_000 },
 ]
 
+/** Paid client invoices — amounts sum to Amount Received KPI base (₹1.875 Cr). */
+const RECEIVED_ROWS = [
+  { client: 'Acme Corp', project: 'Acme Corp - Head Office', amount: 4_500_000, status: 'Paid' },
+  { client: 'Green Villa Developers', project: 'Green Villa Lobby', amount: 3_200_000, status: 'Paid' },
+  { client: 'NovaTech Pvt Ltd', project: 'NovaTech Workspace', amount: 4_800_000, status: 'Paid' },
+  { client: 'Horizon Group', project: 'Horizon Campus Phase 1', amount: 2_850_000, status: 'Paid' },
+  { client: 'Pulse Health', project: 'Pulse Clinic Fit-out', amount: 1_900_000, status: 'Paid' },
+  { client: 'Grand Oak Hotels', project: 'Grand Oak Hospitality', amount: 1_500_000, status: 'Paid' },
+]
+
 const PENDING_CLAIM_ROWS = [
   { project: 'Acme Corp - Head Office', invoiceNo: 'INV-2025-014', invoiceAmount: 2_500_000, amountReceived: 1_800_000, pending: 700_000, dueDate: '15 Sep 2025', status: 'Overdue' },
   { project: 'Green Villa Lobby', invoiceNo: 'INV-2025-018', invoiceAmount: 1_600_000, amountReceived: 0, pending: 1_600_000, dueDate: '30 Sep 2025', status: 'Pending' },
-  { project: 'NovaTech Workspace', invoiceNo: 'INV-2025-021', invoiceAmount: 3_200_000, amountReceived: 800_000, pending: 2_400_000, dueDate: '10 Oct 2025', status: 'Partially Paid' },
   { project: 'NovaTech Workspace', invoiceNo: 'INV-2025-025', invoiceAmount: 1_900_000, amountReceived: 200_000, pending: 1_700_000, dueDate: '25 Oct 2025', status: 'Pending' },
 ]
 
@@ -92,11 +104,11 @@ function getDrawerConfig(kpiId: ClickableKpiId): DrawerConfig {
     case 'total-po':
       return {
         columns: [
-          { key: 'project', label: 'Project Name' },
-          { key: 'status', label: 'Project Status', format: 'status' },
-          { key: 'poNumber', label: 'PO Number' },
-          { key: 'poDate', label: 'PO Date', format: 'date' },
-          { key: 'poValue', label: 'PO Value', align: 'right', format: 'currency' },
+          { key: 'project', label: 'Project Name', width: '34%' },
+          { key: 'status', label: 'Project Status', format: 'status', width: '16%' },
+          { key: 'poNumber', label: 'PO Number', width: '16%' },
+          { key: 'poDate', label: 'PO Date', format: 'date', width: '16%' },
+          { key: 'poValue', label: 'PO Value', align: 'right', format: 'currency', width: '18%' },
         ],
         rows: TOTAL_PO_ROWS,
         totalKey: 'poValue',
@@ -104,24 +116,32 @@ function getDrawerConfig(kpiId: ClickableKpiId): DrawerConfig {
     case 'live-po':
       return {
         columns: [
-          { key: 'project', label: 'Project Name' },
-          { key: 'poNumber', label: 'PO Number' },
-          { key: 'poDate', label: 'PO Date', format: 'date' },
-          { key: 'poValue', label: 'PO Value', align: 'right', format: 'currency' },
+          { key: 'project', label: 'Project Name', width: '42%' },
+          { key: 'poNumber', label: 'PO Number', width: '18%' },
+          { key: 'poDate', label: 'PO Date', format: 'date', width: '18%' },
+          { key: 'poValue', label: 'PO Value', align: 'right', format: 'currency', width: '22%' },
         ],
         rows: LIVE_PO_ROWS,
         totalKey: 'poValue',
       }
+    case 'received':
+      return {
+        columns: [
+          { key: 'client', label: 'Client', width: '25%' },
+          { key: 'project', label: 'Project', width: '25%' },
+          { key: 'amount', label: 'Amount', align: 'right', format: 'currency', width: '25%' },
+          { key: 'status', label: 'Status', format: 'status', width: '25%' },
+        ],
+        rows: RECEIVED_ROWS,
+        totalKey: 'amount',
+      }
     case 'pending-claim':
       return {
         columns: [
-          { key: 'project', label: 'Project' },
-          { key: 'invoiceNo', label: 'Invoice No.' },
-          { key: 'invoiceAmount', label: 'Invoice Amount', align: 'right', format: 'currency' },
-          { key: 'amountReceived', label: 'Amount Received', align: 'right', format: 'currency' },
-          { key: 'pending', label: 'Pending Amount', align: 'right', format: 'currency' },
-          { key: 'dueDate', label: 'Due Date', format: 'date' },
-          { key: 'status', label: 'Status', format: 'status' },
+          { key: 'project', label: 'Project', width: '25%' },
+          { key: 'pending', label: 'Pending Amount', align: 'right', format: 'currency', width: '25%' },
+          { key: 'dueDate', label: 'Due Date', format: 'date', width: '25%' },
+          { key: 'status', label: 'Status', format: 'status', width: '25%' },
         ],
         rows: PENDING_CLAIM_ROWS,
         totalKey: 'pending',
@@ -129,12 +149,9 @@ function getDrawerConfig(kpiId: ClickableKpiId): DrawerConfig {
     case 'paid-vendors':
       return {
         columns: [
-          { key: 'vendor', label: 'Vendor' },
-          { key: 'project', label: 'Project' },
-          { key: 'invoiceNo', label: 'Invoice No.' },
-          { key: 'payable', label: 'Payable Amount', align: 'right', format: 'currency' },
-          { key: 'paid', label: 'Amount Paid', align: 'right', format: 'currency' },
-          { key: 'paymentDate', label: 'Payment Date', format: 'date' },
+          { key: 'vendor', label: 'Vendor', width: '38%' },
+          { key: 'project', label: 'Project', width: '38%' },
+          { key: 'payable', label: 'Payable Amount', format: 'currency', width: '24%' },
         ],
         rows: PAID_VENDORS_ROWS,
         totalKey: 'paid',
@@ -142,12 +159,11 @@ function getDrawerConfig(kpiId: ClickableKpiId): DrawerConfig {
     case 'payable':
       return {
         columns: [
-          { key: 'vendor', label: 'Vendor' },
-          { key: 'project', label: 'Project' },
-          { key: 'invoiceNo', label: 'Invoice No.' },
-          { key: 'payable', label: 'Payable Amount', align: 'right', format: 'currency' },
-          { key: 'dueDate', label: 'Due Date', format: 'date' },
-          { key: 'status', label: 'Status', format: 'status' },
+          { key: 'vendor', label: 'Vendor', width: '28%' },
+          { key: 'project', label: 'Project', width: '28%' },
+          { key: 'payable', label: 'Payable Amount', align: 'right', format: 'currency', width: '18%' },
+          { key: 'dueDate', label: 'Due Date', format: 'date', width: '13%' },
+          { key: 'status', label: 'Status', format: 'status', width: '13%' },
         ],
         rows: PAYABLE_ROWS,
         totalKey: 'payable',
@@ -161,9 +177,34 @@ const STATUS_TYPE_BY_LABEL: Record<string, StatusType> = {
   Archived: 'archived',
   Overdue: 'overdue',
   Pending: 'pending',
-  'Partially Paid': 'partially_paid',
+  Paid: 'paid',
   Due: 'payment_pending',
   Upcoming: 'issued',
+}
+
+function scaleCurrencyRows(
+  rows: Record<string, string | number>[],
+  amountKey: string,
+  targetTotal: number,
+): Record<string, string | number>[] {
+  if (rows.length === 0) return rows
+  const baseTotal = rows.reduce((sum, row) => sum + Number(row[amountKey] ?? 0), 0)
+  if (baseTotal <= 0 || targetTotal === baseTotal) return rows
+  const factor = targetTotal / baseTotal
+  const scaled = rows.map((row) => ({
+    ...row,
+    [amountKey]: Math.round(Number(row[amountKey] ?? 0) * factor),
+  }))
+  const drift =
+    targetTotal - scaled.reduce((sum, row) => sum + Number(row[amountKey] ?? 0), 0)
+  if (drift !== 0) {
+    const last = scaled[scaled.length - 1]
+    scaled[scaled.length - 1] = {
+      ...last,
+      [amountKey]: Math.max(0, Number(last[amountKey] ?? 0) + drift),
+    }
+  }
+  return scaled
 }
 
 function formatCell(value: string | number, format?: DrawerColumn['format']): string {
@@ -180,6 +221,17 @@ function renderCell(value: string | number, format?: DrawerColumn['format']) {
   return formatCell(value, format)
 }
 
+function getColumnAlign(col: DrawerColumn): 'left' | 'right' {
+  return col.align ?? (col.format === 'currency' ? 'right' : 'left')
+}
+
+function getColumnCellSx(col: DrawerColumn) {
+  return {
+    width: col.width,
+    minWidth: col.width,
+  }
+}
+
 const FILTER_CONTROL_SX = { minWidth: 148, flex: '0 0 auto' } as const
 
 export interface RevenueKpiDrawerProps {
@@ -192,12 +244,23 @@ export function RevenueKpiDrawer({ open, onClose, kpi }: RevenueKpiDrawerProps) 
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<string | number>('all')
 
-  const config = kpi && CLICKABLE_KPI_IDS.has(kpi.id)
-    ? getDrawerConfig(kpi.id as ClickableKpiId)
-    : null
+  useEffect(() => {
+    setSearch('')
+    setStatusFilter('all')
+  }, [kpi?.id])
+
+  const config = useMemo(() => {
+    if (!kpi || !CLICKABLE_KPI_IDS.has(kpi.id)) return null
+    const base = getDrawerConfig(kpi.id as ClickableKpiId)
+    if (kpi.id !== 'received') return base
+    return {
+      ...base,
+      rows: scaleCurrencyRows(base.rows, base.totalKey, kpi.value),
+    }
+  }, [kpi])
 
   const statusColumn = config?.columns.find((col) => col.format === 'status')
-
+  const showStatusFilter = Boolean(statusColumn) && kpi?.id !== 'received'
   const statusOptions = useMemo(() => {
     if (!config || !statusColumn) return []
     const values = Array.from(
@@ -307,7 +370,7 @@ export function RevenueKpiDrawer({ open, onClose, kpi }: RevenueKpiDrawerProps) 
           debounce={200}
           sx={{ flex: '1 1 180px', minWidth: 160, maxWidth: 280 }}
         />
-        {statusColumn ? (
+        {showStatusFilter ? (
           <Select
             size="sm"
             value={statusFilter}
@@ -338,7 +401,7 @@ export function RevenueKpiDrawer({ open, onClose, kpi }: RevenueKpiDrawerProps) 
             stickyHeader
             sx={{
               width: '100%',
-              tableLayout: 'auto',
+              tableLayout: 'fixed',
               '& .MuiTableCell-head': {
                 fontSize: 12,
                 fontWeight: 600,
@@ -346,24 +409,30 @@ export function RevenueKpiDrawer({ open, onClose, kpi }: RevenueKpiDrawerProps) 
                 bgcolor: tokens.color.neutral[50],
                 borderBottom: `1px solid ${tokens.color.neutral[200]}`,
                 py: 1,
-                px: 1.5,
+                px: 2,
                 whiteSpace: 'nowrap',
                 lineHeight: 1.35,
               },
               '& .MuiTableCell-body': {
                 fontSize: 13,
                 py: 1,
-                px: 1.5,
+                px: 2,
                 borderBottom: `1px solid ${tokens.color.neutral[100]}`,
                 whiteSpace: 'nowrap',
                 color: 'text.primary',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
               },
             }}
           >
             <TableHead>
               <TableRow>
                 {config.columns.map((col) => (
-                  <TableCell key={col.key} align={col.align ?? 'left'}>
+                  <TableCell
+                    key={col.key}
+                    align={getColumnAlign(col)}
+                    sx={getColumnCellSx(col)}
+                  >
                     {col.label}
                   </TableCell>
                 ))}
@@ -373,7 +442,11 @@ export function RevenueKpiDrawer({ open, onClose, kpi }: RevenueKpiDrawerProps) 
               {visibleRows.map((row, idx) => (
                 <TableRow key={idx} hover={false}>
                   {config.columns.map((col) => (
-                    <TableCell key={col.key} align={col.align ?? 'left'}>
+                    <TableCell
+                      key={col.key}
+                      align={getColumnAlign(col)}
+                      sx={getColumnCellSx(col)}
+                    >
                       {renderCell(row[col.key], col.format)}
                     </TableCell>
                   ))}

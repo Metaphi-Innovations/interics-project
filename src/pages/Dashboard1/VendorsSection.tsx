@@ -335,7 +335,7 @@ function TotalVendorBillingOverYearsChart({
           <YAxis
             tick={ct.axisStyle}
             tickLine={false}
-            axisLine={false}
+            axisLine={{ stroke: ct.gridProps.stroke }}
             width={ct.isMobile ? 52 : 64}
             tickFormatter={(v) => formatAxisAmount(v)}
           />

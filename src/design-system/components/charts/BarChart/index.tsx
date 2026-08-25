@@ -105,7 +105,7 @@ export default function BarChart({
             <YAxis
               tick={ct.axisStyle}
               tickLine={false}
-              axisLine={false}
+              axisLine={{ stroke: ct.gridProps.stroke }}
               width={ct.isMobile ? 44 : 58}
               tickMargin={4}
               tickFormatter={formatY}
