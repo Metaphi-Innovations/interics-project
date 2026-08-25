@@ -139,7 +139,10 @@ function SectorPerformanceChart({
   height?: number
 }) {
   const ct = useChartTheme()
-  const h = ct.isMobile ? Math.round(height * 0.75) : height
+  // Grow with row count so every Y label fits (esp. All Sectors) — no inner scroll.
+  const pxPerRow = ct.isMobile ? 34 : 38
+  const sizedHeight = Math.max(height, data.length * pxPerRow + 56)
+  const h = ct.isMobile ? Math.round(sizedHeight * 0.92) : sizedHeight
   const formatX =
     metric === 'avgCompletedSqft'
       ? (v: number | string) => {
@@ -190,6 +193,8 @@ function SectorPerformanceChart({
           <YAxis
             type="category"
             dataKey="sector"
+            interval={0}
+            minTickGap={0}
             tick={ct.axisStyle}
             tickLine={false}
             axisLine={{ stroke: ct.gridProps.stroke }}

@@ -80,10 +80,7 @@ function columnsForKpi(
   ]
 
   if (kpiId === 'active') {
-    const cols: DrawerColumn[] = [
-      ...base,
-      { key: 'stage', label: 'Project Stage', format: 'status' },
-    ]
+    const cols: DrawerColumn[] = [...base]
     if (includeStartDate) cols.push({ key: 'startDate', label: 'Project Start Date', format: 'date' })
     return cols
   }
