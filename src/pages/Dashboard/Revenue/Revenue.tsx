@@ -139,6 +139,12 @@ export interface RevenueAnalyticsBundle {
 
 interface RevenueDashboardResponse {
   kpis: RevenueKpi[]
+  charts?: RevenueDashboardChart[]
+}
+
+interface RevenueDashboardChart {
+  id: string
+  data?: Array<Record<string, unknown>>
 }
 
 /** Profit = Amount Received - Amount Paid to Vendors - Amount in Hand. */
@@ -537,6 +543,20 @@ export interface FinancialRevenueYearAnalytics {
 export const FINANCIAL_REVENUE_YEAR_INFO_TEXT =
   'PO Value is grouped by PO date. Invoice Value follows invoice dates and typically lags PO bookings. Amount Received reflects cash collections and may lag invoicing.'
 
+function financialRevenueYearAnalyticsFromData(
+  chartData: FinancialRevenueYearPoint[],
+): FinancialRevenueYearAnalytics {
+  return {
+    chartData,
+    totals: {
+      poValue: chartData.reduce((sum, row) => sum + row.poValue, 0),
+      invoiceValue: chartData.reduce((sum, row) => sum + row.invoiceValue, 0),
+      amountReceived: chartData.reduce((sum, row) => sum + row.amountReceived, 0),
+    },
+    infoText: FINANCIAL_REVENUE_YEAR_INFO_TEXT,
+  }
+}
+
 /** Month-wise PO, invoice, and received amounts for the Financial Revenue Year chart. */
 export function getFinancialRevenueYearAnalytics(
   period: RevenueTimePeriod,
@@ -553,14 +573,38 @@ export function getFinancialRevenueYearAnalytics(
   }))
 
   return {
-    chartData,
-    totals: {
-      poValue: chartData.reduce((sum, row) => sum + row.poValue, 0),
-      invoiceValue: chartData.reduce((sum, row) => sum + row.invoiceValue, 0),
-      amountReceived: chartData.reduce((sum, row) => sum + row.amountReceived, 0),
-    },
-    infoText: FINANCIAL_REVENUE_YEAR_INFO_TEXT,
+    ...financialRevenueYearAnalyticsFromData(chartData),
   }
+}
+
+function asRevenueChartData(value: unknown): RevenueChartPoint[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((row) => {
+      const record = row && typeof row === 'object' ? (row as Record<string, unknown>) : {}
+      return {
+        month: String(record.month ?? ''),
+        revenue: Number(record.revenue ?? 0),
+        clientReceived: Number(record.clientReceived ?? 0),
+        vendorPaid: Number(record.vendorPaid ?? 0),
+      }
+    })
+    .filter((row) => row.month)
+}
+
+function asFinancialRevenueYearData(value: unknown): FinancialRevenueYearPoint[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((row) => {
+      const record = row && typeof row === 'object' ? (row as Record<string, unknown>) : {}
+      return {
+        month: String(record.month ?? ''),
+        poValue: Number(record.poValue ?? 0),
+        invoiceValue: Number(record.invoiceValue ?? 0),
+        amountReceived: Number(record.amountReceived ?? 0),
+      }
+    })
+    .filter((row) => row.month)
 }
 
 
@@ -1158,15 +1202,20 @@ function SummaryStat({
 export interface FinancialRevenueYearSectionProps {
   period?: RevenueTimePeriod
   customRange?: [Date | null, Date | null]
+  data?: FinancialRevenueYearPoint[] | null
 }
 
 export function FinancialRevenueYearSection({
   period = 'This Financial Year',
   customRange = [null, null],
+  data,
 }: FinancialRevenueYearSectionProps) {
   const analytics = useMemo(
-    () => getFinancialRevenueYearAnalytics(period, customRange),
-    [period, customRange],
+    () =>
+      data
+        ? financialRevenueYearAnalyticsFromData(data)
+        : getFinancialRevenueYearAnalytics(period, customRange),
+    [data, period, customRange],
   )
 
   return (
@@ -1228,6 +1277,12 @@ export function RevenueTab() {
   const [customRange, setCustomRange] = useState<[Date | null, Date | null]>([null, null])
   const [drawerKpi, setDrawerKpi] = useState<RevenueKpi | null>(null)
   const [serverKpis, setServerKpis] = useState<RevenueKpi[] | null>(null)
+  const [serverClientVsVendorData, setServerClientVsVendorData] = useState<
+    RevenueChartPoint[] | null
+  >(null)
+  const [serverFinancialRevenueYearData, setServerFinancialRevenueYearData] = useState<
+    FinancialRevenueYearPoint[] | null
+  >(null)
 
   const localRevenueAnalytics = useMemo(
     () => getRevenueAnalytics(revenuePeriod, customRange),
@@ -1237,8 +1292,10 @@ export function RevenueTab() {
     () => ({
       ...localRevenueAnalytics,
       kpis: serverKpis ?? localRevenueAnalytics.kpis,
+      clientReceivedVsVendorPayments:
+        serverClientVsVendorData ?? localRevenueAnalytics.clientReceivedVsVendorPayments,
     }),
-    [localRevenueAnalytics, serverKpis],
+    [localRevenueAnalytics, serverClientVsVendorData, serverKpis],
   )
 
   useEffect(() => {
@@ -1248,11 +1305,23 @@ export function RevenueTab() {
       try {
         const response = await client.get('/dashboard/revenue')
         const data = unwrapApiData<RevenueDashboardResponse>(response.data)
+        const clientVsVendorChart = data.charts?.find(
+          (chart) => chart.id === 'client-revenue-vs-vendor-payments',
+        )
+        const financialRevenueYearChart = data.charts?.find(
+          (chart) => chart.id === 'financial-revenue-year',
+        )
         if (!isMounted) return
         setServerKpis(Array.isArray(data.kpis) ? data.kpis : [])
+        setServerClientVsVendorData(asRevenueChartData(clientVsVendorChart?.data))
+        setServerFinancialRevenueYearData(
+          asFinancialRevenueYearData(financialRevenueYearChart?.data),
+        )
       } catch {
         if (!isMounted) return
         setServerKpis([])
+        setServerClientVsVendorData([])
+        setServerFinancialRevenueYearData([])
       }
     }
 
@@ -1418,6 +1487,7 @@ export function RevenueTab() {
           <FinancialRevenueYearSection
             period={revenuePeriod}
             customRange={customRange}
+            data={serverFinancialRevenueYearData}
           />
         </Grid>
       </Grid>
