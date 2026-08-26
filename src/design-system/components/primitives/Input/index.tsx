@@ -26,6 +26,7 @@ export interface InputProps {
   showCount?: boolean
   autoFocus?: boolean
   name?: string
+  autoComplete?: string
   sx?: SxProps<Theme>
 }
 
@@ -50,6 +51,7 @@ export default function Input({
   showCount = false,
   autoFocus = false,
   name,
+  autoComplete,
   sx,
 }: InputProps) {
   const inputHeight = size === 'sm' ? '36px' : '42px'
@@ -67,12 +69,14 @@ export default function Input({
       helperText
     )
 
+  const valueProps =
+    value !== undefined ? { value } : defaultValue !== undefined ? { defaultValue } : {}
+
   return (
     <TextField
       label={label}
       placeholder={placeholder}
-      value={value}
-      defaultValue={defaultValue}
+      {...valueProps}
       onChange={onChange ? (e) => onChange(e.target.value) : undefined}
       onBlur={onBlur}
       error={error || (showCount && maxLength ? charCount > maxLength : false)}
@@ -83,18 +87,24 @@ export default function Input({
       fullWidth={fullWidth}
       autoFocus={autoFocus}
       name={name}
+      autoComplete={autoComplete}
       variant="outlined"
       size="small"
       slotProps={{
         input: {
           readOnly: readonly,
-          inputProps: { maxLength, 'aria-label': label },
           startAdornment: startAdornment ? (
             <InputAdornment position="start">{startAdornment}</InputAdornment>
           ) : undefined,
           endAdornment: endAdornment ? (
             <InputAdornment position="end">{endAdornment}</InputAdornment>
           ) : undefined,
+        },
+        htmlInput: {
+          name,
+          maxLength,
+          'aria-label': label,
+          autoComplete,
         },
       }}
       sx={[

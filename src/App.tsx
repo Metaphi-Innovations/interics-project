@@ -31,8 +31,7 @@ import {
   UserPlus,
 } from 'lucide-react'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
-import { logout } from '@/slices/auth/reducer'
-import { fetchMeThunk } from '@/slices/auth/thunk'
+import { fetchMeThunk, logoutThunk } from '@/slices/auth/thunk'
 import type { AuthUser } from '@/slices/auth/reducer'
 import type { UserPermissionModuleKey } from '@/types/permissions'
 import { resolveAccess } from '@/utils/resolveAccess'
@@ -403,8 +402,10 @@ function AppInner() {
     : { name: 'Guest', email: '', role: '' }
 
   function handleLogout() {
-    dispatch(logout())
-    navigate('/login', { replace: true })
+    void dispatch(logoutThunk())
+      .finally(() => {
+        navigate('/login', { replace: true })
+      })
   }
 
   return (
