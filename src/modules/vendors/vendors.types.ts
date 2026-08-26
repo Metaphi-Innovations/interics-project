@@ -24,6 +24,7 @@ export type VendorListItemApi = {
   gstStatus?: string
   isActive?: boolean
   statusLabel?: string
+  profileStatus?: 'pending' | 'complete' | 'PENDING' | 'COMPLETE'
   createdAt?: string
 }
 
@@ -44,18 +45,12 @@ export type VendorDetailSectionsApi = {
       gstin?: string | null
       panNumber?: string | null
       status?: string
+      profileStatus?: 'pending' | 'complete' | 'PENDING' | 'COMPLETE'
     }
     billingAddress?: {
       address?: string | null
       city?: string
       state?: string
-      pincode?: string | null
-      fullAddress?: string
-    }
-    shippingAddress?: {
-      address?: string | null
-      city?: string | null
-      state?: string | null
       pincode?: string | null
       fullAddress?: string
     }
@@ -140,6 +135,7 @@ export type VendorListParams = {
   limit?: number
   search?: string
   isActive?: boolean
+  profileStatus?: 'pending' | 'complete'
   gstStatus?: string
   state?: string
   vendorName?: string
@@ -179,14 +175,11 @@ export type VendorFormInput = {
   city: string
   state: string
   pincode?: string | null
-  shippingAddress?: string | null
-  shippingCity?: string | null
-  shippingState?: string | null
-  shippingPincode?: string | null
   tags?: string[]
   notes?: string | null
   paymentTerms?: string | null
   status?: Vendor['status']
+  profileStatus?: 'pending' | 'complete'
   rating?: string | null
   contacts?: Contact[]
   gstCertificateFile?: File | null

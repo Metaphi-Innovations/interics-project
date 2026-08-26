@@ -28,6 +28,14 @@ const GST_TO_UI: Record<string, UiGstStatus> = {
   SEZ: 'Registered',
 }
 
+function toUiProfileStatus(
+  value: string | null | undefined,
+): 'pending' | 'complete' {
+  if (!value) return 'complete'
+  const normalized = value.toUpperCase()
+  return normalized === 'PENDING' ? 'pending' : 'complete'
+}
+
 export function toApiGstStatus(status: UiGstStatus | string | undefined): ApiGstStatus {
   if (!status) return 'UNREGISTERED'
   if (status === 'Registered' || status === 'Unregistered') return GST_TO_API[status]
@@ -130,7 +138,7 @@ export function toVendorFromListItem(api: VendorListItemApi): Vendor {
       : [],
     notes: null,
     status: api.isActive === false || api.statusLabel === 'Inactive' ? 'Inactive' : 'Active',
-    profileStatus: 'complete',
+    profileStatus: toUiProfileStatus(api.profileStatus),
     rating: getStoredVendorRating(api.id),
     activeProjects: 0,
     totalPayables: 0,
@@ -141,7 +149,6 @@ export function toVendorFromListItem(api: VendorListItemApi): Vendor {
 export function toVendorFromSections(api: VendorDetailSectionsApi): Vendor {
   const profile = api.overview?.vendorProfile
   const billing = api.overview?.billingAddress
-  const shipping = api.overview?.shippingAddress
   const docs = api.documentsAndTax
   const primary = api.overview?.primaryContact ?? api.contacts?.primaryContact
   const contactItems = api.contacts?.items ?? []
@@ -204,14 +211,10 @@ export function toVendorFromSections(api: VendorDetailSectionsApi): Vendor {
     state: billing?.state ?? '',
     address: billing?.address ?? null,
     pincode: billing?.pincode ?? null,
-    shippingAddress: shipping?.address ?? null,
-    shippingCity: shipping?.city ?? null,
-    shippingState: shipping?.state ?? null,
-    shippingPincode: shipping?.pincode ?? null,
     tags: api.overview?.specialization?.tags ?? [],
     notes: api.overview?.notes ?? null,
     status: profile?.status === 'Inactive' ? 'Inactive' : 'Active',
-    profileStatus: 'complete',
+    profileStatus: toUiProfileStatus(profile?.profileStatus),
     rating: getStoredVendorRating(api.id),
     activeProjects: Number(api.overview?.procurementSummary?.linkedProjects ?? 0),
     totalPayables: 0,
@@ -279,10 +282,6 @@ export function toCreatePayload(form: VendorFormInput): Record<string, unknown> 
     billingCity: form.city.trim() || 'Unknown',
     billingState: form.state.trim() || 'Unknown',
     billingPincode: form.pincode?.trim() || undefined,
-    shippingAddress: form.shippingAddress?.trim() || undefined,
-    shippingCity: form.shippingCity?.trim() || undefined,
-    shippingState: form.shippingState?.trim() || undefined,
-    shippingPincode: form.shippingPincode?.trim() || undefined,
     specializationTags: form.tags?.length ? form.tags : undefined,
     notes: form.notes?.trim() || undefined,
     insuranceExpiryDate: form.insuranceExpiryDate || undefined,
@@ -322,14 +321,6 @@ export function toPartialUpdatePayload(patch: Partial<Vendor>): Record<string, u
   if (patch.city !== undefined) body.billingCity = patch.city.trim()
   if (patch.state !== undefined) body.billingState = patch.state.trim()
   if (patch.pincode !== undefined) body.billingPincode = patch.pincode?.trim() || undefined
-  if (patch.shippingAddress !== undefined) {
-    body.shippingAddress = patch.shippingAddress?.trim() || undefined
-  }
-  if (patch.shippingCity !== undefined) body.shippingCity = patch.shippingCity?.trim() || undefined
-  if (patch.shippingState !== undefined) body.shippingState = patch.shippingState?.trim() || undefined
-  if (patch.shippingPincode !== undefined) {
-    body.shippingPincode = patch.shippingPincode?.trim() || undefined
-  }
   if (patch.tags !== undefined) body.specializationTags = patch.tags
   if (patch.notes !== undefined) body.notes = patch.notes?.trim() || undefined
 

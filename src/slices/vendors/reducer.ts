@@ -8,6 +8,7 @@ import {
   fetchVendorById,
   createVendor,
   updateVendor,
+  setVendorActive,
   deleteVendor,
   createVendorContact,
   updateVendorContact,
@@ -111,10 +112,6 @@ export interface Vendor {
   state: string
   address: string | null
   pincode?: string | null
-  shippingAddress?: string | null
-  shippingCity?: string | null
-  shippingState?: string | null
-  shippingPincode?: string | null
   tags: string[]
   paymentTerms?: string | null
   notes: string | null
@@ -299,6 +296,23 @@ const vendorsSlice = createSlice({
       .addCase(updateVendor.rejected, (state, action) => {
         state.saving = false
         state.error = payloadMessage(action.payload)
+      })
+      .addCase(setVendorActive.fulfilled, (state, action) => {
+        const idx = state.items.findIndex((v) => v.id === action.payload.id)
+        if (idx !== -1) {
+          state.items[idx] = {
+            ...state.items[idx],
+            ...action.payload,
+            rating: action.payload.rating ?? state.items[idx].rating,
+          }
+        }
+        if (state.selectedItem?.id === action.payload.id) {
+          state.selectedItem = {
+            ...state.selectedItem,
+            ...action.payload,
+            rating: action.payload.rating ?? state.selectedItem.rating,
+          }
+        }
       })
       .addCase(deleteVendor.fulfilled, (state, action) => {
         state.items = state.items.filter((v) => v.id !== action.payload)

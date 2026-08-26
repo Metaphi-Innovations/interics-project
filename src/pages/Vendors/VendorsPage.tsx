@@ -28,7 +28,7 @@ import { useTheme, alpha } from '@mui/material/styles'
 import { Truck, Plus, MoreVertical, Eye, Pencil, Trash2, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
-import { fetchVendors, deleteVendor } from '../../slices/vendors/thunk'
+import { fetchVendors, deleteVendor, setVendorActive } from '../../slices/vendors/thunk'
 import { setFilters, resetFilters, setPage, setSortConfig } from '../../slices/vendors/reducer'
 import type { Vendor } from '../../slices/vendors/reducer'
 import { ListingTemplate } from '../../components/templates'
@@ -36,8 +36,10 @@ import type { FilterField, ColumnItem } from '../../components/templates/Listing
 import {
   FilterableHeaderCell,
   FilterableSortHeader,
+  StatusColumnToggle,
   type ColumnFilterOption,
 } from '@/components/listing'
+import { ROW_ICON_ACTIONS_GROUP_SX } from '@/components/listing/rowIconActionStyles'
 import { VendorDrawer } from './VendorDrawer'
 import { PendingVendorContactsTable } from './PendingVendorContactsTable'
 import { PendingVendorViewDrawer } from './PendingVendorViewDrawer'
@@ -51,7 +53,9 @@ import { getSpecializationTagSx } from '../../utils/specializationTagStyles'
 import { tokens } from '@/design-system/tokens'
 import { getRatingMasterChipColors } from '../../utils/masterChipStyles'
 
-const VENDOR_ACTION_WIDTH_PX = 60
+const VENDOR_ACTION_WIDTH_PX = 72
+const VENDOR_STATUS_WIDTH_PX = 80
+const VENDOR_FIXED_RIGHT_PX = VENDOR_ACTION_WIDTH_PX + VENDOR_STATUS_WIDTH_PX
 const VENDOR_CELL_PAD_X = '14px'
 
 type ContactsTab = 'active' | 'pending'
@@ -116,12 +120,13 @@ function buildVendorListColumns(visible: VendorTableVisibleColumns): string[] {
     'gstStatus',
     'isActive',
     'statusLabel',
+    'profileStatus',
     'createdAt',
   ]
 }
 
 function vendorColWidth(visible: VendorTableVisibleColumns): string {
-  return `calc((100% - ${VENDOR_ACTION_WIDTH_PX}px) / ${vendorDataColCount(visible)})`
+  return `calc((100% - ${VENDOR_FIXED_RIGHT_PX}px) / ${vendorDataColCount(visible)})`
 }
 
 const TABLE_HEADER_CELL_SX = {
@@ -132,6 +137,28 @@ const TABLE_HEADER_CELL_SX = {
   px: VENDOR_CELL_PAD_X,
   borderBottom: `2px solid ${tokens.color.neutral[100]}`,
   verticalAlign: 'bottom' as const,
+  boxSizing: 'border-box' as const,
+}
+
+const TABLE_HEADER_STATUS_SX = {
+  ...TABLE_HEADER_CELL_SX,
+  pl: 1,
+  pr: 1,
+  width: VENDOR_STATUS_WIDTH_PX,
+  minWidth: VENDOR_STATUS_WIDTH_PX,
+  maxWidth: VENDOR_STATUS_WIDTH_PX,
+  whiteSpace: 'nowrap' as const,
+  textAlign: 'center' as const,
+}
+
+const TABLE_CELL_STATUS_SX = {
+  py: '7px',
+  px: 1,
+  width: VENDOR_STATUS_WIDTH_PX,
+  minWidth: VENDOR_STATUS_WIDTH_PX,
+  maxWidth: VENDOR_STATUS_WIDTH_PX,
+  verticalAlign: 'middle' as const,
+  textAlign: 'center' as const,
   boxSizing: 'border-box' as const,
 }
 
@@ -317,6 +344,7 @@ interface VendorTableProps {
   onView: (id: string) => void
   onEdit: (vendor: Vendor) => void
   onDelete: (vendor: Vendor) => void
+  onToggleStatus: (vendor: Vendor) => void
 }
 
 function VendorTable({
@@ -338,6 +366,7 @@ function VendorTable({
   onView,
   onEdit,
   onDelete,
+  onToggleStatus,
 }: VendorTableProps) {
   const theme = useTheme()
   const tagMode = theme.palette.mode === 'dark' ? 'dark' : 'light'
@@ -345,7 +374,7 @@ function VendorTable({
   const colWidth = vendorColWidth(visibleColumns)
   const headDataSx = { ...TABLE_HEADER_CELL_SX, width: colWidth, minWidth: 0 }
   const cellDataSx = { ...TABLE_CELL_SX, width: colWidth, minWidth: 0, overflow: 'hidden' }
-  const colCount = vendorDataColCount(visibleColumns) + 1
+  const colCount = vendorDataColCount(visibleColumns) + 2
 
   return (
     <TableContainer sx={{ width: '100%', overflowX: 'auto' }}>
@@ -356,6 +385,7 @@ function VendorTable({
             {visibleColumns.location && <col style={{ width: colWidth }} />}
             {visibleColumns.specialization && <col style={{ width: colWidth }} />}
             {visibleColumns.rating && <col style={{ width: colWidth }} />}
+            <col style={{ width: `${VENDOR_STATUS_WIDTH_PX}px` }} />
             <col style={{ width: `${VENDOR_ACTION_WIDTH_PX}px` }} />
           </colgroup>
         <TableHead>
@@ -412,6 +442,7 @@ function VendorTable({
                 sx={{ ...headDataSx, display: { xs: 'none', md: 'table-cell' }, verticalAlign: 'bottom' }}
               />
             )}
+            <TableCell sx={TABLE_HEADER_STATUS_SX}>Status</TableCell>
             <TableCell sx={TABLE_HEADER_ACTION_SX}>Action</TableCell>
           </TableRow>
         </TableHead>
@@ -542,15 +573,25 @@ function VendorTable({
                     </TableCell>
                   )}
 
-                  <TableCell sx={TABLE_CELL_ACTION_SX} onClick={(e) => e.stopPropagation()}>
-                    <RowActions
-                      vendor={vendor}
-                      canEdit={canEdit}
-                      canDelete={canDelete}
-                      onView={() => onView(vendor.id)}
-                      onEdit={() => onEdit(vendor)}
-                      onDelete={() => onDelete(vendor)}
+                  <TableCell sx={TABLE_CELL_STATUS_SX} onClick={(e) => e.stopPropagation()}>
+                    <StatusColumnToggle
+                      active={vendor.status === 'Active'}
+                      disabled={!canEdit}
+                      onToggle={() => onToggleStatus(vendor)}
                     />
+                  </TableCell>
+
+                  <TableCell sx={TABLE_CELL_ACTION_SX} onClick={(e) => e.stopPropagation()}>
+                    <Box sx={ROW_ICON_ACTIONS_GROUP_SX}>
+                      <RowActions
+                        vendor={vendor}
+                        canEdit={canEdit}
+                        canDelete={canDelete}
+                        onView={() => onView(vendor.id)}
+                        onEdit={() => onEdit(vendor)}
+                        onDelete={() => onDelete(vendor)}
+                      />
+                    </Box>
                   </TableCell>
                 </TableRow>
               )
@@ -570,9 +611,10 @@ interface VendorGridCardProps {
   onView: (id: string) => void
   onEdit: (vendor: Vendor) => void
   onDelete: (vendor: Vendor) => void
+  onToggleStatus: (vendor: Vendor) => void
 }
 
-function VendorGridCard({ vendor, canEdit, canDelete, onView, onEdit, onDelete }: VendorGridCardProps) {
+function VendorGridCard({ vendor, canEdit, canDelete, onView, onEdit, onDelete, onToggleStatus }: VendorGridCardProps) {
   const theme = useTheme()
   const tagMode = theme.palette.mode === 'dark' ? 'dark' : 'light'
   const [anchor, setAnchor] = useState<null | HTMLElement>(null)
@@ -588,17 +630,20 @@ function VendorGridCard({ vendor, canEdit, canDelete, onView, onEdit, onDelete }
         border: `1px solid ${tokens.color.neutral[100]}`,
         borderRadius: 2,
         cursor: 'pointer',
+        position: 'relative',
         transition: 'box-shadow 0.15s',
         '&:hover': { boxShadow: tokens.shadow.md },
       }}
     >
-      <Stack direction="row" alignItems="flex-start" justifyContent="space-between">
-        <Stack direction="row" alignItems="center" gap={1.5} sx={{ flex: 1, minWidth: 0 }}>
-          <VendorAvatar name={vendor.name} />
-          <Typography variant="body2" fontWeight={600} sx={{ fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {vendor.name}
-          </Typography>
-        </Stack>
+      <Box
+        sx={{ position: 'absolute', top: 8, right: 8, ...ROW_ICON_ACTIONS_GROUP_SX }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <StatusColumnToggle
+          active={vendor.status === 'Active'}
+          disabled={!canEdit}
+          onToggle={() => onToggleStatus(vendor)}
+        />
         <MuiIconButton
           size="small"
           onClick={(e) => { e.stopPropagation(); setAnchor(e.currentTarget) }}
@@ -639,6 +684,13 @@ function VendorGridCard({ vendor, canEdit, canDelete, onView, onEdit, onDelete }
             </>
           ) : null}
         </Menu>
+      </Box>
+
+      <Stack direction="row" alignItems="center" gap={1.5} sx={{ flex: 1, minWidth: 0, pr: 6, mb: 0 }}>
+        <VendorAvatar name={vendor.name} />
+        <Typography variant="body2" fontWeight={600} sx={{ fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {vendor.name}
+        </Typography>
       </Stack>
 
       <Divider sx={{ my: '10px' }} />
@@ -699,9 +751,10 @@ interface VendorsGridProps {
   onView: (id: string) => void
   onEdit: (vendor: Vendor) => void
   onDelete: (vendor: Vendor) => void
+  onToggleStatus: (vendor: Vendor) => void
 }
 
-function VendorsGrid({ items, loading, canEdit, canDelete, onView, onEdit, onDelete }: VendorsGridProps) {
+function VendorsGrid({ items, loading, canEdit, canDelete, onView, onEdit, onDelete, onToggleStatus }: VendorsGridProps) {
   if (loading) {
     return (
       <Box
@@ -746,6 +799,7 @@ function VendorsGrid({ items, loading, canEdit, canDelete, onView, onEdit, onDel
           onView={onView}
           onEdit={onEdit}
           onDelete={onDelete}
+          onToggleStatus={onToggleStatus}
         />
       ))}
     </Box>
@@ -818,6 +872,40 @@ function ConfirmDeleteDialog({ vendor, onConfirm, onClose }: ConfirmDeleteProps)
   )
 }
 
+// ─── Confirm Activate / Deactivate Dialog ─────────────────────────────────────
+
+interface ConfirmToggleProps {
+  vendor: Vendor | null
+  onConfirm: () => void
+  onClose: () => void
+}
+
+function ConfirmToggleDialog({ vendor, onConfirm, onClose }: ConfirmToggleProps) {
+  const nextActive = vendor?.status !== 'Active'
+  return (
+    <Modal
+      open={!!vendor}
+      onClose={onClose}
+      title={nextActive ? 'Activate?' : 'Deactivate?'}
+      size="xs"
+      footer={
+        <Stack direction="row" justifyContent="flex-end" gap={1}>
+          <Button variant="outlined" color="secondary" size="sm" onClick={onClose}>Cancel</Button>
+          <Button variant="contained" color="primary" size="sm" onClick={onConfirm}>
+            Confirm
+          </Button>
+        </Stack>
+      }
+    >
+      <Typography variant="body2">
+        {nextActive
+          ? `Activate "${vendor?.name}"?`
+          : `Deactivate "${vendor?.name}"? It will no longer appear in active contact lists.`}
+      </Typography>
+    </Modal>
+  )
+}
+
 // ─── VendorsPage ──────────────────────────────────────────────────────────────
 
 export default function VendorsPage() {
@@ -835,6 +923,7 @@ export default function VendorsPage() {
   const [drawerMode, setDrawerMode] = useState<'add' | 'edit'>('add')
   const [editingVendor, setEditingVendor] = useState<Vendor | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Vendor | null>(null)
+  const [toggleTarget, setToggleTarget] = useState<Vendor | null>(null)
   const [activeFilters, setActiveFilters] = useState<Record<string, unknown>>({})
   const [activeColumnFilters, setActiveColumnFilters] = useState<ActiveVendorColumnFilters>({
     vendorName: '',
@@ -944,7 +1033,7 @@ export default function VendorsPage() {
               (targetTab === 'active' && sortConfig.field ? sortConfig.direction : undefined),
           }
         : {
-            status: 'Inactive',
+            profileStatus: 'pending' as const,
             contactPerson: String(pickColumn('contactPerson') ?? '').trim() || undefined,
             mobile: String(pickColumn('mobile') ?? '').trim() || undefined,
             email: String(pickColumn('email') ?? '').trim() || undefined,
@@ -1241,6 +1330,27 @@ export default function VendorsPage() {
     setDeleteTarget(null)
   }
 
+  async function handleToggleStatus() {
+    if (!canEditVendor || !toggleTarget) return
+    const nextActive = toggleTarget.status !== 'Active'
+    try {
+      await dispatch(setVendorActive({ id: toggleTarget.id, isActive: nextActive })).unwrap()
+      showToast({
+        title: nextActive ? 'Vendor activated' : 'Vendor deactivated',
+        variant: 'success',
+      })
+      void dispatch(fetchVendors(buildFetchParams(pagination.page, pagination.pageSize)))
+      void refreshTabCounts()
+    } catch (err) {
+      const message =
+        err && typeof err === 'object' && 'message' in err
+          ? String((err as { message: string }).message)
+          : 'Failed to update vendor status'
+      showToast({ title: message, variant: 'error' })
+    }
+    setToggleTarget(null)
+  }
+
   // ── Render ────────────────────────────────────────────────────────
   return (
     <>
@@ -1306,6 +1416,7 @@ export default function VendorsPage() {
             onView={handleNavigateToVendor}
             onEdit={openEditDrawer}
             onDelete={setDeleteTarget}
+            onToggleStatus={setToggleTarget}
           />
         ) : (
           <VendorTable
@@ -1327,6 +1438,7 @@ export default function VendorsPage() {
             onView={handleNavigateToVendor}
             onEdit={openEditDrawer}
             onDelete={setDeleteTarget}
+            onToggleStatus={setToggleTarget}
           />
         )}
 
@@ -1370,6 +1482,12 @@ export default function VendorsPage() {
         vendor={deleteTarget}
         onConfirm={handleDelete}
         onClose={() => setDeleteTarget(null)}
+      />
+
+      <ConfirmToggleDialog
+        vendor={toggleTarget}
+        onConfirm={() => void handleToggleStatus()}
+        onClose={() => setToggleTarget(null)}
       />
     </>
   )

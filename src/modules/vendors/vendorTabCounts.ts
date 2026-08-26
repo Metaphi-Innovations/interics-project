@@ -7,14 +7,14 @@ export const VENDOR_ACTIVE_TAB_COUNT_PARAMS: VendorListParams = {
 }
 
 /**
- * Pending Contacts badge: inactive, non-deleted vendors.
- * Matches Vendors → Pending Contacts list (`status: Inactive` → `isActive=false`).
+ * Pending Contacts badge: pending profile, non-deleted vendors.
+ * Matches Vendors → Pending Contacts list (`profileStatus=pending`).
  * Uses limit=1 so the badge is driven by `total`, not paginated rows.
  */
 export const VENDOR_PENDING_TAB_COUNT_PARAMS: VendorListParams = {
   page: 1,
   limit: 1,
-  isActive: false,
+  profileStatus: 'pending',
 }
 
 export type VendorTabCounts = {

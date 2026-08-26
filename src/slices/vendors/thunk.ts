@@ -13,7 +13,6 @@ function rejectVendor(err: unknown, fallback: string) {
 export type FetchVendorsParams = VendorListParams & {
   pageSize?: number
   status?: string
-  profileStatus?: 'pending' | 'complete'
 }
 
 function toListParams(params: FetchVendorsParams = {}): VendorListParams {
@@ -39,6 +38,7 @@ function toListParams(params: FetchVendorsParams = {}): VendorListParams {
     limit: Math.min(params.limit ?? params.pageSize ?? 20, 100),
     search: params.search,
     isActive,
+    profileStatus: params.profileStatus,
     gstStatus,
     state: params.state,
     vendorName: params.vendorName,
@@ -72,10 +72,6 @@ export const fetchVendors = createAsyncThunk(
   'vendors/fetchAll',
   async (params: FetchVendorsParams = {}, { rejectWithValue }) => {
     try {
-      // Backend has no profileStatus; pending tab is empty until supported.
-      if (params.profileStatus === 'pending') {
-        return { items: [] as Vendor[], total: 0, page: 1, pageSize: params.pageSize ?? 20 }
-      }
       return await vendorsService.getAll(toListParams(params))
     } catch (err: unknown) {
       return rejectWithValue(rejectVendor(err, 'Failed to fetch vendors'))
@@ -117,13 +113,11 @@ export const createVendor = createAsyncThunk(
         city: legacy.city || 'Unknown',
         state: legacy.state || 'Unknown',
         pincode: legacy.pincode,
-        shippingAddress: legacy.shippingAddress,
-        shippingCity: legacy.shippingCity,
-        shippingState: legacy.shippingState,
-        shippingPincode: legacy.shippingPincode,
         tags: legacy.tags,
         notes: legacy.notes,
         contacts: legacy.contacts,
+        status: legacy.status,
+        profileStatus: legacy.profileStatus,
       })
     } catch (err: unknown) {
       return rejectWithValue(rejectVendor(err, 'Failed to create vendor'))
@@ -154,6 +148,17 @@ export const updateVendor = createAsyncThunk(
       return await vendorsService.updatePartial(id, data as Partial<Vendor>)
     } catch (err: unknown) {
       return rejectWithValue(rejectVendor(err, 'Failed to update vendor'))
+    }
+  },
+)
+
+export const setVendorActive = createAsyncThunk(
+  'vendors/setActive',
+  async ({ id, isActive }: { id: string; isActive: boolean }, { rejectWithValue }) => {
+    try {
+      return await vendorsService.setActive(id, isActive)
+    } catch (err: unknown) {
+      return rejectWithValue(rejectVendor(err, 'Failed to update vendor status'))
     }
   },
 )
@@ -250,7 +255,8 @@ export const createPendingVendor = createAsyncThunk(
         pan: null,
         tags: [],
         notes: null,
-        status: 'Inactive',
+        status: 'Active',
+        profileStatus: 'pending',
       })
     } catch (err: unknown) {
       return rejectWithValue(rejectVendor(err, 'Failed to create pending vendor contact'))

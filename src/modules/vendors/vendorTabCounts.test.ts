@@ -11,11 +11,11 @@ function emptyResult(total: number): VendorListResult {
 }
 
 describe('fetchVendorTabCounts (Pending Contacts badge)', () => {
-  it('requests pending total with isActive=false and uses API total (not page rows)', async () => {
+  it('requests pending total with profileStatus=pending and uses API total (not page rows)', async () => {
     const calls: VendorListParams[] = []
     const getAll = vi.fn(async (params: VendorListParams = {}) => {
       calls.push(params)
-      if (params.isActive === false) return emptyResult(7)
+      if (params.profileStatus === 'pending') return emptyResult(7)
       return emptyResult(42)
     })
 
@@ -27,14 +27,14 @@ describe('fetchVendorTabCounts (Pending Contacts badge)', () => {
     expect(VENDOR_PENDING_TAB_COUNT_PARAMS).toMatchObject({
       page: 1,
       limit: 1,
-      isActive: false,
+      profileStatus: 'pending',
     })
+    expect(VENDOR_PENDING_TAB_COUNT_PARAMS.isActive).toBeUndefined()
   })
 
   it('pending count stays independent of pagination (limit 1 still returns full total)', async () => {
     const getAll = vi.fn(async (params: VendorListParams = {}) => {
-      if (params.isActive === false) {
-        // Simulate many inactive vendors; API returns total >> page size
+      if (params.profileStatus === 'pending') {
         return { items: [], total: 100, page: 1, pageSize: 1 }
       }
       return emptyResult(5)

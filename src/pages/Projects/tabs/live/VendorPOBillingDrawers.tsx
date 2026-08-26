@@ -444,17 +444,6 @@ export function AddVendorPODrawer({
     return formatted || '—'
   }, [vendorRecord])
 
-  const vendorShippingAddress = useMemo(() => {
-    if (!vendorRecord) return '—'
-    const formatted = formatFullAddress(
-      vendorRecord.shippingAddress ?? null,
-      vendorRecord.shippingCity ?? '',
-      vendorRecord.shippingState ?? '',
-      vendorRecord.shippingPincode,
-    )
-    return formatted || vendorAddress
-  }, [vendorRecord, vendorAddress])
-
   function setField<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
     setForm((prev) => ({ ...prev, [key]: value }))
   }
@@ -619,7 +608,6 @@ export function AddVendorPODrawer({
                 <ReadOnlyField label="Category" value={initialCategoryName ?? '—'} />
                 <ReadOnlyField label="Service" value={initialServiceName ?? '—'} />
                 <ReadOnlyField label="Billing Address" value={vendorAddress} multiline />
-                <ReadOnlyField label="Shipping Address" value={vendorShippingAddress} multiline />
               </Box>
             </Box>
             <Stack
@@ -790,17 +778,6 @@ function useVendorPODetail(
     return formatted || '—'
   }, [vendorRecord])
 
-  const vendorShippingAddress = useMemo(() => {
-    if (!vendorRecord) return '—'
-    const formatted = formatFullAddress(
-      vendorRecord.shippingAddress ?? null,
-      vendorRecord.shippingCity ?? '',
-      vendorRecord.shippingState ?? '',
-      vendorRecord.shippingPincode,
-    )
-    return formatted || vendorAddress
-  }, [vendorRecord, vendorAddress])
-
   useEffect(() => {
     if (open) {
       void dispatch(fetchVendorInvoices(projectId))
@@ -814,7 +791,6 @@ function useVendorPODetail(
     serviceLabel,
     categoryLabel,
     vendorAddress,
-    vendorShippingAddress,
   }
 }
 
@@ -832,7 +808,6 @@ export function ViewVendorPODrawer({
     serviceLabel,
     categoryLabel,
     vendorAddress,
-    vendorShippingAddress,
   } = useVendorPODetail(open, projectId, po, baseline)
 
   function handlePoDocumentOpenFailed() {
@@ -908,7 +883,6 @@ export function ViewVendorPODrawer({
                 <ReadOnlyField label="Category" value={categoryLabel} />
                 <ReadOnlyField label="Service" value={serviceLabel} />
                 <ReadOnlyField label="Billing Address" value={vendorAddress} multiline />
-                <ReadOnlyField label="Shipping Address" value={vendorShippingAddress} multiline />
               </Box>
             </Box>
           </Box>
@@ -940,7 +914,6 @@ export function EditVendorPODrawer({
     serviceLabel,
     categoryLabel,
     vendorAddress,
-    vendorShippingAddress,
   } = useVendorPODetail(open, projectId, po, baseline)
 
   const [poNumber, setPoNumber] = useState('')
@@ -1134,7 +1107,6 @@ export function EditVendorPODrawer({
               <ReadOnlyField label="Category" value={categoryLabel} />
               <ReadOnlyField label="Service" value={serviceLabel} />
               <ReadOnlyField label="Billing Address" value={vendorAddress} multiline />
-              <ReadOnlyField label="Shipping Address" value={vendorShippingAddress} multiline />
             </Box>
           </Box>
           <Divider />

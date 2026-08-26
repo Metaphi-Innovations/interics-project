@@ -14,7 +14,6 @@ import {
   IconButton as MuiIconButton,
   Menu,
   MenuItem,
-  Tooltip,
   Card as MuiCard,
   Divider,
 } from '@mui/material'
@@ -24,7 +23,7 @@ import {
   LocationOn,
 } from '@mui/icons-material'
 import { useTheme, alpha } from '@mui/material/styles'
-import { Building2, Plus, MoreVertical, Eye, Pencil, FolderPlus, Receipt, Archive, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Building2, Plus, MoreVertical, Eye, Pencil, FolderPlus, Receipt, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { fetchCustomers, setCustomerActive, fetchCustomerFilters } from '../../slices/customers/thunk'
@@ -35,8 +34,10 @@ import type { FilterField, ColumnItem } from '../../components/templates/Listing
 import {
   FilterableHeaderCell,
   FilterableSortHeader,
+  StatusColumnToggle,
   type ColumnFilterOption,
 } from '@/components/listing'
+import { ROW_ICON_ACTIONS_GROUP_SX } from '@/components/listing/rowIconActionStyles'
 import { CustomerDrawer } from './CustomerDrawer'
 import { useToast, Modal, Button } from '@/design-system/components'
 import { getInitials, getAvatarColor } from '../../utils/formatters'
@@ -98,8 +99,34 @@ function customerTableColCount(visible: CustomerTableVisibleColumns): number {
     (visible.contactPerson ? 1 : 0) +
     (visible.sector ? 1 : 0) +
     (visible.projects ? 1 : 0) +
-    1
+    1 + // Status
+    1 // Action
   )
+}
+
+const CUSTOMER_STATUS_HEADER_SX = {
+  width: 72,
+  minWidth: 72,
+  maxWidth: 88,
+  py: '8px',
+  px: '8px',
+  fontSize: 11,
+  fontWeight: 600,
+  color: 'text.secondary',
+  borderBottom: `2px solid ${tokens.color.neutral[100]}`,
+  verticalAlign: 'bottom' as const,
+  whiteSpace: 'nowrap' as const,
+  textAlign: 'center' as const,
+}
+
+const CUSTOMER_STATUS_CELL_SX = {
+  width: 72,
+  minWidth: 72,
+  maxWidth: 88,
+  py: '6px',
+  px: '8px',
+  verticalAlign: 'middle' as const,
+  textAlign: 'center' as const,
 }
 
 function mapCustomerSortField(field: string | null): string | undefined {
@@ -134,27 +161,21 @@ function CustomerAvatar({ name }: { name: string }) {
 // ─── Row Actions Menu ─────────────────────────────────────────────────────────
 
 interface RowActionsProps {
-  customer: Customer
   canEdit: boolean
   canCreateProject: boolean
-  canArchive: boolean
   onView: () => void
   onEdit: () => void
   onAddProject: () => void
   onBillingSummary: () => void
-  onArchive: () => void
 }
 
 function RowActions({
-  customer,
   canEdit,
   canCreateProject,
-  canArchive,
   onView,
   onEdit,
   onAddProject,
   onBillingSummary,
-  onArchive,
 }: RowActionsProps) {
   const [anchor, setAnchor] = useState<null | HTMLElement>(null)
 
@@ -186,24 +207,6 @@ function RowActions({
         <MenuItem onClick={() => { onBillingSummary(); close() }} sx={{ fontSize: 13, gap: 1 }}>
           <Receipt size={14} /> Billing Summary
         </MenuItem>
-        {canArchive ? (
-          <>
-            <Divider />
-            {customer.status === 'Inactive' ? (
-              <Tooltip title="Customer is already archived" placement="left">
-                <span>
-                  <MenuItem disabled sx={{ fontSize: 13, gap: 1 }}>
-                    <Archive size={14} /> Archive
-                  </MenuItem>
-                </span>
-              </Tooltip>
-            ) : (
-              <MenuItem onClick={() => { onArchive(); close() }} sx={{ fontSize: 13, gap: 1 }}>
-                <Archive size={14} /> Archive
-              </MenuItem>
-            )}
-          </>
-        ) : null}
       </Menu>
     </>
   )
@@ -288,13 +291,13 @@ interface CustomerTableProps {
   onColumnFilter: (field: keyof CustomerColumnFilters, value: string) => void
   canEdit: boolean
   canCreateProject: boolean
-  canArchive: boolean
+  canToggleActive: boolean
   onView: (id: string) => void
   onEdit: (customer: Customer) => void
   onProjects: (customer: Customer) => void
   onAddProject: (customer: Customer) => void
   onBillingSummary: (customer: Customer) => void
-  onArchive: (customer: Customer) => void
+  onToggleStatus: (customer: Customer) => void
 }
 
 function CustomerTable({
@@ -312,13 +315,13 @@ function CustomerTable({
   onColumnFilter,
   canEdit,
   canCreateProject,
-  canArchive,
+  canToggleActive,
   onView,
   onEdit,
   onProjects,
   onAddProject,
   onBillingSummary,
-  onArchive,
+  onToggleStatus,
 }: CustomerTableProps) {
   const theme = useTheme()
   const hoverBg = alpha(theme.palette.primary.main, 0.04)
@@ -377,6 +380,7 @@ function CustomerTable({
                 sx={{ display: { xs: 'none', lg: 'table-cell' } }}
               />
             )}
+            <TableCell sx={CUSTOMER_STATUS_HEADER_SX}>Status</TableCell>
             <TableCell
               sx={{
                 width: 48,
@@ -495,20 +499,30 @@ function CustomerTable({
               )}
 
               <TableCell
+                sx={CUSTOMER_STATUS_CELL_SX}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <StatusColumnToggle
+                  active={customer.status === 'Active'}
+                  disabled={!canToggleActive}
+                  onToggle={() => onToggleStatus(customer)}
+                />
+              </TableCell>
+
+              <TableCell
                 sx={{ py: '6px', px: '8px', verticalAlign: 'middle', textAlign: 'center' }}
                 onClick={(e) => e.stopPropagation()}
               >
-                <RowActions
-                  customer={customer}
-                  canEdit={canEdit}
-                  canCreateProject={canCreateProject}
-                  canArchive={canArchive}
-                  onView={() => onView(customer.id)}
-                  onEdit={() => onEdit(customer)}
-                  onAddProject={() => onAddProject(customer)}
-                  onBillingSummary={() => onBillingSummary(customer)}
-                  onArchive={() => onArchive(customer)}
-                />
+                <Box sx={ROW_ICON_ACTIONS_GROUP_SX}>
+                  <RowActions
+                    canEdit={canEdit}
+                    canCreateProject={canCreateProject}
+                    onView={() => onView(customer.id)}
+                    onEdit={() => onEdit(customer)}
+                    onAddProject={() => onAddProject(customer)}
+                    onBillingSummary={() => onBillingSummary(customer)}
+                  />
+                </Box>
               </TableCell>
             </TableRow>
           ))}
@@ -527,10 +541,10 @@ interface GridCardProps {
   onProjects: () => void
   onAddProject: () => void
   onBillingSummary: () => void
-  onArchive: () => void
+  onToggleStatus: () => void
   canEdit: boolean
   canCreateProject: boolean
-  canArchive: boolean
+  canToggleActive: boolean
 }
 
 function CustomerGridCard({
@@ -540,10 +554,10 @@ function CustomerGridCard({
   onProjects,
   onAddProject,
   onBillingSummary,
-  onArchive,
+  onToggleStatus,
   canEdit,
   canCreateProject,
-  canArchive,
+  canToggleActive,
 }: GridCardProps) {
   const projectCount = getTotalProjectCount(customer)
   return (
@@ -559,17 +573,22 @@ function CustomerGridCard({
         '&:hover': { borderColor: tokens.color.primary[200] },
       }}
     >
-      <Box sx={{ position: 'absolute', top: 8, right: 8 }} onClick={(e) => e.stopPropagation()}>
+      <Box
+        sx={{ position: 'absolute', top: 8, right: 8, ...ROW_ICON_ACTIONS_GROUP_SX }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <StatusColumnToggle
+          active={customer.status === 'Active'}
+          disabled={!canToggleActive}
+          onToggle={onToggleStatus}
+        />
         <RowActions
-          customer={customer}
           canEdit={canEdit}
           canCreateProject={canCreateProject}
-          canArchive={canArchive}
           onView={onView}
           onEdit={onEdit}
           onAddProject={onAddProject}
           onBillingSummary={onBillingSummary}
-          onArchive={onArchive}
         />
       </Box>
 
@@ -658,32 +677,35 @@ function SimplePagination({ page, pageSize, total, onPage }: SimplePaginationPro
   )
 }
 
-// ─── Confirm Archive Dialog ───────────────────────────────────────────────────
+// ─── Confirm Activate / Deactivate Dialog ─────────────────────────────────────
 
-interface ConfirmArchiveProps {
+interface ConfirmToggleProps {
   customer: Customer | null
   onConfirm: () => void
   onClose: () => void
 }
 
-function ConfirmArchiveDialog({ customer, onConfirm, onClose }: ConfirmArchiveProps) {
+function ConfirmToggleDialog({ customer, onConfirm, onClose }: ConfirmToggleProps) {
+  const nextActive = customer?.status !== 'Active'
   return (
     <Modal
       open={!!customer}
       onClose={onClose}
-      title="Archive Customer"
+      title={nextActive ? 'Activate?' : 'Deactivate?'}
       size="xs"
       footer={
         <Stack direction="row" justifyContent="flex-end" gap={1}>
           <Button variant="outlined" color="secondary" size="sm" onClick={onClose}>Cancel</Button>
           <Button variant="contained" color="primary" size="sm" onClick={onConfirm}>
-            Archive
+            Confirm
           </Button>
         </Stack>
       }
     >
       <Typography variant="body2">
-        Archive <strong>{customer?.name}</strong>? The customer will be marked inactive and hidden from active lists.
+        {nextActive
+          ? `Activate "${customer?.name}"?`
+          : `Deactivate "${customer?.name}"? The customer will be marked inactive and hidden from active lists.`}
       </Typography>
     </Modal>
   )
@@ -700,14 +722,14 @@ export default function CustomersPage() {
   const navigate = useNavigate()
   const canCreateCustomer = usePermission('customers', 'create')
   const canEditCustomer = usePermission('customers', 'edit')
-  const canArchiveCustomer = usePermission('customers', 'delete')
+  const canToggleCustomerActive = usePermission('customers', 'delete')
   const canCreateProject = usePermission('projects', 'create')
 
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('list')
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [drawerMode, setDrawerMode] = useState<'add' | 'edit'>('add')
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null)
-  const [archiveTarget, setArchiveTarget] = useState<Customer | null>(null)
+  const [toggleTarget, setToggleTarget] = useState<Customer | null>(null)
   const [activeFilters, setActiveFilters] = useState<Record<string, unknown>>({})
   const [columnFilters, setColumnFilters] = useState<CustomerColumnFilters>({
     customerName: '',
@@ -1009,21 +1031,24 @@ export default function CustomersPage() {
     navigate(`${customerDetailPath(customer)}?tab=projects`)
   }
 
-  async function handleArchive() {
-    if (!canArchiveCustomer) return
-    if (!archiveTarget) return
+  async function handleToggleStatus() {
+    if (!canToggleCustomerActive || !toggleTarget) return
+    const nextActive = toggleTarget.status !== 'Active'
     try {
-      await dispatch(setCustomerActive({ id: archiveTarget.id, isActive: false })).unwrap()
-      showToast({ title: 'Customer archived', variant: 'success' })
+      await dispatch(setCustomerActive({ id: toggleTarget.id, isActive: nextActive })).unwrap()
+      showToast({
+        title: nextActive ? 'Customer activated' : 'Customer deactivated',
+        variant: 'success',
+      })
       void dispatch(fetchCustomers(buildListParams()))
     } catch (err) {
       const message =
         err && typeof err === 'object' && 'message' in err
           ? String((err as { message: string }).message)
-          : 'Failed to archive customer'
+          : 'Failed to update customer status'
       showToast({ title: message, variant: 'error' })
     }
-    setArchiveTarget(null)
+    setToggleTarget(null)
   }
 
   // ── Render ────────────────────────────────────────────────────────
@@ -1085,13 +1110,13 @@ export default function CustomersPage() {
                   customer={customer}
                   canEdit={canEditCustomer}
                   canCreateProject={canCreateProject}
-                  canArchive={canArchiveCustomer}
+                  canToggleActive={canToggleCustomerActive}
                   onView={() => navigate(customerDetailPath(customer))}
                   onEdit={() => openEditDrawer(customer)}
                   onProjects={() => handleProjectsClick(customer)}
                   onAddProject={() => handleAddProject(customer)}
                   onBillingSummary={() => handleBillingSummary(customer)}
-                  onArchive={() => setArchiveTarget(customer)}
+                  onToggleStatus={() => setToggleTarget(customer)}
                 />
               ))
             )}
@@ -1112,13 +1137,13 @@ export default function CustomersPage() {
             onColumnFilter={handleColumnFilter}
             canEdit={canEditCustomer}
             canCreateProject={canCreateProject}
-            canArchive={canArchiveCustomer}
+            canToggleActive={canToggleCustomerActive}
             onView={handleNavigateToCustomer}
             onEdit={openEditDrawer}
             onProjects={handleProjectsClick}
             onAddProject={handleAddProject}
             onBillingSummary={handleBillingSummary}
-            onArchive={setArchiveTarget}
+            onToggleStatus={setToggleTarget}
           />
         )}
 
@@ -1139,10 +1164,10 @@ export default function CustomersPage() {
         customer={editingCustomer}
       />
 
-      <ConfirmArchiveDialog
-        customer={archiveTarget}
-        onConfirm={handleArchive}
-        onClose={() => setArchiveTarget(null)}
+      <ConfirmToggleDialog
+        customer={toggleTarget}
+        onConfirm={() => void handleToggleStatus()}
+        onClose={() => setToggleTarget(null)}
       />
     </>
   )
