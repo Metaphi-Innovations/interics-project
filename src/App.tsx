@@ -43,7 +43,7 @@ import ForgotPasswordPage from '@/pages/Auth/ForgotPasswordPage'
 import FullPageFormDemo from '@/pages/Demo/FullPageFormDemo'
 
 // App pages
-import Dashboard1Page from '@/pages/Dashboard1/Dashboard1Page'
+import DashboardPage from '@/pages/Dashboard/DashboardPage'
 import ProjectsPage from '@/pages/Projects/ProjectsPage'
 import ProjectDetailPage from '@/pages/Projects/ProjectDetailPage'
 import CreateProjectPage from '@/pages/Projects/CreateProjectPage'
@@ -83,7 +83,7 @@ const navConfig: NavConfig[] = [
         type: 'item',
         label: 'Dashboard',
         icon: <LayoutDashboard size={16} strokeWidth={1.75} />,
-        href: '/dashboard/dashboard-1',
+        href: '/dashboard',
       },
       {
         type: 'item',
@@ -269,7 +269,7 @@ function canShowNavItem(item: NavConfig, user: AuthUser | null): boolean {
   if (item.type === 'group' && item.children) return item.children.length > 0
 
   switch (item.href) {
-    case '/dashboard/dashboard-1':
+    case '/dashboard':
       return hasViewAccess(user, 'dashboard')
     case '/projects':
       return hasViewAccess(user, 'projects')
@@ -427,15 +427,15 @@ function AppInner() {
           }
         >
           <Route index element={<DefaultAppRedirect />} />
-          <Route path="dashboard" element={<DefaultAppRedirect />} />
           <Route
-            path="dashboard/dashboard-1"
+            path="dashboard"
             element={
               <ModuleViewRoute moduleKey="dashboard">
-                <Dashboard1Page />
+                <DashboardPage />
               </ModuleViewRoute>
             }
           />
+          <Route path="dashboard/dashboard-1" element={<Navigate to="/dashboard" replace />} />
           <Route path="projects" element={<ProjectsPage />} />
           <Route path="projects/:id" element={<ProjectDetailPage />} />
           <Route path="customers" element={<CustomersPage />} />
