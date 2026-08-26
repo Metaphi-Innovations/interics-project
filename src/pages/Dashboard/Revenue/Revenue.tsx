@@ -41,6 +41,8 @@ import {
 } from '@/design-system/components'
 import type { StatusType } from '@/design-system/components'
 import { CHART_COLORS, tokens } from '@/design-system/tokens'
+import client from '@/api/client'
+import { unwrapApiData } from '@/modules/system-settings/shared/api'
 import { formatCurrency } from '@/utils/formatters'
 
 interface ChartSeriesLegendItem {
@@ -83,41 +85,12 @@ function ChartSeriesLegend({ items }: { items: ChartSeriesLegendItem[] }) {
   )
 }
 
-/**
- * Sample data for Dashboard — Revenue section (UI only).
- */
-
 export const DASHBOARD_FILTER_OPTIONS = {
-  financialYears: [
-    { value: 'fy-2025-26', label: 'FY 2025–26' },
-    { value: 'fy-2024-25', label: 'FY 2024–25' },
-    { value: 'fy-2023-24', label: 'FY 2023–24' },
-  ],
-  projects: [
-    { value: 'all', label: 'All Projects' },
-    { value: 'prj-001', label: 'Acme Corp - Head Office Redesign' },
-    { value: 'prj-002', label: 'Green Villa - Lobby Design' },
-    { value: 'prj-003', label: 'NovaTech Workspace Fit-out' },
-  ],
-  clients: [
-    { value: 'all', label: 'All Clients' },
-    { value: 'c-001', label: 'Acme Corp' },
-    { value: 'c-002', label: 'Green Villa Developers' },
-    { value: 'c-003', label: 'NovaTech Pvt Ltd' },
-  ],
-  sectors: [
-    { value: 'all', label: 'All Sectors' },
-    { value: 'banking', label: 'Banking' },
-    { value: 'it', label: 'IT Companies' },
-    { value: 'healthcare', label: 'Healthcare' },
-    { value: 'hospitality', label: 'Hospitality' },
-  ],
-  projectManagers: [
-    { value: 'all', label: 'All Project Managers' },
-    { value: 'pm-001', label: 'Arjun Nair' },
-    { value: 'pm-002', label: 'Meera Iyer' },
-    { value: 'pm-003', label: 'Rohan Desai' },
-  ],
+  financialYears: [],
+  projects: [],
+  clients: [],
+  sectors: [],
+  projectManagers: [],
 } as const
 
 export const REVENUE_TIME_PERIOD_OPTIONS = [
@@ -164,51 +137,39 @@ export interface RevenueAnalyticsBundle {
   granularity: RevenueChartGranularity
 }
 
-/**
- * Agreed Revenue Profit formula:
- *   Profit = Amount Received − Amount Paid to Vendors − non-vendor Expenses
- *
- * Vendor payments already reflected in "Amount Paid to Vendors" must not be
- * subtracted again when the same amounts also appear under Expenses
- * (e.g. vendor_linked / included_in_payment). Only the residual non-vendor
- * expense portion is deducted.
- */
+interface RevenueDashboardResponse {
+  kpis: RevenueKpi[]
+}
+
+/** Profit = Amount Received - Amount Paid to Vendors - Amount in Hand. */
 export function computeRevenueProfit(params: {
   amountReceived: number
   amountPaidToVendors: number
-  /** Total expenses in scope (may include vendor-linked amounts). */
-  expensesTotal?: number
-  /** Portion of expensesTotal that is already counted as vendor payments. */
-  vendorPaymentsIncludedInExpenses?: number
+  amountInHand: number
 }): number {
-  const expensesTotal = params.expensesTotal ?? 0
-  const vendorInExpenses = Math.max(0, params.vendorPaymentsIncludedInExpenses ?? 0)
-  const nonVendorExpenses = Math.max(0, expensesTotal - vendorInExpenses)
   return Math.round(
-    params.amountReceived - params.amountPaidToVendors - nonVendorExpenses,
+    params.amountReceived - params.amountPaidToVendors - params.amountInHand,
   )
 }
 
 const BASE_REVENUE_KPI_VALUES = {
-  totalPo: 48_500_000,
-  livePo: 32_200_000,
-  received: 18_750_000,
-  pendingClaim: 6_400_000,
-  paidVendors: 11_200_000,
-  payable: 4_850_000,
-  inHand: 7_550_000,
+  totalPo: 0,
+  livePo: 0,
+  received: 0,
+  pendingClaim: 0,
+  paidVendors: 0,
+  payable: 0,
+  inHand: 0,
 } as const
 
 function buildBaseRevenueKpis(factor: number): RevenueKpi[] {
   const received = scale(BASE_REVENUE_KPI_VALUES.received, factor)
   const paidVendors = scale(BASE_REVENUE_KPI_VALUES.paidVendors, factor)
-  // Vendor payments already sit in Amount Paid to Vendors. Treat that same
-  // amount as the vendor portion of Expenses so it is not double-counted.
+  const inHand = scale(BASE_REVENUE_KPI_VALUES.inHand, factor)
   const profit = computeRevenueProfit({
     amountReceived: received,
     amountPaidToVendors: paidVendors,
-    expensesTotal: paidVendors,
-    vendorPaymentsIncludedInExpenses: paidVendors,
+    amountInHand: inHand,
   })
 
   return [
@@ -257,7 +218,7 @@ function buildBaseRevenueKpis(factor: number): RevenueKpi[] {
     {
       id: 'in-hand',
       title: 'Amount in Hand',
-      value: scale(BASE_REVENUE_KPI_VALUES.inHand, factor),
+      value: inHand,
       subtitle: 'Current available balance.',
       icon: 'cash',
     },
@@ -274,44 +235,22 @@ function buildBaseRevenueKpis(factor: number): RevenueKpi[] {
 /** Prefer getRevenueAnalytics — kept for existing imports. */
 export const REVENUE_KPIS = buildBaseRevenueKpis(1)
 
-const FY_MONTHS = [
-  'Apr',
-  'May',
-  'Jun',
-  'Jul',
-  'Aug',
-  'Sep',
-  'Oct',
-  'Nov',
-  'Dec',
-  'Jan',
-  'Feb',
-  'Mar',
-] as const
+const FY_MONTHS: string[] = []
 
 /** Revenue grouped by client PO date. */
-const BASE_REVENUE_BY_PO_DATE = [
-  2_800_000, 3_100_000, 3_450_000, 3_200_000, 3_900_000, 4_150_000, 4_000_000, 4_600_000,
-  5_100_000, 4_800_000, 5_250_000, 5_600_000,
-]
+const BASE_REVENUE_BY_PO_DATE: number[] = []
 
 /**
  * Revenue grouped by client invoice date — lags PO bookings (invoices follow POs).
  * Same annual total as PO Date, different monthly distribution.
  */
-const BASE_REVENUE_BY_INVOICE_DATE = [
-  2_200_000, 2_750_000, 3_150_000, 3_500_000, 3_450_000, 3_950_000, 4_400_000, 4_250_000,
-  4_900_000, 5_200_000, 5_400_000, 6_800_000,
-]
+const BASE_REVENUE_BY_INVOICE_DATE: number[] = []
 
 /**
  * Revenue grouped by payment received date — further lags invoicing (cash collections).
  * Same annual total as PO Date, different monthly distribution.
  */
-const BASE_REVENUE_BY_PAYMENT_DATE = [
-  1_750_000, 2_300_000, 2_700_000, 3_050_000, 3_400_000, 3_700_000, 4_050_000, 4_450_000,
-  4_800_000, 5_200_000, 5_700_000, 8_850_000,
-]
+const BASE_REVENUE_BY_PAYMENT_DATE: number[] = []
 
 const BASE_REVENUE_BY_DATE_TYPE: Record<RevenueDateType, number[]> = {
   'PO Date': BASE_REVENUE_BY_PO_DATE,
@@ -320,44 +259,25 @@ const BASE_REVENUE_BY_DATE_TYPE: Record<RevenueDateType, number[]> = {
 }
 
 /** Actual client revenue received (cash collected), month-wise. */
-const BASE_CLIENT_RECEIVED = [
-  1_800_000, 2_100_000, 2_400_000, 2_050_000, 2_700_000, 2_900_000, 2_650_000, 3_200_000,
-  3_500_000, 3_100_000, 3_600_000, 3_900_000,
-]
+const BASE_CLIENT_RECEIVED: number[] = []
 
 /** Actual vendor payments released, month-wise (same timeline as client received). */
-const BASE_VENDOR_PAID = [
-  980_000, 1_150_000, 1_320_000, 1_050_000, 1_480_000, 1_600_000, 1_420_000, 1_750_000,
-  1_900_000, 1_650_000, 1_820_000, 2_050_000,
-]
+const BASE_VENDOR_PAID: number[] = []
 
 /** Prefer getRevenueAnalytics */
 export const MONTHLY_REVENUE_TREND = FY_MONTHS.map((month, i) => ({
   month,
-  revenue: BASE_REVENUE_BY_PO_DATE[i],
+  revenue: BASE_REVENUE_BY_PO_DATE[i] ?? 0,
 }))
 
 /** Prefer getRevenueAnalytics */
 export const CLIENT_RECEIVED_VS_VENDOR_PAYMENTS = FY_MONTHS.map((month, i) => ({
   month,
-  clientReceived: BASE_CLIENT_RECEIVED[i],
-  vendorPaid: BASE_VENDOR_PAID[i],
+  clientReceived: BASE_CLIENT_RECEIVED[i] ?? 0,
+  vendorPaid: BASE_VENDOR_PAID[i] ?? 0,
 }))
 
-export const CASH_POSITION_MONTHLY = [
-  { month: 'Apr', inHand: 4_200_000 },
-  { month: 'May', inHand: 4_650_000 },
-  { month: 'Jun', inHand: 5_100_000 },
-  { month: 'Jul', inHand: 4_800_000 },
-  { month: 'Aug', inHand: 5_400_000 },
-  { month: 'Sep', inHand: 5_900_000 },
-  { month: 'Oct', inHand: 5_650_000 },
-  { month: 'Nov', inHand: 6_300_000 },
-  { month: 'Dec', inHand: 6_900_000 },
-  { month: 'Jan', inHand: 6_550_000 },
-  { month: 'Feb', inHand: 7_100_000 },
-  { month: 'Mar', inHand: 7_550_000 },
-]
+export const CASH_POSITION_MONTHLY: Array<{ month: string; inHand: number }> = []
 
 function periodFactor(period: RevenueTimePeriod): number {
   switch (period) {
@@ -431,6 +351,14 @@ function buildDailySeries(
   const clientReceivedVsVendorPayments: RevenueChartPoint[] = []
 
   const revenueSeries = revenueBaseForDateType(dateType)
+  if (
+    revenueSeries.length === 0 ||
+    BASE_CLIENT_RECEIVED.length === 0 ||
+    BASE_VENDOR_PAID.length === 0
+  ) {
+    return { revenueTrend, clientReceivedVsVendorPayments }
+  }
+
   const dailyRevenueBase = (revenueSeries[revenueSeries.length - 1] / 30) * factor
   const dailyClientReceivedBase =
     (BASE_CLIENT_RECEIVED[BASE_CLIENT_RECEIVED.length - 1] / 30) * factor
@@ -464,6 +392,18 @@ function buildMonthlySeries(
   clientReceivedVsVendorPayments: RevenueChartPoint[]
 } {
   const revenueSeries = revenueBaseForDateType(dateType)
+  if (
+    months.length === 0 ||
+    revenueSeries.length === 0 ||
+    BASE_CLIENT_RECEIVED.length === 0 ||
+    BASE_VENDOR_PAID.length === 0
+  ) {
+    return {
+      revenueTrend: [],
+      clientReceivedVsVendorPayments: [],
+    }
+  }
+
   return {
     revenueTrend: months.map((month, i) => ({
       month,
@@ -486,6 +426,17 @@ function buildYearlySeries(
   clientReceivedVsVendorPayments: RevenueChartPoint[]
 } {
   const revenueSeries = revenueBaseForDateType(dateType)
+  if (
+    revenueSeries.length === 0 ||
+    BASE_CLIENT_RECEIVED.length === 0 ||
+    BASE_VENDOR_PAID.length === 0
+  ) {
+    return {
+      revenueTrend: [],
+      clientReceivedVsVendorPayments: [],
+    }
+  }
+
   const yearBaseRevenue = revenueSeries.reduce((a, b) => a + b, 0)
   const yearBaseClientReceived = BASE_CLIENT_RECEIVED.reduce((a, b) => a + b, 0)
   const yearBasePaid = BASE_VENDOR_PAID.reduce((a, b) => a + b, 0)
@@ -786,51 +737,17 @@ interface DrawerConfig {
   totalKey: string
 }
 
-const TOTAL_PO_ROWS = [
-  { project: 'Acme Corp - Head Office', status: 'Live', poNumber: 'PO-2025-001', poDate: '12 Apr 2025', poValue: 12_500_000 },
-  { project: 'Green Villa Lobby', status: 'Live', poNumber: 'PO-2025-002', poDate: '18 May 2025', poValue: 8_200_000 },
-  { project: 'NovaTech Workspace', status: 'Live', poNumber: 'PO-2025-003', poDate: '03 Jun 2025', poValue: 11_500_000 },
-  { project: 'Horizon Campus Phase 1', status: 'Completed', poNumber: 'PO-2024-018', poDate: '10 Jan 2024', poValue: 9_800_000 },
-  { project: 'Pulse Clinic Fit-out', status: 'Completed', poNumber: 'PO-2024-022', poDate: '22 Mar 2024', poValue: 4_200_000 },
-  { project: 'Grand Oak Hospitality', status: 'Archived', poNumber: 'PO-2023-009', poDate: '05 Sep 2023', poValue: 2_300_000 },
-]
+const TOTAL_PO_ROWS: Record<string, string | number>[] = []
 
-const LIVE_PO_ROWS = [
-  { project: 'Acme Corp - Head Office', poNumber: 'PO-2025-001', poDate: '12 Apr 2025', poValue: 12_500_000 },
-  { project: 'Green Villa Lobby', poNumber: 'PO-2025-002', poDate: '18 May 2025', poValue: 8_200_000 },
-  { project: 'NovaTech Workspace', poNumber: 'PO-2025-003', poDate: '03 Jun 2025', poValue: 11_500_000 },
-]
+const LIVE_PO_ROWS: Record<string, string | number>[] = []
 
-/** Paid client invoices — amounts sum to Amount Received KPI base (₹1.875 Cr). */
-const RECEIVED_ROWS = [
-  { client: 'Acme Corp', project: 'Acme Corp - Head Office', amount: 4_500_000, status: 'Paid' },
-  { client: 'Green Villa Developers', project: 'Green Villa Lobby', amount: 3_200_000, status: 'Paid' },
-  { client: 'NovaTech Pvt Ltd', project: 'NovaTech Workspace', amount: 4_800_000, status: 'Paid' },
-  { client: 'Horizon Group', project: 'Horizon Campus Phase 1', amount: 2_850_000, status: 'Paid' },
-  { client: 'Pulse Health', project: 'Pulse Clinic Fit-out', amount: 1_900_000, status: 'Paid' },
-  { client: 'Grand Oak Hotels', project: 'Grand Oak Hospitality', amount: 1_500_000, status: 'Paid' },
-]
+const RECEIVED_ROWS: Record<string, string | number>[] = []
 
-const PENDING_CLAIM_ROWS = [
-  { project: 'Acme Corp - Head Office', invoiceNo: 'INV-2025-014', invoiceAmount: 2_500_000, amountReceived: 1_800_000, pending: 700_000, dueDate: '15 Sep 2025', status: 'Overdue' },
-  { project: 'Green Villa Lobby', invoiceNo: 'INV-2025-018', invoiceAmount: 1_600_000, amountReceived: 0, pending: 1_600_000, dueDate: '30 Sep 2025', status: 'Pending' },
-  { project: 'NovaTech Workspace', invoiceNo: 'INV-2025-025', invoiceAmount: 1_900_000, amountReceived: 200_000, pending: 1_700_000, dueDate: '25 Oct 2025', status: 'Pending' },
-]
+const PENDING_CLAIM_ROWS: Record<string, string | number>[] = []
 
-const PAID_VENDORS_ROWS = [
-  { vendor: 'BuildWell Constructions', project: 'Acme Corp - Head Office', invoiceNo: 'VINV-2025-032', payable: 3_200_000, paid: 3_200_000, paymentDate: '20 Jul 2025' },
-  { vendor: 'ElectroTech Solutions', project: 'Green Villa Lobby', invoiceNo: 'VINV-2025-041', payable: 1_800_000, paid: 1_800_000, paymentDate: '05 Aug 2025' },
-  { vendor: 'Craft Studio Design', project: 'NovaTech Workspace', invoiceNo: 'VINV-2025-048', payable: 2_900_000, paid: 2_900_000, paymentDate: '12 Aug 2025' },
-  { vendor: 'AquaFlow Systems', project: 'Acme Corp - Head Office', invoiceNo: 'VINV-2025-055', payable: 1_650_000, paid: 1_650_000, paymentDate: '18 Aug 2025' },
-  { vendor: 'Nova Acoustics', project: 'NovaTech Workspace', invoiceNo: 'VINV-2025-060', payable: 1_650_000, paid: 1_650_000, paymentDate: '25 Aug 2025' },
-]
+const PAID_VENDORS_ROWS: Record<string, string | number>[] = []
 
-const PAYABLE_ROWS = [
-  { vendor: 'BuildWell Constructions', project: 'Green Villa Lobby', invoiceNo: 'VINV-2025-062', payable: 1_400_000, dueDate: '30 Sep 2025', status: 'Due' },
-  { vendor: 'ElectroTech Solutions', project: 'NovaTech Workspace', invoiceNo: 'VINV-2025-065', payable: 950_000, dueDate: '05 Oct 2025', status: 'Due' },
-  { vendor: 'Craft Studio Design', project: 'Acme Corp - Head Office', invoiceNo: 'VINV-2025-068', payable: 1_200_000, dueDate: '15 Oct 2025', status: 'Upcoming' },
-  { vendor: 'AquaFlow Systems', project: 'NovaTech Workspace', invoiceNo: 'VINV-2025-071', payable: 1_300_000, dueDate: '20 Oct 2025', status: 'Upcoming' },
-]
+const PAYABLE_ROWS: Record<string, string | number>[] = []
 
 function getDrawerConfig(kpiId: ClickableKpiId): DrawerConfig {
   switch (kpiId) {
@@ -1310,11 +1227,41 @@ export function RevenueTab() {
   const [revenuePeriod, setRevenuePeriod] = useState<RevenueTimePeriod>('This Financial Year')
   const [customRange, setCustomRange] = useState<[Date | null, Date | null]>([null, null])
   const [drawerKpi, setDrawerKpi] = useState<RevenueKpi | null>(null)
+  const [serverKpis, setServerKpis] = useState<RevenueKpi[] | null>(null)
 
-  const revenueAnalytics = useMemo(
+  const localRevenueAnalytics = useMemo(
     () => getRevenueAnalytics(revenuePeriod, customRange),
     [revenuePeriod, customRange],
   )
+  const revenueAnalytics = useMemo(
+    () => ({
+      ...localRevenueAnalytics,
+      kpis: serverKpis ?? localRevenueAnalytics.kpis,
+    }),
+    [localRevenueAnalytics, serverKpis],
+  )
+
+  useEffect(() => {
+    let isMounted = true
+
+    async function loadRevenueKpis() {
+      try {
+        const response = await client.get('/dashboard/revenue')
+        const data = unwrapApiData<RevenueDashboardResponse>(response.data)
+        if (!isMounted) return
+        setServerKpis(Array.isArray(data.kpis) ? data.kpis : [])
+      } catch {
+        if (!isMounted) return
+        setServerKpis([])
+      }
+    }
+
+    void loadRevenueKpis()
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
 
   return (
     <Box>
