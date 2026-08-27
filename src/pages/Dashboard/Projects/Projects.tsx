@@ -35,14 +35,11 @@ import {
   Banknote,
   Building2,
   CheckCircle2,
-  CircleDollarSign,
   Clock3,
-  FolderCheck,
   IndianRupee,
   Percent,
   PlayCircle,
   RefreshCw,
-  Ruler,
   Sparkles,
   Wallet,
   X,
@@ -75,31 +72,29 @@ import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { fetchProjects } from '@/slices/projects/thunk'
 import { fetchSectors } from '@/slices/settings/thunk'
 import type { Project } from '@/slices/projects/reducer'
+import client from '@/api/client'
+import { unwrapApiData } from '@/modules/system-settings/shared/api'
 import { formatDate } from '@/utils/formatters'
 import { getSectorTagSx } from '@/utils/sectorTagStyles'
 
 /**
- * Project Analytics chart data — derived from real projects where noted.
+ * Project Analytics chart data is derived from the real Projects module state.
  */
 
-
-export const REPEAT_CLIENTS_KPI = {
-  total: 9,
-  percentage: 37.5,
-  trend: [4, 5, 5, 6, 6, 7, 7, 8, 8, 8, 9, 9],
+interface ProjectsDashboardResponse {
+  data?: {
+    projects?: Project[]
+  }
 }
 
-const PROJECTS_COMPLETED_BY_YEAR = [
-  { year: '2022', completed: 6 },
-  { year: '2023', completed: 9 },
-  { year: '2024', completed: 11 },
-  { year: '2025', completed: 14 },
-  { year: '2026', completed: 8 },
-]
-
-export const PITCH_TO_LIVE_CONVERSION = {
-  avgDays: 42,
-  subtitle: 'Average days from pitch start to live.',
+function asDashboardProjects(value: unknown): Project[] {
+  if (!Array.isArray(value)) return []
+  return value.filter(
+    (project): project is Project =>
+      Boolean(project) &&
+      typeof project === 'object' &&
+      typeof (project as Project).id === 'string',
+  )
 }
 
 interface MonthlyPitchesVsLivePoint {
@@ -303,6 +298,66 @@ function projectSqft(project: Project): number | null {
   const area = project.carpetArea ?? project.chargeableArea ?? null
   if (area == null || area <= 0) return null
   return area
+}
+
+function formatCompactNumber(value: number): string {
+  return Math.round(value).toLocaleString('en-IN')
+}
+
+function formatProjectMoney(value: number): string {
+  const amount = Math.round(value)
+  if (amount >= 10_000_000) return `₹${(amount / 10_000_000).toFixed(2)} Cr`
+  if (amount >= 100_000) return `₹${(amount / 100_000).toFixed(1)} L`
+  return `₹${amount.toLocaleString('en-IN')}`
+}
+
+function countRepeatClients(projects: Project[]): { total: number; percentage: number } {
+  const counts = new Map<string, number>()
+  for (const project of projects) {
+    const key = (project.customerId || project.customerName || '').trim().toLowerCase()
+    if (!key) continue
+    counts.set(key, (counts.get(key) ?? 0) + 1)
+  }
+  const repeatClients = Array.from(counts.values()).filter((count) => count > 1).length
+  const percentage = counts.size > 0 ? Math.round((repeatClients / counts.size) * 1000) / 10 : 0
+  return { total: repeatClients, percentage }
+}
+
+function averageProjectSize(projects: Project[]): number {
+  if (projects.length === 0) return 0
+  const totalSqft = projects.reduce((sum, project) => sum + (projectSqft(project) ?? 0), 0)
+  return Math.round(totalSqft / projects.length)
+}
+
+function averagePitchToLiveDays(projects: Project[]): number {
+  const convertedProjects = projects.filter((project) => project.wentLiveAt)
+  if (convertedProjects.length === 0) return 0
+
+  const totalDays = convertedProjects.reduce((sum, project) => {
+    const liveDate = parseDate(project.wentLiveAt)
+    const pitchDate = parseDate(project.createdAt) ?? parseDate(project.startDate)
+    if (!liveDate || !pitchDate) return sum
+    const days = Math.round(
+      (startOfDay(liveDate).getTime() - startOfDay(pitchDate).getTime()) / 86_400_000,
+    )
+    return sum + Math.max(0, days)
+  }, 0)
+
+  return Math.round(totalDays / convertedProjects.length)
+}
+
+function buildProjectsCompletedByYear(projects: Project[]): Array<{ year: string; completed: number }> {
+  const counts = new Map<string, number>()
+  for (const project of projects) {
+    if (project.status !== 'Completed') continue
+    const completedDate = parseDate(project.completedAt)
+    if (!completedDate) continue
+    const year = String(completedDate.getFullYear())
+    counts.set(year, (counts.get(year) ?? 0) + 1)
+  }
+  return Array.from(counts.entries())
+    .map(([year, completed]) => ({ year, completed }))
+    .sort((a, b) => a.year.localeCompare(b.year))
 }
 
 /**
@@ -750,7 +805,7 @@ function buildProjectLifecycleData(projects: Project[]): {
 }
 
 /**
- * Sample data for Dashboard — Projects Overview module.
+ * Dashboard Projects Overview module.
  */
 
 interface ProjectOverviewKpi {
@@ -774,57 +829,57 @@ const PROJECT_OVERVIEW_KPIS: ProjectOverviewKpi[] = [
   {
     id: 'active',
     title: 'Active Projects',
-    value: '18',
+    value: '0',
     subtitle: 'Projects currently in execution.',
     icon: 'active',
   },
   {
     id: 'completed',
     title: 'Completed Projects',
-    value: '14',
+    value: '0',
     subtitle: 'Successfully handed over.',
     icon: 'completed',
   },
   {
     id: 'pipeline',
     title: 'Pipeline Projects',
-    value: '12',
+    value: '0',
     subtitle: 'In pitch or proposal stage.',
     icon: 'pipeline',
   },
   {
     id: 'cancelled',
     title: 'Cancelled Projects',
-    value: '2',
+    value: '0',
     subtitle: 'Closed without delivery.',
     icon: 'cancelled',
   },
   {
     id: 'archived',
     title: 'Archived Projects',
-    value: '3',
+    value: '0',
     subtitle: 'Archived after completion.',
     icon: 'archived',
   },
   {
     id: 'repeat',
     title: 'Repeat Clients',
-    value: '9',
+    value: '0',
     subtitle: 'Clients with more than one project.',
-    percentage: 37.5,
+    percentage: 0,
     icon: 'repeat',
   },
   {
     id: 'size',
     title: 'Average Project Size',
-    value: '4,850 sqft',
+    value: '0 sqft',
     subtitle: 'Mean carpet area across projects.',
     icon: 'size',
   },
   {
     id: 'conversion',
     title: 'Average Pitch to Live Conversion Time',
-    value: '42 days',
+    value: '0 days',
     subtitle: 'Avg. time from pitch to live.',
     icon: 'conversion',
   },
@@ -840,21 +895,67 @@ const KPI_STATUS_MAP: Record<string, Project['status']> = {
 
 /** Status KPI counts from the Projects module listing (same source as ProjectsPage tabs). */
 function buildProjectOverviewKpis(projects: Project[]): ProjectOverviewKpi[] {
+  const repeatClients = countRepeatClients(projects)
+  const averageSize = averageProjectSize(projects)
+  const conversionDays = averagePitchToLiveDays(projects)
+
   return PROJECT_OVERVIEW_KPIS.map((kpi) => {
     const status = KPI_STATUS_MAP[kpi.id]
-    if (!status) return kpi
-    const count = projects.filter((project) => project.status === status).length
-    return { ...kpi, value: String(count) }
+    if (status) {
+      const count = projects.filter((project) => project.status === status).length
+      return { ...kpi, value: String(count) }
+    }
+    if (kpi.id === 'repeat') {
+      return {
+        ...kpi,
+        value: String(repeatClients.total),
+        percentage: repeatClients.percentage,
+      }
+    }
+    if (kpi.id === 'size') {
+      return { ...kpi, value: `${formatCompactNumber(averageSize)} sqft` }
+    }
+    if (kpi.id === 'conversion') {
+      return { ...kpi, value: `${formatCompactNumber(conversionDays)} days` }
+    }
+    return kpi
   })
 }
 
-const PROJECT_STATUS_DISTRIBUTION: DonutSlice[] = [
-  { key: 'pipeline', label: 'Pipeline', value: 12, color: CHART_COLORS.blue },
-  { key: 'active', label: 'Active', value: 18, color: CHART_COLORS.teal },
-  { key: 'completed', label: 'Completed', value: 14, color: CHART_COLORS.green },
-  { key: 'cancelled', label: 'Cancelled', value: 2, color: CHART_COLORS.red },
-  { key: 'archived', label: 'Archived', value: 3, color: CHART_COLORS.grey },
-]
+function buildProjectStatusDistribution(projects: Project[]): DonutSlice[] {
+  return [
+    {
+      key: 'pipeline',
+      label: 'Pipeline',
+      value: projects.filter((project) => project.status === 'Pitch').length,
+      color: CHART_COLORS.blue,
+    },
+    {
+      key: 'active',
+      label: 'Active',
+      value: projects.filter((project) => project.status === 'Live').length,
+      color: CHART_COLORS.teal,
+    },
+    {
+      key: 'completed',
+      label: 'Completed',
+      value: projects.filter((project) => project.status === 'Completed').length,
+      color: CHART_COLORS.green,
+    },
+    {
+      key: 'cancelled',
+      label: 'Cancelled',
+      value: projects.filter((project) => project.status === 'Cancelled').length,
+      color: CHART_COLORS.red,
+    },
+    {
+      key: 'archived',
+      label: 'Archived',
+      value: projects.filter((project) => project.status === 'Archived').length,
+      color: CHART_COLORS.grey,
+    },
+  ]
+}
 
 /** Sector tag summary — project counts by Sector Master value. */
 interface SectorTag {
@@ -886,10 +987,11 @@ interface SectorMasterLike {
  */
 function buildSectorTagsFromMaster(
   sectors: SectorMasterLike[],
-  projects: Array<{ sector?: string | null }>,
+  projects: Array<{ sector?: string | null; status?: string | null }>,
 ): SectorTag[] {
   const counts = new Map<string, number>()
   for (const project of projects) {
+    if (project.status !== 'Live') continue
     const key = (project.sector ?? '').trim().toLowerCase()
     if (!key) continue
     counts.set(key, (counts.get(key) ?? 0) + 1)
@@ -897,83 +999,26 @@ function buildSectorTagsFromMaster(
 
   return sectors
     .filter((s) => s.status === 'active' && s.name.trim())
-    .map((s, index) => {
+    .flatMap((s, index) => {
       const name = s.name.trim()
-      return {
+      const count = counts.get(name.toLowerCase()) ?? 0
+      if (count === 0) return []
+      return [{
         id: s.id,
         name,
-        count: counts.get(name.toLowerCase()) ?? 0,
+        count,
         color: SECTOR_TAG_COLORS[index % SECTOR_TAG_COLORS.length],
-      }
+      }]
     })
     .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
 }
 
-/** Pitch start timeline retained for the legacy dashboard timeline component. */
-interface PitchStartTimelinePoint {
-  month: string
-  projectCount: number
-  projectName: string
-  pitchStartDate: string
-}
-
-export const PITCH_START_MARKER_MONTH = 'Jun'
-
-export const PITCH_START_TIMELINE: PitchStartTimelinePoint[] = [
-  {
-    month: 'Jan',
-    projectCount: 3,
-    projectName: 'Northgate Offices',
-    pitchStartDate: '12 Jan 2026',
-  },
-  {
-    month: 'Feb',
-    projectCount: 4,
-    projectName: 'Cedar Retail Hub',
-    pitchStartDate: '04 Feb 2026',
-  },
-  {
-    month: 'Mar',
-    projectCount: 5,
-    projectName: 'Pulse Clinic Fit-out',
-    pitchStartDate: '18 Mar 2026',
-  },
-  {
-    month: 'Apr',
-    projectCount: 4,
-    projectName: 'Harbor Residence',
-    pitchStartDate: '09 Apr 2026',
-  },
-  {
-    month: 'May',
-    projectCount: 6,
-    projectName: 'Summit Education Wing',
-    pitchStartDate: '21 May 2026',
-  },
-  {
-    month: 'Jun',
-    projectCount: 7,
-    projectName: 'Horizon Corporate Campus',
-    pitchStartDate: '03 Jun 2026',
-  },
-  {
-    month: 'Jul',
-    projectCount: 5,
-    projectName: 'Lumen Hospitality Suite',
-    pitchStartDate: '14 Jul 2026',
-  },
-  {
-    month: 'Aug',
-    projectCount: 6,
-    projectName: 'AeroTech Workspace',
-    pitchStartDate: '02 Aug 2026',
-  },
-]
-
 /**
- * Sample data for Dashboard — Sector & Project Type Analytics.
+ * Dashboard Sector & Project Type Analytics options.
  */
 
+
+type SectorPerformanceMetric = 'completedCount' | 'avgCompletedSqft'
 
 const SECTOR_FILTER_OPTIONS = [
   { value: 'top5', label: 'Top 5' },
@@ -983,8 +1028,6 @@ const SECTOR_FILTER_OPTIONS = [
 ] as const
 
 type SectorFilterValue = (typeof SECTOR_FILTER_OPTIONS)[number]['value']
-
-type SectorPerformanceMetric = 'completedCount' | 'avgCompletedSqft'
 
 const SECTOR_PERFORMANCE_METRIC_OPTIONS = [
   {
@@ -1047,107 +1090,96 @@ interface SectorPerformanceRow {
   avgCompletedSqft: number
 }
 
-const SECTOR_PERFORMANCE: SectorPerformanceRow[] = [
-  { sector: 'Corporate', completedCount: 15, avgCompletedSqft: 6200 },
-  { sector: 'Retail', completedCount: 9, avgCompletedSqft: 3800 },
-  { sector: 'Healthcare', completedCount: 7, avgCompletedSqft: 5100 },
-  { sector: 'Hospitality', completedCount: 6, avgCompletedSqft: 7400 },
-  { sector: 'Residential', completedCount: 5, avgCompletedSqft: 2900 },
-  { sector: 'Education', completedCount: 4, avgCompletedSqft: 4500 },
-  { sector: 'IT / Tech', completedCount: 4, avgCompletedSqft: 5800 },
-  { sector: 'Banking', completedCount: 3, avgCompletedSqft: 4900 },
-  { sector: 'Manufacturing', completedCount: 3, avgCompletedSqft: 8600 },
-  { sector: 'Pharma', completedCount: 3, avgCompletedSqft: 6700 },
-  { sector: 'F&B', completedCount: 2, avgCompletedSqft: 3200 },
-  { sector: 'Logistics', completedCount: 2, avgCompletedSqft: 9100 },
-  { sector: 'Media', completedCount: 2, avgCompletedSqft: 3600 },
-  { sector: 'Automobile', completedCount: 2, avgCompletedSqft: 7800 },
-  { sector: 'Government', completedCount: 1, avgCompletedSqft: 5400 },
-  { sector: 'Sports', completedCount: 1, avgCompletedSqft: 12000 },
-  { sector: 'Agriculture', completedCount: 1, avgCompletedSqft: 4100 },
-  { sector: 'Energy', completedCount: 1, avgCompletedSqft: 6900 },
-]
+function buildSectorPerformance(projects: Project[]): SectorPerformanceRow[] {
+  const grouped = new Map<string, { completedCount: number; sqft: number[] }>()
+  for (const project of projects) {
+    const sector = project.sector?.trim() || 'Unassigned'
+    const row = grouped.get(sector) ?? { completedCount: 0, sqft: [] }
+    if (project.status === 'Completed') {
+      row.completedCount += 1
+      const sqft = projectSqft(project)
+      if (sqft != null) row.sqft.push(sqft)
+    }
+    grouped.set(sector, row)
+  }
 
-/** @deprecated Prefer SECTOR_PERFORMANCE.completedCount — kept for fee ranking. */
-const PROJECTS_BY_SECTOR = SECTOR_PERFORMANCE.map((r) => ({
-  sector: r.sector,
-  count: r.completedCount,
-}))
+  return Array.from(grouped.entries()).map(([sector, row]) => ({
+    sector,
+    completedCount: row.completedCount,
+    avgCompletedSqft:
+      row.sqft.length > 0
+        ? Math.round(row.sqft.reduce((sum, sqft) => sum + sqft, 0) / row.sqft.length)
+        : 0,
+  }))
+}
 
-const DESIGN_VS_BUILD = [
-  { key: 'design_only', label: 'Design Only', value: 19 },
-  { key: 'design_build', label: 'Design & Build', value: 28 },
-]
-
-/** @deprecated Prefer SECTOR_PERFORMANCE.avgCompletedSqft */
-export const SECTOR_AVG_PROJECT_SIZE = SECTOR_PERFORMANCE.map((r) => ({
-  sector: r.sector,
-  avgSqft: r.avgCompletedSqft,
-}))
-
-/** Average Design / Consultancy / Build fee by sector (₹). */
-export const SECTOR_WISE_FEE_AVERAGE = [
-  { sector: 'Corporate', designFee: 185, consultancyFee: 95, buildFee: 420 },
-  { sector: 'Retail', designFee: 140, consultancyFee: 70, buildFee: 360 },
-  { sector: 'Healthcare', designFee: 210, consultancyFee: 110, buildFee: 480 },
-  { sector: 'Hospitality', designFee: 230, consultancyFee: 120, buildFee: 510 },
-  { sector: 'Residential', designFee: 160, consultancyFee: 80, buildFee: 390 },
-  { sector: 'Education', designFee: 150, consultancyFee: 75, buildFee: 340 },
-  { sector: 'IT / Tech', designFee: 195, consultancyFee: 100, buildFee: 450 },
-  { sector: 'Banking', designFee: 220, consultancyFee: 115, buildFee: 490 },
-  { sector: 'Manufacturing', designFee: 170, consultancyFee: 85, buildFee: 400 },
-  { sector: 'Pharma', designFee: 205, consultancyFee: 105, buildFee: 470 },
-  { sector: 'F&B', designFee: 130, consultancyFee: 65, buildFee: 330 },
-  { sector: 'Logistics', designFee: 145, consultancyFee: 72, buildFee: 350 },
-  { sector: 'Media', designFee: 155, consultancyFee: 78, buildFee: 370 },
-  { sector: 'Automobile', designFee: 175, consultancyFee: 90, buildFee: 410 },
-  { sector: 'Government', designFee: 165, consultancyFee: 88, buildFee: 380 },
-  { sector: 'Sports', designFee: 240, consultancyFee: 125, buildFee: 520 },
-  { sector: 'Agriculture', designFee: 120, consultancyFee: 60, buildFee: 300 },
-  { sector: 'Energy', designFee: 200, consultancyFee: 108, buildFee: 460 },
-]
-
-function sectorFilterLimit(
-  filter: SectorFilterValue,
-  total: number,
-): number {
+function sectorFilterLimit(filter: SectorFilterValue, total: number): number {
   if (filter === 'top5') return 5
   if (filter === 'top10') return 10
   if (filter === 'top15') return 15
   return total
 }
 
-export function limitSectors<T extends { sector: string }>(
-  rows: readonly T[],
-  filter: SectorFilterValue,
-): T[] {
-  const limit = sectorFilterLimit(filter, rows.length)
-  // Keep order aligned with completed-project ranking (already sorted by count).
-  const ranked = PROJECTS_BY_SECTOR.map((s) => s.sector).slice(0, limit)
-  const bySector = new Map(rows.map((r) => [r.sector, r]))
-  return ranked
-    .map((sector) => bySector.get(sector))
-    .filter((row): row is T => Boolean(row))
+function projectTypeLabels(project: Project): string[] {
+  return [
+    ...project.projectTypes,
+    project.projectScope,
+  ]
+    .filter((value): value is string => Boolean(value?.trim()))
+    .map((value) => value.toLowerCase())
+}
+
+function buildDesignVsBuildData(projects: Project[]): DonutSlice[] {
+  let designOnly = 0
+  let designBuild = 0
+
+  for (const project of projects) {
+    const labels = projectTypeLabels(project)
+    const hasBuild = labels.some((label) => label.includes('build'))
+    const hasDesign = labels.some((label) => label.includes('design'))
+    if (hasBuild) designBuild += 1
+    else if (hasDesign) designOnly += 1
+  }
+
+  return [
+    { key: 'design_only', label: 'Design Only', value: designOnly },
+    { key: 'design_build', label: 'Design & Build', value: designBuild },
+  ]
 }
 
 interface SectorPerformanceChartRow {
   sector: string
   value: number
+  plotValue: number
+  completedCount: number
+  avgCompletedSqft: number
   color: string
 }
 
 /** Rows sorted highest→lowest for the selected completed-only metric. */
 function buildSectorPerformanceChartData(
+  projects: Project[],
   filter: SectorFilterValue,
   metric: SectorPerformanceMetric,
 ): SectorPerformanceChartRow[] {
-  const sorted = [...SECTOR_PERFORMANCE].sort((a, b) => b[metric] - a[metric])
-  const limit = sectorFilterLimit(filter, sorted.length)
-  return sorted.slice(0, limit).map((row, index) => ({
-    sector: row.sector,
-    value: row[metric],
-    color: sectorColor(row.sector, index),
-  }))
+  const sorted = buildSectorPerformance(projects).sort(
+    (a, b) => b[metric] - a[metric] || a.sector.localeCompare(b.sector),
+  )
+  const limited = sorted.slice(0, sectorFilterLimit(filter, sorted.length))
+  const maxValue = Math.max(...limited.map((row) => row[metric]), 0)
+  const zeroPlotValue = maxValue > 0 ? maxValue * 0.015 : 1
+
+  return limited.map((row, index) => {
+    const value = row[metric]
+    return {
+      sector: row.sector,
+      value,
+      plotValue: value > 0 ? value : zeroPlotValue,
+      completedCount: row.completedCount,
+      avgCompletedSqft: row.avgCompletedSqft,
+      color: sectorColor(row.sector, index),
+    }
+  })
 }
 
 function getSectorPerformanceMetricMeta(metric: SectorPerformanceMetric) {
@@ -1158,31 +1190,16 @@ function getSectorPerformanceMetricMeta(metric: SectorPerformanceMetric) {
 }
 
 /**
- * Sample data for Dashboard — Project Design Analytics (per-project view).
+ * Project Design Analytics is derived from the real Projects module state.
  */
 
 
-type DesignProjectId =
-  | 'abc-head-office'
-  | 'xyz-corporate'
-  | 'tcs-pune'
-  | 'infosys-bangalore'
-  | 'wipro-hyderabad'
+type DesignProjectId = string
 
 interface DesignProjectOption {
   id: DesignProjectId
   label: string
 }
-
-const DESIGN_PROJECT_OPTIONS: DesignProjectOption[] = [
-  { id: 'abc-head-office', label: 'ABC Head Office' },
-  { id: 'xyz-corporate', label: 'XYZ Corporate Office' },
-  { id: 'tcs-pune', label: 'TCS Pune Office' },
-  { id: 'infosys-bangalore', label: 'Infosys Bangalore' },
-  { id: 'wipro-hyderabad', label: 'Wipro Hyderabad' },
-]
-
-const DEFAULT_DESIGN_PROJECT_ID: DesignProjectId = 'abc-head-office'
 
 type DesignFinancialIcon = 'value' | 'payable' | 'profit' | 'fee'
 
@@ -1308,72 +1325,71 @@ function duration(planned: number, actual: number): DesignDurationRow[] {
   ]
 }
 
-const DESIGN_PROJECT_ANALYTICS: Record<DesignProjectId, DesignProjectAnalytics> = {
-  'abc-head-office': {
+function projectValue(project: Project): number {
+  return project.totalClientPOValue || project.projectValue || 0
+}
+
+function projectDesignFee(project: Project): number {
+  const sqft = projectSqft(project) ?? 0
+  return project.designFeePerSqft ? Math.round(project.designFeePerSqft * sqft) : 0
+}
+
+function projectProfitPercent(project: Project): string {
+  const value = projectValue(project)
+  const vendorValue = project.totalVendorPOValue || 0
+  if (value <= 0) return '0%'
+  return `${Math.round(((value - vendorValue) / value) * 1000) / 10}%`
+}
+
+function buildDesignProjectAnalytics(project: Project): DesignProjectAnalytics {
+  const sqft = projectSqft(project) ?? 0
+  const startDate = parseDate(project.startDate)
+  const expectedEndDate = parseDate(project.expectedEndDate)
+  const plannedDays =
+    startDate && expectedEndDate
+      ? Math.max(
+          0,
+          Math.round((startOfDay(expectedEndDate).getTime() - startOfDay(startDate).getTime()) / 86_400_000),
+        )
+      : 0
+  const actualEndDate =
+    parseDate(project.completedAt) ??
+    parseDate(project.cancelledAt) ??
+    parseDate(project.archivedAt) ??
+    new Date()
+  const actualDays =
+    startDate
+      ? Math.max(
+          0,
+          Math.round((startOfDay(actualEndDate).getTime() - startOfDay(startDate).getTime()) / 86_400_000),
+        )
+      : 0
+
+  return {
     details: {
-      projectName: 'ABC Head Office',
-      carpetArea: '4,850 sqft',
-      headcount: '120',
-      building: 'Connaught Place Tower, Delhi',
-      clientSector: 'Corporate',
-      projectManager: 'Arjun Nair',
+      projectName: project.name,
+      carpetArea: sqft > 0 ? `${formatCompactNumber(sqft)} sqft` : '—',
+      headcount: project.headcount != null ? formatCompactNumber(project.headcount) : '—',
+      building: project.building || project.location || '—',
+      clientSector: project.sector || '—',
+      projectManager: project.projectManager || '—',
     },
-    financialSummary: financialSummary('₹2.85 Cr', '₹48.2 L', '18.4%', '₹21.4 L'),
-    feePerSqft: feePerSqft(185, 420, 255),
-    duration: duration(120, 138),
-  },
-  'xyz-corporate': {
-    details: {
-      projectName: 'XYZ Corporate Office',
-      carpetArea: '7,200 sqft',
-      headcount: '210',
-      building: 'BKC Platinum, Mumbai',
-      clientSector: 'BFSI',
-      projectManager: 'Meera Shah',
-    },
-    financialSummary: financialSummary('₹4.10 Cr', '₹72.5 L', '21.2%', '₹34.8 L'),
-    feePerSqft: feePerSqft(210, 480, 292),
-    duration: duration(150, 162),
-  },
-  'tcs-pune': {
-    details: {
-      projectName: 'TCS Pune Office',
-      carpetArea: '12,400 sqft',
-      headcount: '480',
-      building: 'Hinjewadi Phase 2, Pune',
-      clientSector: 'IT / Technology',
-      projectManager: 'Rohan Deshmukh',
-    },
-    financialSummary: financialSummary('₹6.75 Cr', '₹1.15 Cr', '16.8%', '₹52.0 L'),
-    feePerSqft: feePerSqft(160, 390, 220),
-    duration: duration(180, 195),
-  },
-  'infosys-bangalore': {
-    details: {
-      projectName: 'Infosys Bangalore',
-      carpetArea: '9,600 sqft',
-      headcount: '350',
-      building: 'Electronic City Campus, Bengaluru',
-      clientSector: 'IT / Technology',
-      projectManager: 'Priya Menon',
-    },
-    financialSummary: financialSummary('₹5.40 Cr', '₹89.0 L', '19.6%', '₹41.2 L'),
-    feePerSqft: feePerSqft(195, 450, 273),
-    duration: duration(165, 158),
-  },
-  'wipro-hyderabad': {
-    details: {
-      projectName: 'Wipro Hyderabad',
-      carpetArea: '8,150 sqft',
-      headcount: '275',
-      building: 'Gachibowli Tech Park, Hyderabad',
-      clientSector: 'IT / Technology',
-      projectManager: 'Karthik Reddy',
-    },
-    financialSummary: financialSummary('₹3.95 Cr', '₹61.4 L', '17.1%', '₹29.6 L'),
-    feePerSqft: feePerSqft(172, 410, 236),
-    duration: duration(140, 149),
-  },
+    financialSummary: financialSummary(
+      formatProjectMoney(projectValue(project)),
+      formatProjectMoney(project.totalVendorPOValue || 0),
+      projectProfitPercent(project),
+      formatProjectMoney(projectDesignFee(project)),
+    ),
+    feePerSqft: feePerSqft(
+      project.designFeePerSqft ?? 0,
+      project.buildValuePerSqft ?? 0,
+      project.designFeePerSqftLevel2 ?? 0,
+      project.buildValuePerSqftLevel2
+        ? [{ service: 'Build Level 2', feePerSqft: project.buildValuePerSqftLevel2 }]
+        : [],
+    ),
+    duration: duration(plannedDays, actualDays),
+  }
 }
 
 interface FeePerSqftChartRow {
@@ -1394,49 +1410,6 @@ function buildFeePerSqftChartData(
       color: feeCategoryColor(r.service, index),
     }))
 }
-
-/**
- * Sample data for Dashboard — Larger Meta Data section.
- */
-
-interface MetaKpi {
-  id: string
-  title: string
-  value: string
-  subtitle: string
-  icon: 'projects' | 'area' | 'revenue' | 'fee'
-}
-
-const LARGER_META_KPIS: MetaKpi[] = [
-  {
-    id: 'projects',
-    title: 'Total Projects Completed',
-    value: '142',
-    subtitle: 'All-time completed projects across the portfolio.',
-    icon: 'projects',
-  },
-  {
-    id: 'area',
-    title: 'Total Area Designed (Lifetime)',
-    value: '6.8 Lakh sqft',
-    subtitle: 'Cumulative carpet area designed to date.',
-    icon: 'area',
-  },
-  {
-    id: 'revenue',
-    title: 'Total Revenue',
-    value: '₹48.2 Cr',
-    subtitle: 'Lifetime revenue across all projects.',
-    icon: 'revenue',
-  },
-  {
-    id: 'fee',
-    title: 'Average Fee / Sq.ft',
-    value: '₹710',
-    subtitle: 'Mean design fee realised per square foot.',
-    icon: 'fee',
-  },
-]
 
 interface ChartSeriesLegendItem {
   label: string
@@ -1969,6 +1942,7 @@ function SectorTagChip({ tag }: { tag: SectorTag }) {
 }
 
 interface ProjectsOverviewSectionProps {
+  projects: Project[]
   dateRange?: string
   clientFilter?: string
   statusFilter?: string
@@ -1976,19 +1950,18 @@ interface ProjectsOverviewSectionProps {
 }
 
 function ProjectsOverviewSection({
+  projects,
   dateRange = 'This Year',
   clientFilter = 'All Clients',
   statusFilter = 'All Status',
   pmFilter = 'All Managers',
 }: ProjectsOverviewSectionProps) {
   const dispatch = useAppDispatch()
-  const projects = useAppSelector((s) => s.projects.items ?? [])
   const sectors = useAppSelector((s) => s.settings.sectors)
 
   const [drawerKpi, setDrawerKpi] = useState<ProjectOverviewKpi | null>(null)
 
   useEffect(() => {
-    void dispatch(fetchProjects({ page: 1, pageSize: 500 }))
     void dispatch(fetchSectors())
   }, [dispatch])
 
@@ -2005,9 +1978,14 @@ function ProjectsOverviewSection({
 
   const overviewKpis = useMemo(() => buildProjectOverviewKpis(projects), [projects])
 
-  const totalProjects = PROJECT_STATUS_DISTRIBUTION.reduce((sum, s) => sum + s.value, 0)
-  const designBuildTotal = DESIGN_VS_BUILD.reduce((sum, s) => sum + s.value, 0)
-  const designBuildDonutData = DESIGN_VS_BUILD.map((s) => ({
+  const projectStatusDistribution = useMemo(
+    () => buildProjectStatusDistribution(projects),
+    [projects],
+  )
+  const totalProjects = projectStatusDistribution.reduce((sum, s) => sum + s.value, 0)
+  const designBuildDonutData = useMemo(() => buildDesignVsBuildData(projects), [projects])
+  const designBuildTotal = designBuildDonutData.reduce((sum, s) => sum + s.value, 0)
+  const designBuildDonutSlices = designBuildDonutData.map((s) => ({
     ...s,
     color: DESIGN_VS_BUILD_COLORS[s.key as keyof typeof DESIGN_VS_BUILD_COLORS],
   }))
@@ -2064,7 +2042,7 @@ function ProjectsOverviewSection({
           >
             {sectorTags.length === 0 ? (
               <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12 }}>
-                No active sectors in Sector Master.
+                No live project sectors found.
               </Typography>
             ) : (
               sectorTags.map((tag) => (
@@ -2098,7 +2076,7 @@ function ProjectsOverviewSection({
                 }}
               >
                 <DonutChart
-                  data={[...PROJECT_STATUS_DISTRIBUTION]}
+                  data={projectStatusDistribution}
                   height={300}
                   showLegend={false}
                   centerValue={String(totalProjects)}
@@ -2117,7 +2095,7 @@ function ProjectsOverviewSection({
                 }}
               >
                 <Stack spacing={1.25}>
-                  {PROJECT_STATUS_DISTRIBUTION.map((slice) => (
+                  {projectStatusDistribution.map((slice) => (
                     <StatusLegendItem key={slice.key} slice={slice} />
                   ))}
                 </Stack>
@@ -2132,7 +2110,7 @@ function ProjectsOverviewSection({
             subtitle="Split of project delivery types"
           >
             <DonutChart
-              data={designBuildDonutData}
+              data={designBuildDonutSlices}
               height={300}
               centerValue={String(designBuildTotal)}
               centerLabel="Projects"
@@ -2643,6 +2621,7 @@ function LifecycleChart({
 /* ─────────────────── section component ─────────────────── */
 
 interface ProjectAnalyticsSectionProps {
+  projects: Project[]
   dateRange?: string
   clientFilter?: string
   statusFilter?: string
@@ -2650,19 +2629,13 @@ interface ProjectAnalyticsSectionProps {
 }
 
 function ProjectAnalyticsSection({
+  projects,
   clientFilter = 'All Clients',
   statusFilter = 'All Status',
   pmFilter = 'All Managers',
 }: ProjectAnalyticsSectionProps) {
-  const dispatch = useAppDispatch()
-  const projects = useAppSelector((s) => s.projects.items ?? [])
-
   const [projectId, setProjectId] = useState(ALL_PROJECTS_VALUE)
   const [tooltip, setTooltip] = useState<TooltipState | null>(null)
-
-  useEffect(() => {
-    void dispatch(fetchProjects({ page: 1, pageSize: 500 }))
-  }, [dispatch])
 
   // Lifecycle chart ignores date-range filter so spans remain visible.
   const lifecycleProjects = useMemo(
@@ -2727,6 +2700,11 @@ function ProjectAnalyticsSection({
       : Date.now()
     return buildFyAxis(refTs)
   }, [visibleEvents])
+
+  const projectsCompletedByYear = useMemo(
+    () => buildProjectsCompletedByYear(projects),
+    [projects],
+  )
 
   return (
     <Box sx={{ mb: 3 }}>
@@ -2823,13 +2801,23 @@ function ProjectAnalyticsSection({
             title="Projects Completed by Year"
             subtitle="Yearly completed project count"
           >
-            <BarChart
-              data={[...PROJECTS_COMPLETED_BY_YEAR]}
-              xKey="year"
-              height={260}
-              bars={[{ key: 'completed', label: 'Completed', color: CHART_COLORS.green }]}
-              showLegend={false}
-            />
+            {projectsCompletedByYear.length === 0 ? (
+              <Typography
+                variant="body2"
+                color="text.secondary"
+                sx={{ fontSize: 12, py: 6, textAlign: 'center' }}
+              >
+                No completed projects with completion dates.
+              </Typography>
+            ) : (
+              <BarChart
+                data={projectsCompletedByYear}
+                xKey="year"
+                height={260}
+                bars={[{ key: 'completed', label: 'Completed', color: CHART_COLORS.green }]}
+                showLegend={false}
+              />
+            )}
           </ChartCard>
         </Grid>
       </Grid>
@@ -2841,8 +2829,8 @@ function ProjectAnalyticsSection({
  * Dashboard — Sector & Project Type Analytics
  */
 
-const SELECT_SX = { minWidth: 120, fontSize: 12, height: 32 } as const
 const METRIC_SELECT_SX = { minWidth: 220, fontSize: 12, height: 32 } as const
+const SELECT_SX = { minWidth: 120, fontSize: 12, height: 32 } as const
 const MENU_ITEM_SX = { fontSize: 12 } as const
 
 const SECTOR_FILTER_LABEL_SX = {
@@ -2872,7 +2860,7 @@ function formatBarEndLabel(
   if (metric === 'avgCompletedSqft') {
     const n = typeof value === 'number' ? value : Number(value)
     if (Number.isNaN(n)) return String(value)
-    return n.toLocaleString('en-IN')
+    return `${n.toLocaleString('en-IN')} sqft`
   }
   return formatCompletedCount(value)
 }
@@ -2908,8 +2896,9 @@ function SectorPerformanceTooltip({
   if (!active || !payload?.length) return null
   const entry = payload[0]
   if (!entry) return null
-  const sector = String((entry.payload as { sector?: string } | undefined)?.sector ?? '')
-  const raw = typeof entry.value === 'number' ? entry.value : Number(entry.value)
+  const row = entry.payload as SectorPerformanceChartRow | undefined
+  const sector = String(row?.sector ?? '')
+  const raw = typeof row?.value === 'number' ? row.value : Number(row?.value)
   if (Number.isNaN(raw)) return null
   const meta = getSectorPerformanceMetricMeta(metric)
 
@@ -2944,7 +2933,7 @@ function SectorPerformanceChart({
   xAxisLabel,
   height = 300,
 }: {
-  data: Array<{ sector: string; value: number; color: string }>
+  data: SectorPerformanceChartRow[]
   metric: SectorPerformanceMetric
   xAxisLabel: string
   height?: number
@@ -2954,12 +2943,13 @@ function SectorPerformanceChart({
   const pxPerRow = ct.isMobile ? 34 : 38
   const sizedHeight = Math.max(height, data.length * pxPerRow + 56)
   const h = ct.isMobile ? Math.round(sizedHeight * 0.92) : sizedHeight
+  const maxPlotValue = Math.max(...data.map((row) => row.plotValue), 0)
   const formatX =
     metric === 'avgCompletedSqft'
       ? (v: number | string) => {
           const n = typeof v === 'number' ? v : Number(v)
           if (Number.isNaN(n)) return String(v)
-          return n.toLocaleString('en-IN')
+          return `${n.toLocaleString('en-IN')} sqft`
         }
       : (v: number | string) => formatCompletedCount(v)
 
@@ -2967,13 +2957,14 @@ function SectorPerformanceChart({
     <Box sx={{ width: '100%' }}>
       <ResponsiveContainer width="100%" height={h}>
         <RechartsBarChart
+          key={`${metric}-${xAxisLabel}`}
           data={data}
           layout="vertical"
           barCategoryGap="28%"
           margin={{
             top: 8,
             right: ct.isMobile ? 36 : 48,
-            left: ct.isMobile ? 4 : 8,
+            left: ct.isMobile ? 36 : 56,
             bottom: 28,
           }}
         >
@@ -2986,6 +2977,7 @@ function SectorPerformanceChart({
           />
           <XAxis
             type="number"
+            domain={[0, Math.max(1, Math.ceil(maxPlotValue))]}
             tick={ct.axisStyle}
             tickLine={false}
             axisLine={{ stroke: ct.gridProps.stroke }}
@@ -3006,15 +2998,16 @@ function SectorPerformanceChart({
             dataKey="sector"
             interval={0}
             minTickGap={0}
-            tick={ct.axisStyle}
+            tick={{ ...ct.axisStyle, textAnchor: 'end' }}
+            tickMargin={8}
             tickLine={false}
             axisLine={{ stroke: ct.gridProps.stroke }}
-            width={ct.isMobile ? 72 : 96}
+            width={ct.isMobile ? 96 : 128}
             label={{
               value: 'Sectors',
               angle: -90,
               position: 'insideLeft',
-              offset: 4,
+              offset: ct.isMobile ? -24 : -38,
               style: {
                 fill: tokens.color.neutral[500],
                 fontSize: 11,
@@ -3033,10 +3026,11 @@ function SectorPerformanceChart({
             }}
           />
           <Bar
-            dataKey="value"
+            dataKey="plotValue"
             name={xAxisLabel}
             radius={[0, 8, 8, 0]}
             maxBarSize={22}
+            minPointSize={6}
             isAnimationActive={false}
             activeBar={false}
           >
@@ -3061,14 +3055,14 @@ function SectorPerformanceChart({
   )
 }
 
-function SectorAnalyticsSection() {
+function SectorAnalyticsSection({ projects }: { projects: Project[] }) {
   const [performanceFilter, setPerformanceFilter] = useState<SectorFilterValue>('top5')
   const [performanceMetric, setPerformanceMetric] =
     useState<SectorPerformanceMetric>('completedCount')
 
   const performanceData = useMemo(
-    () => buildSectorPerformanceChartData(performanceFilter, performanceMetric),
-    [performanceFilter, performanceMetric],
+    () => buildSectorPerformanceChartData(projects, performanceFilter, performanceMetric),
+    [projects, performanceFilter, performanceMetric],
   )
   const performanceMeta = getSectorPerformanceMetricMeta(performanceMetric)
 
@@ -3513,37 +3507,73 @@ function FeePerSqftCategoryChart({
   )
 }
 
-function ProjectDesignAnalyticsSection() {
-  const [projectId, setProjectId] = useState<DesignProjectId>(DEFAULT_DESIGN_PROJECT_ID)
+function ProjectDesignAnalyticsSection({ projects }: { projects: Project[] }) {
+  const [projectId, setProjectId] = useState<DesignProjectId>('')
   const [pendingId, setPendingId] = useState<DesignProjectId | null>(null)
   const [loading, setLoading] = useState(false)
   const switchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  const projectOptions = useMemo<DesignProjectOption[]>(
+    () =>
+      projects
+        .map((project) => ({
+          id: project.id,
+          label: project.name || project.projectCode || 'Untitled Project',
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label)),
+    [projects],
+  )
+
   const selectorId = pendingId ?? projectId
 
   const selectedOption = useMemo(
-    () => DESIGN_PROJECT_OPTIONS.find((o) => o.id === selectorId) ?? DESIGN_PROJECT_OPTIONS[0],
-    [selectorId],
+    () => projectOptions.find((o) => o.id === selectorId) ?? projectOptions[0] ?? null,
+    [projectOptions, selectorId],
   )
 
-  const analytics = DESIGN_PROJECT_ANALYTICS[projectId]
+  useEffect(() => {
+    if (!projectOptions.length) {
+      if (projectId) setProjectId('')
+      return
+    }
+
+    if (!projectId || !projectOptions.some((option) => option.id === projectId)) {
+      setProjectId(projectOptions[0]!.id)
+    }
+  }, [projectId, projectOptions])
+
+  const selectedProject = useMemo(
+    () =>
+      projects.find((project) => project.id === projectId) ??
+      (selectedOption ? projects.find((project) => project.id === selectedOption.id) : null) ??
+      null,
+    [projectId, projects, selectedOption],
+  )
+
+  const analytics = useMemo(
+    () => (selectedProject ? buildDesignProjectAnalytics(selectedProject) : null),
+    [selectedProject],
+  )
 
   const feeChartData = useMemo(
-    () => buildFeePerSqftChartData(analytics.feePerSqft),
-    [analytics.feePerSqft],
+    () => buildFeePerSqftChartData(analytics?.feePerSqft ?? []),
+    [analytics],
   )
 
   const feeChartHeight = Math.max(240, Math.min(420, feeChartData.length * 52 + 80))
 
   const detailFields = useMemo(
-    () => [
-      { label: 'Project Name', value: analytics.details.projectName },
-      { label: 'Carpet Area', value: analytics.details.carpetArea },
-      { label: 'Headcount', value: analytics.details.headcount },
-      { label: 'Building', value: analytics.details.building },
-      { label: 'Client Sector', value: analytics.details.clientSector },
-      { label: 'Project Manager', value: analytics.details.projectManager },
-    ],
+    () =>
+      analytics
+        ? [
+            { label: 'Project Name', value: analytics.details.projectName },
+            { label: 'Carpet Area', value: analytics.details.carpetArea },
+            { label: 'Headcount', value: analytics.details.headcount },
+            { label: 'Building', value: analytics.details.building },
+            { label: 'Client Sector', value: analytics.details.clientSector },
+            { label: 'Project Manager', value: analytics.details.projectManager },
+          ]
+        : [],
     [analytics],
   )
 
@@ -3573,6 +3603,37 @@ function ProjectDesignAnalyticsSection() {
       setLoading(false)
       switchTimerRef.current = null
     }, PROJECT_SWITCH_DELAY_MS)
+  }
+
+  if (!analytics) {
+    return (
+      <Box sx={{ mb: 3 }}>
+        <Box sx={{ mb: 1.5 }}>
+          <Typography variant="h6" fontWeight={700} sx={{ fontSize: 16 }}>
+            Project Design Analytics
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12, mt: 0.25 }}>
+            Detailed design metrics for an individual project.
+          </Typography>
+        </Box>
+
+        <Paper
+          elevation={0}
+          sx={{
+            p: 4,
+            borderRadius: '10px',
+            border: `1px solid ${tokens.color.neutral[200]}`,
+            boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+            bgcolor: 'background.paper',
+            textAlign: 'center',
+          }}
+        >
+          <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12 }}>
+            No projects available for design analytics.
+          </Typography>
+        </Paper>
+      </Box>
+    )
   }
 
   return (
@@ -3614,7 +3675,7 @@ function ProjectDesignAnalyticsSection() {
           <Autocomplete
             size="small"
             disableClearable
-            options={DESIGN_PROJECT_OPTIONS}
+            options={projectOptions}
             value={selectedOption}
             onChange={handleProjectChange}
             getOptionLabel={(option) => option.label}
@@ -3743,131 +3804,67 @@ function ProjectDesignAnalyticsSection() {
   )
 }
 
-/**
- * Dashboard — Larger Meta Data
- * Company-wide achievement KPIs
- */
-
-const META_KPI_ICON_MAP: Record<MetaKpi['icon'], { node: ReactNode; color: string }> = {
-  projects: {
-    node: <FolderCheck size={18} strokeWidth={1.75} />,
-    color: CHART_COLORS.teal,
-  },
-  area: {
-    node: <Ruler size={18} strokeWidth={1.75} />,
-    color: CHART_COLORS.blue,
-  },
-  revenue: {
-    node: <CircleDollarSign size={18} strokeWidth={1.75} />,
-    color: CHART_COLORS.green,
-  },
-  fee: {
-    node: <Building2 size={18} strokeWidth={1.75} />,
-    color: CHART_COLORS.amber,
-  },
-}
-
-function MetaKpiCard({ kpi }: { kpi: MetaKpi }) {
-  const theme = useTheme()
-  const iconMeta = META_KPI_ICON_MAP[kpi.icon]
-
-  return (
-    <Paper
-      elevation={0}
-      sx={{
-        height: '100%',
-        p: 2,
-        borderRadius: '10px',
-        border: `1px solid ${tokens.color.neutral[200]}`,
-        boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 1,
-        bgcolor: 'background.paper',
-      }}
-    >
-      <Box
-        sx={{
-          display: 'flex',
-          alignItems: 'flex-start',
-          justifyContent: 'space-between',
-          gap: 1,
-        }}
-      >
-        <Typography
-          variant="caption"
-          color="text.secondary"
-          fontWeight={600}
-          sx={{ fontSize: 11, letterSpacing: 0.3, lineHeight: 1.35, pr: 0.5 }}
-        >
-          {kpi.title}
-        </Typography>
-        <Box
-          sx={{
-            width: 34,
-            height: 34,
-            borderRadius: '8px',
-            flexShrink: 0,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            bgcolor: alpha(iconMeta.color, theme.palette.mode === 'dark' ? 0.2 : 0.1),
-            color: iconMeta.color,
-          }}
-        >
-          {iconMeta.node}
-        </Box>
-      </Box>
-
-      <Typography
-        variant="h5"
-        fontWeight={700}
-        sx={{ fontSize: { xs: 18, md: 20 }, lineHeight: 1.2, letterSpacing: -0.3 }}
-      >
-        {kpi.value}
-      </Typography>
-
-      <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11, mt: 'auto' }}>
-        {kpi.subtitle}
-      </Typography>
-    </Paper>
-  )
-}
-
-export function LargerMetaDataSection({
-  kpis = LARGER_META_KPIS,
-}: {
-  kpis?: MetaKpi[]
-} = {}) {
-  return (
-    <Box sx={{ mb: 3 }}>
-      <Box sx={{ mb: 1.5 }}>
-        <Typography variant="h6" fontWeight={700} sx={{ fontSize: 16 }}>
-          Larger Meta Data
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12, mt: 0.25 }}>
-          Overall company achievements across the portfolio.
-        </Typography>
-      </Box>
-
-      <Grid container spacing={2}>
-        {kpis.map((kpi) => (
-          <Grid key={kpi.id} size={{ xs: 12, sm: 6, md: 3 }}>
-            <MetaKpiCard kpi={kpi} />
-          </Grid>
-        ))}
-      </Grid>
-    </Box>
-  )
-}
-
 export function ProjectsTab() {
+  const dispatch = useAppDispatch()
+  const fallbackProjects = useAppSelector((s) => s.projects.items ?? [])
+  const [dashboardProjects, setDashboardProjects] = useState<Project[] | null>(null)
+
+  const loadProjectsDashboard = useCallback(
+    async (isActive: () => boolean) => {
+      try {
+        const response = await client.get('/dashboard/projects')
+        const data = unwrapApiData<ProjectsDashboardResponse>(response.data)
+        if (!isActive()) return
+        const projects = asDashboardProjects(data.data?.projects)
+        if (projects.length === 0) {
+          setDashboardProjects(null)
+          void dispatch(fetchProjects({ page: 1, pageSize: 500 }))
+          return
+        }
+        setDashboardProjects(projects)
+      } catch {
+        if (!isActive()) return
+        setDashboardProjects(null)
+        void dispatch(fetchProjects({ page: 1, pageSize: 500 }))
+      }
+    },
+    [dispatch],
+  )
+
+  useEffect(() => {
+    let isMounted = true
+    const isActive = () => isMounted
+
+    void loadProjectsDashboard(isActive)
+
+    function handleFocus() {
+      void loadProjectsDashboard(isActive)
+    }
+
+    function handleVisibilityChange() {
+      if (document.visibilityState === 'visible') {
+        void loadProjectsDashboard(isActive)
+      }
+    }
+
+    window.addEventListener('focus', handleFocus)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    return () => {
+      isMounted = false
+      window.removeEventListener('focus', handleFocus)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [loadProjectsDashboard])
+
+  const projects = dashboardProjects ?? fallbackProjects
+
   return (
     <Box>
-      <ProjectsOverviewSection />
-      <ProjectAnalyticsSection />
-      <SectorAnalyticsSection />
-      <ProjectDesignAnalyticsSection />
+      <ProjectsOverviewSection projects={projects} />
+      <ProjectAnalyticsSection projects={projects} />
+      <SectorAnalyticsSection projects={projects} />
+      <ProjectDesignAnalyticsSection projects={projects} />
     </Box>
   )
 }
