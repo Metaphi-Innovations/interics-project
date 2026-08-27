@@ -4,6 +4,7 @@ import {
   Table, TableHead, TableRow, TableCell, TableBody, TableContainer,
   Divider,
   Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions,
+  Skeleton,
 } from '@mui/material'
 import { Plus } from 'lucide-react'
 import { Button, Modal, useToast } from '@/design-system/components'
@@ -42,6 +43,8 @@ import {
   firstErrorMessage,
 } from '@/modules/system-settings/shared/settings-validation'
 import { parseSettingsApiError, clearFieldError } from '@/modules/system-settings/shared/api-errors'
+import { LISTING_DEFAULT_PAGE_SIZE } from '@/components/listing/listingStandards'
+import { SettingsListingPagination } from '../components/SettingsListingPagination'
 
 const SERVICE_DATA_COL_COUNT = 5
 const serviceDataColWidth = settingsDataColWidth(SERVICE_DATA_COL_COUNT)
@@ -84,8 +87,8 @@ export default function ServicesSection() {
   const dispatch = useAppDispatch()
   const success = useToast((s) => s.success)
   const error = useToast((s) => s.error)
-  const { services, categories, sacCodes, gstRates, saving } = useAppSelector(s => s.settings)
-  const listing = useListingQuery({ pageSize: 100 })
+  const { services, servicesTotal, categories, sacCodes, gstRates, saving, loading } = useAppSelector(s => s.settings)
+  const listing = useListingQuery({ pageSize: LISTING_DEFAULT_PAGE_SIZE })
   const [sortField, setSortField] = useState<string>()
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -107,9 +110,9 @@ export default function ServicesSection() {
 
   useEffect(() => {
     void Promise.all([
-      dispatch(fetchCategories()),
-      dispatch(fetchSACCodes()),
-      dispatch(fetchGSTRates()),
+      dispatch(fetchCategories({ force: true, page: 1, limit: 100 })),
+      dispatch(fetchSACCodes({ force: true, page: 1, limit: 100 })),
+      dispatch(fetchGSTRates({ force: true, page: 1, limit: 100 })),
     ])
     void servicesService.getFilters()
       .then((data) => {
@@ -124,22 +127,24 @@ export default function ServicesSection() {
       .catch(() => undefined)
   }, [dispatch])
 
+  const buildListParams = () => ({
+    force: true as const,
+    page: listing.apiPage,
+    limit: listing.pageSize,
+    search: listing.debouncedSearch || undefined,
+    name: listing.filters.name,
+    categoryId: listing.filters.categoryId,
+    sacCode: listing.filters.sacCode,
+    gstRate: listing.filters.gstRate,
+    isActive: listing.filters.isActive,
+    sortBy: sortField,
+    sortOrder: sortField ? sortDirection : undefined,
+  })
+
   useEffect(() => {
     if (isSearchPending) return
-    void dispatch(
-      fetchServices({
-        search: listing.debouncedSearch || undefined,
-        name: listing.filters.name,
-        categoryId: listing.filters.categoryId,
-        sacCode: listing.filters.sacCode,
-        gstRate: listing.filters.gstRate,
-        isActive: listing.filters.isActive,
-        sortBy: sortField,
-        sortOrder: sortField ? sortDirection : undefined,
-        force: true,
-      }),
-    )
-  }, [dispatch, isSearchPending, listing.debouncedSearch, listing.filters, search, sortDirection, sortField])
+    void dispatch(fetchServices(buildListParams()))
+  }, [dispatch, isSearchPending, listing.debouncedSearch, listing.filters, listing.page, listing.pageSize, search, sortDirection, sortField])
 
   const activeCategories = categories.filter(c => c.status === 'active')
   const activeSACCodes = sacCodes.filter(s => s.status === 'active')
@@ -246,17 +251,7 @@ export default function ServicesSection() {
     setToggling(true)
     try {
       await dispatch(toggleServiceStatus(toggleTarget.id)).unwrap()
-      void dispatch(fetchServices({
-        search: listing.debouncedSearch || undefined,
-        name: listing.filters.name,
-        categoryId: listing.filters.categoryId,
-        sacCode: listing.filters.sacCode,
-        gstRate: listing.filters.gstRate,
-        isActive: listing.filters.isActive,
-        sortBy: sortField,
-        sortOrder: sortField ? sortDirection : undefined,
-        force: true,
-      }))
+      void dispatch(fetchServices(buildListParams()))
       success(
         toggleTarget.status === 'active'
           ? 'Service deactivated'
@@ -363,7 +358,17 @@ export default function ServicesSection() {
           </TableRow>
         </TableHead>
         <TableBody>
-          {services.map(row => {
+          {loading && services.length === 0
+            ? [...Array(6)].map((_, i) => (
+                <TableRow key={i} sx={{ height: 44 }}>
+                  {[...Array(SERVICE_DATA_COL_COUNT + 1)].map((__, j) => (
+                    <TableCell key={j} sx={SETTINGS_TABLE_CELL_SX}>
+                      <Skeleton height={20} />
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))
+            : services.map(row => {
             const cat = categories.find(c => c.id === row.categoryId)
             const sac = sacCodes.find(s => s.id === row.sacCodeId)
             return (
@@ -391,6 +396,14 @@ export default function ServicesSection() {
         </TableBody>
       </Table>
       </TableContainer>
+
+      <SettingsListingPagination
+        page={listing.page}
+        pageSize={listing.pageSize}
+        totalCount={servicesTotal}
+        onPageChange={listing.setPage}
+        onPageSizeChange={listing.setPageSize}
+      />
 
       <Modal
         open={drawerOpen}

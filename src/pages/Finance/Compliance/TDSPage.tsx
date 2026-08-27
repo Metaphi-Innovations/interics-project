@@ -35,7 +35,7 @@ import type {
   TdsPeriodBreakdown,
   TdsSummary,
 } from '@/slices/finance/types'
-import { formatCurrency, formatDate, formatInr } from '@/utils/formatters'
+import { formatDate, formatInr } from '@/utils/formatters'
 
 const CHART_CLIENT_TDS = '#EF9F27'
 const CHART_VENDOR_TDS = '#7F77DD'
@@ -99,7 +99,7 @@ function filenameFromDisposition(header: unknown, fallback: string) {
 }
 
 function axisTickInr(v: number) {
-  return `₹${formatCurrency(v)}`
+  return `₹${formatInr(v)}`
 }
 
 function entryStatusToBadge(status: string): StatusType {

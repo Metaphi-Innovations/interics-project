@@ -163,17 +163,27 @@ interface SettingsState {
   systemDefaults: SystemDefaults
   systemDefaultsLoaded: boolean
   gstRates: GSTRate[]
+  gstRatesTotal: number
   tdsSections: TDSSection[]
+  tdsSectionsTotal: number
   sacCodes: SACCode[]
+  sacCodesTotal: number
   categories: Category[]
+  categoriesTotal: number
   services: Service[]
+  servicesTotal: number
   statuses: StatusMaster[]
   sectors: SectorMaster[]
+  sectorsTotal: number
   ratings: RatingMaster[]
+  ratingsTotal: number
   projectManagementCategories: ProjectManagementMasterCategory[]
+  projectManagementCategoriesTotal: number
   loading: boolean
   saving: boolean
 }
+
+type ListFetchPayload<T> = { items: T[]; total: number }
 
 const initialState: SettingsState = {
   companyProfile: {
@@ -211,14 +221,22 @@ const initialState: SettingsState = {
   },
   systemDefaultsLoaded: false,
   gstRates: [],
+  gstRatesTotal: 0,
   tdsSections: [],
+  tdsSectionsTotal: 0,
   sacCodes: [],
+  sacCodesTotal: 0,
   categories: [],
+  categoriesTotal: 0,
   services: [],
+  servicesTotal: 0,
   statuses: [],
   sectors: [],
+  sectorsTotal: 0,
   ratings: [],
+  ratingsTotal: 0,
   projectManagementCategories: [],
+  projectManagementCategoriesTotal: 0,
   loading: false,
   saving: false,
 }
@@ -246,9 +264,10 @@ const settingsSlice = createSlice({
     // GST Rates
     builder
       .addCase(fetchGSTRates.pending, (state) => { state.loading = true })
-      .addCase(fetchGSTRates.fulfilled, (state, action: PayloadAction<GSTRate[]>) => {
+      .addCase(fetchGSTRates.fulfilled, (state, action: PayloadAction<ListFetchPayload<GSTRate>>) => {
         state.loading = false
-        state.gstRates = action.payload
+        state.gstRates = action.payload.items
+        state.gstRatesTotal = action.payload.total
       })
       .addCase(fetchGSTRates.rejected, (state) => { state.loading = false })
       .addCase(createGSTRate.pending, (state) => { state.saving = true })
@@ -272,9 +291,10 @@ const settingsSlice = createSlice({
     // TDS Sections
     builder
       .addCase(fetchTDSSections.pending, (state) => { state.loading = true })
-      .addCase(fetchTDSSections.fulfilled, (state, action: PayloadAction<TDSSection[]>) => {
+      .addCase(fetchTDSSections.fulfilled, (state, action: PayloadAction<ListFetchPayload<TDSSection>>) => {
         state.loading = false
-        state.tdsSections = action.payload
+        state.tdsSections = action.payload.items
+        state.tdsSectionsTotal = action.payload.total
       })
       .addCase(fetchTDSSections.rejected, (state) => { state.loading = false })
       .addCase(createTDSSection.pending, (state) => { state.saving = true })
@@ -298,9 +318,10 @@ const settingsSlice = createSlice({
     // SAC Codes
     builder
       .addCase(fetchSACCodes.pending, (state) => { state.loading = true })
-      .addCase(fetchSACCodes.fulfilled, (state, action: PayloadAction<SACCode[]>) => {
+      .addCase(fetchSACCodes.fulfilled, (state, action: PayloadAction<ListFetchPayload<SACCode>>) => {
         state.loading = false
-        state.sacCodes = action.payload
+        state.sacCodes = action.payload.items
+        state.sacCodesTotal = action.payload.total
       })
       .addCase(fetchSACCodes.rejected, (state) => { state.loading = false })
       .addCase(createSACCode.pending, (state) => { state.saving = true })
@@ -324,9 +345,10 @@ const settingsSlice = createSlice({
     // Categories
     builder
       .addCase(fetchCategories.pending, (state) => { state.loading = true })
-      .addCase(fetchCategories.fulfilled, (state, action: PayloadAction<Category[]>) => {
+      .addCase(fetchCategories.fulfilled, (state, action: PayloadAction<ListFetchPayload<Category>>) => {
         state.loading = false
-        state.categories = action.payload
+        state.categories = action.payload.items
+        state.categoriesTotal = action.payload.total
       })
       .addCase(fetchCategories.rejected, (state) => { state.loading = false })
       .addCase(createCategory.pending, (state) => { state.saving = true })
@@ -350,9 +372,10 @@ const settingsSlice = createSlice({
     // Services
     builder
       .addCase(fetchServices.pending, (state) => { state.loading = true })
-      .addCase(fetchServices.fulfilled, (state, action: PayloadAction<Service[]>) => {
+      .addCase(fetchServices.fulfilled, (state, action: PayloadAction<ListFetchPayload<Service>>) => {
         state.loading = false
-        state.services = action.payload
+        state.services = action.payload.items
+        state.servicesTotal = action.payload.total
       })
       .addCase(fetchServices.rejected, (state) => { state.loading = false })
       .addCase(createService.pending, (state) => { state.saving = true })
@@ -402,9 +425,10 @@ const settingsSlice = createSlice({
     // Sector Master
     builder
       .addCase(fetchSectors.pending, (state) => { state.loading = true })
-      .addCase(fetchSectors.fulfilled, (state, action: PayloadAction<SectorMaster[]>) => {
+      .addCase(fetchSectors.fulfilled, (state, action: PayloadAction<ListFetchPayload<SectorMaster>>) => {
         state.loading = false
-        state.sectors = action.payload
+        state.sectors = action.payload.items
+        state.sectorsTotal = action.payload.total
       })
       .addCase(fetchSectors.rejected, (state) => { state.loading = false })
       .addCase(createSector.pending, (state) => { state.saving = true })
@@ -428,9 +452,10 @@ const settingsSlice = createSlice({
     // Rating Master
     builder
       .addCase(fetchRatings.pending, (state) => { state.loading = true })
-      .addCase(fetchRatings.fulfilled, (state, action: PayloadAction<RatingMaster[]>) => {
+      .addCase(fetchRatings.fulfilled, (state, action: PayloadAction<ListFetchPayload<RatingMaster>>) => {
         state.loading = false
-        state.ratings = action.payload
+        state.ratings = action.payload.items
+        state.ratingsTotal = action.payload.total
       })
       .addCase(fetchRatings.rejected, (state) => { state.loading = false })
       .addCase(createRating.pending, (state) => { state.saving = true })
@@ -456,9 +481,10 @@ const settingsSlice = createSlice({
       .addCase(fetchProjectManagementCategories.pending, (state) => { state.loading = true })
       .addCase(
         fetchProjectManagementCategories.fulfilled,
-        (state, action: PayloadAction<ProjectManagementMasterCategory[]>) => {
+        (state, action: PayloadAction<ListFetchPayload<ProjectManagementMasterCategory>>) => {
           state.loading = false
-          state.projectManagementCategories = action.payload
+          state.projectManagementCategories = action.payload.items
+          state.projectManagementCategoriesTotal = action.payload.total
         },
       )
       .addCase(fetchProjectManagementCategories.rejected, (state) => { state.loading = false })

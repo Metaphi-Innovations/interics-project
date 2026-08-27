@@ -14,6 +14,7 @@ import {
   Menu,
   MenuItem,
   Divider,
+  Alert,
 } from '@mui/material'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong'
@@ -28,6 +29,8 @@ import { ListingTemplate, KpiStatCard } from '@/components/templates'
 import type { FilterField, ColumnItem } from '@/components/templates/ListingTemplate'
 import {
   FilterableSortHeader,
+  isInvalidDateRange,
+  clampListingPage1Based,
   type ColumnFilterOption,
 } from '@/components/listing'
 import { StatusBadge, Modal, Button, DatePicker, Select, useToast } from '@/design-system/components'
@@ -354,7 +357,8 @@ export default function BillingsPage() {
   const canDeleteReceivable = usePermission('receivables', 'delete')
   const hoverBg = alpha(theme.palette.primary.main, 0.04)
 
-  const { items: rawItems, loading, filters, sortConfig, pagination, saving } = useAppSelector((s) => s.receivables)
+  const { items: rawItems, loading, filters, sortConfig, pagination, saving, error: listError } =
+    useAppSelector((s) => s.receivables)
   const items = useMemo(
     () =>
       (rawItems ?? []).map((inv) => ({
@@ -457,8 +461,11 @@ export default function BillingsPage() {
     projectId?: string
     visibleColumns?: ReceivablesVisibleColumns
   } = {}) {
+    if (isInvalidDateRange(filters.dateFrom, filters.dateTo)) return
     const nextCols = { ...columnFilters, ...overrides.columnFilters }
-    const nextPage = overrides.page ?? pagination.page
+    const rawPage = overrides.page ?? pagination.page
+    const nextPage = clampListingPage1Based(rawPage, pagination.total, pagination.pageSize)
+    if (nextPage !== pagination.page) dispatch(setPage(nextPage))
     const statusTab = overrides.statusTab ?? filters.statusTab
     const toolbarClientId = overrides.clientId !== undefined ? overrides.clientId : filters.clientId
     const toolbarProjectId =
@@ -625,8 +632,8 @@ export default function BillingsPage() {
     () => [
       { field: 'clientId', label: 'Client', type: 'select', options: clientOpts },
       { field: 'projectId', label: 'Project', type: 'select', options: projectOpts },
-      { field: 'dateFrom', label: 'Date from (YYYY-MM-DD)', type: 'text' },
-      { field: 'dateTo', label: 'Date to (YYYY-MM-DD)', type: 'text' },
+      { field: 'dateFrom', label: 'Date from', type: 'date' },
+      { field: 'dateTo', label: 'Date to', type: 'date' },
       { field: 'amountMin', label: 'Amount min', type: 'text' },
       { field: 'amountMax', label: 'Amount max', type: 'text' },
     ],
@@ -775,6 +782,7 @@ export default function BillingsPage() {
     setSearchInput(v)
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
     searchTimeoutRef.current = setTimeout(() => {
+      dispatch(setPage(1))
       dispatch(setFilters({ search: v }))
     }, 300)
   }
@@ -786,6 +794,7 @@ export default function BillingsPage() {
       clientId: String(next.clientId ?? ''),
       projectId: String(next.projectId ?? ''),
     }))
+    dispatch(setPage(1))
     dispatch(
       setFilters({
         clientId: String(next.clientId ?? ''),
@@ -801,6 +810,7 @@ export default function BillingsPage() {
   function handleFilterReset() {
     setActiveFilters({})
     setColumnFilters((prev) => ({ ...prev, clientId: '', projectId: '' }))
+    dispatch(setPage(1))
     dispatch(
       setFilters({
         clientId: '',
@@ -915,7 +925,13 @@ export default function BillingsPage() {
     try {
       await dispatch(deleteInvoice(deleteTarget.id)).unwrap()
       showToast({ title: 'Invoice deleted', variant: 'success' })
-      reloadAfterMutation()
+      const nextPage = clampListingPage1Based(
+        pagination.page,
+        Math.max(0, pagination.total - 1),
+        pagination.pageSize,
+      )
+      reload({ page: nextPage })
+      refreshKpis()
     } catch (e) {
       showToast({ title: String(e), variant: 'error' })
     }
@@ -954,6 +970,11 @@ export default function BillingsPage() {
 
   return (
     <>
+      {listError ? (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {listError}
+        </Alert>
+      ) : null}
       <ListingTemplate
         icon={<TrendingUp size={20} />}
         title="Receivable"
@@ -1043,6 +1064,7 @@ export default function BillingsPage() {
                       sortField={sortConfig.field ?? undefined}
                       sortDirection={sortConfig.direction}
                       onSort={handleSort}
+                      filterMode="date"
                       filterValue={columnFilters.invoiceDate}
                       filterOptions={invoiceDateOptions}
                       onFilter={(value) => handleColumnFilter('invoiceDate', value)}
@@ -1056,6 +1078,7 @@ export default function BillingsPage() {
                       sortField={sortConfig.field ?? undefined}
                       sortDirection={sortConfig.direction}
                       onSort={handleSort}
+                      filterMode="date"
                       filterValue={columnFilters.dueDate}
                       filterOptions={dueDateOptions}
                       onFilter={(value) => handleColumnFilter('dueDate', value)}

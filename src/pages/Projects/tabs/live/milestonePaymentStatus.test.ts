@@ -1,6 +1,21 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+
+vi.mock('./clientInvoiceUtils', () => ({
+  isInvoiceFullyPaid: (inv: {
+    status: string
+    grossAmount?: number
+    payments?: Array<{ netReceived: number }>
+  }) => {
+    if (inv.status === 'paid') return true
+    const paid = (inv.payments ?? []).reduce((sum, payment) => sum + payment.netReceived, 0)
+    return paid >= (inv.grossAmount ?? 0) - 0.01
+  },
+}))
+
 import type { ClientInvoice } from '@/slices/live/types'
 import {
+  clientMilestoneIsLocked,
+  clientRetentionIsLocked,
   findClientInvoiceForMilestone,
   clientRetentionPaymentStatus,
 } from './milestonePaymentStatus'
@@ -185,5 +200,65 @@ describe('clientRetentionPaymentStatus', () => {
 
   it('returns Unpaid when no invoices exist', () => {
     expect(clientRetentionPaymentStatus([], 'cpm-1')).toBe('Unpaid')
+  })
+})
+
+describe('invoice coverage locks milestones and retention', () => {
+  const statuses = [
+    'draft',
+    'uploaded',
+    'sent',
+    'tax',
+    'partially_paid',
+    'paid',
+    'overdue',
+  ] as const
+
+  it.each(statuses)('locks milestone when a %s invoice covers it', (status) => {
+    const inv = invoice({
+      id: `inv-${status}`,
+      status: status as ClientInvoice['status'],
+      milestoneId: 'cpm-lock',
+      lineItems: [
+        {
+          id: 'li-lock',
+          serviceId: 'svc-1',
+          serviceName: 'Mobilization',
+          sacCode: '998391',
+          amount: 1000,
+          gstRate: 18,
+          gstAmount: 180,
+          milestoneId: 'cpm-lock',
+          lineSource: 'milestone',
+        },
+      ],
+    })
+    expect(clientMilestoneIsLocked([inv], 'cpm-lock', 'svc-1', 'Mobilization')).toBe(true)
+  })
+
+  it.each(statuses)('locks retention when a %s invoice covers retention id', (status) => {
+    const inv = invoice({
+      id: `inv-ret-${status}`,
+      status: status as ClientInvoice['status'],
+      milestoneId: 'cpm-1-retention',
+      lineItems: [
+        {
+          id: 'li-ret-lock',
+          serviceId: 'svc-1',
+          serviceName: 'Retention',
+          sacCode: '998391',
+          amount: 500,
+          gstRate: 18,
+          gstAmount: 90,
+          milestoneId: 'cpm-1-retention',
+          lineSource: 'milestone',
+        },
+      ],
+    })
+    expect(clientRetentionIsLocked([inv], 'cpm-1')).toBe(true)
+  })
+
+  it('unlocks milestone when covering invoice is removed', () => {
+    expect(clientMilestoneIsLocked([], 'cpm-lock', 'svc-1', 'Mobilization')).toBe(false)
   })
 })

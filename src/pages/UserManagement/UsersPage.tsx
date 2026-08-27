@@ -38,7 +38,13 @@ import type { User } from '@/slices/users/reducer'
 import { ListingTemplate } from '@/components/templates'
 import type { StatCardItem, TabItem, FilterField } from '@/components/templates'
 import { useToast } from '@/design-system/components'
-import { FilterableSortHeader, StatusColumnToggle, useListingQuery, type ColumnFilterOption } from '@/components/listing'
+import {
+  FilterableSortHeader,
+  StatusColumnToggle,
+  useListingQuery,
+  clampListingPage0Based,
+  type ColumnFilterOption,
+} from '@/components/listing'
 import { usersApi } from '@/api/usersApi'
 import { unwrapApiData } from '@/modules/system-settings/shared/api'
 import { getInitials, getAvatarColor, formatDate } from '@/utils/formatters'
@@ -387,7 +393,8 @@ function UsersTable({
               sortDirection={sortDirection}
               onSort={onSort}
               filterValue={filters.lastLogin}
-              filterOptions={filterOptions.lastLogin}
+              filterOptions={[]}
+              filterMode="date"
               onFilter={(value) => onFilterChange({ lastLogin: value })}
               sx={headMiddleSx}
             />
@@ -666,7 +673,7 @@ export default function UsersPage() {
   const [toggleTarget, setToggleTarget] = useState<User | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<User | null>(null)
   const [actionSaving, setActionSaving] = useState(false)
-  const listing = useListingQuery({ pageSize: 20 })
+  const listing = useListingQuery({ pageSize: 10 })
   const [columnFilterOptions, setColumnFilterOptions] = useState<{
     name: ColumnFilterOption[]
     phone: ColumnFilterOption[]
@@ -844,6 +851,27 @@ export default function UsersPage() {
       .then(() => {
         setDeleteTarget(null)
         showToast({ title: 'User deleted', variant: 'success' })
+        const nextTotal = Math.max(0, pagination.total - 1)
+        const nextPage = clampListingPage0Based(listing.page, nextTotal, listing.pageSize)
+        if (nextPage !== listing.page) {
+          listing.setPage(nextPage)
+          return
+        }
+        void dispatch(
+          fetchUsers({
+            page: listing.apiPage,
+            limit: listing.pageSize,
+            search: listing.debouncedSearch || undefined,
+            status: filters.status || undefined,
+            role: filters.role || undefined,
+            name: filters.name || undefined,
+            phone: filters.phone || undefined,
+            projectAccess: filters.projectAccess || undefined,
+            lastLogin: filters.lastLogin || undefined,
+            sortBy: sortConfig.field || undefined,
+            sortOrder: sortConfig.direction,
+          }),
+        )
       })
       .catch((msg: unknown) => showToast({ title: String(msg) || 'Failed to delete user', variant: 'error' }))
       .finally(() => setActionSaving(false))

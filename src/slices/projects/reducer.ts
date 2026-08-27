@@ -209,7 +209,11 @@ const projectsSlice = createSlice({
         if (state.listRequestId !== action.meta.requestId) return
         state.loading = false
         state.items = action.payload.items ?? []
-        state.pagination.total = action.payload.total ?? 0
+        const total = action.payload.total ?? 0
+        state.pagination.total = total
+        const size = state.pagination.pageSize || 10
+        const maxPage = total <= 0 ? 1 : Math.max(1, Math.ceil(total / size))
+        if (state.pagination.page > maxPage) state.pagination.page = maxPage
       })
       .addCase(fetchProjects.rejected, (state, action) => {
         if (state.listRequestId !== action.meta.requestId) return

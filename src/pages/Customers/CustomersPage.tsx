@@ -23,11 +23,11 @@ import {
   LocationOn,
 } from '@mui/icons-material'
 import { useTheme, alpha } from '@mui/material/styles'
-import { Building2, Plus, MoreVertical, Eye, Pencil, FolderPlus, Receipt, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Building2, Plus, MoreVertical, Eye, Pencil, FolderPlus, Receipt } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { fetchCustomers, setCustomerActive, fetchCustomerFilters } from '../../slices/customers/thunk'
-import { setFilters, resetFilters, setPage, setSortConfig } from '../../slices/customers/reducer'
+import { setFilters, resetFilters, setPage, setPageSize, setSortConfig } from '../../slices/customers/reducer'
 import type { Customer } from '../../slices/customers/reducer'
 import { ListingTemplate } from '../../components/templates'
 import type { FilterField, ColumnItem } from '../../components/templates/ListingTemplate'
@@ -642,41 +642,6 @@ function CustomerGridCard({
   )
 }
 
-// ─── Simple Pagination ────────────────────────────────────────────────────────
-
-interface SimplePaginationProps {
-  page: number
-  pageSize: number
-  total: number
-  onPage: (p: number) => void
-}
-
-function SimplePagination({ page, pageSize, total, onPage }: SimplePaginationProps) {
-  const totalPages = Math.ceil(total / pageSize)
-  const from = Math.min((page - 1) * pageSize + 1, total)
-  const to = Math.min(page * pageSize, total)
-
-  return (
-    <Stack
-      direction="row"
-      alignItems="center"
-      justifyContent="flex-end"
-      gap={1}
-      sx={{ p: '10px 14px', borderTop: `1px solid ${tokens.color.neutral[100]}` }}
-    >
-      <Typography variant="caption" color="text.secondary">
-        {total === 0 ? '0' : `${from}–${to}`} of {total}
-      </Typography>
-      <MuiIconButton size="small" disabled={page <= 1} onClick={() => onPage(page - 1)} sx={{ p: '4px' }}>
-        <ChevronLeft size={16} />
-      </MuiIconButton>
-      <MuiIconButton size="small" disabled={page >= totalPages} onClick={() => onPage(page + 1)} sx={{ p: '4px' }}>
-        <ChevronRight size={16} />
-      </MuiIconButton>
-    </Stack>
-  )
-}
-
 // ─── Confirm Activate / Deactivate Dialog ─────────────────────────────────────
 
 interface ConfirmToggleProps {
@@ -813,7 +778,7 @@ export default function CustomersPage() {
   useEffect(() => {
     void dispatch(fetchCustomerFilters())
     void dispatch(fetchSectors())
-    void dispatch(fetchCustomers(buildListParams({ page: 1, pageSize: pagination.pageSize || 20 })))
+    void dispatch(fetchCustomers(buildListParams({ page: 1, pageSize: pagination.pageSize || 10 })))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -954,6 +919,11 @@ export default function CustomersPage() {
     void dispatch(fetchCustomers(buildListParams({ page })))
   }
 
+  function handlePageSizeChange(size: number) {
+    dispatch(setPageSize(size))
+    void dispatch(fetchCustomers(buildListParams({ page: 1, pageSize: size })))
+  }
+
   function handleColumnVisibilityChange(field: string, visible: boolean) {
     setVisibleColumns((prev) => ({ ...prev, [field]: visible } as CustomerTableVisibleColumns))
   }
@@ -1079,6 +1049,11 @@ export default function CustomersPage() {
         columns={columnsConfig}
         onColumnVisibilityChange={handleColumnVisibilityChange}
         onViewModeChange={setViewMode}
+        page={Math.max(0, pagination.page - 1)}
+        pageSize={pagination.pageSize}
+        totalCount={pagination.total}
+        onPageChange={(zeroBased) => handlePageChange(zeroBased + 1)}
+        onPageSizeChange={handlePageSizeChange}
       >
         {viewMode === 'grid' ? (
           <Box
@@ -1144,15 +1119,6 @@ export default function CustomersPage() {
             onAddProject={handleAddProject}
             onBillingSummary={handleBillingSummary}
             onToggleStatus={setToggleTarget}
-          />
-        )}
-
-        {pagination.total > 0 && (
-          <SimplePagination
-            page={pagination.page}
-            pageSize={pagination.pageSize}
-            total={pagination.total}
-            onPage={handlePageChange}
           />
         )}
       </ListingTemplate>

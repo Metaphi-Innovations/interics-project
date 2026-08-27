@@ -36,7 +36,7 @@ import type {
   GstProjectRow,
   GstSummary,
 } from '@/slices/finance/types'
-import { formatCurrency, formatDate, formatInr } from '@/utils/formatters'
+import { formatDate, formatInr } from '@/utils/formatters'
 
 const CHART_GST = '#1D9E75'
 
@@ -97,7 +97,7 @@ function filenameFromDisposition(header: unknown, fallback: string) {
 }
 
 function axisTickInr(v: number) {
-  return `₹${formatCurrency(v)}`
+  return `₹${formatInr(v)}`
 }
 
 function gstEntryStatusToBadge(status: string): StatusType {
@@ -442,7 +442,7 @@ export default function GSTPage() {
                       {row.projectName}
                     </Typography>
                     <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 600, flexShrink: 0 }}>
-                      ₹{formatCurrency(row.gstAmount)}
+                      ₹{formatInr(row.gstAmount)}
                     </Typography>
                     <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
                       {row.percentage.toFixed(0)}%

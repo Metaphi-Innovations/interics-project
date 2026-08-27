@@ -117,6 +117,7 @@ interface ReceivablesState {
   filters: ReceivablesFilters
   sortConfig: SortConfig
   pagination: Pagination
+  listRequestId: string | null
 }
 
 const initialState: ReceivablesState = {
@@ -137,7 +138,8 @@ const initialState: ReceivablesState = {
     amountMax: '',
   },
   sortConfig: { field: 'invoiceDate', direction: 'desc' },
-  pagination: { page: 1, pageSize: 20, total: 0 },
+  pagination: { page: 1, pageSize: 10, total: 0 },
+  listRequestId: null,
 }
 
 const receivablesSlice = createSlice({
@@ -176,16 +178,23 @@ const receivablesSlice = createSlice({
   },
   extraReducers: (builder) => {
     builder
-      .addCase(fetchInvoices.pending, (state) => {
+      .addCase(fetchInvoices.pending, (state, action) => {
+        state.listRequestId = action.meta.requestId
         state.loading = true
         state.error = null
       })
       .addCase(fetchInvoices.fulfilled, (state, action) => {
+        if (state.listRequestId !== action.meta.requestId) return
         state.loading = false
         state.items = action.payload.items ?? []
-        state.pagination.total = action.payload.total ?? 0
+        const total = action.payload.total ?? 0
+        state.pagination.total = total
+        const size = state.pagination.pageSize || 10
+        const maxPage = total <= 0 ? 1 : Math.max(1, Math.ceil(total / size))
+        if (state.pagination.page > maxPage) state.pagination.page = maxPage
       })
       .addCase(fetchInvoices.rejected, (state, action) => {
+        if (state.listRequestId !== action.meta.requestId) return
         state.loading = false
         state.error = action.payload as string
       })

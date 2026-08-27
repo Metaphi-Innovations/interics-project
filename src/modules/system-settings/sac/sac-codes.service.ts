@@ -1,5 +1,5 @@
 import client from '@/api/client'
-import { compactQueryParams, toUiStatus, unwrapApiData, unwrapApiList } from '../shared/api'
+import { compactQueryParams, toUiStatus, unwrapApiData, unwrapApiListWithMeta, type ListResult } from '../shared/api'
 import { withInflight } from '../shared/inflight'
 import type { SACCode } from '@/slices/settings/reducer'
 import type { ColumnFilterOption } from '@/components/listing'
@@ -62,10 +62,10 @@ type SacFilters = {
 }
 
 export const sacCodesService = {
-  async getAll(params: SacListParams = {}): Promise<SACCode[]> {
+  async getAll(params: SacListParams = {}): Promise<ListResult<SACCode>> {
     const query = compactQueryParams({
       page: params.page ?? 1,
-      limit: params.limit ?? 20,
+      limit: params.limit ?? 10,
       search: params.search,
       sacCode: params.sacCode,
       description: params.description,
@@ -81,7 +81,8 @@ export const sacCodesService = {
     })
     return withInflight(`sac-codes:list:${JSON.stringify(query)}`, async () => {
       const res = await client.get(BASE, { params: query })
-      return unwrapApiList<SacApi>(res.data).map(toSacCode)
+      const { items, meta } = unwrapApiListWithMeta<SacApi>(res.data)
+      return { items: items.map(toSacCode), meta }
     })
   },
 

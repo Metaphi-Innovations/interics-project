@@ -1,6 +1,8 @@
 import Autocomplete from '@mui/material/Autocomplete'
+import CircularProgress from '@mui/material/CircularProgress'
 import TextField from '@mui/material/TextField'
 import type { SxProps, Theme } from '@mui/material/styles'
+import type { AutocompleteInputChangeReason } from '@mui/material/Autocomplete'
 
 export interface AutocompleteFieldProps<T> {
   options: readonly T[]
@@ -14,6 +16,12 @@ export interface AutocompleteFieldProps<T> {
   size?: 'sm' | 'md'
   fullWidth?: boolean
   sx?: SxProps<Theme>
+  loading?: boolean
+  onInputChange?: (value: string, reason: AutocompleteInputChangeReason) => void
+  filterOptions?: (
+    options: T[],
+    state: { inputValue: string; getOptionLabel: (option: T) => string },
+  ) => T[]
 }
 
 const HEIGHT: Record<'sm' | 'md', string> = {
@@ -33,6 +41,9 @@ export default function AutocompleteField<T>({
   size = 'sm',
   fullWidth = true,
   sx,
+  loading = false,
+  onInputChange,
+  filterOptions,
 }: AutocompleteFieldProps<T>) {
   const h = HEIGHT[size]
 
@@ -42,6 +53,9 @@ export default function AutocompleteField<T>({
       value={value}
       onChange={(_, v) => onChange(v)}
       disabled={disabled}
+      loading={loading}
+      filterOptions={filterOptions}
+      onInputChange={onInputChange ? (_, v, reason) => onInputChange(v, reason) : undefined}
       getOptionLabel={(o) => (o == null ? '' : getOptionLabel(o))}
       isOptionEqualToValue={isOptionEqualToValue ?? ((a, b) => a === b)}
       renderInput={(params) => (
@@ -50,6 +64,15 @@ export default function AutocompleteField<T>({
           size="small"
           placeholder={placeholder}
           error={error}
+          InputProps={{
+            ...params.InputProps,
+            endAdornment: (
+              <>
+                {loading ? <CircularProgress color="inherit" size={16} /> : null}
+                {params.InputProps.endAdornment}
+              </>
+            ),
+          }}
           sx={{
             '& .MuiInputBase-root': { minHeight: h },
           }}

@@ -20,6 +20,35 @@ export function unwrapApiList<T>(payload: unknown): T[] {
   return []
 }
 
+export type ListMeta = { total: number; page?: number; limit?: number; totalPages?: number }
+
+export type ListResult<T> = { items: T[]; meta: ListMeta }
+
+/** Parse `{ success, data: T[], meta }` list envelopes (sendSuccess shape). */
+export function unwrapApiListWithMeta<T>(payload: unknown): ListResult<T> {
+  const items = unwrapApiList<T>(payload)
+  let meta: ListMeta = { total: items.length }
+
+  if (payload != null && typeof payload === 'object') {
+    const record = payload as Record<string, unknown>
+    const rawMeta =
+      'meta' in record && record.meta != null && typeof record.meta === 'object'
+        ? (record.meta as Record<string, unknown>)
+        : null
+
+    if (rawMeta) {
+      meta = {
+        total: typeof rawMeta.total === 'number' ? rawMeta.total : items.length,
+        ...(typeof rawMeta.page === 'number' ? { page: rawMeta.page } : {}),
+        ...(typeof rawMeta.limit === 'number' ? { limit: rawMeta.limit } : {}),
+        ...(typeof rawMeta.totalPages === 'number' ? { totalPages: rawMeta.totalPages } : {}),
+      }
+    }
+  }
+
+  return { items, meta }
+}
+
 export function compactQueryParams(
   params: Record<string, unknown>,
 ): Record<string, string | number | boolean> {

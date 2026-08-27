@@ -4,7 +4,8 @@ import {
   toApiStatus,
   toUiStatus,
   unwrapApiData,
-  unwrapApiList,
+  unwrapApiListWithMeta,
+  type ListResult,
 } from '../shared/api'
 import { withInflight } from '../shared/inflight'
 import type { GSTRate, TDSSection } from '@/slices/settings/reducer'
@@ -108,10 +109,10 @@ function toTdsPayload(data: Omit<TDSSection, 'id'> | Partial<TDSSection>) {
 }
 
 export const taxConfigurationService = {
-  async getGstRates(params: GstListParams = {}): Promise<GSTRate[]> {
+  async getGstRates(params: GstListParams = {}): Promise<ListResult<GSTRate>> {
     const query = compactQueryParams({
       page: params.page ?? 1,
-      limit: params.limit ?? 100,
+      limit: params.limit ?? 10,
       search: params.search,
       slabName: params.slabName,
       ratePercent: params.ratePercent,
@@ -122,7 +123,8 @@ export const taxConfigurationService = {
     })
     return withInflight(`tax:gst-slabs:${JSON.stringify(query)}`, async () => {
       const res = await client.get(GST_BASE, { params: query })
-      return unwrapApiList<GstApi>(res.data).map(toGstRate)
+      const { items, meta } = unwrapApiListWithMeta<GstApi>(res.data)
+      return { items: items.map(toGstRate), meta }
     })
   },
 
@@ -146,10 +148,10 @@ export const taxConfigurationService = {
     return toGstRate(unwrapApiData<GstApi>(res.data))
   },
 
-  async getTdsSections(params: TdsListParams = {}): Promise<TDSSection[]> {
+  async getTdsSections(params: TdsListParams = {}): Promise<ListResult<TDSSection>> {
     const query = compactQueryParams({
       page: params.page ?? 1,
-      limit: params.limit ?? 100,
+      limit: params.limit ?? 10,
       search: params.search,
       sectionCode: params.sectionCode,
       description: params.description,
@@ -160,7 +162,8 @@ export const taxConfigurationService = {
     })
     return withInflight(`tax:tds-sections:${JSON.stringify(query)}`, async () => {
       const res = await client.get(TDS_BASE, { params: query })
-      return unwrapApiList<TdsApi>(res.data).map(toTdsSection)
+      const { items, meta } = unwrapApiListWithMeta<TdsApi>(res.data)
+      return { items: items.map(toTdsSection), meta }
     })
   },
 

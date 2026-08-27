@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Stack, Box, Typography } from '@mui/material'
 import dayjs from 'dayjs'
 import { DrawerForm, FormSection, FormField } from '@/components/templates'
@@ -192,11 +192,15 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved, pre
   const baselineLoading = useAppSelector((s) => s.baseline.loading)
 
   const [liveProjects, setLiveProjects] = useState<Project[]>([])
+  const [projectsLoading, setProjectsLoading] = useState(false)
+  const [projectSearch, setProjectSearch] = useState('')
+  const [posLoading, setPosLoading] = useState(false)
   const [project, setProject] = useState<Project | null>(null)
   const [selectedPoId, setSelectedPoId] = useState('')
   const [selectedMilestoneIds, setSelectedMilestoneIds] = useState<string[]>([])
   const [projectInvoices, setProjectInvoices] = useState<Invoice[]>([])
   const [billablePos, setBillablePos] = useState<ClientPO[]>([])
+  const [invoiceNo, setInvoiceNo] = useState('')
   const [invoiceDate, setInvoiceDate] = useState<Date | null>(new Date())
   const [paymentTermDays, setPaymentTermDays] = useState('30')
   const [dueDate, setDueDate] = useState<Date | null>(null)
@@ -204,6 +208,8 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved, pre
   const [lines, setLines] = useState<DraftLineItem[]>([])
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [lineError, setLineError] = useState('')
+  const projectSearchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const projectFetchIdRef = useRef(0)
 
   function applyDueDateFromTerms(nextInvoiceDate: Date | null, nextDays: string) {
     if (!nextInvoiceDate) return
@@ -261,9 +267,12 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved, pre
 
   const projectPos = useMemo(() => {
     if (!project) return []
-    if (mode === 'create') return billablePos.filter((p) => p.projectId === project.id)
+    // Prefer listClientPos results; edit falls back to redux clientPOs if still loading.
+    if (billablePos.length > 0 || mode === 'create' || posLoading) {
+      return billablePos.filter((p) => p.projectId === project.id)
+    }
     return clientPOs.filter((p) => p.projectId === project.id)
-  }, [billablePos, clientPOs, mode, project])
+  }, [billablePos, clientPOs, mode, posLoading, project])
 
   const selectedPo = useMemo(
     () => projectPos.find((p) => p.id === selectedPoId) ?? null,
@@ -272,33 +281,80 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved, pre
 
   useEffect(() => {
     if (!open) return
-    void dropdownsApi
-      .getLiveProjects()
-      .then((options) => setLiveProjects(options.map(dropdownOptionToProject)))
-      .catch(() => setLiveProjects([]))
     dispatch(fetchServices())
     dispatch(fetchSACCodes())
   }, [open, dispatch])
 
   useEffect(() => {
+    if (!open) {
+      setLiveProjects([])
+      setProjectSearch('')
+      setProjectsLoading(false)
+      return
+    }
+    const fetchId = ++projectFetchIdRef.current
+    setProjectsLoading(true)
+    void dropdownsApi
+      .getLiveProjects({ search: projectSearch.trim() || undefined })
+      .then((options) => {
+        if (fetchId !== projectFetchIdRef.current) return
+        setLiveProjects(options.map(dropdownOptionToProject))
+      })
+      .catch(() => {
+        if (fetchId !== projectFetchIdRef.current) return
+        setLiveProjects([])
+      })
+      .finally(() => {
+        if (fetchId !== projectFetchIdRef.current) return
+        setProjectsLoading(false)
+      })
+  }, [open, projectSearch])
+
+  useEffect(() => {
+    return () => {
+      if (projectSearchTimeoutRef.current) clearTimeout(projectSearchTimeoutRef.current)
+    }
+  }, [])
+
+  useEffect(() => {
     if (!open || !project) {
       setProjectInvoices([])
       setBillablePos([])
+      setPosLoading(false)
       return
     }
-    dispatch(fetchClientPO(project.id))
+    let cancelled = false
+    setPosLoading(true)
+    // Create mode: listClientPos(pendingInvoiceOnly) alone supplies billable POs.
+    // Edit mode: fetch all client POs so the existing PO remains selectable.
+    if (mode === 'edit') {
+      dispatch(fetchClientPO(project.id))
+    }
     dispatch(fetchBaseline(project.id))
     void baselineService
-      .listClientPos(project.id, { pendingInvoiceOnly: true })
-      .then(setBillablePos)
-      .catch(() => setBillablePos([]))
+      .listClientPos(project.id, mode === 'create' ? { pendingInvoiceOnly: true } : undefined)
+      .then((pos) => {
+        if (!cancelled) setBillablePos(pos)
+      })
+      .catch(() => {
+        if (!cancelled) setBillablePos([])
+      })
+      .finally(() => {
+        if (!cancelled) setPosLoading(false)
+      })
+    // Project invoices are needed for remaining-milestone calculations (not PO list).
     void receivablesApi
       .getAll({ projectId: project.id, pageSize: 500 })
       .then((r) => {
-        setProjectInvoices(r.items ?? [])
+        if (!cancelled) setProjectInvoices(r.items ?? [])
       })
-      .catch(() => setProjectInvoices([]))
-  }, [open, project?.id, dispatch])
+      .catch(() => {
+        if (!cancelled) setProjectInvoices([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [open, project?.id, mode, dispatch])
 
   useEffect(() => {
     if (!open || !project?.id || !selectedPoId) return
@@ -311,6 +367,7 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved, pre
     setSelectedPoId('')
     setSelectedMilestoneIds([])
     setLines([])
+    setInvoiceNo('')
     setInvoiceDate(new Date())
     setPaymentTermDays('30')
     setDueDate(addDaysToDate(new Date(), 30))
@@ -342,6 +399,7 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved, pre
       })
     setProject(p)
     setSelectedPoId(invoice.clientPoId ?? '')
+    setInvoiceNo(invoice.invoiceNo ?? '')
     const nextInvoiceDate = invoice.invoiceDate ? new Date(invoice.invoiceDate) : new Date()
     const nextDueDate = invoice.dueDate ? new Date(invoice.dueDate) : null
     setInvoiceDate(nextInvoiceDate)
@@ -420,6 +478,7 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved, pre
   function validate(): boolean {
     const e: Record<string, string> = {}
     let le = ''
+    if (!invoiceNo.trim()) e.invoiceNo = 'Invoice number is required'
     if (!project) e.project = 'Project is required'
     if (!invoiceDate) e.invoiceDate = 'Invoice date is required'
     if (!dueDate) e.dueDate = 'Due date is required'
@@ -453,6 +512,7 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved, pre
       }
     })
     return {
+      invoiceNo: invoiceNo.trim(),
       clientId: project!.customerId,
       clientName: project!.customerName,
       projectId: project!.id,
@@ -619,6 +679,15 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved, pre
                 value={project}
                 onChange={onProjectChange}
                 disabled={mode === 'edit'}
+                loading={projectsLoading}
+                filterOptions={(opts) => opts}
+                onInputChange={(value, reason) => {
+                  if (mode === 'edit' || reason === 'reset') return
+                  if (projectSearchTimeoutRef.current) clearTimeout(projectSearchTimeoutRef.current)
+                  projectSearchTimeoutRef.current = setTimeout(() => {
+                    setProjectSearch(value)
+                  }, 300)
+                }}
                 placeholder="Search live project"
                 error={!!errors.project}
                 size="sm"
@@ -657,7 +726,12 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved, pre
                 disabled={mode === 'edit'}
               />
             </FormField>
-            {projectPos.length === 0 && !baselineLoading && (
+            {posLoading && (
+              <Typography variant="body2" color="text.secondary">
+                Loading client POs…
+              </Typography>
+            )}
+            {projectPos.length === 0 && !posLoading && !baselineLoading && (
               <Typography variant="body2" color="text.secondary">
                 No client POs found for this project.
               </Typography>
@@ -729,6 +803,18 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved, pre
 
         <FormSection title="Invoice details">
           <Stack spacing={2}>
+            <FormField label="Invoice number" required error={errors.invoiceNo}>
+              <Input
+                value={invoiceNo}
+                onChange={(v) => {
+                  setInvoiceNo(v)
+                  if (errors.invoiceNo) setErrors((prev) => ({ ...prev, invoiceNo: '' }))
+                }}
+                placeholder="e.g. INV-2026-001"
+                size="sm"
+                error={!!errors.invoiceNo}
+              />
+            </FormField>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
               <FormField label="Invoice date" required error={errors.invoiceDate}>
                 <DatePicker value={invoiceDate} onChange={handleInvoiceDateChange} fullWidth size="sm" />

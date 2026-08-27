@@ -1,5 +1,5 @@
 import { useState, useEffect, type ReactNode } from 'react'
-import { Box, Typography, TextField, MenuItem, Divider } from '@mui/material'
+import { Box, Typography, TextField, MenuItem, Divider, Skeleton } from '@mui/material'
 import { Edit } from '@mui/icons-material'
 import { Button, useToast } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
@@ -103,7 +103,7 @@ function CompanyDetailsContainer({ children }: { children: ReactNode }) {
 export default function GeneralSettingsSection() {
   const success = useToast((s) => s.success)
   const error = useToast((s) => s.error)
-  const { data: companyProfile } = useGeneralSettingsQuery()
+  const { data: companyProfile, loading } = useGeneralSettingsQuery()
   const { mutateAsync, saving } = useUpdateGeneralSettings()
   const [isEditing, setIsEditing] = useState(false)
   const [editForm, setEditForm] = useState<CompanyProfile>(companyProfile)
@@ -179,7 +179,7 @@ export default function GeneralSettingsSection() {
           <Typography variant="h6" fontWeight={600}>General Settings</Typography>
           <Typography variant="caption" color="text.secondary">Company identity and contact</Typography>
         </Box>
-        {!isEditing && (
+        {!isEditing && !loading && (
           <Button
             variant="outlined"
             color="secondary"
@@ -195,6 +195,16 @@ export default function GeneralSettingsSection() {
       {!isEditing && (
         <Box>
           <CompanyDetailsContainer>
+            {loading ? (
+              <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0, p: 2 }}>
+                {[...Array(12)].map((_, i) => (
+                  <Box key={i} sx={{ py: 1.5, px: 0 }}>
+                    <Skeleton width="40%" height={12} />
+                    <Skeleton width="70%" height={20} sx={{ mt: 0.75 }} />
+                  </Box>
+                ))}
+              </Box>
+            ) : (
             <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0 }}>
               <GroupTitle label="Company Identity" />
               <LabelValue label="Company Name" value={companyProfile.companyName} />
@@ -218,6 +228,7 @@ export default function GeneralSettingsSection() {
               <LabelValue label="State" value={companyProfile.state} />
               <LabelValue label="Pincode" value={companyProfile.pincode} />
             </Box>
+            )}
           </CompanyDetailsContainer>
         </Box>
       )}

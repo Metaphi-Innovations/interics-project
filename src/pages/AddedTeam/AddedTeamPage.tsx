@@ -28,6 +28,7 @@ import {
   FilterableSortHeader,
   type ColumnFilterOption,
 } from '@/components/listing'
+import { LISTING_DEFAULT_PAGE_SIZE, clampListingPage0Based } from '@/components/listing/listingStandards'
 import { tokens } from '@/design-system/tokens'
 import { getInitials, getAvatarColor } from '@/utils/formatters'
 import { teamsApi } from '@/api/teamsApi'
@@ -495,7 +496,7 @@ export default function AddedTeamPage() {
   const [sortField, setSortField] = useState<string | null>('memberName')
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
   const [page, setPage] = useState(0)
-  const [pageSize, setPageSize] = useState(20)
+  const [pageSize, setPageSize] = useState(LISTING_DEFAULT_PAGE_SIZE)
   const [total, setTotal] = useState(0)
   const [summary, setSummary] = useState({ assignments: 0, teamMembers: 0, projectsWithTeam: 0 })
   const [filterOptions, setFilterOptions] = useState<{
@@ -569,7 +570,13 @@ export default function AddedTeamPage() {
           .map((item) => mapApiTeamRow(item as TeamMemberApiRow))
           .filter((row): row is TeamAssignmentRow => row != null)
         setItems(rows)
-        setTotal(payload?.meta?.total ?? rows.length)
+        const nextTotal = payload?.meta?.total ?? rows.length
+        setTotal(nextTotal)
+        const clamped = clampListingPage0Based(page, nextTotal, pageSize)
+        if (clamped !== page) {
+          setPage(clamped)
+          return
+        }
         setError(null)
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load team members')
@@ -634,16 +641,23 @@ export default function AddedTeamPage() {
     },
   ]
 
+  const statusFilterOptions =
+    filterOptions.statuses.length > 0
+      ? filterOptions.statuses.map((s) => ({ label: s.label, value: s.value }))
+      : [
+          { label: 'Pitch', value: 'PITCH' },
+          { label: 'Live', value: 'LIVE' },
+          { label: 'Completed', value: 'COMPLETED' },
+          { label: 'Archived', value: 'ARCHIVED' },
+          { label: 'Cancelled', value: 'CANCELLED' },
+        ]
+
   const filterConfig = [
     {
       field: 'status',
       label: 'Project Status',
       type: 'select' as const,
-      options: [
-        { label: 'All', value: '' },
-        { label: 'Pitch', value: 'PITCH' },
-        { label: 'Live', value: 'LIVE' },
-      ],
+      options: [{ label: 'All', value: '' }, ...statusFilterOptions],
     },
     {
       field: 'projectId',
@@ -670,7 +684,22 @@ export default function AddedTeamPage() {
     setStatusFilter('')
     setProjectFilter('')
     setColumnFilters((prev) => ({ ...prev, projectId: '' }))
+    setPage(0)
+  }
+
+  function handleResetAll() {
     setSearch('')
+    setStatusFilter('')
+    setProjectFilter('')
+    setColumnFilters({
+      teamMember: '',
+      projectCount: '',
+      role: '',
+      projectId: '',
+    })
+    setSortField('memberName')
+    setSortDirection('asc')
+    setPage(0)
   }
 
   function handleSort(field: string, direction: 'asc' | 'desc') {
@@ -706,11 +735,13 @@ export default function AddedTeamPage() {
       subtitle="Team members assigned to projects"
       statCards={statCards}
       searchPlaceholder="Search team or project…"
+      searchValue={search}
       onSearchChange={handleSearch}
       filterConfig={filterConfig}
       activeFilters={{ status: statusFilter, projectId: resolvedProjectId }}
       onFilterChange={handleFilterChange}
       onFilterReset={handleFilterReset}
+      onResetAll={handleResetAll}
       filterCount={activeFilterCount}
       columns={columnsConfig}
       onColumnVisibilityChange={handleColumnVisibilityChange}

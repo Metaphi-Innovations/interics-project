@@ -98,6 +98,8 @@ export const payablesService = {
     invoiceAmount?: number
     tdsAmount?: number
     paymentStatus?: string
+    dateFrom?: string
+    dateTo?: string
     columns?: string[] | string
     sortBy?: string
     sortOrder?: 'asc' | 'desc'

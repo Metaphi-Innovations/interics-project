@@ -3,6 +3,7 @@ import {
   Box, Typography, TextField, MenuItem,
   Table, TableHead, TableRow, TableCell, TableBody, TableContainer,
   Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions,
+  Skeleton,
 } from '@mui/material'
 import { Plus } from 'lucide-react'
 import { Button, Modal, useToast } from '@/design-system/components'
@@ -38,6 +39,8 @@ import {
   firstErrorMessage,
 } from '@/modules/system-settings/shared/settings-validation'
 import { parseSettingsApiError, clearFieldError } from '@/modules/system-settings/shared/api-errors'
+import { LISTING_DEFAULT_PAGE_SIZE } from '@/components/listing/listingStandards'
+import { SettingsListingPagination } from '../components/SettingsListingPagination'
 
 const DATA_COL_COUNT = 2
 const dataColWidth = settingsDataColWidth(DATA_COL_COUNT)
@@ -53,8 +56,8 @@ export default function SectorsSection() {
   const dispatch = useAppDispatch()
   const success = useToast((s) => s.success)
   const error = useToast((s) => s.error)
-  const { sectors, saving } = useAppSelector(s => s.settings)
-  const listing = useListingQuery({ pageSize: 100 })
+  const { sectors, sectorsTotal, saving, loading } = useAppSelector(s => s.settings)
+  const listing = useListingQuery({ pageSize: LISTING_DEFAULT_PAGE_SIZE })
   const [sortField, setSortField] = useState<string>()
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -81,17 +84,21 @@ export default function SectorsSection() {
       .catch(() => undefined)
   }, [])
 
+  const buildListParams = () => ({
+    force: true as const,
+    page: listing.apiPage,
+    limit: listing.pageSize,
+    search: listing.debouncedSearch || undefined,
+    name: listing.filters.name,
+    isActive: listing.filters.isActive,
+    sortBy: sortField,
+    sortOrder: sortField ? sortDirection : undefined,
+  })
+
   useEffect(() => {
     if (isSearchPending) return
-    void dispatch(fetchSectors({
-      search: listing.debouncedSearch || undefined,
-      name: listing.filters.name,
-      isActive: listing.filters.isActive,
-      sortBy: sortField,
-      sortOrder: sortField ? sortDirection : undefined,
-      force: true,
-    }))
-  }, [dispatch, isSearchPending, listing.debouncedSearch, listing.filters, search, sortDirection, sortField])
+    void dispatch(fetchSectors(buildListParams()))
+  }, [dispatch, isSearchPending, listing.debouncedSearch, listing.filters, listing.page, listing.pageSize, search, sortDirection, sortField])
 
   const applyColumnFilter = (key: string) => (value: string) => {
     listing.setFilter(key, value)
@@ -152,14 +159,7 @@ export default function SectorsSection() {
     setToggling(true)
     try {
       await dispatch(toggleSectorStatus(toggleTarget.id)).unwrap()
-      void dispatch(fetchSectors({
-        search: listing.debouncedSearch || undefined,
-        name: listing.filters.name,
-        isActive: listing.filters.isActive,
-        sortBy: sortField,
-        sortOrder: sortField ? sortDirection : undefined,
-        force: true,
-      }))
+      void dispatch(fetchSectors(buildListParams()))
       success(
         toggleTarget.status === 'active'
           ? 'Sector deactivated'
@@ -232,23 +232,49 @@ export default function SectorsSection() {
             </TableRow>
           </TableHead>
           <TableBody>
-            {sectors.map(row => (
-              <TableRow key={row.id} sx={{ height: 44 }}>
-                <TableCell sx={{ ...SETTINGS_TABLE_CELL_SX, fontWeight: 500 }}>{row.name}</TableCell>
-                <TableCell sx={SETTINGS_TABLE_CELL_SX}>
-                  <StatusColumnToggle
-                    active={row.status === 'active'}
-                    onToggle={() => setToggleTarget(row)}
-                  />
-                </TableCell>
-                <SettingsTableActionsCell>
-                  <SettingsEditAction onClick={() => openEdit(row)} />
-                </SettingsTableActionsCell>
-              </TableRow>
-            ))}
+            {loading && sectors.length === 0
+              ? [...Array(6)].map((_, i) => (
+                  <TableRow key={i} sx={{ height: 44 }}>
+                    {[...Array(DATA_COL_COUNT + 1)].map((__, j) => (
+                      <TableCell key={j} sx={SETTINGS_TABLE_CELL_SX}>
+                        <Skeleton height={20} />
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                ))
+              : sectors.length === 0
+                ? (
+                  <TableRow>
+                    <TableCell colSpan={DATA_COL_COUNT + 1} sx={{ ...SETTINGS_TABLE_CELL_SX, py: 4, textAlign: 'center' }}>
+                      No records found
+                    </TableCell>
+                  </TableRow>
+                )
+                : sectors.map(row => (
+                  <TableRow key={row.id} sx={{ height: 44 }}>
+                    <TableCell sx={{ ...SETTINGS_TABLE_CELL_SX, fontWeight: 500 }}>{row.name}</TableCell>
+                    <TableCell sx={SETTINGS_TABLE_CELL_SX}>
+                      <StatusColumnToggle
+                        active={row.status === 'active'}
+                        onToggle={() => setToggleTarget(row)}
+                      />
+                    </TableCell>
+                    <SettingsTableActionsCell>
+                      <SettingsEditAction onClick={() => openEdit(row)} />
+                    </SettingsTableActionsCell>
+                  </TableRow>
+                ))}
           </TableBody>
         </Table>
       </TableContainer>
+
+      <SettingsListingPagination
+        page={listing.page}
+        pageSize={listing.pageSize}
+        totalCount={sectorsTotal}
+        onPageChange={listing.setPage}
+        onPageSizeChange={listing.setPageSize}
+      />
 
       <Modal
         open={drawerOpen}

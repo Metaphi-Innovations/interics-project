@@ -13,37 +13,80 @@ import Grow from '@mui/material/Grow'
 import { alpha, useTheme } from '@mui/material/styles'
 import { Check, Filter, Search, X } from 'lucide-react'
 import { tokens } from '@/design-system/tokens'
-import { Button, Input } from '@/design-system/components'
+import { Button, DatePicker, Input, dateFromIso, isoFromDate } from '@/design-system/components'
 
 export type ColumnFilterOption = { value: string; label: string }
 
-export interface ColumnFilterPopoverProps {
+export type DualDateFilterValue = {
+  start: string
+  end: string
+}
+
+type ColumnFilterPopoverBase = {
   columnLabel: string
-  value: string
-  options: ColumnFilterOption[]
-  onApply: (value: string) => void
   disabled?: boolean
 }
 
-export function ColumnFilterPopover({
-  columnLabel,
-  value,
-  options,
-  onApply,
-  disabled,
-}: ColumnFilterPopoverProps) {
+export type ColumnFilterPopoverProps =
+  | (ColumnFilterPopoverBase & {
+      mode?: 'options' | 'date'
+      value: string
+      options?: ColumnFilterOption[]
+      onApply: (value: string) => void
+      dualValue?: never
+      onApplyDual?: never
+      startLabel?: never
+      endLabel?: never
+    })
+  | (ColumnFilterPopoverBase & {
+      mode: 'dual-date'
+      dualValue: DualDateFilterValue
+      onApplyDual: (value: DualDateFilterValue) => void
+      value?: never
+      options?: never
+      onApply?: never
+      startLabel?: string
+      endLabel?: string
+    })
+
+export function ColumnFilterPopover(props: ColumnFilterPopoverProps) {
   const theme = useTheme()
+  const { columnLabel, disabled } = props
+  const isDualDate = props.mode === 'dual-date'
+  const isDate = !isDualDate && props.mode === 'date'
+
+  const dualValue: DualDateFilterValue = isDualDate
+    ? props.dualValue
+    : { start: '', end: '' }
+  const singleValue = isDualDate ? '' : props.value
+  const onApplySingle = isDualDate ? undefined : props.onApply
+  const onApplyDualDate = isDualDate ? props.onApplyDual : undefined
+
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null)
   const [query, setQuery] = useState('')
+  const [draftDate, setDraftDate] = useState(singleValue)
+  const [draftStart, setDraftStart] = useState(dualValue.start)
+  const [draftEnd, setDraftEnd] = useState(dualValue.end)
   const open = Boolean(anchorEl)
-  const active = Boolean(value)
+
+  const active = isDualDate
+    ? Boolean(dualValue.start || dualValue.end)
+    : Boolean(singleValue)
 
   useEffect(() => {
-    if (open) setQuery('')
-  }, [open])
+    if (!open) return
+    setQuery('')
+    if (isDualDate) {
+      setDraftStart(dualValue.start)
+      setDraftEnd(dualValue.end)
+    } else {
+      setDraftDate(singleValue)
+    }
+  }, [open, isDualDate, singleValue, dualValue.start, dualValue.end])
 
+  const options = isDualDate ? [] : (props.options ?? [])
   const selectedLabel =
-    options.find((o) => o.value === value)?.label || (value ? value : 'All')
+    options.find((o) => o.value === singleValue)?.label || (singleValue ? singleValue : 'All')
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -66,11 +109,43 @@ export function ColumnFilterPopover({
   }
 
   function selectValue(next: string) {
-    onApply(next)
+    if (!onApplySingle) return
+    onApplySingle(next)
     closeFilter()
   }
 
-  const ariaLabel = active ? `${columnLabel}: ${selectedLabel}` : `Filter ${columnLabel}`
+  function applyDate() {
+    if (!onApplySingle) return
+    onApplySingle(draftDate)
+    closeFilter()
+  }
+
+  function applyDualDate() {
+    if (!onApplyDualDate) return
+    onApplyDualDate({ start: draftStart, end: draftEnd })
+    closeFilter()
+  }
+
+  function resetDualDate() {
+    if (!onApplyDualDate) return
+    setDraftStart('')
+    setDraftEnd('')
+    onApplyDualDate({ start: '', end: '' })
+    closeFilter()
+  }
+
+  const activeSummary = isDualDate
+    ? [dualValue.start, dualValue.end].filter(Boolean).join(' · ')
+    : isDate
+      ? singleValue
+      : selectedLabel
+
+  const ariaLabel = active
+    ? `${columnLabel}: ${activeSummary}`
+    : `Filter ${columnLabel}`
+
+  const startLabel = isDualDate ? (props.startLabel ?? 'Expected Start Date') : ''
+  const endLabel = isDualDate ? (props.endLabel ?? 'Expected End Date') : ''
 
   return (
     <>
@@ -130,7 +205,7 @@ export function ColumnFilterPopover({
           paper: {
             elevation: 8,
             sx: {
-              width: 280,
+              width: isDualDate ? 320 : isDate ? 300 : 280,
               mt: 0.75,
               p: 0,
               overflow: 'hidden',
@@ -146,7 +221,7 @@ export function ColumnFilterPopover({
       >
         <Box
           onClick={(e) => e.stopPropagation()}
-          sx={{ display: 'flex', flexDirection: 'column', maxHeight: 360 }}
+          sx={{ display: 'flex', flexDirection: 'column', maxHeight: 420 }}
         >
           <Stack
             direction="row"
@@ -183,15 +258,15 @@ export function ColumnFilterPopover({
                     whiteSpace: 'nowrap',
                   }}
                 >
-                  {selectedLabel}
+                  {activeSummary}
                 </Typography>
               ) : (
                 <Typography sx={{ mt: 0.25, fontSize: tokens.fontSize.xs, color: 'text.secondary' }}>
-                  Choose a value
+                  {isDualDate ? 'Pick start and/or end dates' : isDate ? 'Pick a date' : 'Choose a value'}
                 </Typography>
               )}
             </Box>
-            {active ? (
+            {!isDualDate && active ? (
               <Button
                 size="sm"
                 variant="text"
@@ -217,57 +292,96 @@ export function ColumnFilterPopover({
             )}
           </Stack>
 
-          <Box sx={{ px: 1.25, pt: 1.25, pb: 0.75 }}>
-            <Input
-              size="sm"
-              fullWidth
-              autoFocus
-              value={query}
-              onChange={setQuery}
-              placeholder="Search values"
-              startAdornment={<Search size={14} color={tokens.color.neutral[400]} />}
-            />
-          </Box>
-
-          <MenuList
-            dense
-            disablePadding
-            sx={{
-              px: 0.75,
-              pb: 0.75,
-              overflowY: 'auto',
-              flex: 1,
-              minHeight: 0,
-            }}
-          >
-            <FilterOptionItem
-              label="All"
-              selected={!value}
-              onSelect={() => selectValue('')}
-            />
-            {filtered.map((opt) => (
-              <FilterOptionItem
-                key={opt.value}
-                label={opt.label}
-                selected={value === opt.value}
-                onSelect={() => selectValue(opt.value)}
+          {isDualDate ? (
+            <Stack gap={1.25} sx={{ px: 1.5, py: 1.5 }}>
+              <DatePicker
+                label={startLabel}
+                size="sm"
+                fullWidth
+                value={dateFromIso(draftStart)}
+                onChange={(d) => setDraftStart(isoFromDate(d))}
               />
-            ))}
-            {filtered.length === 0 ? (
-              <Typography
+              <DatePicker
+                label={endLabel}
+                size="sm"
+                fullWidth
+                value={dateFromIso(draftEnd)}
+                onChange={(d) => setDraftEnd(isoFromDate(d))}
+              />
+              <Stack direction="row" justifyContent="flex-end" gap={1}>
+                <Button size="sm" variant="text" label="Reset" onClick={resetDualDate} />
+                <Button size="sm" variant="contained" label="Apply" onClick={applyDualDate} />
+              </Stack>
+            </Stack>
+          ) : isDate ? (
+            <Stack gap={1.25} sx={{ px: 1.5, py: 1.5 }}>
+              <DatePicker
+                label={columnLabel}
+                size="sm"
+                fullWidth
+                value={dateFromIso(draftDate)}
+                onChange={(d) => setDraftDate(isoFromDate(d))}
+              />
+              <Stack direction="row" justifyContent="flex-end" gap={1}>
+                <Button size="sm" variant="text" label="Cancel" onClick={closeFilter} />
+                <Button size="sm" variant="contained" label="Apply" onClick={applyDate} />
+              </Stack>
+            </Stack>
+          ) : (
+            <>
+              <Box sx={{ px: 1.25, pt: 1.25, pb: 0.75 }}>
+                <Input
+                  size="sm"
+                  fullWidth
+                  autoFocus
+                  value={query}
+                  onChange={setQuery}
+                  placeholder="Search values"
+                  startAdornment={<Search size={14} color={tokens.color.neutral[400]} />}
+                />
+              </Box>
+
+              <MenuList
+                dense
+                disablePadding
                 sx={{
-                  px: 1.25,
-                  py: 1.5,
-                  display: 'block',
-                  fontSize: tokens.fontSize.sm,
-                  color: 'text.secondary',
-                  textAlign: 'center',
+                  px: 0.75,
+                  pb: 0.75,
+                  overflowY: 'auto',
+                  flex: 1,
+                  minHeight: 0,
                 }}
               >
-                No matching values
-              </Typography>
-            ) : null}
-          </MenuList>
+                <FilterOptionItem
+                  label="All"
+                  selected={!singleValue}
+                  onSelect={() => selectValue('')}
+                />
+                {filtered.map((opt) => (
+                  <FilterOptionItem
+                    key={opt.value}
+                    label={opt.label}
+                    selected={singleValue === opt.value}
+                    onSelect={() => selectValue(opt.value)}
+                  />
+                ))}
+                {filtered.length === 0 ? (
+                  <Typography
+                    sx={{
+                      px: 1.25,
+                      py: 1.5,
+                      display: 'block',
+                      fontSize: tokens.fontSize.sm,
+                      color: 'text.secondary',
+                      textAlign: 'center',
+                    }}
+                  >
+                    No matching values
+                  </Typography>
+                ) : null}
+              </MenuList>
+            </>
+          )}
         </Box>
       </Popover>
     </>
@@ -286,77 +400,26 @@ function FilterOptionItem({
   const theme = useTheme()
   return (
     <MenuItem
-      dense
       selected={selected}
       onClick={onSelect}
       sx={{
-        mx: 0.25,
-        my: 0.125,
-        minHeight: 34,
-        px: 1,
         borderRadius: tokens.borderRadius.md,
+        mx: 0.25,
+        my: 0.15,
+        px: 1.25,
+        py: 0.75,
         fontSize: tokens.fontSize.sm,
-        fontWeight: selected ? tokens.fontWeight.semibold : tokens.fontWeight.medium,
-        color: selected ? 'primary.main' : 'text.primary',
-        transition: tokens.transition.fast,
-        '&:hover': {
-          bgcolor: alpha(theme.palette.primary.main, 0.08),
-        },
+        gap: 1,
         '&.Mui-selected': {
           bgcolor: alpha(theme.palette.primary.main, 0.1),
+          color: 'primary.main',
+          fontWeight: tokens.fontWeight.medium,
           '&:hover': { bgcolor: alpha(theme.palette.primary.main, 0.14) },
         },
       }}
     >
-      <Box
-        sx={{
-          width: 16,
-          mr: 1,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          flexShrink: 0,
-          color: selected ? 'primary.main' : 'transparent',
-        }}
-      >
-        <Check size={14} strokeWidth={2.5} />
-      </Box>
-      <Box
-        component="span"
-        sx={{
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-        }}
-      >
-        {label}
-      </Box>
+      <Box sx={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</Box>
+      {selected ? <Check size={14} strokeWidth={2.5} /> : null}
     </MenuItem>
-  )
-}
-
-export function FilterableHeaderLabel({
-  label,
-  columnLabel,
-  value,
-  options,
-  onApply,
-}: {
-  label: string
-  columnLabel?: string
-  value: string
-  options: ColumnFilterOption[]
-  onApply: (value: string) => void
-}) {
-  return (
-    <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, minWidth: 0 }}>
-      {label}
-      <ColumnFilterPopover
-        columnLabel={columnLabel ?? label}
-        value={value}
-        options={options}
-        onApply={onApply}
-      />
-    </Box>
   )
 }

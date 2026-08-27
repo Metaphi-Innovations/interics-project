@@ -26,9 +26,10 @@ function nullToEmpty(value: string | null | undefined): string {
   return value ?? ''
 }
 
-function emptyToUndefined(value: string): string | undefined {
+/** Cleared strings become `null` so the API persists clears (not omit via undefined). */
+function emptyToNull(value: string): string | null {
   const trimmed = value.trim()
-  return trimmed.length > 0 ? trimmed : undefined
+  return trimmed.length > 0 ? trimmed : null
 }
 
 function toFormCompanyType(value: ApiCompanyType | null | undefined): FormCompanyType {
@@ -36,9 +37,9 @@ function toFormCompanyType(value: ApiCompanyType | null | undefined): FormCompan
   return API_TO_FORM_COMPANY_TYPE[value] ?? DEFAULT_COMPANY_TYPE
 }
 
-function normalizeWebsiteForApi(website: string): string | undefined {
-  const value = emptyToUndefined(website)
-  if (!value) return undefined
+function normalizeWebsiteForApi(website: string): string | null {
+  const value = emptyToNull(website)
+  if (!value) return null
   if (/^https?:\/\//i.test(value)) return value
   return `https://${value}`
 }
@@ -79,40 +80,40 @@ export function toUpdateSystemSettingsPayload(
   const payload: UpdateSystemSettingsPayload = {}
 
   if (profile.companyName !== undefined) {
-    payload.companyName = emptyToUndefined(profile.companyName)
+    payload.companyName = emptyToNull(profile.companyName)
   }
   if (profile.gstin !== undefined) {
-    payload.gstin = emptyToUndefined(profile.gstin)
+    payload.gstin = emptyToNull(profile.gstin)
   }
   if (profile.pan !== undefined) {
-    payload.pan = emptyToUndefined(profile.pan)
+    payload.pan = emptyToNull(profile.pan)
   }
   if (profile.companyType !== undefined) {
     payload.companyType = FORM_TO_API_COMPANY_TYPE[profile.companyType]
   }
   if (profile.email !== undefined) {
-    payload.email = emptyToUndefined(profile.email)
+    payload.email = emptyToNull(profile.email)
   }
   if (profile.phone !== undefined) {
-    payload.phone = emptyToUndefined(profile.phone)
+    payload.phone = emptyToNull(profile.phone)
   }
   if (profile.website !== undefined) {
     payload.website = normalizeWebsiteForApi(profile.website)
   }
   if (profile.addressLine1 !== undefined) {
-    payload.addressLine1 = emptyToUndefined(profile.addressLine1)
+    payload.addressLine1 = emptyToNull(profile.addressLine1)
   }
   if (profile.addressLine2 !== undefined) {
-    payload.addressLine2 = emptyToUndefined(profile.addressLine2)
+    payload.addressLine2 = emptyToNull(profile.addressLine2)
   }
   if (profile.city !== undefined) {
-    payload.city = emptyToUndefined(profile.city)
+    payload.city = emptyToNull(profile.city)
   }
   if (profile.state !== undefined) {
-    payload.state = emptyToUndefined(profile.state)
+    payload.state = emptyToNull(profile.state)
   }
   if (profile.pincode !== undefined) {
-    payload.pincode = emptyToUndefined(profile.pincode)
+    payload.pincode = emptyToNull(profile.pincode)
   }
 
   return payload

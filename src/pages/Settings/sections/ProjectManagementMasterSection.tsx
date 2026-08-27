@@ -20,6 +20,7 @@ import {
   DialogContent,
   DialogContentText,
   DialogActions,
+  Skeleton,
 } from '@mui/material'
 import { Add, Delete as DeleteIcon } from '@mui/icons-material'
 import { Plus } from 'lucide-react'
@@ -49,6 +50,8 @@ import {
   validateProjectManagementForm,
 } from '@/modules/project-management'
 import { parseSettingsApiError } from '@/modules/system-settings/shared/api-errors'
+import { LISTING_DEFAULT_PAGE_SIZE } from '@/components/listing/listingStandards'
+import { SettingsListingPagination } from '../components/SettingsListingPagination'
 import {
   SETTINGS_TABLE_CELL_ACTION_SX,
   SETTINGS_TABLE_CELL_SX,
@@ -91,7 +94,7 @@ export default function ProjectManagementMasterSection() {
   const dispatch = useAppDispatch()
   const success = useToast((s) => s.success)
   const error = useToast((s) => s.error)
-  const { projectManagementCategories, saving } = useAppSelector((s) => s.settings)
+  const { projectManagementCategories, projectManagementCategoriesTotal, saving, loading } = useAppSelector((s) => s.settings)
 
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [editingRow, setEditingRow] = useState<ProjectManagementMasterCategory | null>(null)
@@ -101,7 +104,7 @@ export default function ProjectManagementMasterSection() {
   const [checkpointErrors, setCheckpointErrors] = useState<Array<{ name?: string }>>([])
   const [toggleTarget, setToggleTarget] = useState<ProjectManagementMasterCategory | null>(null)
   const [toggling, setToggling] = useState(false)
-  const listing = useListingQuery({ pageSize: 100 })
+  const listing = useListingQuery({ pageSize: LISTING_DEFAULT_PAGE_SIZE })
   const [sortField, setSortField] = useState<string>()
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
   const [filterOptions, setFilterOptions] = useState<ProjectManagementFilterOptions>({
@@ -124,18 +127,22 @@ export default function ProjectManagementMasterSection() {
       .catch(() => undefined)
   }, [dispatch])
 
+  const buildListParams = () => ({
+    force: true as const,
+    page: listing.apiPage,
+    limit: listing.pageSize,
+    search: listing.debouncedSearch || undefined,
+    category: listing.filters.category,
+    totalCheckpoints: listing.filters.totalCheckpoints,
+    status: listing.filters.status,
+    sortBy: sortField,
+    sortOrder: sortField ? sortDirection : undefined,
+  })
+
   useEffect(() => {
     if (isSearchPending) return
-    void dispatch(fetchProjectManagementCategories({
-      force: true,
-      search: listing.debouncedSearch || undefined,
-      category: listing.filters.category,
-      totalCheckpoints: listing.filters.totalCheckpoints,
-      status: listing.filters.status,
-      sortBy: sortField,
-      sortOrder: sortField ? sortDirection : undefined,
-    }))
-  }, [dispatch, isSearchPending, listing.debouncedSearch, listing.filters, search, sortDirection, sortField])
+    void dispatch(fetchProjectManagementCategories(buildListParams()))
+  }, [dispatch, isSearchPending, listing.debouncedSearch, listing.filters, listing.page, listing.pageSize, search, sortDirection, sortField])
 
   const applyColumnFilter = (key: string) => (value: string) => {
     listing.setFilter(key, value)
@@ -265,15 +272,7 @@ export default function ProjectManagementMasterSection() {
       await dispatch(
         toggleProjectManagementCategoryStatus({ id: toggleTarget.id, status: nextStatus }),
       ).unwrap()
-      void dispatch(fetchProjectManagementCategories({
-        force: true,
-        search: listing.debouncedSearch || undefined,
-        category: listing.filters.category,
-        totalCheckpoints: listing.filters.totalCheckpoints,
-        status: listing.filters.status,
-        sortBy: sortField,
-        sortOrder: sortField ? sortDirection : undefined,
-      }))
+      void dispatch(fetchProjectManagementCategories(buildListParams()))
       success(nextStatus === 'active' ? 'Category activated' : 'Category deactivated')
       setToggleTarget(null)
     } catch (err) {
@@ -369,35 +368,52 @@ export default function ProjectManagementMasterSection() {
             </TableRow>
           </TableHead>
           <TableBody>
-            {projectManagementCategories.map((row) => (
-              <TableRow key={row.id} sx={{ height: 44 }}>
-                <TableCell sx={{ ...SETTINGS_TABLE_CELL_SX, fontWeight: 500 }}>{row.name}</TableCell>
-                <TableCell sx={SETTINGS_TABLE_CELL_SX}>
-                  {row.totalCheckpoints ?? row.checkpoints.length}
-                </TableCell>
-                <TableCell sx={SETTINGS_TABLE_CELL_SX}>
-                  <StatusColumnToggle
-                    active={row.status === 'active'}
-                    onToggle={() => setToggleTarget(row)}
-                  />
-                </TableCell>
-                <SettingsTableActionsCell>
-                  <SettingsEditAction onClick={() => openEdit(row)} />
-                </SettingsTableActionsCell>
-              </TableRow>
-            ))}
-            {projectManagementCategories.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={4} sx={{ ...SETTINGS_TABLE_CELL_SX, py: 4, textAlign: 'center' }}>
-                  <Typography variant="body2" color="text.secondary">
-                    No categories yet. Add a category to define checkpoints.
-                  </Typography>
-                </TableCell>
-              </TableRow>
-            ) : null}
+            {loading && projectManagementCategories.length === 0
+              ? [...Array(6)].map((_, i) => (
+                  <TableRow key={i} sx={{ height: 44 }}>
+                    {[...Array(DATA_COL_COUNT + 1)].map((__, j) => (
+                      <TableCell key={j} sx={SETTINGS_TABLE_CELL_SX}>
+                        <Skeleton height={20} />
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                ))
+              : projectManagementCategories.length === 0
+                ? (
+                  <TableRow>
+                    <TableCell colSpan={DATA_COL_COUNT + 1} sx={{ ...SETTINGS_TABLE_CELL_SX, py: 4, textAlign: 'center' }}>
+                      No records found
+                    </TableCell>
+                  </TableRow>
+                )
+                : projectManagementCategories.map((row) => (
+                  <TableRow key={row.id} sx={{ height: 44 }}>
+                    <TableCell sx={{ ...SETTINGS_TABLE_CELL_SX, fontWeight: 500 }}>{row.name}</TableCell>
+                    <TableCell sx={SETTINGS_TABLE_CELL_SX}>
+                      {row.totalCheckpoints ?? row.checkpoints.length}
+                    </TableCell>
+                    <TableCell sx={SETTINGS_TABLE_CELL_SX}>
+                      <StatusColumnToggle
+                        active={row.status === 'active'}
+                        onToggle={() => setToggleTarget(row)}
+                      />
+                    </TableCell>
+                    <SettingsTableActionsCell>
+                      <SettingsEditAction onClick={() => openEdit(row)} />
+                    </SettingsTableActionsCell>
+                  </TableRow>
+                ))}
           </TableBody>
         </Table>
       </TableContainer>
+
+      <SettingsListingPagination
+        page={listing.page}
+        pageSize={listing.pageSize}
+        totalCount={projectManagementCategoriesTotal}
+        onPageChange={listing.setPage}
+        onPageSizeChange={listing.setPageSize}
+      />
 
       <DrawerForm
         open={drawerOpen}

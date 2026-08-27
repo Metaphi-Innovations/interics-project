@@ -130,7 +130,7 @@ const initialState: CustomersState = {
   loading: false,
   saving: false,
   error: null,
-  pagination: { page: 1, pageSize: 25, total: 0 },
+  pagination: { page: 1, pageSize: 10, total: 0 },
   filters: { search: '', status: '' },
   sortConfig: { field: null, direction: 'asc' },
   filterOptions: null,
@@ -172,9 +172,13 @@ const customersSlice = createSlice({
       .addCase(fetchCustomers.fulfilled, (state, action) => {
         state.loading = false
         state.items = action.payload.items ?? []
-        state.pagination.total = action.payload.total ?? 0
-        if (action.payload.page) state.pagination.page = action.payload.page
+        const total = action.payload.total ?? 0
+        state.pagination.total = total
         if (action.payload.pageSize) state.pagination.pageSize = action.payload.pageSize
+        const requestedPage = action.payload.page || state.pagination.page
+        const size = state.pagination.pageSize || 10
+        const maxPage = total <= 0 ? 1 : Math.max(1, Math.ceil(total / size))
+        state.pagination.page = Math.min(Math.max(1, requestedPage), maxPage)
       })
       .addCase(fetchCustomers.rejected, (state, action) => {
         state.loading = false
