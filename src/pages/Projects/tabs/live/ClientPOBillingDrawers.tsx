@@ -22,7 +22,7 @@ import { Upload } from '@mui/icons-material'
 import {
   PODocumentLinkField,
 } from '@/components/documents/PODocumentLinkField'
-import { Button, useToast } from '@/design-system/components'
+import { Button, DatePicker, dateFromIso, isoFromDate, useToast } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { uploadProjectDocumentFile } from '@/api/uploadFileApi'
 import { DrawerForm, FormField } from '../../../../components/templates'
@@ -37,9 +37,11 @@ import {
 import { fetchInvoices } from '../../../../slices/live/thunk'
 import type { ClientInvoice } from '../../../../slices/live/types'
 import type { ClientPO, ClientPOMilestone } from '../../../../slices/baseline/reducer'
-import { formatCurrency } from '../../../../utils/formatters'
+import { formatCurrency, formatDate } from '../../../../utils/formatters'
 import {
   type ClientPOServiceOption,
+  dropdownClientPOServiceOptions,
+  resolveClientPOMilestoneServiceOption,
 } from './clientPOServiceOptions'
 import { dropdownsApi, type TdsDropdownOption } from '@/api/dropdownsApi'
 import {
@@ -113,27 +115,11 @@ function useClientPOServiceOptions(open: boolean): { serviceOptions: ClientPOSer
     let cancelled = false
     void (async () => {
       try {
-        const categories = await dropdownsApi.getCategories()
-        const out: ClientPOServiceOption[] = []
-
-        for (const cat of categories) {
-          const services = await dropdownsApi.getServices(cat.value)
-          for (const s of services) {
-            out.push({
-              id: s.value,
-              label: s.label,
-              categoryId: cat.value,
-              categoryName: cat.label,
-            })
-          }
-        }
-
-        out.sort((a, b) => {
-          const catCmp = a.categoryName.localeCompare(b.categoryName)
-          if (catCmp !== 0) return catCmp
-          return a.label.localeCompare(b.label)
-        })
-
+        const [categories, services] = await Promise.all([
+          dropdownsApi.getCategories(),
+          dropdownsApi.getServices(),
+        ])
+        const out = dropdownClientPOServiceOptions(categories, services)
         if (!cancelled) setServiceOptions(out)
       } catch {
         if (!cancelled) setServiceOptions([])
@@ -304,6 +290,7 @@ export function AddClientPODrawer({ open, onClose, projectId }: AddClientPODrawe
   const tdsOptions = useTdsOptions(open)
   const [poFormData, setPoFormData] = useState({
     poNumber: '',
+    startDate: '',
     poValue: '',
     executedValue: '',
     file: null as File | null,
@@ -314,8 +301,21 @@ export function AddClientPODrawer({ open, onClose, projectId }: AddClientPODrawe
 
   useEffect(() => {
     if (!open) {
-      setPoFormData({ poNumber: '', poValue: '', executedValue: '', file: null, tdsSectionId: '', tdsRate: null })
+      setPoFormData({
+        poNumber: '',
+        startDate: '',
+        poValue: '',
+        executedValue: '',
+        file: null,
+        tdsSectionId: '',
+        tdsRate: null,
+      })
       setMilestones([])
+    } else {
+      setPoFormData((prev) => ({
+        ...prev,
+        startDate: prev.startDate || isoFromDate(new Date()),
+      }))
     }
   }, [open])
 
@@ -361,7 +361,7 @@ export function AddClientPODrawer({ open, onClose, projectId }: AddClientPODrawe
   }
 
   async function handleSubmit() {
-    if (!poFormData.poNumber || !poFormData.poValue) {
+    if (!poFormData.poNumber || !poFormData.poValue || !poFormData.startDate) {
       toast({ title: 'Please fill in all required fields', variant: 'error' })
       return
     }
@@ -394,7 +394,7 @@ export function AddClientPODrawer({ open, onClose, projectId }: AddClientPODrawe
           projectId,
           data: {
             poNumber: poFormData.poNumber,
-            startDate: '',
+            startDate: poFormData.startDate,
             endDate: '',
             poValue: poValueNumber,
             executedValue: executedValueNumberSave,
@@ -482,6 +482,14 @@ export function AddClientPODrawer({ open, onClose, projectId }: AddClientPODrawe
               placeholder="PO-CLI-2024-001"
             />
           </FormField>
+          <FormField label="PO Date" required>
+            <DatePicker
+              value={dateFromIso(poFormData.startDate)}
+              onChange={(d) =>
+                setPoFormData((prev) => ({ ...prev, startDate: isoFromDate(d) }))
+              }
+            />
+          </FormField>
           <FormField label="PO Value (₹)" required>
             <TextField
               fullWidth
@@ -522,7 +530,7 @@ export function AddClientPODrawer({ open, onClose, projectId }: AddClientPODrawe
               <MenuItem value="" sx={{ fontSize: 12 }}>None</MenuItem>
               {tdsOptions.map((o) => (
                 <MenuItem key={o.value} value={o.value} sx={{ fontSize: 12 }}>
-                  {Number.isFinite((o as any).rate) ? `${(o as any).rate}%` : o.label}
+                  {o.label}
                 </MenuItem>
               ))}
             </Select>
@@ -654,6 +662,10 @@ export function ViewClientPODrawer({
             </Typography>
             <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px' }}>
               <ReadOnlyField label="PO Number" value={po.poNumber} />
+              <ReadOnlyField
+                label="PO Date"
+                value={po.startDate ? formatDate(po.startDate) : '—'}
+              />
               <ReadOnlyField label="PO Value" value={`₹${formatCurrency(po.poValue)}`} />
               <ReadOnlyField label="Executed Value" value={`₹${formatCurrency(effectiveExecutedValue(po))}`} />
               <PODocumentLinkField
@@ -692,6 +704,7 @@ export function EditClientPODrawer({
   const tdsOptions = useTdsOptions(open)
 
   const [poNumber, setPoNumber] = useState('')
+  const [startDate, setStartDate] = useState('')
   const [poValue, setPoValue] = useState('')
   const [executedValue, setExecutedValue] = useState('')
   const [milestones, setMilestones] = useState<ClientPOMilestone[]>([])
@@ -732,6 +745,7 @@ export function EditClientPODrawer({
   useEffect(() => {
     if (!open || !po) return
     setPoNumber(po.poNumber)
+    setStartDate(po.startDate || '')
     setPoValue(String(po.poValue))
     setExecutedValue(String(effectiveExecutedValue(po)))
     setNewFile(null)
@@ -742,14 +756,13 @@ export function EditClientPODrawer({
 
   useEffect(() => {
     if (serviceOptions.length === 0) return
-    const first = serviceOptions[0]
     setMilestones((prev) =>
       prev.map((m) => {
         if (lockedMilestoneIds.has(m.id)) return m
-        const keep = serviceOptions.some((o) => o.id === m.serviceId)
-        if (keep) return m
-        if (!first) return m
-        return { ...m, serviceId: first.id, serviceName: first.label }
+        const resolved = resolveClientPOMilestoneServiceOption(m.serviceId, serviceOptions)
+        if (!resolved) return m
+        if (m.serviceId === resolved.id && m.serviceName === resolved.label) return m
+        return { ...m, serviceId: resolved.id, serviceName: resolved.label }
       }),
     )
   }, [serviceOptions, lockedMilestoneIds])
@@ -765,6 +778,10 @@ export function EditClientPODrawer({
     const executedValueNum = Number(executedValue)
     if (!poNumber.trim() || !Number.isFinite(poValueNum) || poValueNum <= 0) {
       toast({ title: 'Enter valid PO number and value', variant: 'error' })
+      return
+    }
+    if (!startDate.trim()) {
+      toast({ title: 'PO Date is required', variant: 'error' })
       return
     }
     if (!Number.isFinite(executedValueNum) || executedValueNum <= 0) {
@@ -795,6 +812,7 @@ export function EditClientPODrawer({
 
     const body: Partial<ClientPO> = {
       poNumber: poNumber.trim(),
+      startDate: startDate.trim(),
       poValue: hasBilled ? po.poValue : poValueNum,
       executedValue: executedValueNum,
       milestones: recalculated,
@@ -862,6 +880,13 @@ export function EditClientPODrawer({
                 disabled={hasBilled}
               />
             </FormField>
+            <FormField label="PO Date" required>
+              <DatePicker
+                value={dateFromIso(startDate)}
+                onChange={(d) => setStartDate(isoFromDate(d))}
+                disabled={hasBilled}
+              />
+            </FormField>
             <FormField label="PO Value (₹)" required>
               <TextField
                 fullWidth
@@ -899,7 +924,7 @@ export function EditClientPODrawer({
                 <MenuItem value="" sx={{ fontSize: 12 }}>None</MenuItem>
                 {tdsOptions.map((o) => (
                   <MenuItem key={o.value} value={o.value} sx={{ fontSize: 12 }}>
-                    {Number.isFinite((o as any).rate) ? `${(o as any).rate}%` : o.label}
+                    {o.label}
                   </MenuItem>
                 ))}
               </Select>

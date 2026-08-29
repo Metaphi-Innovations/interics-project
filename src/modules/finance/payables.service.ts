@@ -38,6 +38,8 @@ export type PayablesListResult = {
   total: number
   page: number
   pageSize: number
+  pendingCount: number
+  completedCount: number
 }
 
 type PayablesFilterOption = { value: string; label: string }
@@ -65,6 +67,8 @@ export const payablesService = {
   async getSummary(params?: {
     projectId?: string
     vendorId?: string
+    dateFrom?: string
+    dateTo?: string
   }): Promise<PayablesSummaryApi> {
     const res = await client.get('/finance/payables/summary', { params })
     return (
@@ -84,6 +88,21 @@ export const payablesService = {
       vendorInvoices: Array.isArray(data?.vendorInvoices) ? data.vendorInvoices : [],
       baselines: Array.isArray(data?.baselines) ? data.baselines : [],
     }
+  },
+
+  async listVendorPos(params?: {
+    projectId?: string
+    vendorId?: string
+    pendingInvoiceOnly?: boolean
+  }): Promise<VendorPO[]> {
+    const res = await client.get('/finance/payables/vendor-pos', {
+      params: {
+        ...(params?.projectId ? { projectId: params.projectId } : {}),
+        ...(params?.vendorId ? { vendorId: params.vendorId } : {}),
+        ...(params?.pendingInvoiceOnly ? { pendingInvoiceOnly: true } : {}),
+      },
+    })
+    return unwrapApiData<VendorPO[]>(res.data) ?? []
   },
 
   async getList(params: {
@@ -123,6 +142,8 @@ export const payablesService = {
       total: typeof meta.total === 'number' ? meta.total : Array.isArray(data) ? data.length : 0,
       page: typeof meta.page === 'number' ? meta.page : params.page ?? 1,
       pageSize: typeof meta.limit === 'number' ? meta.limit : params.limit ?? 20,
+      pendingCount: typeof meta.pendingCount === 'number' ? meta.pendingCount : 0,
+      completedCount: typeof meta.completedCount === 'number' ? meta.completedCount : 0,
     }
   },
 

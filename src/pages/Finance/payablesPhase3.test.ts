@@ -14,6 +14,17 @@ describe('Payables KPI refresh wiring', () => {
     expect(paymentsPage).toMatch(/onClose=\{\(\) => \{[\s\S]*?refreshPayablesSummaryAndList\(\)/)
     expect(paymentsPage).toMatch(/confirmDeletePayableInvoice[\s\S]*?refreshPayablesSummaryAndList/)
   })
+
+  it('derives KPI dates from merged global + toolbar range', () => {
+    expect(paymentsPage).toContain('effectiveKpiDates')
+    expect(paymentsPage).toMatch(/payablesService\.getSummary\([\s\S]*?effectiveKpiDates\.dateFrom/)
+  })
+
+  it('uses backend tab counts for Pending/Completed badges', () => {
+    expect(paymentsPage).toContain('pendingCount')
+    expect(paymentsPage).toContain('completedCount')
+    expect(paymentsPage).not.toContain('enrichedMilestones')
+  })
 })
 
 describe('Payables draft delete visibility', () => {

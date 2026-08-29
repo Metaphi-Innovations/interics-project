@@ -4,6 +4,7 @@ import {
   useEffect,
   useImperativeHandle,
   useMemo,
+  useRef,
   useState,
 } from 'react'
 import {
@@ -22,8 +23,9 @@ import {
 } from '@mui/material'
 import type { PitchVersion, PlannedExpense, PitchService, VendorMapping } from '@/slices/pitch/reducer'
 import type { Baseline, VendorPO } from '@/slices/baseline/reducer'
-import type { ExpenseType } from '@/slices/live/types'
+import type { ExpenseType, Expense } from '@/slices/live/types'
 import type { CreateExpenseBody } from '@/api/liveApi'
+import { uploadProjectDocumentFile } from '@/api/uploadFileApi'
 import { Input, FileUpload, DatePicker, dateFromIso, isoFromDate, useToast } from '@/design-system/components'
 import { FormField, FormSection } from '@/components/templates/DrawerForm'
 import { tokens } from '@/design-system/tokens'
@@ -31,11 +33,22 @@ import { formatCurrency } from '@/utils/formatters'
 import { flattenBaselineMilestones, flattenBaselineServices } from '@/pages/Finance/utils/projectBillable'
 import { vendorValueTotalsByVendorId } from '@/utils/pitchPlannedExpenses'
 import {
-  computeAllocationsForVendors,
-  computeCommonExpenseAllocations,
+  buildVendorSelectOptions,
+  vendorIdAfterBuildVendorChange,
+  paidByVendorIdAfterBuildVendorChange,
+  shouldResetLiveProjectDependentFields,
+  sortActiveVendorOptions,
+} from '@/components/forms/expenseFormStateUtils'
+import {
+  resolveCommonExpenseAllocations,
+  expenseSharePercent,
   findServiceInBaseline,
   getBuildVendorsFromPOs,
+  selectedBuildVendorPoWeight,
+  type CommonExpenseAllocation,
 } from '@/components/forms/expenseFormUtils'
+import { useAppDispatch, useAppSelector } from '@/store/hooks'
+import { fetchVendors } from '@/slices/vendors/thunk'
 
 function findServiceInPitchVersion(
   version: PitchVersion | null | undefined,
@@ -83,6 +96,8 @@ export interface ExpenseFormProps {
   selectedProjectId?: string
   onSelectedProjectIdChange?: (projectId: string) => void
   editingPlannedExpense?: PlannedExpense | null
+  /** Live/global expense being edited (Finance or Project Live). */
+  editingExpense?: Expense | null
   open?: boolean
   onSubmit: (data: ExpenseFormData) => void
   onCancel: () => void
@@ -91,7 +106,7 @@ export interface ExpenseFormProps {
 }
 
 export type ExpenseFormHandle = {
-  submit: () => void
+  submit: () => void | Promise<void>
 }
 
 type PitchExpenseType = PlannedExpense['type']
@@ -118,6 +133,7 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
     selectedProjectId,
     onSelectedProjectIdChange,
     editingPlannedExpense,
+    editingExpense,
     open = true,
     onSubmit,
     onValidityChange,
@@ -128,9 +144,18 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
   const isPitch = context === 'pitch'
   const isLiveOrGlobal = context === 'live' || context === 'global'
   const toast = useToast()
+  const dispatch = useAppDispatch()
+  const vendorItems = useAppSelector((s) => s.vendors.items ?? [])
 
   const effectiveProjectId =
     context === 'global' ? (selectedProjectId ?? '') : (projectId ?? '')
+
+  const prevEffectiveProjectIdRef = useRef<string | undefined>(undefined)
+  const initialCommonEditRef = useRef<{
+    amount: number
+    selectedVendorIds: string[]
+    vendorAllocations: CommonExpenseAllocation[]
+  } | null>(null)
 
   const [liveType, setLiveType] = useState<ExpenseType>('common')
   const [pitchType, setPitchType] = useState<PitchExpenseType>('common')
@@ -139,9 +164,13 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
   const [amount, setAmount] = useState('')
   const [date, setDate] = useState('')
   const [documentUrl, setDocumentUrl] = useState<string | undefined>(undefined)
+  const [pendingDocumentFile, setPendingDocumentFile] = useState<File | null>(null)
+
+  const isEditMode = Boolean(editingExpense)
 
   const [serviceId, setServiceId] = useState('')
   const [mappingId, setMappingId] = useState('')
+  const [liveVendorId, setLiveVendorId] = useState('')
   const [milestoneId, setMilestoneId] = useState('')
 
   const [paidByVendorId, setPaidByVendorId] = useState('')
@@ -176,15 +205,10 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
     return all.filter((m) => m.baselineServiceId === serviceId)
   }, [baseline, serviceId])
 
-  const vendorMappingOptionsLive = useMemo((): (VendorMapping & { serviceName: string })[] => {
-    const svc = findServiceInBaseline(baseline ?? null, serviceId)
-    if (!svc) return []
-    return svc.vendorMappings.map((m) => ({ ...m, serviceName: svc.name }))
-  }, [baseline, serviceId])
-
-  const selectedMappingLive = useMemo(() => {
-    return vendorMappingOptionsLive.find((m) => m.id === mappingId)
-  }, [vendorMappingOptionsLive, mappingId])
+  const activeVendorOptions = useMemo(
+    () => sortActiveVendorOptions(vendorItems),
+    [vendorItems],
+  )
 
   const pitchServicesFlat = useMemo(() => {
     if (!pitchVersion) return [] as { id: string; name: string }[]
@@ -241,39 +265,67 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
   const isCommonExpense = isPitch ? pitchType === 'common' : liveType === 'common'
   const commonVendors = isPitch ? pitchBuildVendors : buildVendors
 
+  const paidByVendorOptions = useMemo(
+    () => buildVendorSelectOptions(commonVendors),
+    [commonVendors],
+  )
+
+  /** Project build vendors — shared by Common Expense Paid By and Vendor Linked. */
+  const projectBuildVendorOptions = useMemo(
+    () => buildVendorSelectOptions(buildVendors),
+    [buildVendors],
+  )
+
+  const selectedLiveVendor = useMemo(() => {
+    if (liveType === 'vendor_linked') {
+      const hit = projectBuildVendorOptions.find((v) => v.id === liveVendorId)
+      return hit ? { id: hit.id, name: hit.name } : undefined
+    }
+    return activeVendorOptions.find((v) => v.id === liveVendorId)
+  }, [liveType, projectBuildVendorOptions, activeVendorOptions, liveVendorId])
+
   const commonPreview = useMemo(() => {
-    const weighted = (isPitch ? pitchBuildVendors : buildVendors).map((v) => ({
-      vendorId: v.vendorId,
-      vendorName: v.vendorName,
-      weight: v.poSum,
-    }))
-    if (weighted.length === 0) return []
+    const vendors = isPitch ? pitchBuildVendors : buildVendors
+    if (vendors.length === 0) return []
 
     const n = Number(amount)
     const calcAmount = Number.isFinite(n) && n > 0 ? n : 0
+    const previewAmount = calcAmount > 0 ? calcAmount : 1
 
-    // Always derive fixed PO ratios from full vendor set (never filter by selection).
-    // When amount is empty, still show ratios with ₹0 shares so selection can happen first.
-    if (!isPitch && projectVendorPOs.length > 0) {
-      const rows = computeCommonExpenseAllocations(
-        calcAmount > 0 ? calcAmount : 1,
-        projectVendorPOs,
-        COMMON_EXPENSE_SPLIT_METHOD,
-      )
-      return calcAmount > 0 ? rows : rows.map((r) => ({ ...r, allocationAmount: 0 }))
-    }
+    const editingCommon =
+      (isPitch && editingPlannedExpense?.type === 'common') ||
+      (!isPitch && editingExpense?.type === 'common')
 
-    const rows = computeAllocationsForVendors(
-      calcAmount > 0 ? calcAmount : 1,
-      weighted,
-      COMMON_EXPENSE_SPLIT_METHOD,
-    )
+    const rows = resolveCommonExpenseAllocations({
+      amount: previewAmount,
+      buildVendors: vendors,
+      projectVendorPOs: !isPitch && projectVendorPOs.length > 0 ? projectVendorPOs : undefined,
+      selectedVendorIds: allocatedVendorIds,
+      method: COMMON_EXPENSE_SPLIT_METHOD,
+      preserveWhenUnchanged:
+        editingCommon && calcAmount > 0 ? initialCommonEditRef.current : null,
+    })
+
     return calcAmount > 0 ? rows : rows.map((r) => ({ ...r, allocationAmount: 0 }))
-  }, [amount, isPitch, projectVendorPOs, pitchBuildVendors, buildVendors])
+  }, [
+    amount,
+    isPitch,
+    projectVendorPOs,
+    pitchBuildVendors,
+    buildVendors,
+    allocatedVendorIds,
+    editingExpense,
+    editingPlannedExpense,
+  ])
 
   const totalCommonWeight = useMemo(
     () => commonVendors.reduce((s, v) => s + v.poSum, 0),
     [commonVendors],
+  )
+
+  const selectedCommonWeight = useMemo(
+    () => selectedBuildVendorPoWeight(commonVendors, allocatedVendorIds),
+    [commonVendors, allocatedVendorIds],
   )
 
   const recoveredPreviewTotal = useMemo(
@@ -289,6 +341,7 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
   const resetLiveDependent = useCallback((next: ExpenseType) => {
     setServiceId('')
     setMappingId('')
+    setLiveVendorId('')
     setMilestoneId('')
     setPaidByVendorId('')
     setAllocatedVendorIds([])
@@ -324,11 +377,27 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
 
   function handlePaidByChange(vendorId: string) {
     setPaidByVendorId(vendorId)
-    // Paid By is never auto-selected for recovery — Interics chooses reimbursing vendors explicitly.
-    if (vendorId) {
-      setAllocatedVendorIds((prev) => prev.filter((id) => id !== vendorId))
-    }
   }
+
+  useEffect(() => {
+    if (!open || !isCommonExpense) return
+    setPaidByVendorId((current) =>
+      paidByVendorIdAfterBuildVendorChange(
+        current,
+        commonVendors.map((v) => v.vendorId),
+      ),
+    )
+  }, [open, isCommonExpense, commonVendors])
+
+  useEffect(() => {
+    if (!open || !isLiveOrGlobal || liveType !== 'vendor_linked') return
+    setLiveVendorId((current) =>
+      vendorIdAfterBuildVendorChange(
+        current,
+        buildVendors.map((v) => v.vendorId),
+      ),
+    )
+  }, [open, isLiveOrGlobal, liveType, buildVendors])
 
   useEffect(() => {
     if (!open || !isPitch) return
@@ -355,18 +424,31 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
       if (ed.type === 'common') {
         setPaidByVendorId(ed.paidByVendorId ?? '')
         if (ed.vendorSplits?.length) {
-          setAllocatedVendorIds(
-            ed.vendorSplits
-              .filter((s) => s.includedInRecovery !== false)
-              .map((s) => s.vendorId),
-          )
+          const selectedIds = ed.vendorSplits
+            .filter((s) => s.includedInRecovery !== false)
+            .map((s) => s.vendorId)
+          setAllocatedVendorIds(selectedIds)
+          initialCommonEditRef.current = {
+            amount: ed.amount,
+            selectedVendorIds: selectedIds,
+            vendorAllocations: ed.vendorSplits.map((s) => ({
+              vendorId: s.vendorId,
+              vendorName:
+                pitchBuildVendors.find((v) => v.vendorId === s.vendorId)?.vendorName ?? s.vendorId,
+              allocationPercent: s.percentage,
+              allocationAmount: s.amount,
+              includedInRecovery: s.includedInRecovery !== false,
+            })),
+          }
         } else {
           // Explicit selection required — do not pre-check Paid By or other vendors.
           setAllocatedVendorIds([])
+          initialCommonEditRef.current = null
         }
       } else {
         setPaidByVendorId('')
         setAllocatedVendorIds([])
+        initialCommonEditRef.current = null
       }
     } else {
       setPitchType('common')
@@ -379,24 +461,95 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
       setMilestoneId('')
       setPaidByVendorId('')
       setAllocatedVendorIds([])
+      initialCommonEditRef.current = null
     }
     setFieldErrors({})
   }, [open, isPitch, pitchVersion, editingPlannedExpense, pitchBuildVendors])
 
   useEffect(() => {
+    if (!open || !isLiveOrGlobal) return
+    void dispatch(fetchVendors({ pageSize: 100, status: 'Active' }))
+  }, [open, isLiveOrGlobal, dispatch])
+
+  useEffect(() => {
     if (!open || isPitch) return
-    setLiveType('common')
-    setDescription('')
-    setAmount('')
-    setDate('')
-    setDocumentUrl(undefined)
+    if (editingExpense) {
+      setLiveType(editingExpense.type)
+      setDescription(editingExpense.description)
+      setAmount(String(editingExpense.amount))
+      setDate(editingExpense.date)
+      setDocumentUrl(editingExpense.documentUrl)
+      setPendingDocumentFile(null)
+      setServiceId(editingExpense.serviceId ?? '')
+      setMilestoneId(editingExpense.milestoneId ?? '')
+      setMappingId('')
+      setLiveVendorId(editingExpense.vendorId ?? '')
+      setPaidByVendorId(editingExpense.paidByVendorId ?? '')
+      const selectedIds =
+        editingExpense.vendorAllocations
+          ?.filter((a) => a.includedInRecovery !== false)
+          .map((a) => a.vendorId) ?? []
+      setAllocatedVendorIds(selectedIds)
+      if (editingExpense.type === 'common') {
+        initialCommonEditRef.current = {
+          amount: editingExpense.amount,
+          selectedVendorIds: selectedIds,
+          vendorAllocations: (editingExpense.vendorAllocations ?? []).map((a) => ({
+            vendorId: a.vendorId,
+            vendorName: a.vendorName,
+            allocationPercent: a.allocationPercent,
+            allocationAmount: a.allocationAmount,
+            includedInRecovery: a.includedInRecovery !== false,
+          })),
+        }
+      } else {
+        initialCommonEditRef.current = null
+      }
+    } else {
+      setLiveType('common')
+      setDescription('')
+      setAmount('')
+      setDate('')
+      setDocumentUrl(undefined)
+      setPendingDocumentFile(null)
+      setServiceId('')
+      setMappingId('')
+      setLiveVendorId('')
+      setMilestoneId('')
+      setPaidByVendorId('')
+      setAllocatedVendorIds([])
+      initialCommonEditRef.current = null
+    }
+    setFieldErrors({})
+    prevEffectiveProjectIdRef.current = effectiveProjectId
+  }, [open, isPitch, editingExpense])
+
+  useEffect(() => {
+    if (!open || isPitch || editingExpense) return
+
+    const prev = prevEffectiveProjectIdRef.current
+    if (!shouldResetLiveProjectDependentFields(prev, effectiveProjectId)) {
+      if (prev === undefined) {
+        prevEffectiveProjectIdRef.current = effectiveProjectId
+      }
+      return
+    }
+
+    prevEffectiveProjectIdRef.current = effectiveProjectId
+
     setServiceId('')
     setMappingId('')
+    setLiveVendorId('')
     setMilestoneId('')
     setPaidByVendorId('')
     setAllocatedVendorIds([])
-    setFieldErrors({})
-  }, [open, isPitch, effectiveProjectId, buildVendors])
+    setFieldErrors((prevErrors) => ({
+      ...prevErrors,
+      serviceId: undefined,
+      mappingId: undefined,
+      commonVendors: undefined,
+    }))
+  }, [open, isPitch, editingExpense, effectiveProjectId])
 
   useEffect(() => {
     if (isPitch) {
@@ -404,8 +557,12 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
       return
     }
     if (!isLiveOrGlobal) return
+    if (editingExpense) {
+      onSubmitLabelChange?.('Update Expense')
+      return
+    }
     onSubmitLabelChange?.(liveType === 'reimbursable_expenses' ? 'Add Reimbursement' : 'Save')
-  }, [isPitch, pitchType, isLiveOrGlobal, liveType, onSubmitLabelChange])
+  }, [isPitch, pitchType, isLiveOrGlobal, liveType, editingExpense, onSubmitLabelChange])
 
   function handleLiveTypeChange(next: ExpenseType) {
     setLiveType(next)
@@ -439,8 +596,11 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
 
     if (amountNum <= 0) return false
     if (!date.trim()) return false
-    if (liveType === 'vendor_linked' || liveType === 'reimbursable_expenses') {
-      return Boolean(serviceId && selectedMappingLive)
+    if (liveType === 'vendor_linked') {
+      return Boolean(selectedLiveVendor)
+    }
+    if (liveType === 'reimbursable_expenses') {
+      return Boolean(serviceId && selectedLiveVendor)
     }
     if (liveType === 'common') {
       return buildVendors.length > 0 && totalCommonWeight > 0
@@ -460,7 +620,7 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
     liveType,
     serviceId,
     selectedMappingPitch,
-    selectedMappingLive,
+    selectedLiveVendor,
     totalCommonWeight,
     pitchBuildVendors.length,
     buildVendors.length,
@@ -498,6 +658,9 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
           next.commonVendors = 'No mapped vendors on this version. Add vendor mappings first.'
         } else if (totalCommonWeight <= 0) {
           next.commonVendors = 'No vendor PO values for proportional split. Add vendor PO values first.'
+        } else if (allocatedVendorIds.length > 0 && selectedCommonWeight <= 0) {
+          next.commonVendors =
+            'Selected vendors have no PO values for proportional split.'
         }
       }
     } else {
@@ -505,15 +668,20 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
       else if (!(amountNum > 0)) next.amount = 'Enter a valid amount greater than 0'
       if (!date.trim()) next.date = 'Date is required'
 
-      if (liveType === 'vendor_linked' || liveType === 'reimbursable_expenses') {
+      if (liveType === 'vendor_linked') {
+        if (!selectedLiveVendor) next.mappingId = 'Vendor is required'
+      } else if (liveType === 'reimbursable_expenses') {
         if (!serviceId) next.serviceId = 'Service is required'
-        if (!selectedMappingLive) next.mappingId = 'Vendor is required'
+        if (!selectedLiveVendor) next.mappingId = 'Vendor is required'
       }
       if (liveType === 'common') {
         if (buildVendors.length === 0) {
           next.commonVendors = 'No mapped build vendors for this project. Add vendor POs first.'
         } else if (totalCommonWeight <= 0) {
           next.commonVendors = 'No vendor PO values for proportional split. Add vendor PO values first.'
+        } else if (allocatedVendorIds.length > 0 && selectedCommonWeight <= 0) {
+          next.commonVendors =
+            'Selected vendors have no PO values for proportional split.'
         }
       }
     }
@@ -540,14 +708,16 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
     liveType,
     serviceId,
     selectedMappingPitch,
-    selectedMappingLive,
+    selectedLiveVendor,
     pitchBuildVendors.length,
     buildVendors.length,
     totalCommonWeight,
+    selectedCommonWeight,
+    allocatedVendorIds.length,
     toast,
   ])
 
-  const submit = useCallback(() => {
+  const submit = useCallback(async () => {
     if (!validateForm()) return
 
     if (isPitch && pitchVersion) {
@@ -581,15 +751,15 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
           documentUrl,
         }
       } else {
-        const allocations = computeAllocationsForVendors(
-          amountNum,
-          pitchBuildVendors.map((v) => ({
-            vendorId: v.vendorId,
-            vendorName: v.vendorName,
-            weight: v.poSum,
-          })),
-          COMMON_EXPENSE_SPLIT_METHOD,
-        )
+        const allocations = resolveCommonExpenseAllocations({
+          amount: amountNum,
+          buildVendors: pitchBuildVendors,
+          projectVendorPOs: projectVendorPOs.length > 0 ? projectVendorPOs : undefined,
+          selectedVendorIds: allocatedVendorIds,
+          method: COMMON_EXPENSE_SPLIT_METHOD,
+          preserveWhenUnchanged:
+            editingPlannedExpense?.type === 'common' ? initialCommonEditRef.current : null,
+        })
         if (allocations.length === 0) return
         const payer = paidByVendorId
           ? pitchBuildVendors.find((v) => v.vendorId === paidByVendorId)
@@ -598,7 +768,7 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
           vendorId: a.vendorId,
           percentage: a.allocationPercent,
           amount: a.allocationAmount,
-          includedInRecovery: allocatedVendorIds.includes(a.vendorId),
+          includedInRecovery: a.includedInRecovery,
         }))
         expense = {
           id: baseId,
@@ -618,20 +788,47 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
     const pid = effectiveProjectId
     if (!pid) return
 
-    if (liveType === 'vendor_linked' || liveType === 'reimbursable_expenses') {
+    let finalDocumentUrl = documentUrl
+    if (pendingDocumentFile) {
+      try {
+        const uploaded = await uploadProjectDocumentFile(pendingDocumentFile)
+        finalDocumentUrl = uploaded.viewUrl
+      } catch {
+        toast.error('Failed to upload document')
+        return
+      }
+    }
+
+    if (liveType === 'vendor_linked') {
+      if (!selectedLiveVendor) return
+      const data: CreateExpenseBody = {
+        type: 'vendor_linked',
+        description: description.trim(),
+        amount: amountNum,
+        date: date || '',
+        documentUrl: finalDocumentUrl,
+        vendorId: selectedLiveVendor.id,
+        vendorName: selectedLiveVendor.name,
+        status: 'pending',
+      }
+      onSubmit({ mode: 'live_expense', projectId: pid, data })
+      return
+    }
+
+    if (liveType === 'reimbursable_expenses') {
       const svc = findServiceInBaseline(baseline ?? null, serviceId)
       const ms = milestonesForService.find((m) => m.milestoneId === milestoneId)
-      if (!selectedMappingLive) return
+      if (!selectedLiveVendor) return
       const data: CreateExpenseBody = {
         type: liveType,
         description: description.trim(),
         amount: amountNum,
         date: date || '',
-        documentUrl,
+        documentUrl: finalDocumentUrl,
         serviceId,
         serviceName: svc?.name ?? '',
-        vendorId: selectedMappingLive.vendorId,
-        vendorName: selectedMappingLive.vendorName,
+        vendorId: selectedLiveVendor.id,
+        vendorName: selectedLiveVendor.name,
         milestoneId: ms ? ms.milestoneId : undefined,
         milestoneName: ms ? ms.milestoneName : undefined,
         status: 'pending',
@@ -641,28 +838,29 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
     }
 
     if (liveType === 'common') {
-      const allocations = computeCommonExpenseAllocations(
-        amountNum,
-        projectVendorPOs,
-        COMMON_EXPENSE_SPLIT_METHOD,
-      )
+      const allocations = resolveCommonExpenseAllocations({
+        amount: amountNum,
+        buildVendors,
+        projectVendorPOs: projectVendorPOs.length > 0 ? projectVendorPOs : undefined,
+        selectedVendorIds: allocatedVendorIds,
+        method: COMMON_EXPENSE_SPLIT_METHOD,
+        preserveWhenUnchanged:
+          editingExpense?.type === 'common' ? initialCommonEditRef.current : null,
+      })
       if (allocations.length === 0) return
       const payer = paidByVendorId
-        ? buildVendors.find((v) => v.vendorId === paidByVendorId)
+        ? commonVendors.find((v) => v.vendorId === paidByVendorId)
         : undefined
       const data: CreateExpenseBody = {
         type: 'common',
         description: description.trim(),
         amount: amountNum,
         date: date || '',
-        documentUrl,
+        documentUrl: finalDocumentUrl,
         splitMethod: COMMON_EXPENSE_SPLIT_METHOD,
         paidByVendorId: payer?.vendorId,
         paidByVendorName: payer?.vendorName,
-        vendorAllocations: allocations.map((a) => ({
-          ...a,
-          includedInRecovery: allocatedVendorIds.includes(a.vendorId),
-        })),
+        vendorAllocations: allocations,
         status: 'pending',
       }
       onSubmit({ mode: 'live_expense', projectId: pid, data })
@@ -674,8 +872,8 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
       description: description.trim(),
       amount: amountNum,
       date: date || '',
-      documentUrl,
-      status: 'pending',
+      documentUrl: finalDocumentUrl,
+      status: editingExpense?.status ?? 'pending',
     }
     onSubmit({ mode: 'live_expense', projectId: pid, data })
   }, [
@@ -695,13 +893,18 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
     serviceId,
     date,
     documentUrl,
-    selectedMappingLive,
+    pendingDocumentFile,
+    selectedLiveVendor,
     milestonesForService,
     projectVendorPOs,
     paidByVendorId,
     allocatedVendorIds,
     buildVendors,
+    commonVendors,
+    activeVendorOptions,
+    editingExpense,
     onSubmit,
+    toast,
   ])
 
   useImperativeHandle(ref, () => ({ submit }), [submit])
@@ -749,8 +952,8 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
         </FormField>
         {isCommonExpense && (
           <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11, display: 'block', mt: -0.5 }}>
-            Split across mapped build vendors using the original PO ratio. Unselected vendors&apos;
-            shares remain a project expense.
+            PO Ratio reflects each vendor&apos;s share of total project PO value. Expense Share
+            normalizes only among selected vendors.
           </Typography>
         )}
         {(isPitch ? pitchType === 'vendor' : liveType === 'vendor_linked') && (
@@ -782,6 +985,7 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
                 setFieldErrors((prev) => ({ ...prev, projectId: undefined }))
               }}
               fullWidth
+              disabled={isEditMode}
               error={Boolean(fieldErrors.projectId)}
               sx={{ fontSize: 12 }}
             >
@@ -929,7 +1133,36 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
         </FormSection>
       )}
 
-      {!isPitch && (liveType === 'vendor_linked' || liveType === 'reimbursable_expenses') && (
+      {!isPitch && liveType === 'vendor_linked' && (
+        <FormSection title="Vendor" columns={1}>
+          <FormField label="Vendor" required error={fieldErrors.mappingId}>
+            <Select
+              size="small"
+              displayEmpty
+              value={liveVendorId}
+              onChange={(e) => {
+                setLiveVendorId(e.target.value)
+                setFieldErrors((prev) => ({ ...prev, mappingId: undefined }))
+              }}
+              fullWidth
+              disabled={projectBuildVendorOptions.length === 0}
+              error={Boolean(fieldErrors.mappingId)}
+              sx={{ fontSize: 12 }}
+            >
+              <MenuItem value="" sx={{ fontSize: 12 }}>
+                Select vendor
+              </MenuItem>
+              {projectBuildVendorOptions.map((v) => (
+                <MenuItem key={v.id} value={v.id} sx={{ fontSize: 12 }}>
+                  {v.name}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormField>
+        </FormSection>
+      )}
+
+      {!isPitch && liveType === 'reimbursable_expenses' && (
         <FormSection title="Scope" columns={1}>
           <FormField label="Service" required error={fieldErrors.serviceId}>
             <Select
@@ -938,7 +1171,7 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
               value={serviceId}
               onChange={(e) => {
                 setServiceId(e.target.value)
-                setMappingId('')
+                setLiveVendorId('')
                 setMilestoneId('')
                 setFieldErrors((prev) => ({
                   ...prev,
@@ -964,33 +1197,29 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
             <Select
               size="small"
               displayEmpty
-              value={mappingId}
+              value={liveVendorId}
               onChange={(e) => {
-                setMappingId(e.target.value)
+                setLiveVendorId(e.target.value)
                 setFieldErrors((prev) => ({ ...prev, mappingId: undefined }))
               }}
               fullWidth
-              disabled={!serviceId || vendorMappingOptionsLive.length === 0}
+              disabled={activeVendorOptions.length === 0}
               error={Boolean(fieldErrors.mappingId)}
               sx={{ fontSize: 12 }}
             >
               <MenuItem value="" sx={{ fontSize: 12 }}>
                 Select vendor
               </MenuItem>
-              {vendorMappingOptionsLive.map((m) => (
-                <MenuItem key={m.id} value={m.id} sx={{ fontSize: 12 }}>
-                  {m.vendorName}
+              {activeVendorOptions.map((v) => (
+                <MenuItem key={v.id} value={v.id} sx={{ fontSize: 12 }}>
+                  {v.name}
                 </MenuItem>
               ))}
             </Select>
           </FormField>
           <FormField
-            label={isReimbursable ? 'Milestone Reference' : 'Milestone (reference only)'}
-            hint={
-              isReimbursable
-                ? 'For reference only — does not affect payment grouping'
-                : 'This is for tracking only, not payment grouping'
-            }
+            label="Milestone Reference"
+            hint="For reference only — does not affect payment grouping"
           >
             <Select
               size="small"
@@ -1034,7 +1263,8 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
             </Stack>
 
             <Typography variant="caption" sx={{ fontSize: 11, display: 'block', mb: 1, color: 'text.secondary' }}>
-              Check vendors to recover from. PO shares stay fixed; Paid By is not auto-selected.
+              Check vendors to recover from. PO Ratio stays fixed; Expense Share normalizes among
+              selected vendors. Paid By is not auto-selected.
             </Typography>
 
             {fieldErrors.commonVendors ? (
@@ -1104,7 +1334,21 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
                             {row.allocationPercent}%
                           </TableCell>
                           <TableCell align="right" sx={{ fontSize: 12, fontWeight: 600, py: 1 }}>
-                            ₹{formatCurrency(row.allocationAmount)}
+                            {selected ? (
+                              <>
+                                {expenseSharePercent(row.allocationAmount, amountNum)}%
+                                <Typography
+                                  component="span"
+                                  sx={{ fontSize: 11, color: 'text.secondary', ml: 0.75 }}
+                                >
+                                  (₹{formatCurrency(row.allocationAmount)})
+                                </Typography>
+                              </>
+                            ) : (
+                              <Typography component="span" sx={{ fontSize: 11, color: 'text.secondary' }}>
+                                0% (₹{formatCurrency(0)})
+                              </Typography>
+                            )}
                           </TableCell>
                         </TableRow>
                       )
@@ -1130,7 +1374,10 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
                       >
                         {commonPreview
                           .filter((r) => allocatedVendorIds.includes(r.vendorId))
-                          .reduce((s, r) => s + r.allocationPercent, 0)}
+                          .reduce(
+                            (s, r) => s + expenseSharePercent(r.allocationAmount, amountNum),
+                            0,
+                          )}
                         %
                       </TableCell>
                       <TableCell
@@ -1144,13 +1391,13 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
                         ₹{formatCurrency(recoveredPreviewTotal)}
                       </TableCell>
                     </TableRow>
-                    {amountNum > recoveredPreviewTotal ? (
+                    {allocatedVendorIds.length === 0 && amountNum > 0 ? (
                       <TableRow>
                         <TableCell colSpan={3} sx={{ fontSize: 11, color: 'text.secondary', py: 1 }}>
-                          Unrecovered (project / common expense)
+                          No vendors selected for recovery
                         </TableCell>
                         <TableCell align="right" sx={{ fontSize: 11, color: 'text.secondary', py: 1 }}>
-                          ₹{formatCurrency(amountNum - recoveredPreviewTotal)}
+                          ₹{formatCurrency(amountNum)}
                         </TableCell>
                       </TableRow>
                     ) : null}
@@ -1171,15 +1418,15 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
               value={paidByVendorId}
               onChange={(e) => handlePaidByChange(e.target.value)}
               fullWidth
-              disabled={commonVendors.length === 0}
+              disabled={paidByVendorOptions.length === 0}
               sx={{ fontSize: 12 }}
             >
               <MenuItem value="" sx={{ fontSize: 12 }}>
                 Select vendor
               </MenuItem>
-              {commonVendors.map((v) => (
-                <MenuItem key={v.vendorId} value={v.vendorId} sx={{ fontSize: 12 }}>
-                  {v.vendorName}
+              {paidByVendorOptions.map((v) => (
+                <MenuItem key={v.id} value={v.id} sx={{ fontSize: 12 }}>
+                  {v.name}
                 </MenuItem>
               ))}
             </Select>
@@ -1193,12 +1440,26 @@ export const ExpenseForm = forwardRef<ExpenseFormHandle, ExpenseFormProps>(funct
 
       {(showLiveDateDoc || showDateDoc) && (
         <FormSection title="Attach Document" columns={1}>
+          {isLiveOrGlobal && documentUrl && !pendingDocumentFile ? (
+            <Typography variant="caption" sx={{ fontSize: 11, color: 'text.secondary', display: 'block', mb: 1 }}>
+              Current document:{' '}
+              {documentUrl.startsWith('local://')
+                ? documentUrl.slice('local://'.length)
+                : documentUrl.split('/').pop() ?? documentUrl}
+              {pendingDocumentFile ? '' : ' — upload a new file to replace'}
+            </Typography>
+          ) : null}
           <FileUpload
             accept="image/*,.pdf"
             label={isReimbursable || isPitchReimbursable ? 'Supporting receipt / proof' : 'Attach document (optional)'}
             onUpload={(files) => {
+              if (isPitch) {
+                const f = files[0]
+                setDocumentUrl(f ? `local://${f.name}` : undefined)
+                return
+              }
               const f = files[0]
-              setDocumentUrl(f ? `local://${f.name}` : undefined)
+              setPendingDocumentFile(f ?? null)
             }}
           />
         </FormSection>

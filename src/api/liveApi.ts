@@ -428,6 +428,11 @@ export const liveApi = {
     return unwrapApiData<Expense>(res.data)
   },
 
+  updateExpense: async (projectId: string, expenseId: string, data: CreateExpenseBody) => {
+    const res = await client.patch(`${root(projectId)}/expenses/${expenseId}`, data)
+    return unwrapApiData<Expense>(res.data)
+  },
+
   deleteExpense: async (projectId: string, expenseId: string) => {
     await client.delete(`${root(projectId)}/expenses/${expenseId}`)
   },

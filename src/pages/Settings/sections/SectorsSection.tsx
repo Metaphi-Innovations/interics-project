@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import {
-  Box, Typography, TextField, MenuItem,
+  Box, Typography, TextField,
   Table, TableHead, TableRow, TableCell, TableBody, TableContainer,
   Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions,
   Skeleton,
@@ -41,6 +41,7 @@ import {
 import { parseSettingsApiError, clearFieldError } from '@/modules/system-settings/shared/api-errors'
 import { LISTING_DEFAULT_PAGE_SIZE } from '@/components/listing/listingStandards'
 import { SettingsListingPagination } from '../components/SettingsListingPagination'
+import { SettingsStatusSelect } from '../components/SettingsStatusSelect'
 
 const DATA_COL_COUNT = 2
 const dataColWidth = settingsDataColWidth(DATA_COL_COUNT)
@@ -307,17 +308,14 @@ export default function SectorsSection() {
             error={!!fieldErrors.name}
             helperText={fieldErrors.name}
           />
-          <TextField
-            select
-            size="small"
+          <SettingsStatusSelect
             label="Status"
             fullWidth
             value={form.status}
-            onChange={e => setForm(f => ({ ...f, status: e.target.value as SectorForm['status'] }))}
-          >
-            <MenuItem value="active">Active</MenuItem>
-            <MenuItem value="inactive">Inactive</MenuItem>
-          </TextField>
+            onChange={(status) =>
+              setForm((f) => ({ ...f, status: status as SectorForm['status'] }))
+            }
+          />
         </Box>
       </Modal>
 

@@ -21,11 +21,25 @@ const PAYMENT_MODES: { label: string; value: ClientInvoicePaymentMode }[] = [
   { label: 'Other', value: 'other' },
 ]
 
+export type RecordClientInvoicePaymentPayload = {
+  invoiceId: string
+  date: string
+  amountReceived: number
+  paymentMode: ClientInvoicePaymentMode
+  reference?: string
+}
+
 export interface RecordClientInvoicePaymentModalProps {
   open: boolean
   onClose: () => void
   projectId: string
   invoice: ClientInvoice | null
+  /** When set, used instead of Live `recordInvoicePayment` (Finance Receivable adapter). */
+  onRecordPayment?: (payload: RecordClientInvoicePaymentPayload) => Promise<void>
+  /** Override saving state (defaults to Live slice). */
+  saving?: boolean
+  /** Called after a successful payment (refetch). Live path also refreshes invoices when omitted. */
+  onRecorded?: () => void
 }
 
 export function RecordClientInvoicePaymentModal({
@@ -33,10 +47,14 @@ export function RecordClientInvoicePaymentModal({
   onClose,
   projectId,
   invoice,
+  onRecordPayment,
+  saving: savingOverride,
+  onRecorded,
 }: RecordClientInvoicePaymentModalProps) {
   const dispatch = useAppDispatch()
   const { showToast } = useToast()
-  const saving = useAppSelector((s) => s.live.saving)
+  const liveSaving = useAppSelector((s) => s.live.saving)
+  const saving = savingOverride ?? liveSaving
 
   const [amountReceived, setAmountReceived] = useState('')
   const [paymentDate, setPaymentDate] = useState<Date | null>(new Date())
@@ -98,20 +116,31 @@ export function RecordClientInvoicePaymentModal({
 
     setError('')
     try {
-      await dispatch(
-        recordInvoicePayment({
-          projectId,
+      if (onRecordPayment) {
+        await onRecordPayment({
           invoiceId: invoice.id,
-          data: {
-            date: dateIso,
-            amountReceived: a,
-            paymentMode,
-            reference: reference.trim() || undefined,
-          },
-        }),
-      ).unwrap()
-      void dispatch(fetchInvoices(projectId))
+          date: dateIso,
+          amountReceived: a,
+          paymentMode,
+          reference: reference.trim() || undefined,
+        })
+      } else {
+        await dispatch(
+          recordInvoicePayment({
+            projectId,
+            invoiceId: invoice.id,
+            data: {
+              date: dateIso,
+              amountReceived: a,
+              paymentMode,
+              reference: reference.trim() || undefined,
+            },
+          }),
+        ).unwrap()
+        void dispatch(fetchInvoices(projectId))
+      }
       showToast({ title: 'Payment recorded', variant: 'success' })
+      onRecorded?.()
       onClose()
     } catch (err) {
       showToast({ title: String(err), variant: 'error' })

@@ -12,13 +12,13 @@ export function mapInvoiceStatus(inv: Pick<Invoice, 'status' | 'balance' | 'dueD
 }
 
 export function isPartiallyPaidInvoice(
-  inv: Pick<Invoice, 'balance' | 'totalReceived' | 'tdsDeducted' | 'status'>,
+  inv: Pick<Invoice, 'balance' | 'totalReceived' | 'status'>,
 ): boolean {
   if (inv.status === 'draft' || inv.status === 'uploaded' || inv.status === 'paid') return false
   if (Number(inv.balance ?? 0) <= SETTLED_EPS) return false
   if (inv.status === 'partially_paid') return true
-  const settled = Number(inv.totalReceived ?? 0) + Number(inv.tdsDeducted ?? 0)
-  return settled > SETTLED_EPS
+  // Only bank receipts count — invoice-level TDS is not a payment.
+  return Number(inv.totalReceived ?? 0) > SETTLED_EPS
 }
 
 /** Extra Partially Paid chip only on Tax / Overdue invoices — no separate tab. */

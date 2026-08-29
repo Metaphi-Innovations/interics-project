@@ -21,9 +21,10 @@ import {
 import { Upload } from '@mui/icons-material'
 import { PODocumentLinkField } from '@/components/documents/PODocumentLinkField'
 import { parseSettingsApiError } from '@/modules/system-settings/shared/api-errors'
-import { Button, Checkbox, DatePicker, dateFromIso, isoFromDate, useToast } from '@/design-system/components'
+import { Button, Checkbox, DatePicker, dateFromIso, isoFromDate, StatusBadge, useToast } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { uploadProjectDocumentFile } from '@/api/uploadFileApi'
+import { dropdownsApi } from '@/api/dropdownsApi'
 import { DrawerForm, FormField } from '../../../../components/templates'
 import { useAppDispatch, useAppSelector } from '../../../../store/hooks'
 import {
@@ -47,23 +48,45 @@ import {
   vendorPOHasBilledMilestone,
 } from './poExecutedValueRules'
 import {
+  findVendorInvoicesForMilestone,
   vendorMilestonePaymentStatus,
   type MilestonePaymentStatusLabel,
 } from './milestonePaymentStatus'
+import {
+  vendorMilestoneBillingPhase,
+  vendorMilestoneBillingStatusBadge,
+  vendorMilestonePaymentPhase,
+  vendorMilestonePaymentStatusBadge,
+} from './vendorMilestoneBillingStatus'
 import { validateVendorMilestonePercents } from '@/utils/vendorMilestones'
 import {
   resolveVendorPOMilestoneKind,
   vendorPOCategoryLabel,
   vendorPOLinkedServiceLabel,
+  buildVendorServiceNameCatalog,
+  type VendorMasterCatalogLabels,
+  type VendorServiceNameCatalogEntry,
 } from './vendorPOHelpers'
+import { dropdownCategoryOptions, dropdownServiceOptions } from './clientPOServiceOptions'
+import {
+  VendorOfferMilestoneCardEditor,
+  VendorOfferRetentionCardEditor,
+  type VendorOfferMilestoneCard,
+  type VendorOfferRetentionCard,
+} from './VendorOfferMilestoneCards'
+import {
+  vendorPOCardsFromMilestones,
+  flattenVendorPOCardsForEditor,
+  mergeExecutedValueIntoVendorPOCards,
+} from './vendorPOCardHydration'
 import {
   VendorPOMilestoneEditor,
   buildVendorPOMilestonePayload,
   buildVendorPOMilestonePayloadForUpdate,
-  vendorPOMilestoneEditorStateFromPo,
   type VendorPOMilestoneRow,
   type VendorPORetentionRow,
 } from './VendorPOMilestoneEditor'
+import { applyVendorEditorExecutedValue } from './applyVendorEditorExecutedValue'
 
 const PO_VENDOR_SUMMARY_SX = {
   border: '1px solid',
@@ -113,19 +136,33 @@ const MILESTONE_STATUS_CELL_SX = {
   verticalAlign: 'middle' as const,
 }
 
-function MilestoneStatusCell({ status }: { status: MilestonePaymentStatusLabel }) {
+function VendorMilestoneStatusBadges({
+  milestoneInvoices,
+  milestoneId,
+  milestoneName,
+  serviceId,
+}: {
+  milestoneInvoices: VendorInvoice[]
+  milestoneId: string
+  milestoneName: string
+  serviceId: string
+}) {
+  const covering = findVendorInvoicesForMilestone(
+    milestoneInvoices,
+    milestoneId,
+    serviceId,
+    milestoneName,
+  )
+  const billingPhase = vendorMilestoneBillingPhase(covering)
+  const paymentPhase = vendorMilestonePaymentPhase(covering)
+  const billingBadge = vendorMilestoneBillingStatusBadge(billingPhase)
+  const paymentBadge = vendorMilestonePaymentStatusBadge(paymentPhase)
+
   return (
-    <Typography
-      variant="body2"
-      sx={{
-        fontSize: 12,
-        fontWeight: 600,
-        color:
-          status === 'Paid' ? 'success.main' : status === 'Billed' ? 'warning.main' : 'text.secondary',
-      }}
-    >
-      {status}
-    </Typography>
+    <Stack direction="column" gap={0.5} alignItems="center">
+      <StatusBadge status={billingBadge.type} label={billingBadge.label} size="small" />
+      <StatusBadge status={paymentBadge.type} label={paymentBadge.label} size="small" />
+    </Stack>
   )
 }
 
@@ -133,10 +170,12 @@ function VendorPOMilestoneDetailTable({
   milestones,
   serviceLabel,
   projectVendorInvoices,
+  serviceId,
 }: {
   milestones: VendorPO['milestones']
   serviceLabel: string
   projectVendorInvoices: VendorInvoice[]
+  serviceId: string
 }) {
   if (milestones.length === 0) {
     return (
@@ -191,8 +230,11 @@ function VendorPOMilestoneDetailTable({
                 {m.percentage}%
               </TableCell>
               <TableCell sx={MILESTONE_STATUS_CELL_SX}>
-                <MilestoneStatusCell
-                  status={vendorMilestonePaymentStatus(projectVendorInvoices, m.id)}
+                <VendorMilestoneStatusBadges
+                  milestoneInvoices={projectVendorInvoices}
+                  milestoneId={m.id}
+                  milestoneName={m.name || '—'}
+                  serviceId={serviceId}
                 />
               </TableCell>
               <TableCell align="right" sx={{ ...MILESTONE_TABLE_CELL_SX, fontWeight: 600 }}>
@@ -210,10 +252,12 @@ function VendorPOMilestonesReadOnlySections({
   milestones,
   serviceLabel,
   projectVendorInvoices,
+  serviceId,
 }: {
   milestones: VendorPO['milestones']
   serviceLabel: string
   projectVendorInvoices: VendorInvoice[]
+  serviceId: string
 }) {
   const regularMilestones = milestones.filter(
     (m) => resolveVendorPOMilestoneKind(m) === 'regular',
@@ -244,6 +288,7 @@ function VendorPOMilestonesReadOnlySections({
           milestones={regularMilestones}
           serviceLabel={serviceLabel}
           projectVendorInvoices={projectVendorInvoices}
+          serviceId={serviceId}
         />
       </Box>
       {retentionMilestones.length > 0 ? (
@@ -259,6 +304,7 @@ function VendorPOMilestonesReadOnlySections({
             milestones={retentionMilestones}
             serviceLabel={serviceLabel}
             projectVendorInvoices={projectVendorInvoices}
+            serviceId={serviceId}
           />
         </Box>
       ) : null}
@@ -741,25 +787,40 @@ function useVendorPODetail(
   const { vendorPOs } = useAppSelector((s) => s.baseline)
   const { vendorInvoices } = useAppSelector((s) => s.live)
   const vendorItems = useAppSelector((s) => s.vendors.items ?? [])
+  const [masterCatalog, setMasterCatalog] = useState<VendorMasterCatalogLabels>({
+    categories: [],
+    services: [],
+  })
 
   const resolvedPo = useMemo(
     () => (poSeed ? vendorPOs.find((p) => p.id === poSeed.id) ?? poSeed : null),
     [poSeed, vendorPOs],
   )
 
-  const projectVendorInvoices = useMemo(
-    () => vendorInvoices.filter((i) => i.projectId === projectId),
-    [vendorInvoices, projectId],
-  )
+  const projectVendorInvoices = useMemo(() => {
+    const forProject = vendorInvoices.filter((i) => i.projectId === projectId)
+    if (!resolvedPo?.vendorId) return forProject
+    return forProject.filter((i) => i.vendorId === resolvedPo.vendorId)
+  }, [vendorInvoices, projectId, resolvedPo?.vendorId])
+
+  const serviceNameCatalog = useMemo((): VendorServiceNameCatalogEntry[] => {
+    return buildVendorServiceNameCatalog(
+      masterCatalog.services.map((s) => ({ id: s.value, name: s.label })),
+      baseline,
+    )
+  }, [masterCatalog.services, baseline])
 
   const serviceLabel = useMemo(
-    () => (resolvedPo ? vendorPOLinkedServiceLabel(resolvedPo, baseline) : '—'),
-    [resolvedPo, baseline],
+    () =>
+      resolvedPo
+        ? vendorPOLinkedServiceLabel(resolvedPo, baseline, serviceNameCatalog)
+        : '—',
+    [resolvedPo, baseline, serviceNameCatalog],
   )
 
   const categoryLabel = useMemo(
-    () => (resolvedPo ? vendorPOCategoryLabel(resolvedPo, baseline) : '—'),
-    [resolvedPo, baseline],
+    () => (resolvedPo ? vendorPOCategoryLabel(resolvedPo, baseline, masterCatalog) : '—'),
+    [resolvedPo, baseline, masterCatalog],
   )
 
   const vendorRecord = useMemo(
@@ -785,12 +846,36 @@ function useVendorPODetail(
     }
   }, [open, projectId, dispatch])
 
+  useEffect(() => {
+    if (!open) {
+      setMasterCatalog({ categories: [], services: [] })
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      try {
+        const [categories, services] = await Promise.all([
+          dropdownsApi.getCategories(),
+          dropdownsApi.getServices(),
+        ])
+        if (cancelled) return
+        setMasterCatalog({ categories, services })
+      } catch {
+        if (!cancelled) setMasterCatalog({ categories: [], services: [] })
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [open])
+
   return {
     resolvedPo,
     projectVendorInvoices,
     serviceLabel,
     categoryLabel,
     vendorAddress,
+    masterCatalog,
   }
 }
 
@@ -891,6 +976,7 @@ export function ViewVendorPODrawer({
             milestones={resolvedPo.milestones}
             serviceLabel={serviceLabel}
             projectVendorInvoices={projectVendorInvoices}
+            serviceId={resolvedPo.linkedBaselineServiceIds?.[0]?.trim() || ''}
           />
         </Stack>
       ) : null}
@@ -914,15 +1000,30 @@ export function EditVendorPODrawer({
     serviceLabel,
     categoryLabel,
     vendorAddress,
+    masterCatalog,
   } = useVendorPODetail(open, projectId, po, baseline)
 
   const [poNumber, setPoNumber] = useState('')
   const [poDate, setPoDate] = useState('')
   const [poValue, setPoValue] = useState('')
   const [executedValue, setExecutedValue] = useState('')
-  const [milestones, setMilestones] = useState<VendorPOMilestoneRow[]>([])
-  const [retention, setRetention] = useState<VendorPORetentionRow | null>(null)
+  const [milestoneCards, setMilestoneCards] = useState<VendorOfferMilestoneCard[]>([])
+  const [retentionCards, setRetentionCards] = useState<VendorOfferRetentionCard[]>([])
   const [newFile, setNewFile] = useState<File | null>(null)
+
+  const categoryOptions = useMemo(
+    () => dropdownCategoryOptions(masterCatalog.categories),
+    [masterCatalog.categories],
+  )
+  const serviceOptions = useMemo(
+    () => dropdownServiceOptions(masterCatalog.services),
+    [masterCatalog.services],
+  )
+
+  const serviceCatalog = useMemo(
+    () => (baseline?.categories?.length ? { categories: baseline.categories } : null),
+    [baseline],
+  )
 
   const hasBilled = useMemo(
     () =>
@@ -939,34 +1040,81 @@ export function EditVendorPODrawer({
     setPoValue(String(resolvedPo.poValue))
     setExecutedValue(String(effectiveExecutedValue(resolvedPo)))
     setNewFile(null)
-    const editorState = vendorPOMilestoneEditorStateFromPo(resolvedPo)
-    setMilestones(editorState.milestones)
-    setRetention(editorState.retention)
   }, [open, resolvedPo?.id, resolvedPo])
+
+  useEffect(() => {
+    if (!open || !resolvedPo || categoryOptions.length === 0) return
+    const { milestoneCards: nextMilestoneCards, retentionCards: nextRetentionCards } =
+      vendorPOCardsFromMilestones(resolvedPo, categoryOptions, serviceOptions, serviceCatalog)
+    setMilestoneCards(nextMilestoneCards)
+    setRetentionCards(nextRetentionCards)
+  }, [open, resolvedPo, categoryOptions, serviceOptions, serviceCatalog])
+
+  const milestoneCardsRef = useRef(milestoneCards)
+  const retentionCardsRef = useRef(retentionCards)
+  milestoneCardsRef.current = milestoneCards
+  retentionCardsRef.current = retentionCards
 
   const milestoneBaseValue = useMemo(() => {
     const n = Number(executedValue)
     return Number.isFinite(n) && n > 0 ? n : resolvedPo ? effectiveExecutedValue(resolvedPo) : 0
   }, [executedValue, resolvedPo])
 
+  function handleExecutedValueChange(raw: string) {
+    setExecutedValue(raw)
+    if (!resolvedPo) return
+    const ev = Number(raw)
+    if (!Number.isFinite(ev) || ev <= 0) return
+    const flat = flattenVendorPOCardsForEditor(
+      milestoneCardsRef.current,
+      retentionCardsRef.current,
+    )
+    const next = applyVendorEditorExecutedValue(
+      flat.milestones,
+      flat.retention,
+      ev,
+      projectVendorInvoices,
+      resolvedPo.milestones,
+    )
+    const merged = mergeExecutedValueIntoVendorPOCards(
+      milestoneCardsRef.current,
+      retentionCardsRef.current,
+      next,
+    )
+    setMilestoneCards(merged.milestoneCards)
+    setRetentionCards(merged.retentionCards)
+  }
+
   const milestoneStatuses = useMemo(() => {
     const statuses: Record<string, MilestonePaymentStatusLabel> = {}
     if (!resolvedPo) return statuses
+    const serviceId = resolvedPo.linkedBaselineServiceIds?.[0]?.trim() || ''
     for (const m of resolvedPo.milestones) {
       const kind = m.kind ?? (m.name.trim().toLowerCase() === 'retention' ? 'retention' : 'regular')
       if (kind === 'retention') continue
-      statuses[m.id] = vendorMilestonePaymentStatus(projectVendorInvoices, m.id)
+      statuses[m.id] = vendorMilestonePaymentStatus(
+        projectVendorInvoices,
+        m.id,
+        serviceId,
+        m.name,
+      )
     }
     return statuses
   }, [resolvedPo, projectVendorInvoices])
 
   const retentionStatus = useMemo((): MilestonePaymentStatusLabel | undefined => {
     if (!resolvedPo) return undefined
+    const serviceId = resolvedPo.linkedBaselineServiceIds?.[0]?.trim() || ''
     const retentionRow = resolvedPo.milestones.find(
       (m) => m.kind === 'retention' || m.name.trim().toLowerCase() === 'retention',
     )
     if (!retentionRow) return undefined
-    return vendorMilestonePaymentStatus(projectVendorInvoices, retentionRow.id)
+    return vendorMilestonePaymentStatus(
+      projectVendorInvoices,
+      retentionRow.id,
+      serviceId,
+      retentionRow.name,
+    )
   }, [resolvedPo, projectVendorInvoices])
 
   async function handleSave() {
@@ -986,6 +1134,7 @@ export function EditVendorPODrawer({
       return
     }
 
+    const flat = flattenVendorPOCardsForEditor(milestoneCards, retentionCards)
     const pctValidation = validateVendorMilestonePercents({
       id: '',
       vendorId: resolvedPo.vendorId,
@@ -993,14 +1142,14 @@ export function EditVendorPODrawer({
       value: milestoneBaseValue,
       percentage: 0,
       isMeasurable: false,
-      milestones: milestones.filter((m) => m.name.trim()).map((m) => ({
+      milestones: flat.milestones.filter((m) => m.name.trim()).map((m) => ({
         id: m.id,
         name: m.name,
         percentage: m.percentage,
         value: m.value,
       })),
-      retention: retention
-        ? { percentage: retention.percentage, amount: retention.amount }
+      retention: flat.retention
+        ? { percentage: flat.retention.percentage, amount: flat.retention.amount }
         : undefined,
     })
     if (!pctValidation.valid) {
@@ -1011,15 +1160,15 @@ export function EditVendorPODrawer({
       return
     }
 
-    const recalculated = recalculateVendorPOMilestonesForExecutedValue(
+    const editorPayload = buildVendorPOMilestonePayloadForUpdate(
+      flat.milestones,
+      flat.retention,
       resolvedPo.milestones,
+    )
+    const nextMilestones = recalculateVendorPOMilestonesForExecutedValue(
+      editorPayload,
       executedValueNum,
       projectVendorInvoices,
-    )
-    const nextMilestones = buildVendorPOMilestonePayloadForUpdate(
-      milestones,
-      retention,
-      recalculated,
     )
 
     let documentUrl = resolvedPo.documentUrl
@@ -1074,7 +1223,7 @@ export function EditVendorPODrawer({
       title={resolvedPo?.poNumber ? `Edit ${resolvedPo.poNumber}` : 'Edit Vendor PO'}
       subtitle={
         hasBilled
-          ? 'PO value is locked; unbilled milestones remain editable'
+          ? 'Milestone structure is locked; Executed Value updates non-invoiced amounts only'
           : 'Update vendor purchase order details'
       }
       footer={
@@ -1144,7 +1293,7 @@ export function EditVendorPODrawer({
                 size="small"
                 type="number"
                 value={executedValue}
-                onChange={(e) => setExecutedValue(e.target.value)}
+                onChange={(e) => handleExecutedValueChange(e.target.value)}
               />
             </FormField>
             <FormField label="PO Document">
@@ -1160,16 +1309,72 @@ export function EditVendorPODrawer({
             </FormField>
           </Box>
           <Divider />
-          <VendorPOMilestoneEditor
-            structureLocked={hasBilled}
-            poValue={milestoneBaseValue}
-            milestones={milestones}
-            retention={retention}
-            milestoneStatuses={milestoneStatuses}
-            retentionStatus={retentionStatus}
-            onMilestonesChange={setMilestones}
-            onRetentionChange={setRetention}
-          />
+          <Typography
+            variant="caption"
+            sx={{ fontSize: 10, fontWeight: 700, color: 'text.secondary', letterSpacing: 0.5, display: 'block', mb: 1 }}
+          >
+            MILESTONES
+          </Typography>
+          <Stack gap={1.5}>
+            {milestoneCards.map((card) => (
+              <VendorOfferMilestoneCardEditor
+                key={card.id}
+                card={card}
+                categoryOptions={categoryOptions}
+                serviceOptions={serviceOptions}
+                milestoneBaseValue={milestoneBaseValue}
+                structureLocked={hasBilled}
+                milestoneStatuses={milestoneStatuses}
+                retentionStatus={retentionStatus}
+                onChange={(patch) =>
+                  setMilestoneCards((prev) =>
+                    prev.map((c) => (c.id === card.id ? { ...c, ...patch } : c)),
+                  )
+                }
+                onRemove={() =>
+                  setMilestoneCards((prev) => prev.filter((c) => c.id !== card.id))
+                }
+              />
+            ))}
+          </Stack>
+          {retentionCards.length > 0 ? (
+            <>
+              <Typography
+                variant="caption"
+                sx={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  color: 'text.secondary',
+                  letterSpacing: 0.5,
+                  display: 'block',
+                  mt: 2,
+                  mb: 1,
+                }}
+              >
+                RETENTION
+              </Typography>
+              <Stack gap={1.5}>
+                {retentionCards.map((card) => (
+                  <VendorOfferRetentionCardEditor
+                    key={card.id}
+                    card={card}
+                    categoryOptions={categoryOptions}
+                    serviceOptions={serviceOptions}
+                    milestoneBaseValue={milestoneBaseValue}
+                    readOnly={hasBilled}
+                    onChange={(patch) =>
+                      setRetentionCards((prev) =>
+                        prev.map((c) => (c.id === card.id ? { ...c, ...patch } : c)),
+                      )
+                    }
+                    onRemove={() =>
+                      setRetentionCards((prev) => prev.filter((c) => c.id !== card.id))
+                    }
+                  />
+                ))}
+              </Stack>
+            </>
+          ) : null}
         </Stack>
       ) : null}
     </DrawerForm>

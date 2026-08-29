@@ -66,12 +66,21 @@ export function findClientInvoiceForMilestone(
   serviceId: string,
   milestoneName?: string,
 ): ClientInvoice | undefined {
-  const byId = invoices.find((invoice) => invoiceCoversMilestoneId(invoice, milestoneId))
-  if (byId) return byId
-  if (!milestoneName?.trim()) return undefined
-  return invoices.find((invoice) =>
-    invoiceCoversMilestoneName(invoice, milestoneName, serviceId),
-  )
+  return findClientInvoicesForMilestone(invoices, milestoneId, serviceId, milestoneName)[0]
+}
+
+/** All client invoices covering this milestone. */
+export function findClientInvoicesForMilestone(
+  invoices: ClientInvoice[],
+  milestoneId: string,
+  serviceId: string,
+  milestoneName?: string,
+): ClientInvoice[] {
+  return invoices.filter((invoice) => {
+    if (invoiceCoversMilestoneId(invoice, milestoneId)) return true
+    if (!milestoneName?.trim()) return false
+    return invoiceCoversMilestoneName(invoice, milestoneName, serviceId)
+  })
 }
 
 export type MilestonePaymentStatusLabel = 'Paid' | 'Unpaid' | 'Billed'
@@ -94,15 +103,65 @@ export function clientMilestoneIsBilled(
   return Boolean(findClientInvoiceForMilestone(invoices, milestoneId, serviceId, milestoneName))
 }
 
+function vendorInvoiceCoversMilestoneId(invoice: VendorInvoice, milestoneId: string): boolean {
+  if (invoice.milestoneId === milestoneId) return true
+  return (invoice.lineItems ?? []).some((li) => Boolean(li.milestoneId) && li.milestoneId === milestoneId)
+}
+
+function vendorInvoiceCoversMilestoneName(
+  invoice: VendorInvoice,
+  milestoneName: string,
+  serviceId: string,
+): boolean {
+  const wanted = normalizeLabel(milestoneName)
+  if (!wanted) return false
+
+  const headerName = normalizeLabel(invoice.milestoneName)
+  if (headerName === wanted && serviceCompatible(serviceId, invoice.serviceId)) {
+    return true
+  }
+
+  return (invoice.lineItems ?? []).some((li) => {
+    const lineName = normalizeLabel(li.milestoneName)
+    return (
+      lineName === wanted &&
+      serviceCompatible(serviceId, li.serviceId, invoice.serviceId)
+    )
+  })
+}
+
+/** Find a vendor invoice that covers this milestone (header or any line item). */
+export function findVendorInvoiceForMilestone(
+  invoices: VendorInvoice[],
+  milestoneId: string,
+  serviceId = '',
+  milestoneName?: string,
+): VendorInvoice | undefined {
+  return findVendorInvoicesForMilestone(invoices, milestoneId, serviceId, milestoneName)[0]
+}
+
+/** All vendor invoices covering this milestone. */
+export function findVendorInvoicesForMilestone(
+  invoices: VendorInvoice[],
+  milestoneId: string,
+  serviceId = '',
+  milestoneName?: string,
+): VendorInvoice[] {
+  return invoices.filter((invoice) => {
+    if (vendorInvoiceCoversMilestoneId(invoice, milestoneId)) return true
+    if (!milestoneName?.trim()) return false
+    return vendorInvoiceCoversMilestoneName(invoice, milestoneName, serviceId)
+  })
+}
+
+/** Any covering invoice (pending/paid/partial/etc.) — not necessarily fully paid. */
 export function vendorMilestoneIsBilled(
   invoices: VendorInvoice[],
   milestoneId: string,
+  serviceId = '',
+  milestoneName?: string,
 ): boolean {
-  return invoices.some(
-    (inv) =>
-      inv.milestoneId === milestoneId ||
-      (inv.lineItems ?? []).some((li) => li.milestoneId === milestoneId),
-  )
+  return Boolean(findVendorInvoiceForMilestone(invoices, milestoneId, serviceId, milestoneName))
 }
 
 export function clientMilestonePaymentStatus(
@@ -111,22 +170,22 @@ export function clientMilestonePaymentStatus(
   serviceId: string,
   milestoneName?: string,
 ): MilestonePaymentStatusLabel {
-  const inv = findClientInvoiceForMilestone(invoices, milestoneId, serviceId, milestoneName)
-  if (!inv) return 'Unpaid'
-  return isInvoiceFullyPaid(inv) ? 'Paid' : 'Billed'
+  const covering = findClientInvoicesForMilestone(invoices, milestoneId, serviceId, milestoneName)
+  if (covering.length === 0) return 'Unpaid'
+  const allPaid = covering.every((inv) => isInvoiceFullyPaid(inv))
+  return allPaid ? 'Paid' : 'Billed'
 }
 
 export function vendorMilestonePaymentStatus(
   invoices: VendorInvoice[],
   milestoneId: string,
+  serviceId = '',
+  milestoneName?: string,
 ): MilestonePaymentStatusLabel {
-  const inv = invoices.find(
-    (i) =>
-      i.milestoneId === milestoneId ||
-      (i.lineItems ?? []).some((li) => li.milestoneId === milestoneId),
-  )
-  if (!inv) return 'Unpaid'
-  return inv.status === 'paid' ? 'Paid' : 'Billed'
+  const covering = findVendorInvoicesForMilestone(invoices, milestoneId, serviceId, milestoneName)
+  if (covering.length === 0) return 'Unpaid'
+  const allPaid = covering.every((inv) => inv.status === 'paid')
+  return allPaid ? 'Paid' : 'Billed'
 }
 
 /**
@@ -162,13 +221,23 @@ export function clientMilestoneIsLocked(
   return status === 'Paid' || status === 'Billed'
 }
 
+export function vendorMilestoneHasFinancialActivity(
+  invoices: VendorInvoice[],
+  milestoneId: string,
+  serviceId = '',
+  milestoneName?: string,
+): boolean {
+  return vendorMilestoneIsBilled(invoices, milestoneId, serviceId, milestoneName)
+}
+
 export function vendorMilestoneIsLocked(
   invoices: VendorInvoice[],
   milestoneId: string,
-  milestoneStatus?: string,
+  _milestoneStatus?: string,
+  serviceId = '',
+  milestoneName?: string,
 ): boolean {
-  if (milestoneStatus === 'Paid') return true
-  return vendorMilestoneIsBilled(invoices, milestoneId)
+  return vendorMilestoneHasFinancialActivity(invoices, milestoneId, serviceId, milestoneName)
 }
 
 export function clientMilestoneStatusesForCard(

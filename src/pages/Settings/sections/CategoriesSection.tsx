@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import {
   Box, Typography, Chip,
   Table, TableHead, TableRow, TableCell, TableBody, TableContainer,
-  TextField, MenuItem,
+  TextField,
   Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions,
   Skeleton,
 } from '@mui/material'
@@ -45,6 +45,7 @@ import {
 import { parseSettingsApiError, clearFieldError } from '@/modules/system-settings/shared/api-errors'
 import { LISTING_DEFAULT_PAGE_SIZE, clampListingPage0Based } from '@/components/listing/listingStandards'
 import { SettingsListingPagination } from '../components/SettingsListingPagination'
+import { SettingsStatusSelect } from '../components/SettingsStatusSelect'
 
 const CATEGORY_DATA_COL_COUNT = 4
 const categoryDataColWidth = settingsDataColWidth(CATEGORY_DATA_COL_COUNT)
@@ -382,17 +383,14 @@ export default function CategoriesSection() {
             error={!!fieldErrors.description}
             helperText={fieldErrors.description}
           />
-          <TextField
-            select
-            size="small"
+          <SettingsStatusSelect
             label="Status"
             fullWidth
             value={form.status}
-            onChange={e => setForm(f => ({ ...f, status: e.target.value as Category['status'] }))}
-          >
-            <MenuItem value="active">Active</MenuItem>
-            <MenuItem value="inactive">Inactive</MenuItem>
-          </TextField>
+            onChange={(status) =>
+              setForm((f) => ({ ...f, status: status as Category['status'] }))
+            }
+          />
         </Box>
       </Modal>
 

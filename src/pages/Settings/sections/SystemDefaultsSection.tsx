@@ -1,5 +1,6 @@
 import { useState, useEffect, type ReactNode } from 'react'
-import { Box, Typography, TextField, MenuItem, Divider } from '@mui/material'
+import { Box, Typography, Divider } from '@mui/material'
+import { SearchableSelect } from '@/components/listing'
 import { Edit } from '@mui/icons-material'
 import { Button, useToast } from '@/design-system/components'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
@@ -231,28 +232,25 @@ export default function SystemDefaultsSection() {
               {fields.map((field) => (
                 <DefaultsFormField key={field.key} label={field.label}>
                   {isEditing ? (
-                    <TextField
-                      select
-                      size="small"
+                    <SearchableSelect
+                      label={field.label}
                       fullWidth
                       disabled={field.readOnly}
-                      value={form[field.key]}
-                      onChange={(e) => {
+                      value={String(form[field.key])}
+                      onChange={(next) => {
                         setForm((prev) => ({
                           ...prev,
-                          [field.key]: updateFormValue(field.key, e.target.value),
+                          [field.key]: updateFormValue(field.key, next),
                         }))
-                        setFieldErrors(errors => clearFieldError(errors, field.key))
+                        setFieldErrors((errors) => clearFieldError(errors, field.key))
                       }}
+                      options={field.options.map((option) => ({
+                        value: String(option.value),
+                        label: option.label,
+                      }))}
                       error={!!fieldErrors[field.key]}
                       helperText={fieldErrors[field.key]}
-                    >
-                      {field.options.map((option) => (
-                        <MenuItem key={String(option.value)} value={option.value}>
-                          {option.label}
-                        </MenuItem>
-                      ))}
-                    </TextField>
+                    />
                   ) : (
                     <Typography variant="body2" fontWeight={500} sx={{ minHeight: 34, display: 'flex', alignItems: 'center' }}>
                       {getLabelForValue(field, form[field.key] as string | number)}

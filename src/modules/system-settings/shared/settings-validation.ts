@@ -17,7 +17,6 @@ const PAN_REGEX = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const PINCODE_REGEX = /^[1-9][0-9]{5}$/
 const SAC_CODE_REGEX = /^\d{6}$/
-const ALLOWED_SERVICE_GST_RATES = [0, 5, 12, 18, 28] as const
 const ALLOWED_PAGINATION = [10, 25, 50, 100] as const
 
 function trim(value: string | null | undefined): string {
@@ -142,7 +141,21 @@ export function ratePercent(value: number | null | undefined, label = 'Rate'): s
     return `${label} is required`
   }
   const n = Number(value)
-  if (n < 0 || n > 100) return `${label} must be between 0 and 100`
+  if (n < 0) return `${label} must not be negative`
+  if (!Number.isInteger(n)) return `${label} must be a whole number`
+  if (n > 100) return `${label} must be between 0 and 100`
+  return undefined
+}
+
+/** Validate GST rate input in Tax & Configuration (integer, non-negative). */
+export function requiredGstRateInput(raw: string | null | undefined): string | undefined {
+  const v = trim(raw)
+  if (!v) return 'Rate is required'
+  const n = Number(v)
+  if (!Number.isFinite(n)) return 'Rate must be a number'
+  if (n < 0) return 'GST rate cannot be negative.'
+  if (!Number.isInteger(n)) return 'GST rate must be a whole number.'
+  if (n > 100) return 'Rate must be between 0 and 100'
   return undefined
 }
 
@@ -152,7 +165,9 @@ export function requiredRateInput(raw: string | null | undefined, label = 'Rate'
   if (!v) return `${label} is required`
   const n = Number(v)
   if (!Number.isFinite(n)) return `${label} must be a number`
-  if (n < 0 || n > 100) return `${label} must be between 0 and 100`
+  if (n < 0) return `${label} must not be negative`
+  if (!Number.isInteger(n)) return `${label} must be a whole number`
+  if (n > 100) return `${label} must be between 0 and 100`
   return undefined
 }
 
@@ -167,10 +182,6 @@ export function requiredSelect(
 export function serviceGstRate(value: number | null | undefined): string | undefined {
   if (value === null || value === undefined || Number.isNaN(Number(value))) {
     return 'GST rate is required'
-  }
-  const n = Number(value)
-  if (!(ALLOWED_SERVICE_GST_RATES as readonly number[]).includes(n)) {
-    return 'GST rate must be one of: 0, 5, 12, 18, 28'
   }
   return undefined
 }

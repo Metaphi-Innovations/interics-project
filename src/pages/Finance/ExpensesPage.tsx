@@ -22,7 +22,6 @@ import {
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import { useTheme, alpha } from '@mui/material/styles'
 import { Receipt, Plus, Wallet, Layers, Link2, Users, Building2 } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
 import { ListingTemplate } from '@/components/templates'
 import { financeApi } from '@/api/financeApi'
 import { unwrapApiData } from '@/modules/system-settings/shared/api'
@@ -39,7 +38,7 @@ import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { fetchProjects } from '@/slices/projects/thunk'
 import { deleteExpense } from '@/slices/live/thunk'
 import type { Expense, ExpenseType } from '@/slices/live/types'
-import { formatDate, formatInr, toSlug } from '@/utils/formatters'
+import { formatDate, formatInr } from '@/utils/formatters'
 import { GlobalExpenseDrawer } from '@/components/expenses/GlobalExpenseDrawer'
 import { downloadCsv } from '@/api/downloadCsv'
 import {
@@ -191,7 +190,6 @@ function visibleColCount(v: VisibleCols): number {
 
 export default function ExpensesPage() {
   const dispatch = useAppDispatch()
-  const navigate = useNavigate()
   const theme = useTheme()
   const { showToast } = useToast()
   const canCreateExpense = usePermission('expenses', 'create')
@@ -210,6 +208,7 @@ export default function ExpensesPage() {
 
   const [financeLoaded, setFinanceLoaded] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [editingExpense, setEditingExpense] = useState<Expense | null>(null)
   const [viewExpense, setViewExpense] = useState<Expense | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Expense | null>(null)
 
@@ -372,8 +371,7 @@ export default function ExpensesPage() {
     officeExpenses: 0,
   })
 
-  useEffect(() => {
-    let cancelled = false
+  const refreshExpenseSummary = useCallback(() => {
     void financeApi
       .getExpensesSummary({ type: typeTab === 'all' ? undefined : typeTab })
       .then((res) => {
@@ -384,7 +382,7 @@ export default function ExpensesPage() {
           common?: number
           office?: number
         }>(res.data)
-        if (!cancelled && data) {
+        if (data) {
           setKpis({
             total: data.total ?? 0,
             additional: data.additional ?? 0,
@@ -395,10 +393,11 @@ export default function ExpensesPage() {
         }
       })
       .catch(() => undefined)
-    return () => {
-      cancelled = true
-    }
   }, [typeTab])
+
+  useEffect(() => {
+    refreshExpenseSummary()
+  }, [refreshExpenseSummary])
 
   const statCards = [
     {
@@ -533,13 +532,19 @@ export default function ExpensesPage() {
     setMenuExpense(null)
   }
 
-  function goEditProject(exp: Expense) {
-    const name = projectNameById[exp.projectId]
-    if (!name) {
-      showToast({ title: 'Project not found', variant: 'error' })
-      return
-    }
-    navigate(`/projects/${toSlug(name)}#live`, { state: { liveSubTab: 'expenses' } })
+  function openAddDrawer() {
+    setEditingExpense(null)
+    setDrawerOpen(true)
+  }
+
+  function openEditDrawer(exp: Expense) {
+    setEditingExpense(exp)
+    setDrawerOpen(true)
+  }
+
+  function closeDrawer() {
+    setDrawerOpen(false)
+    setEditingExpense(null)
   }
 
   async function confirmDelete() {
@@ -677,7 +682,7 @@ export default function ExpensesPage() {
           canCreateExpense
             ? {
                 label: 'Add Expense',
-                onClick: () => setDrawerOpen(true),
+                onClick: openAddDrawer,
                 startIcon: <Plus size={16} strokeWidth={2} />,
               }
             : undefined
@@ -959,7 +964,7 @@ export default function ExpensesPage() {
               <MuiMenuItem
                 sx={menuItemSx}
                 onClick={() => {
-                  if (menuExpense) goEditProject(menuExpense)
+                  if (menuExpense) openEditDrawer(menuExpense)
                   closeMenu()
                 }}
               >
@@ -983,8 +988,12 @@ export default function ExpensesPage() {
 
       <GlobalExpenseDrawer
         open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        onSuccess={() => void reloadExpenses()}
+        onClose={closeDrawer}
+        editingExpense={editingExpense}
+        onSuccess={() => {
+          void reloadExpenses()
+          refreshExpenseSummary()
+        }}
       />
 
       <ViewExpenseModal

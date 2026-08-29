@@ -38,6 +38,10 @@ export interface ClientPOSectionProps {
   deleteDisabledReason?: string
   /** Shown above the section when provided (e.g. go-live hint on Pitch). */
   caption?: string
+  /** Same PROJECT_LIVE create gate as backend Add Client PO. */
+  canCreatePo?: boolean
+  /** Same PROJECT_LIVE create gate used for Payables PO edit (aligned with Add Client PO). */
+  canEditPo?: boolean
 }
 
 export function ClientPOSection({
@@ -49,6 +53,8 @@ export function ClientPOSection({
   canDeletePO,
   deleteDisabledReason = 'Cannot delete — milestones are billed or paid',
   caption,
+  canCreatePo = true,
+  canEditPo = true,
 }: ClientPOSectionProps) {
   const totalPOValue = clientPOs.reduce((sum, po) => sum + po.poValue, 0)
   const totalExecutedValue = clientPOs.reduce((sum, po) => sum + effectiveExecutedValue(po), 0)
@@ -59,7 +65,9 @@ export function ClientPOSection({
         <Typography variant="subtitle1" sx={{ fontSize: 15, fontWeight: 600 }}>
           Client PO
         </Typography>
-        <Button size="sm" variant="contained" color="primary" label="Add Client PO" onClick={onAddPO} />
+        {canCreatePo ? (
+          <Button size="sm" variant="contained" color="primary" label="Add Client PO" onClick={onAddPO} />
+        ) : null}
       </Stack>
       {caption ? (
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5, fontSize: 11 }}>
@@ -166,12 +174,14 @@ export function ClientPOSection({
                 </Stack>
                 <RowIconActionsGroup>
                   <RowViewAction onClick={() => onViewPO(po)} />
-                  <RowEditAction onClick={() => onEditPO(po)} />
-                  <RowDeleteAction
-                    onClick={() => onDeletePO(po)}
-                    disabled={canDeletePO ? !canDeletePO(po) : false}
-                    disabledReason={deleteDisabledReason}
-                  />
+                  {canEditPo ? <RowEditAction onClick={() => onEditPO(po)} /> : null}
+                  {canEditPo ? (
+                    <RowDeleteAction
+                      onClick={() => onDeletePO(po)}
+                      disabled={canDeletePO ? !canDeletePO(po) : false}
+                      disabledReason={deleteDisabledReason}
+                    />
+                  ) : null}
                 </RowIconActionsGroup>
               </Box>
             ))}

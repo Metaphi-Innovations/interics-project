@@ -1,9 +1,10 @@
 import type { VendorPO } from '@/slices/baseline/reducer'
 import type { VendorPayment } from '@/slices/live/types'
-import { vendorPoEffectiveValue } from '@/pages/Projects/tabs/live/vendorPOHelpers'
+import type { VendorInvoice } from '@/slices/live/types'
+import { vendorPoExecutableAmount } from '@/pages/Projects/tabs/live/vendorPOHelpers'
 
 export interface PayableSummaryKpis {
-  /** Sum of Live Vendor PO / offer values across projects. */
+  /** Sum of Live Vendor Offer / Executable values (invoice-aware). */
   totalVendorPoValue: number
   /** Sum of Vendor PO milestone values marked Paid. */
   paidTillDate: number
@@ -13,16 +14,22 @@ export interface PayableSummaryKpis {
 
 /**
  * Client-side fallback KPI rollup (prefer GET /finance/payables/summary).
- * Paid Till Date uses paid milestone values on Vendor POs when present;
- * otherwise falls back to payment netPaid (legacy).
+ * Total uses the same invoice-aware Executable Value as Live Overview / Payables.
  */
 export function computePayableSummaryKpis(
   vendorPOs: Array<
-    Pick<VendorPO, 'poValue' | 'executedValue'> & { milestones?: VendorPO['milestones'] }
+    Pick<
+      VendorPO,
+      'id' | 'projectId' | 'vendorId' | 'poValue' | 'executedValue' | 'milestones' | 'linkedBaselineServiceIds'
+    > & { milestones?: VendorPO['milestones'] }
   >,
   payments: Array<Pick<VendorPayment, 'netPaid'>> = [],
+  vendorInvoices: VendorInvoice[] = [],
 ): PayableSummaryKpis {
-  const totalVendorPoValue = vendorPOs.reduce((s, po) => s + vendorPoEffectiveValue(po), 0)
+  const totalVendorPoValue = vendorPOs.reduce(
+    (s, po) => s + vendorPoExecutableAmount(po, vendorInvoices),
+    0,
+  )
 
   let paidFromMilestones = 0
   let hasMilestoneStatuses = false

@@ -7,6 +7,7 @@ import { VendorOffersSection } from '../../components/VendorOffersSection'
 import { VendorMilestonesSection } from '../../components/VendorMilestonesSection'
 import { AddVendorOfferDrawer } from './AddVendorOfferDrawer'
 import type { ParsedPayableContext } from '@/utils/payableNavigation'
+import { usePermission } from '@/hooks/usePermission'
 
 interface VendorPOPayableSummaryProps {
   projectId: string
@@ -19,6 +20,10 @@ export function VendorPOPayableSummary({
 }: VendorPOPayableSummaryProps) {
   const dispatch = useAppDispatch()
   const { vendorPOs, baseline, loading } = useAppSelector((s) => s.baseline)
+  /** Same PROJECT_LIVE CREATE permission as Receivable Add Client PO. */
+  const canCreatePayablesPo = usePermission('projectLive', 'create')
+  /** Same PROJECT_LIVE UPDATE permission as Receivable Edit Client PO. */
+  const canEditPayablesPo = usePermission('projectLive', 'edit')
 
   const [addOfferOpen, setAddOfferOpen] = useState(false)
 
@@ -48,6 +53,8 @@ export function VendorPOPayableSummary({
           projectId={projectId}
           vendorPOs={projectVendorPOs}
           baseline={baselineForProject}
+          canCreatePo={canCreatePayablesPo}
+          canEditPo={canEditPayablesPo}
         />
 
         <VendorMilestonesSection
@@ -59,7 +66,7 @@ export function VendorPOPayableSummary({
       </Stack>
 
       <AddVendorOfferDrawer
-        open={addOfferOpen}
+        open={addOfferOpen && canCreatePayablesPo}
         onClose={() => setAddOfferOpen(false)}
         projectId={projectId}
       />

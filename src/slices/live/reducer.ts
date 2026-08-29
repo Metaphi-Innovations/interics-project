@@ -12,6 +12,7 @@ import {
   createPayment,
   fetchExpenses,
   createExpense,
+  updateExpense,
   deleteExpense,
   fetchReimbursements,
   createReimbursement,
@@ -309,6 +310,20 @@ const liveSlice = createSlice({
         state.expenses.push(action.payload)
       })
       .addCase(createExpense.rejected, (state) => {
+        state.saving = false
+      })
+
+      .addCase(updateExpense.pending, (state) => {
+        state.saving = true
+      })
+      .addCase(updateExpense.fulfilled, (state, action) => {
+        state.saving = false
+        const idx = state.expenses.findIndex((e) => e.id === action.payload.id)
+        if (idx >= 0) {
+          state.expenses[idx] = action.payload
+        }
+      })
+      .addCase(updateExpense.rejected, (state) => {
         state.saving = false
       })
 

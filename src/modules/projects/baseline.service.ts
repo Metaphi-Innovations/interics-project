@@ -66,8 +66,16 @@ export const baselineService = {
     return unwrapApiData<Baseline>(res.data)
   },
 
-  async listVendorPos(projectId: string): Promise<VendorPO[]> {
-    const res = await client.get(`${projectPath(projectId)}/vendor-pos`)
+  async listVendorPos(
+    projectId: string,
+    options?: { pendingInvoiceOnly?: boolean; vendorId?: string },
+  ): Promise<VendorPO[]> {
+    const res = await client.get(`${projectPath(projectId)}/vendor-pos`, {
+      params: {
+        ...(options?.pendingInvoiceOnly ? { pendingInvoiceOnly: true } : {}),
+        ...(options?.vendorId ? { vendorId: options.vendorId } : {}),
+      },
+    })
     return unwrapApiData<VendorPO[]>(res.data) ?? []
   },
 

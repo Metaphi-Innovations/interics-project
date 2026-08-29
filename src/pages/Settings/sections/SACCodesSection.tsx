@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react'
 import {
   Box, Typography, TextField, Chip,
   Table, TableHead, TableRow, TableCell, TableBody, TableContainer,
-  MenuItem,
   Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions,
   Skeleton,
 } from '@mui/material'
@@ -10,6 +9,7 @@ import { Plus } from 'lucide-react'
 import { Button, Modal, useToast } from '@/design-system/components'
 import {
   FilterableSortHeader,
+  SearchableSelect,
   SettingsSearchBar,
   StatusColumnToggle,
   useListingQuery,
@@ -43,6 +43,7 @@ import {
 import { parseSettingsApiError, clearFieldError } from '@/modules/system-settings/shared/api-errors'
 import { LISTING_DEFAULT_PAGE_SIZE } from '@/components/listing/listingStandards'
 import { SettingsListingPagination } from '../components/SettingsListingPagination'
+import { SettingsStatusSelect } from '../components/SettingsStatusSelect'
 
 const SAC_DATA_COL_COUNT = 4
 const sacDataColWidth = settingsDataColWidth(SAC_DATA_COL_COUNT)
@@ -366,37 +367,30 @@ export default function SACCodesSection() {
             helperText={fieldErrors.code}
           />
           <Box sx={{ display: 'flex', gap: 2 }}>
-            <TextField
-              select
-              size="small"
+            <SearchableSelect
               label="GST Rate"
               required
               fullWidth
               value={form.gstRateId}
-              onChange={e => {
-                setForm(f => ({ ...f, gstRateId: e.target.value }))
-                setFieldErrors(errors => clearFieldError(errors, 'gstRateId'))
+              onChange={(gstRateId) => {
+                setForm((f) => ({ ...f, gstRateId }))
+                setFieldErrors((errors) => clearFieldError(errors, 'gstRateId'))
               }}
-              sx={{ flex: 1, minWidth: 0 }}
+              options={activeGST.map((g) => ({
+                value: g.id,
+                label: `${g.slabName} (${g.rate}%)`,
+              }))}
               error={!!fieldErrors.gstRateId}
               helperText={fieldErrors.gstRateId}
-            >
-              {activeGST.map(g => (
-                <MenuItem key={g.id} value={g.id}>{g.slabName} ({g.rate}%)</MenuItem>
-              ))}
-            </TextField>
-            <TextField
-              select
-              size="small"
+            />
+            <SettingsStatusSelect
               label="Status"
               fullWidth
               value={form.status}
-              onChange={e => setForm(f => ({ ...f, status: e.target.value as SACCode['status'] }))}
-              sx={{ flex: 1, minWidth: 0 }}
-            >
-              <MenuItem value="active">Active</MenuItem>
-              <MenuItem value="inactive">Inactive</MenuItem>
-            </TextField>
+              onChange={(status) =>
+                setForm((f) => ({ ...f, status: status as SACCode['status'] }))
+              }
+            />
           </Box>
           <TextField
             size="small"

@@ -2,6 +2,7 @@ import type { ClientPO, ClientPOMilestone, VendorPO, VendorPOMilestone } from '@
 import type { ClientInvoice, VendorInvoice } from '@/slices/live/types'
 import {
   clientMilestoneIsLocked,
+  vendorMilestoneIsBilled,
   vendorMilestoneIsLocked,
 } from './milestonePaymentStatus'
 
@@ -132,13 +133,13 @@ export function recalculateVendorPOMilestonesForExecutedValue(
   const result = milestones.map((m) => ({ ...m }))
   const slots = result.map((m) => ({
     percentage: m.percentage,
-    isLocked: vendorMilestoneIsLocked(invoices, m.id, m.status),
+    isLocked: vendorMilestoneIsLocked(invoices, m.id, m.status, '', m.name),
     value: m.value,
   }))
 
   const nextValues = distributeUnpaidMilestoneValues(slots, executedValue)
   return result.map((m, index) => {
-    if (vendorMilestoneIsLocked(invoices, m.id, m.status)) return m
+    if (vendorMilestoneIsLocked(invoices, m.id, m.status, '', m.name)) return m
     return {
       ...m,
       value: nextValues[index] ?? m.value,
@@ -171,7 +172,9 @@ export function vendorPOHasBilledMilestone(
   milestones: VendorPOMilestone[],
   invoices: VendorInvoice[],
 ): boolean {
-  return milestones.some((m) => vendorMilestoneIsLocked(invoices, m.id, m.status))
+  // Structure lock (STATE 2): any invoice covering this PO's milestone IDs.
+  // ID-only — do not use milestone.status or cross-PO name matching.
+  return milestones.some((m) => vendorMilestoneIsBilled(invoices, m.id))
 }
 
 export function clientPOMilestonesAreProtected(
@@ -203,8 +206,21 @@ export function vendorPOMilestonesAreProtected(
   invoices: VendorInvoice[],
 ): boolean {
   if (!next) return false
+  const hasBilled = vendorPOHasBilledMilestone(existing, invoices)
+  if (hasBilled) {
+    if (existing.length !== next.length) return true
+    for (const m of existing) {
+      const n = next.find((x) => x.id === m.id)
+      if (!n) return true
+      if (n.name !== m.name || n.percentage !== m.percentage) return true
+      if (vendorMilestoneIsLocked(invoices, m.id, m.status, '', m.name) && n.value !== m.value) {
+        return true
+      }
+    }
+    return false
+  }
   for (const m of existing) {
-    if (!vendorMilestoneIsLocked(invoices, m.id, m.status)) continue
+    if (!vendorMilestoneIsLocked(invoices, m.id, m.status, '', m.name)) continue
     const n = next.find((x) => x.id === m.id)
     if (!n) return true
     if (n.name !== m.name || n.percentage !== m.percentage || n.value !== m.value) return true
@@ -277,12 +293,15 @@ export function mergeVendorPOUpdate(
 
   const nextMilestones = body.milestones ?? existing.milestones
   if (vendorPOMilestonesAreProtected(existing.milestones ?? [], nextMilestones, invoices)) {
-    return { ok: false, message: 'Billed or paid milestones cannot be modified or removed.' }
+    return {
+      ok: false,
+      message: 'Milestone cannot be deleted because it has invoice or payment activity.',
+    }
   }
 
   if (body.executedValue != null && hasBilled) {
     const lockedTotal = (existing.milestones ?? [])
-      .filter((m) => vendorMilestoneIsLocked(invoices, m.id, m.status))
+      .filter((m) => vendorMilestoneIsLocked(invoices, m.id, m.status, '', m.name))
       .reduce((sum, m) => sum + m.value, 0)
     if (body.executedValue < lockedTotal - 0.01) {
       return {

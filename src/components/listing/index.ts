@@ -1,4 +1,9 @@
 export {
+  SearchableSelect,
+  type SearchableSelectOption,
+  type SearchableSelectProps,
+} from './SearchableSelect'
+export {
   ColumnFilterPopover,
   type ColumnFilterOption,
   type ColumnFilterPopoverProps,

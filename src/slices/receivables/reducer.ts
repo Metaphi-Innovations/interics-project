@@ -172,6 +172,14 @@ const receivablesSlice = createSlice({
     setSelectedItem(state, action: PayloadAction<Invoice | null>) {
       state.selectedItem = action.payload
     },
+    /** Empty list without an API call (e.g. global ∩ toolbar date range is empty). */
+    clearListResults(state) {
+      state.items = []
+      state.pagination.total = 0
+      state.loading = false
+      state.error = null
+      state.listRequestId = null
+    },
     reset() {
       return initialState
     },
@@ -307,6 +315,7 @@ export const {
   setSortConfig,
   clearSelected,
   setSelectedItem,
+  clearListResults,
   reset,
 } = receivablesSlice.actions
 export default receivablesSlice.reducer

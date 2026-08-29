@@ -256,6 +256,18 @@ export const createExpense = createAsyncThunk<
   }
 })
 
+export const updateExpense = createAsyncThunk<
+  Expense,
+  { projectId: string; expenseId: string; data: Omit<Expense, 'id' | 'projectId'> },
+  { rejectValue: string }
+>('live/updateExpense', async ({ projectId, expenseId, data }, { rejectWithValue }) => {
+  try {
+    return await liveApi.updateExpense(projectId, expenseId, data)
+  } catch (err) {
+    return rejectWithValue(errMessage(err, 'Failed to update expense'))
+  }
+})
+
 export const deleteExpense = createAsyncThunk<
   { projectId: string; expenseId: string; linkedReimbursementId?: string },
   { projectId: string; expenseId: string },

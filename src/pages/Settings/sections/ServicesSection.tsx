@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import {
-  Box, Typography, Chip, TextField, MenuItem,
+  Box, Typography, Chip, TextField,
   Table, TableHead, TableRow, TableCell, TableBody, TableContainer,
   Divider,
   Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions,
@@ -10,6 +10,7 @@ import { Plus } from 'lucide-react'
 import { Button, Modal, useToast } from '@/design-system/components'
 import {
   FilterableSortHeader,
+  SearchableSelect,
   SettingsSearchBar,
   StatusColumnToggle,
   useListingQuery,
@@ -45,6 +46,7 @@ import {
 import { parseSettingsApiError, clearFieldError } from '@/modules/system-settings/shared/api-errors'
 import { LISTING_DEFAULT_PAGE_SIZE } from '@/components/listing/listingStandards'
 import { SettingsListingPagination } from '../components/SettingsListingPagination'
+import { SettingsStatusSelect } from '../components/SettingsStatusSelect'
 
 const SERVICE_DATA_COL_COUNT = 5
 const serviceDataColWidth = settingsDataColWidth(SERVICE_DATA_COL_COUNT)
@@ -436,42 +438,35 @@ export default function ServicesSection() {
             error={!!fieldErrors.name}
             helperText={fieldErrors.name}
           />
-          <TextField
-            select
-            size="small"
+          <SearchableSelect
             label="Category"
             required
             fullWidth
             value={form.categoryId}
-            onChange={e => {
-              setForm(f => ({ ...f, categoryId: e.target.value }))
-              setFieldErrors(errors => clearFieldError(errors, 'categoryId'))
+            onChange={(categoryId) => {
+              setForm((f) => ({ ...f, categoryId }))
+              setFieldErrors((errors) => clearFieldError(errors, 'categoryId'))
             }}
+            options={activeCategories.map((c) => ({ value: c.id, label: c.name }))}
             error={!!fieldErrors.categoryId}
             helperText={fieldErrors.categoryId}
-          >
-            {activeCategories.map(c => (
-              <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>
-            ))}
-          </TextField>
+          />
         </FormSection>
 
         <FormSection label="Tax Configuration">
-          <TextField
-            select
-            size="small"
+          <SearchableSelect
             label="SAC Code"
             required
             fullWidth
             value={form.sacCodeId ?? ''}
-            onChange={e => handleSACChange(e.target.value)}
+            onChange={handleSACChange}
+            options={activeSACCodes.map((s) => ({
+              value: s.id,
+              label: `${s.code} — ${s.description}`,
+            }))}
             error={!!fieldErrors.sacCodeId}
             helperText={fieldErrors.sacCodeId}
-          >
-            {activeSACCodes.map(s => (
-              <MenuItem key={s.id} value={s.id}>{s.code} — {s.description}</MenuItem>
-            ))}
-          </TextField>
+          />
 
           <Box sx={{ p: 1.5, bgcolor: '#F8FAFB', borderRadius: '8px', border: '1px solid #E8EEEC', display: 'flex', alignItems: 'center', gap: 1 }}>
             <Typography variant="caption" color="text.secondary">GST Rate (from SAC):</Typography>
@@ -485,17 +480,12 @@ export default function ServicesSection() {
           )}
         </FormSection>
 
-        <TextField
-          select
-          size="small"
+        <SettingsStatusSelect
           label="Status"
-          value={form.status}
-          onChange={e => setForm(f => ({ ...f, status: e.target.value as Service['status'] }))}
           fullWidth
-        >
-          <MenuItem value="active">Active</MenuItem>
-          <MenuItem value="inactive">Inactive</MenuItem>
-        </TextField>
+          value={form.status}
+          onChange={(status) => setForm((f) => ({ ...f, status: status as Service['status'] }))}
+        />
       </Modal>
 
       <Dialog open={!!toggleTarget} onClose={() => !toggling && setToggleTarget(null)} maxWidth="xs" fullWidth>

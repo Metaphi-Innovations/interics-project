@@ -40,6 +40,7 @@ import {
   setFilters,
   setSortConfig,
   clearSelected,
+  clearListResults,
   setPage,
   setPageSize,
 } from '@/slices/receivables/reducer'
@@ -50,22 +51,21 @@ import { formatInr } from '@/utils/formatters'
 import { tokens } from '@/design-system/tokens'
 import { CreateInvoiceDrawer } from './components/CreateInvoiceDrawer'
 import { InvoiceDetailDrawer } from './components/InvoiceDetailDrawer'
-import { RecordPaymentModal } from './components/RecordPaymentModal'
+import { FinanceRecordClientInvoicePaymentModal } from './components/FinanceRecordClientInvoicePaymentModal'
 import type { ReceivableSummaryKpis } from './utils/receivableSummary'
+import {
+  resolveReceivableKpiDateRange,
+  mergeReceivableListDateParams,
+  type ReceivableKpiPeriod,
+} from './utils/receivableKpiDateRange'
 import { financeApi } from '@/api/financeApi'
 import { receivablesApi } from '@/api/receivablesApi'
 import { dropdownsApi } from '@/api/dropdownsApi'
 import { unwrapApiData } from '@/modules/system-settings/shared/api'
 import { downloadCsv } from '@/api/downloadCsv'
 import { invoiceStatusToBadgeType, mapInvoiceStatus, showPartialPaidAlongsideTabStatus } from './invoiceStatus'
+import { financeReceivableNetAmount, financeReceivableOutstanding } from './utils/financeReceivableListingAmounts'
 import { usePermission } from '@/hooks/usePermission'
-
-type ReceivableKpiPeriod =
-  | 'Today'
-  | 'This Week'
-  | 'This Month'
-  | 'This Year'
-  | 'Custom Date Range'
 
 const KPI_PERIOD_OPTIONS: { label: string; value: ReceivableKpiPeriod }[] = [
   { label: 'Today', value: 'Today' },
@@ -412,6 +412,16 @@ export default function BillingsPage() {
     taxInvoiceRaised: 0,
     draftInvoiceSent: 0,
   })
+  const kpiDateBounds = useMemo(
+    () => resolveReceivableKpiDateRange(kpiPeriod, kpiCustomFrom, kpiCustomTo),
+    [kpiPeriod, kpiCustomFrom, kpiCustomTo],
+  )
+  const kpiCustomIncomplete =
+    kpiPeriod === 'Custom Date Range' && (!kpiCustomFrom || !kpiCustomTo)
+  const kpiCustomInvalid =
+    kpiPeriod === 'Custom Date Range' &&
+    Boolean(kpiCustomFrom && kpiCustomTo) &&
+    kpiDateBounds === null
   const [visibleColumns, setVisibleColumns] = useState<ReceivablesVisibleColumns>({
     clientName: true,
     projectName: true,
@@ -436,9 +446,9 @@ export default function BillingsPage() {
       { field: 'dueDate', label: 'Due date', visible: visibleColumns.dueDate },
       { field: 'baseAmount', label: 'Base', visible: visibleColumns.baseAmount },
       { field: 'gstAmount', label: 'GST', visible: visibleColumns.gstAmount },
-      { field: 'totalAmount', label: 'Total', visible: visibleColumns.totalAmount },
+      { field: 'totalAmount', label: 'Net Amount', visible: visibleColumns.totalAmount },
       { field: 'totalReceived', label: 'Received', visible: visibleColumns.totalReceived },
-      { field: 'balance', label: 'Net receivable', visible: visibleColumns.balance },
+      { field: 'balance', label: 'Pending Amount', visible: visibleColumns.balance },
       { field: 'status', label: 'Status', visible: visibleColumns.status },
     ],
     [visibleColumns],
@@ -471,6 +481,15 @@ export default function BillingsPage() {
     const toolbarProjectId =
       overrides.projectId !== undefined ? overrides.projectId : filters.projectId
     const visibility = overrides.visibleColumns ?? visibleColumns
+    const listDates = mergeReceivableListDateParams(
+      kpiDateBounds,
+      filters.dateFrom,
+      filters.dateTo,
+    )
+    if (listDates.emptyIntersection) {
+      dispatch(clearListResults())
+      return
+    }
     dispatch(
       fetchInvoices({
         page: nextPage,
@@ -479,8 +498,8 @@ export default function BillingsPage() {
         search: filters.search || undefined,
         clientId: nextCols.clientId || toolbarClientId || undefined,
         projectId: nextCols.projectId || toolbarProjectId || undefined,
-        dateFrom: filters.dateFrom || undefined,
-        dateTo: filters.dateTo || undefined,
+        dateFrom: listDates.dateFrom,
+        dateTo: listDates.dateTo,
         amountMin: filters.amountMin || undefined,
         amountMax: filters.amountMax || undefined,
         invoiceNo: nextCols.invoiceNo || undefined,
@@ -499,8 +518,9 @@ export default function BillingsPage() {
   }
 
   function refreshKpis() {
+    if (!kpiDateBounds) return
     void financeApi
-      .getReceivablesSummary({ period: kpiPeriod })
+      .getReceivablesSummary(kpiDateBounds)
       .then((res) => {
         const data = unwrapApiData<ReceivableSummaryKpis>(res.data)
         if (data) setKpis(data)
@@ -593,12 +613,19 @@ export default function BillingsPage() {
     sortConfig.field,
     sortConfig.direction,
     visibleColumns,
+    kpiDateBounds,
   ])
 
+  /** Global Date Range change always restarts listing at page 1. */
   useEffect(() => {
+    dispatch(setPage(1))
+  }, [kpiDateBounds, dispatch])
+
+  useEffect(() => {
+    if (!kpiDateBounds) return
     let cancelled = false
     void financeApi
-      .getReceivablesSummary({ period: kpiPeriod })
+      .getReceivablesSummary(kpiDateBounds)
       .then((res) => {
         const data = unwrapApiData<ReceivableSummaryKpis>(res.data)
         if (!cancelled && data) setKpis(data)
@@ -607,7 +634,7 @@ export default function BillingsPage() {
     return () => {
       cancelled = true
     }
-  }, [kpiPeriod])
+  }, [kpiDateBounds])
 
   useEffect(() => {
     return () => {
@@ -666,7 +693,7 @@ export default function BillingsPage() {
       icon: <CheckCircleIcon sx={{ fontSize: 24 }} />,
     },
     {
-      label: 'Pending',
+      label: 'Pending Invoiced Amount',
       value: `₹${formatInr(kpis.pending)}`,
       variant: 'warning' as const,
       icon: <WarningAmberIcon sx={{ fontSize: 24 }} />,
@@ -741,9 +768,14 @@ export default function BillingsPage() {
       </Stack>
 
       <Box sx={{ p: 2 }}>
-        {kpiPeriod === 'Custom Date Range' && (!kpiCustomFrom || !kpiCustomTo) ? (
+        {kpiCustomIncomplete ? (
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
             Select a start and end date to update KPI values.
+          </Typography>
+        ) : null}
+        {kpiCustomInvalid ? (
+          <Typography variant="caption" color="error" sx={{ display: 'block', mb: 1.5 }}>
+            End date must be on or after the start date.
           </Typography>
         ) : null}
         <Box
@@ -894,6 +926,9 @@ export default function BillingsPage() {
     )
     dispatch(setSortConfig({ field: null, direction: 'asc' }))
     dispatch(setPage(1))
+    setKpiPeriod('This Month')
+    setKpiCustomFrom(null)
+    setKpiCustomTo(null)
   }
 
   async function confirmSend() {
@@ -1113,7 +1148,7 @@ export default function BillingsPage() {
                   )}
                   {visibleColumns.totalAmount && (
                     <FilterableSortHeader
-                      label="Amount"
+                      label="Net Amount"
                       field="totalAmount"
                       sortField={sortConfig.field ?? undefined}
                       sortDirection={sortConfig.direction}
@@ -1139,7 +1174,7 @@ export default function BillingsPage() {
                   )}
                   {visibleColumns.balance && (
                     <FilterableSortHeader
-                      label="Net receivable"
+                      label="Pending Amount"
                       field="netReceivable"
                       sortField={sortConfig.field ?? undefined}
                       sortDirection={sortConfig.direction}
@@ -1257,7 +1292,9 @@ export default function BillingsPage() {
                             <TableCell sx={BODY_CELL_SX}>₹{formatInr(inv.gstAmount)}</TableCell>
                           )}
                           {visibleColumns.totalAmount && (
-                            <TableCell sx={{ ...BODY_CELL_SX, fontWeight: 700 }}>₹{formatInr(inv.totalAmount)}</TableCell>
+                            <TableCell sx={{ ...BODY_CELL_SX, fontWeight: 700 }}>
+                              ₹{formatInr(financeReceivableNetAmount(inv))}
+                            </TableCell>
                           )}
                           {visibleColumns.totalReceived && (
                             <TableCell sx={{ ...BODY_CELL_SX, color: pendingRow ? 'text.secondary' : 'success.main' }}>
@@ -1265,8 +1302,16 @@ export default function BillingsPage() {
                             </TableCell>
                           )}
                           {visibleColumns.balance && (
-                            <TableCell sx={{ ...BODY_CELL_SX, color: inv.balance > 0 ? 'error.main' : 'text.primary' }}>
-                              ₹{formatInr(inv.balance)}
+                            <TableCell
+                              sx={{
+                                ...BODY_CELL_SX,
+                                color:
+                                  financeReceivableOutstanding(inv) > 0
+                                    ? 'error.main'
+                                    : 'text.primary',
+                              }}
+                            >
+                              ₹{formatInr(financeReceivableOutstanding(inv))}
                             </TableCell>
                           )}
                           {visibleColumns.status && (
@@ -1443,7 +1488,7 @@ export default function BillingsPage() {
         }}
       />
 
-      <RecordPaymentModal
+      <FinanceRecordClientInvoicePaymentModal
         open={!!paymentInv}
         onClose={() => setPaymentInv(null)}
         invoice={paymentInv}

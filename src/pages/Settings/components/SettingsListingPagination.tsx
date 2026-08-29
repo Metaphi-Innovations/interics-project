@@ -1,4 +1,4 @@
-import { Box, IconButton, MenuItem, Select, Typography } from '@mui/material'
+import { Box, IconButton, Typography } from '@mui/material'
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import { tokens } from '@/design-system/tokens'
@@ -6,6 +6,7 @@ import {
   formatListingShowingLabel,
   LISTING_PAGE_SIZE_OPTIONS,
 } from '@/components/listing/listingStandards'
+import { SearchableSelect } from '@/components/listing'
 
 export type SettingsListingPaginationProps = {
   /** 0-based page index */
@@ -44,24 +45,16 @@ export function SettingsListingPagination({
           <Typography variant="caption" color="text.secondary">
             Rows per page:
           </Typography>
-          <Select
-            size="small"
-            value={pageSize}
-            onChange={(e) => onPageSizeChange(Number(e.target.value))}
-            sx={{
-              fontSize: 12,
-              height: 28,
-              bgcolor: tokens.color.neutral[50],
-              borderRadius: '4px',
-              '& .MuiOutlinedInput-notchedOutline': { border: 'none' },
-            }}
-          >
-            {LISTING_PAGE_SIZE_OPTIONS.map((size) => (
-              <MenuItem key={size} value={size}>
-                {size}
-              </MenuItem>
-            ))}
-          </Select>
+          <Box sx={{ width: 88 }}>
+            <SearchableSelect
+              value={String(pageSize)}
+              onChange={(next) => onPageSizeChange(Number(next))}
+              options={LISTING_PAGE_SIZE_OPTIONS.map((size) => ({
+                value: String(size),
+                label: String(size),
+              }))}
+            />
+          </Box>
         </Box>
 
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>

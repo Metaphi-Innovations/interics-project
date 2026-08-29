@@ -353,7 +353,7 @@ export default function FilingSummaryPage() {
     const stamp = dayjs().format('YYYY-MM-DD')
     if (tableTab === 'all') {
       downloadCsv(`filing-all-entries-${stamp}.csv`, [
-        ['Date', 'Invoice/Ref', 'Project', 'Party', 'Type', 'Base amount', 'Tax amount', 'Status'],
+        ['Date', 'Invoice/Ref', 'Project', 'Party', 'Type', 'Base amount', 'GST / TDS amount', 'Status'],
         ...allMergedRows.map((r) => [
           r.date,
           r.ref,
@@ -746,7 +746,7 @@ export default function FilingSummaryPage() {
                     Base amount
                   </TableCell>
                   <TableCell sx={TABLE_HEADER_SX} align="right">
-                    Tax amount
+                    GST / TDS amount
                   </TableCell>
                   <TableCell sx={TABLE_HEADER_SX}>Status</TableCell>
                 </TableRow>

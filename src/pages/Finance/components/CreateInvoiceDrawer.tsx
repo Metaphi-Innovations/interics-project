@@ -601,7 +601,7 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved, pre
   const footer = (
     <Stack direction="row" justifyContent="flex-end" gap={1} sx={{ px: 5, py: 3.5 }}>
       <Button variant="outlined" size="sm" onClick={handleSaveDraft} loading={saving} label="Draft invoice" />
-      <Button variant="contained" size="sm" onClick={handleSaveSend} loading={saving} label="Save" />
+      <Button variant="contained" size="sm" onClick={handleSaveSend} loading={saving} label="Tax Invoice" />
     </Stack>
   )
 

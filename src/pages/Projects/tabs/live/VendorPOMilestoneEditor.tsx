@@ -59,12 +59,15 @@ interface VendorPOMilestoneEditorProps {
   /** Lock structure and all fields (preview / read-only mode). */
   readOnly?: boolean
   /**
-   * Lock names and add/remove controls, but allow editing % / value
-   * for unpaid milestones (e.g. Update Executed Value).
+   * Global PO structure lock (Receivable parity).
+   * false (STATE 1): no invoice coverage → entire structure editable.
+   * true (STATE 2): any milestone invoiced → names/%/values/add/remove all locked.
    */
   structureLocked?: boolean
   /** Optional payment status per milestone row id (regular rows only). */
   milestoneStatuses?: Record<string, MilestonePaymentStatusLabel>
+  /** Milestone ids with invoice/payment activity — per-row delete blocked. */
+  milestoneDeleteLockedIds?: ReadonlySet<string>
   retentionStatus?: MilestonePaymentStatusLabel
 }
 
@@ -283,6 +286,7 @@ export function VendorPOMilestoneEditor({
   readOnly = false,
   structureLocked = false,
   milestoneStatuses,
+  milestoneDeleteLockedIds,
   retentionStatus,
 }: VendorPOMilestoneEditorProps) {
   const theme = useTheme()
@@ -310,27 +314,32 @@ export function VendorPOMilestoneEditor({
   const standaloneGridColumns = lockStructure ? 'repeat(3, minmax(0, 1fr))' : GRID_COLUMNS
 
   function isMilestoneLocked(id: string): boolean {
+    if (milestoneDeleteLockedIds?.has(id)) return true
     const status = milestoneStatuses?.[id]
     return status === 'Paid' || status === 'Billed'
+  }
+
+  function canRemoveMilestone(id: string): boolean {
+    return !readOnly && !isMilestoneLocked(id)
   }
 
   function isRetentionLocked(): boolean {
     return retentionStatus === 'Paid' || retentionStatus === 'Billed'
   }
 
-  function isMilestoneFieldDisabled(id: string): boolean {
-    return readOnly || isMilestoneLocked(id)
+  /** Receivable parity: any invoice coverage locks the entire % / structure. */
+  function isMilestoneFieldDisabled(_id: string): boolean {
+    return readOnly || lockStructure
   }
 
   function isRetentionFieldDisabled(): boolean {
-    return readOnly || isRetentionLocked()
+    return readOnly || lockStructure
   }
 
   function updateMilestone(idx: number, field: keyof VendorPOMilestoneRow, val: string | number) {
     const row = milestones[idx]
     if (!row) return
-    if (readOnly || isMilestoneLocked(row.id)) return
-    if (lockStructure && field === 'name') return
+    if (readOnly || lockStructure) return
     const next = milestones.map((m, i) => {
       if (i !== idx) return m
       const updated = { ...m, [field]: val }
@@ -350,10 +359,9 @@ export function VendorPOMilestoneEditor({
   }
 
   function removeMilestone(idx: number) {
-    if (lockStructure) return
-    if (isCardMilestoneList && milestones.length <= 1) return
     const row = milestones[idx]
-    if (row && isMilestoneLocked(row.id)) return
+    if (!row || !canRemoveMilestone(row.id)) return
+    if (isCardMilestoneList && milestones.length <= 1) return
     const next = milestones.filter((_, i) => i !== idx)
     onMilestonesChange(
       isCardMilestoneList && next.length === 0 ? [createEmptyVendorPOMilestoneRow()] : next,
@@ -361,7 +369,7 @@ export function VendorPOMilestoneEditor({
   }
 
   function updateRetention(field: 'percentage' | 'amount', val: number) {
-    if (readOnly || !retention || isRetentionLocked()) return
+    if (readOnly || lockStructure || !retention) return
     const next = { ...retention }
     if (field === 'percentage') {
       next.percentage = val
@@ -453,18 +461,17 @@ export function VendorPOMilestoneEditor({
                   ) : null}
                   {showActionColumn ? (
                     <Box sx={CARD_ACTION_CELL_SX}>
-                      {isLast ? (
+                      {!readOnly && isLast ? (
                         <MuiIconButton
                           size="small"
                           aria-label="Add milestone row"
                           onClick={addMilestone}
+                          disabled={lockStructure}
                           sx={{ color: 'primary.main', width: 28, height: 28, p: 0.25 }}
                         >
                           <Add sx={{ fontSize: 16 }} />
                         </MuiIconButton>
-                      ) : isMilestoneLocked(m.id) ? (
-                        <Box sx={{ width: 28, height: 28 }} />
-                      ) : (
+                      ) : canRemoveMilestone(m.id) ? (
                         <MuiIconButton
                           size="small"
                           aria-label="Remove milestone row"
@@ -473,6 +480,8 @@ export function VendorPOMilestoneEditor({
                         >
                           <Trash2 size={14} strokeWidth={2} />
                         </MuiIconButton>
+                      ) : (
+                        <Box sx={{ width: 28, height: 28 }} />
                       )}
                     </Box>
                   ) : null}
@@ -555,7 +564,7 @@ export function VendorPOMilestoneEditor({
                     ) : null}
                     {showRetentionActionColumn ? (
                       <Box sx={CARD_ACTION_CELL_SX}>
-                        {isRetentionLocked() ? (
+                        {lockStructure || isRetentionLocked() ? (
                           <Box sx={{ width: 28, height: 28 }} />
                         ) : (
                           <MuiIconButton
@@ -624,11 +633,9 @@ export function VendorPOMilestoneEditor({
                   disabled={rowDisabled}
                   sx={MILESTONE_INPUT_SX}
                 />
-                {!lockStructure ? (
+                {!readOnly ? (
                   <Box sx={CARD_ACTION_CELL_SX}>
-                    {isMilestoneLocked(m.id) ? (
-                      <Box sx={{ width: 28, height: 28 }} />
-                    ) : (
+                    {canRemoveMilestone(m.id) ? (
                       <MuiIconButton
                         size="small"
                         aria-label="Remove milestone row"
@@ -637,6 +644,8 @@ export function VendorPOMilestoneEditor({
                       >
                         <Trash2 size={14} strokeWidth={2} />
                       </MuiIconButton>
+                    ) : (
+                      <Box sx={{ width: 28, height: 28 }} />
                     )}
                   </Box>
                 ) : null}

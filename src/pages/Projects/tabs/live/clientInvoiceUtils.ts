@@ -19,6 +19,30 @@ export interface LineItemTaxBreakdown {
 }
 
 /** Base → labour cess → taxable → GST → gross (client invoice line). */
+export function calcClientInvoiceTdsAmount(
+  base: number,
+  tdsRate: number | null | undefined,
+): number {
+  if (!tdsRate) return 0
+  return roundMoney((base * tdsRate) / 100)
+}
+
+/** Net receivable for a pre-GST milestone base (base → GST → TDS on base). */
+export function clientMilestoneNetPayable({
+  baseAmount,
+  gstRate,
+  tdsRate,
+  labourCessRate = 0,
+}: {
+  baseAmount: number
+  gstRate: number
+  tdsRate: number | null | undefined
+  labourCessRate?: number
+}): number {
+  const { grossAmount } = computeLineItemTaxBreakdown(baseAmount, labourCessRate, gstRate)
+  return roundMoney(grossAmount - calcClientInvoiceTdsAmount(baseAmount, tdsRate))
+}
+
 export function computeLineItemTaxBreakdown(
   baseAmount: number,
   labourCessRate: number,
@@ -92,6 +116,17 @@ export function totalTdsFromPayments(payments: ClientInvoicePayment[]): number {
 export function balancePending(inv: ClientInvoice): number {
   const netPayable = roundMoney(inv.grossAmount - (inv.tdsAmount ?? 0));
   return roundMoney(netPayable - totalReceivedBank(inv.payments));
+}
+
+/** Project Live Receivable Amount Breakdown → Net (gross incl. GST/cess minus TDS). */
+export function clientInvoiceAmountBreakdownNet(
+  inv: ClientInvoice,
+  poTdsRate?: number | null,
+): number {
+  const roll = rollupsFromLineItems(inv.lineItems);
+  const effectiveTdsRate = inv.tdsRate ?? poTdsRate ?? null;
+  const tdsAmount = calcClientInvoiceTdsAmount(roll.baseAmount, effectiveTdsRate);
+  return roundMoney(roll.baseAmount + roll.labourCessAmount + inv.gstAmount - tdsAmount);
 }
 
 export function isInvoiceFullyPaid(inv: ClientInvoice): boolean {

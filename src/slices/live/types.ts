@@ -82,6 +82,7 @@ export interface VendorInvoice {
   projectId: string
   projectName?: string
   vendorId: string
+  vendorPoId?: string
   vendorName: string
   serviceId: string
   serviceName: string

@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import {
   Box,
+  Collapse,
   Stack,
   Typography,
   Table,
@@ -11,25 +12,26 @@ import {
   Grid,
   Divider,
   Chip,
+  IconButton,
 } from '@mui/material'
-import { alpha } from '@mui/material/styles'
-import { ArrowRight } from 'lucide-react'
+import { alpha, useTheme } from '@mui/material/styles'
+import { ArrowRight, ChevronDown, ChevronRight } from 'lucide-react'
 import { WorkspaceSection } from '../../../../components/templates'
 import { DrawerForm, FormField } from '../../../../components/templates/DrawerForm'
 import {
-  StatusBadge,
-  Input,
+  Badge,
   Button,
   DatePicker,
+  Input,
+  Modal,
+  StatusBadge,
   Textarea,
   useToast,
 } from '@/design-system/components'
-import type { StatusType } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { DEFAULT_GST_RATE } from '@/config/billingRates'
 import { useAppDispatch, useAppSelector } from '../../../../store/hooks'
 import { createInvoice, fetchInvoices } from '../../../../slices/live/thunk'
-import { convertDraftToTax } from '../../../../slices/receivables/thunk'
 import type { ClientInvoice, ClientInvoiceLineItem } from '../../../../slices/live/types'
 import { formatDate, formatInr } from '../../../../utils/formatters'
 import { buildBillableFromClientPOs, type BillableMilestone } from './billableMilestones'
@@ -44,38 +46,46 @@ import { RecordClientInvoicePaymentModal } from './RecordClientInvoicePaymentMod
 import { BillingPitchSummary } from './BillingPitchSummary'
 import {
   balancePending,
+  calcClientInvoiceTdsAmount,
+  clientMilestoneNetPayable,
   computeLineItemTaxBreakdown,
   isDueDateOverdue,
   MONEY_EPS,
+  resolveClientServiceGstRate,
   rollupsFromLineItems,
   totalReceivedBank,
   type InvoiceLineRollups,
 } from './clientInvoiceUtils'
 import { downloadClientInvoiceDocument } from './downloadClientInvoice'
-import { findClientInvoiceForMilestone } from './milestonePaymentStatus'
+import { receivablesApi } from '@/api/receivablesApi'
+import { convertDraftToTax } from '@/slices/receivables/thunk'
+import { parseSettingsApiError } from '@/modules/system-settings/shared/api-errors'
+import {
+  clientInvoiceStatusBadges,
+  milestoneBillingPhase,
+  milestoneBillingStatusBadge,
+  milestonePaymentPhase,
+  milestonePaymentStatusBadge,
+} from './clientMilestoneBillingStatus'
+import {
+  clientMilestoneIsBilled,
+  findClientInvoiceForMilestone,
+  findClientInvoicesForMilestone,
+} from './milestonePaymentStatus'
+import { ProjectLiveRowActionMenu } from './ProjectLiveRowActionMenu'
+import {
+  findDraftInvoiceForMilestone,
+  findTaxInvoiceEligibleForPayment,
+} from './projectLiveReceivableActions'
+import {
+  buildClientPoReceivableGroups,
+  clientPOReceivablePaymentStatusColor,
+} from './clientPOReceivableGroups'
+import type { Baseline } from '@/slices/baseline/reducer'
+import type { Service } from '@/slices/settings/reducer'
 
 function milestoneRowKey(m: Pick<BillableMilestone, 'milestoneId' | 'serviceId'>): string {
   return `${m.milestoneId}:${m.serviceId}`
-}
-
-function findInvoiceForMilestone(
-  invoices: ClientInvoice[],
-  m: Pick<BillableMilestone, 'milestoneId' | 'serviceId' | 'milestoneName'>,
-): ClientInvoice | undefined {
-  return findClientInvoiceForMilestone(
-    invoices,
-    m.milestoneId,
-    m.serviceId,
-    m.milestoneName,
-  )
-}
-
-function hasInvoiceForMilestone(invoices: ClientInvoice[], m: BillableMilestone): boolean {
-  return findInvoiceForMilestone(invoices, m) != null
-}
-
-function gstOnBase(base: number, rate: number): number {
-  return Math.round((base * rate) / 100)
 }
 
 function toIsoDate(d: Date | null): string {
@@ -84,39 +94,6 @@ function toIsoDate(d: Date | null): string {
   const mo = String(d.getMonth() + 1).padStart(2, '0')
   const day = String(d.getDate()).padStart(2, '0')
   return `${y}-${mo}-${day}`
-}
-
-type MilestoneBillPhase = 'not_invoiced' | 'draft' | 'invoiced' | 'overdue' | 'paid' | 'partially_paid'
-
-function milestoneBillPhase(inv: ClientInvoice | undefined): MilestoneBillPhase {
-  if (!inv) return 'not_invoiced'
-  if (inv.status === 'draft') return 'draft'
-  const pending = balancePending(inv)
-  if (pending <= MONEY_EPS) return 'paid'
-  // TDS is reflected in `balancePending()`, so using `gross - pending` would
-  // incorrectly treat TDS as a "payment settlement". We only mark partially paid
-  // after at least one payment has been recorded (bank amount > 0).
-  const received = totalReceivedBank(inv.payments)
-  if (received > MONEY_EPS) return 'partially_paid'
-  if (isDueDateOverdue(inv.dueDate)) return 'overdue'
-  return 'invoiced'
-}
-
-function milestoneStatusBadge(phase: MilestoneBillPhase): { type: StatusType; label: string } {
-  switch (phase) {
-    case 'not_invoiced':
-      return { type: 'draft', label: 'Not Invoiced' }
-    case 'draft':
-      return { type: 'draft', label: 'Draft' }
-    case 'invoiced':
-      return { type: 'sent', label: 'Invoiced' }
-    case 'paid':
-      return { type: 'paid', label: 'Paid' }
-    case 'partially_paid':
-      return { type: 'partially_paid', label: 'Partially Paid' }
-    case 'overdue':
-      return { type: 'overdue', label: 'Overdue' }
-  }
 }
 
 const SECTION_HEADER_SX = {
@@ -144,6 +121,20 @@ const TABLE_CELL_SX = {
   py: 1.5,
   px: 2,
 }
+
+const RECEIVABLE_PARENT_COL_COUNT = 4
+
+const RECEIVABLE_PARENT_CENTER_HEADER_SX = {
+  ...TABLE_HEADER_SX,
+  textAlign: 'center' as const,
+  verticalAlign: 'middle' as const,
+} as const
+
+const RECEIVABLE_PARENT_CENTER_CELL_SX = {
+  ...TABLE_CELL_SX,
+  textAlign: 'center' as const,
+  verticalAlign: 'middle' as const,
+} as const
 
 const RECEIVABLES_COLUMN_COUNT = 7
 const RECEIVABLES_COL_WIDTH = `${100 / RECEIVABLES_COLUMN_COUNT}%`
@@ -180,24 +171,12 @@ const RECEIVABLES_ACTION_CELL_SX = {
   verticalAlign: 'middle',
 } as const
 
-const RECEIVABLES_ACTION_BUTTON_SX = {
-  minWidth: 132,
-  px: 1.5,
-  fontSize: 11,
-  whiteSpace: 'nowrap',
-} as const
-
 function SectionHeader({ children }: { children: string }) {
   return (
     <Typography variant="caption" component="div" sx={SECTION_HEADER_SX}>
       {children}
     </Typography>
   )
-}
-
-function calcTdsAmount(base: number, tdsRate: number | null | undefined): number {
-  if (!tdsRate) return 0
-  return Math.round((base * tdsRate) / 100)
 }
 
 function AmountBreakdownColumn({
@@ -402,7 +381,9 @@ interface GenerateDrawerProps {
   clientId: string
   clientName: string
   preset: BillableMilestone | null
+  editingInvoice?: ClientInvoice | null
   onClose: () => void
+  onSaved?: () => void
 }
 
 function GenerateInvoiceDrawer({
@@ -412,11 +393,14 @@ function GenerateInvoiceDrawer({
   clientId,
   clientName,
   preset,
+  editingInvoice = null,
   onClose,
+  onSaved,
 }: GenerateDrawerProps) {
   const dispatch = useAppDispatch()
   const { saving } = useAppSelector((s) => s.live)
   const { services, sacCodes } = useAppSelector((s) => s.settings)
+  const baseline = useAppSelector((s) => s.baseline.baseline)
   const showToast = useToast((s) => s.showToast)
 
   const [invoiceNumber, setInvoiceNumber] = useState('')
@@ -431,14 +415,37 @@ function GenerateInvoiceDrawer({
 
   useEffect(() => {
     if (!open || !preset) return
+    setFieldErrors({})
+    if (editingInvoice) {
+      setInvoiceNumber(editingInvoice.invoiceNumber)
+      setInvoiceDate(editingInvoice.invoiceDate ? new Date(editingInvoice.invoiceDate) : new Date())
+      setDueDate(editingInvoice.dueDate ? new Date(editingInvoice.dueDate) : null)
+      setNotes(editingInvoice.notes ?? '')
+      setLines(
+        (editingInvoice.lineItems ?? []).map((li) => ({
+          id: li.id,
+          serviceId: li.serviceId,
+          serviceName: li.serviceName,
+          sacCode: li.sacCode,
+          amount: li.amount,
+          labourCessRate: li.labourCessRate ?? 0,
+          labourCessAmount: li.labourCessAmount ?? 0,
+          taxableAmount: li.taxableAmount ?? li.amount,
+          gstRate: li.gstRate,
+          gstAmount: li.gstAmount,
+          milestoneId: li.milestoneId,
+          lineSource: 'milestone' as const,
+        })),
+      )
+      return
+    }
     setInvoiceNumber('')
     setInvoiceDate(new Date())
     setDueDate(null)
     setNotes('')
-    setFieldErrors({})
     const svc = services.find((s) => s.id === preset.serviceId)
     const sac = sacCodeForService(sacCodes, svc)
-    const gstRate = svc?.gstRate ?? DEFAULT_GST_RATE
+    const gstRate = resolveClientServiceGstRate(preset.serviceId, baseline, services)
     const amount = preset.baseAmount
     const taxed = computeLineItemTaxBreakdown(amount, 0, gstRate)
     setLines([
@@ -457,9 +464,36 @@ function GenerateInvoiceDrawer({
         lineSource: 'milestone',
       },
     ])
-  }, [open, preset, services, sacCodes])
+  }, [open, preset, editingInvoice, services, sacCodes, baseline])
 
   const roll = useMemo(() => rollupsFromLineItems(lineItemsToPayload(lines)), [lines])
+  const milestoneInvoiceNet =
+    preset != null
+      ? clientMilestoneNetPayable({
+          baseAmount: preset.baseAmount,
+          gstRate: resolveClientServiceGstRate(preset.serviceId, baseline, services),
+          tdsRate: preset.tdsRate,
+        })
+      : 0
+  const tdsAmount = calcClientInvoiceTdsAmount(roll.baseAmount, preset?.tdsRate)
+
+  function validateForm(): boolean {
+    const next: typeof fieldErrors = {}
+    if (!invoiceNumber.trim()) next.invoiceNumber = 'Invoice number is required'
+    if (!lines.length || lines.some((l) => !l.serviceId || l.amount <= 0)) {
+      next.lines = 'Add at least one valid line item'
+    }
+    setFieldErrors(next)
+    const keys = Object.keys(next)
+    if (keys.length > 0) {
+      showToast({
+        title: next.invoiceNumber ?? next.lines ?? 'Please fill in all required fields',
+        variant: 'error',
+      })
+      return false
+    }
+    return true
+  }
 
   function handleDownloadDraft() {
     if (!preset) return
@@ -488,67 +522,74 @@ function GenerateInvoiceDrawer({
     })
   }
 
-  function validateForm(): boolean {
-    const next: typeof fieldErrors = {}
-    if (!invoiceNumber.trim()) next.invoiceNumber = 'Invoice number is required'
-    if (!lines.length || lines.some((l) => !l.serviceId || l.amount <= 0)) {
-      next.lines = 'Add at least one valid line item'
-    }
-    setFieldErrors(next)
-    const keys = Object.keys(next)
-    if (keys.length > 0) {
-      showToast({
-        title: next.invoiceNumber ?? next.lines ?? 'Please fill in all required fields',
-        variant: 'error',
-      })
-      return false
-    }
-    return true
-  }
-
   async function handleSubmit() {
     if (!preset) return
     if (!validateForm()) return
     const invDate = toIsoDate(invoiceDate)
     const due = toIsoDate(dueDate)
+    const payload = {
+      milestoneId: preset.milestoneId,
+      milestoneName: preset.milestoneName,
+      serviceId: preset.serviceId,
+      serviceName: preset.serviceName,
+      clientPoId: preset.clientPoId,
+      lineItems: lineItemsToPayload(lines),
+      baseAmount: roll.baseAmount,
+      labourCessAmount: roll.labourCessAmount,
+      taxableAmount: roll.taxableAmount,
+      gstAmount: roll.gstAmount,
+      grossAmount: roll.grossAmount,
+      tdsAmount: calcClientInvoiceTdsAmount(roll.baseAmount, preset.tdsRate),
+      tdsRate: preset.tdsRate ?? null,
+      netReceivable: roll.grossAmount - calcClientInvoiceTdsAmount(roll.baseAmount, preset.tdsRate),
+      invoiceNumber: invoiceNumber.trim(),
+      invoiceDate: invDate,
+      dueDate: due,
+      status: 'draft' as const,
+      payments: [],
+      notes: notes.trim() || undefined,
+    }
     try {
-      const tdsAmt = calcTdsAmount(roll.baseAmount, preset.tdsRate)
-      await dispatch(
-        createInvoice({
+      if (editingInvoice) {
+        await receivablesApi.update(editingInvoice.id, {
           projectId,
-          projectName,
           clientId,
           clientName,
-          sendNow: false,
-          data: {
-            milestoneId: preset.milestoneId,
-            milestoneName: preset.milestoneName,
-            serviceId: preset.serviceId,
-            serviceName: preset.serviceName,
-            clientPoId: preset.clientPoId,
-            lineItems: lineItemsToPayload(lines),
-            baseAmount: roll.baseAmount,
-            labourCessAmount: roll.labourCessAmount,
-            taxableAmount: roll.taxableAmount,
-            gstAmount: roll.gstAmount,
-            grossAmount: roll.grossAmount,
-            tdsAmount: tdsAmt,
-            tdsRate: preset.tdsRate ?? null,
-            netReceivable: roll.grossAmount - tdsAmt,
-            invoiceNumber: invoiceNumber.trim(),
-            invoiceDate: invDate,
-            dueDate: due,
-            status: 'draft',
-            payments: [],
-            notes: notes.trim() || undefined,
-          },
-        }),
-      ).unwrap()
+          projectName,
+          invoiceNo: invoiceNumber.trim(),
+          invoiceDate: invDate,
+          dueDate: due,
+          lineItems: payload.lineItems,
+          notes: payload.notes,
+          clientPoId: preset.clientPoId,
+          milestoneId: preset.milestoneId,
+          milestoneName: preset.milestoneName,
+          serviceId: preset.serviceId,
+          serviceName: preset.serviceName,
+        })
+        showToast({ title: 'Draft invoice updated', variant: 'success' })
+      } else {
+        await dispatch(
+          createInvoice({
+            projectId,
+            projectName,
+            clientId,
+            clientName,
+            sendNow: false,
+            data: payload,
+          }),
+        ).unwrap()
+        showToast({ title: 'Draft invoice created', variant: 'success' })
+      }
       void dispatch(fetchInvoices(projectId))
-      showToast({ title: 'Draft invoice created', variant: 'success' })
+      onSaved?.()
       onClose()
-    } catch {
-      showToast({ title: 'Failed to generate invoice', variant: 'error' })
+    } catch (err) {
+      const fallback = editingInvoice ? 'Failed to update invoice' : 'Failed to generate invoice'
+      showToast({
+        title: typeof err === 'string' ? err : parseSettingsApiError(err, fallback).message,
+        variant: 'error',
+      })
     }
   }
 
@@ -583,7 +624,7 @@ function GenerateInvoiceDrawer({
     <DrawerForm
       open={open}
       onClose={onClose}
-      title="Generate Invoice"
+      title={editingInvoice ? 'Edit Draft Invoice' : 'Generate Invoice'}
       subtitle={subtitle}
       width={680}
       footer={
@@ -600,7 +641,7 @@ function GenerateInvoiceDrawer({
             variant="contained"
             color="primary"
             size="sm"
-            label="Generate Invoice"
+            label={editingInvoice ? 'Save Draft' : 'Generate Invoice'}
             endIcon={<ArrowRight size={16} />}
             onClick={() => void handleSubmit()}
             loading={saving}
@@ -609,26 +650,72 @@ function GenerateInvoiceDrawer({
       }
     >
       <Stack spacing={2}>
+        <Box
+          sx={{
+            p: 2,
+            borderRadius: 1,
+            bgcolor: (t) => alpha(t.palette.primary.main, 0.06),
+            border: '1px solid',
+            borderColor: 'divider',
+          }}
+        >
+          <Typography variant="body2">
+            <Box component="span" color="text.secondary">
+              Milestone:{' '}
+            </Box>
+            <Box component="span" fontWeight={600}>
+              {preset.milestoneName}
+            </Box>
+            <Box component="span" color="text.secondary" sx={{ mx: 1 }}>
+              ·
+            </Box>
+            <Box component="span" color="text.secondary">
+              {preset.serviceName}
+            </Box>
+          </Typography>
+          <Stack direction={{ xs: 'column', sm: 'row' }} gap={2} sx={{ mt: 1.5 }}>
+            <Box sx={{ flex: 1 }}>
+              <Typography variant="caption" color="text.secondary" display="block">
+                Invoice Amount (base)
+              </Typography>
+              <Typography
+                variant="h6"
+                sx={{
+                  fontWeight: 700,
+                  fontSize: '1.125rem',
+                  color: 'primary.main',
+                }}
+              >
+                ₹{formatInr(preset.baseAmount)}
+              </Typography>
+            </Box>
+            <Box sx={{ flex: 1 }}>
+              <Typography variant="caption" color="text.secondary" display="block">
+                Invoice Net
+              </Typography>
+              <Typography variant="h6" sx={{ fontWeight: 700, fontSize: '1.125rem' }}>
+                ₹{formatInr(milestoneInvoiceNet)}
+              </Typography>
+            </Box>
+          </Stack>
+        </Box>
+
         <Box>
           <SectionHeader>Line items</SectionHeader>
           <Box sx={{ mt: 1 }}>
             <InvoiceLineItems
-              mode="edit"
+              mode="read"
               lines={lines}
               services={services}
               sacCodes={sacCodes}
-              onChange={(next) => {
-                setLines(next)
-                setFieldErrors((prev) => ({ ...prev, lines: undefined }))
-              }}
               projectSourced
               allowEmpty={false}
               manualAddCollapsed
               allowManualAdd={false}
               hideSacColumn
               showLabourCessColumn
-                  showTdsColumn
-                  tdsRate={preset.tdsRate ?? null}
+              showTdsColumn
+              tdsRate={preset.tdsRate ?? null}
               error={fieldErrors.lines}
             />
           </Box>
@@ -674,45 +761,6 @@ function GenerateInvoiceDrawer({
         </Box>
 
         <Box>
-          <SectionHeader>Milestone & amounts</SectionHeader>
-          <Box
-            sx={{
-              mt: 1,
-              p: 2,
-              borderRadius: 1,
-              bgcolor: (t) => alpha(t.palette.primary.main, 0.04),
-              border: '1px solid',
-              borderColor: 'divider',
-            }}
-          >
-            <Typography variant="body2">
-              <Box component="span" color="text.secondary">
-                Milestone:{' '}
-              </Box>
-              <Box component="span" fontWeight={600}>
-                {preset.milestoneName}
-              </Box>
-            </Typography>
-            <Typography variant="body2" sx={{ mt: 1 }}>
-              <Box component="span" color="text.secondary">
-                Service:{' '}
-              </Box>
-              <Box component="span" fontWeight={600}>
-                {preset.serviceName}
-              </Box>
-            </Typography>
-            <Typography variant="body2" sx={{ mt: 1 }}>
-              <Box component="span" color="text.secondary">
-                Base Value:{' '}
-              </Box>
-              <Box component="span" fontWeight={600}>
-                ₹{formatInr(preset.baseAmount)}
-              </Box>
-            </Typography>
-          </Box>
-        </Box>
-
-        <Box>
           <SectionHeader>Summary</SectionHeader>
           <Box
             sx={{
@@ -724,22 +772,12 @@ function GenerateInvoiceDrawer({
               borderColor: 'divider',
             }}
           >
-            <ClientInvoiceTaxSummary roll={roll} tdsAmount={0} showNetPayable={false} />
-            {preset.tdsRate ? (
-              <>
-                <Divider sx={{ my: 1 }} />
-                <ReadOnlySummaryRow
-                  label={`TDS (${preset.tdsRate}%)`}
-                  value={`−₹${formatInr(calcTdsAmount(roll.baseAmount, preset.tdsRate))}`}
-                  valueSx={{ color: 'error.main' }}
-                />
-                <ReadOnlySummaryRow
-                  label="Net receivable"
-                  value={`₹${formatInr(roll.grossAmount - calcTdsAmount(roll.baseAmount, preset.tdsRate))}`}
-                  valueSx={{ fontWeight: 700, typography: 'body1' }}
-                />
-              </>
-            ) : null}
+            <ClientInvoiceTaxSummary
+              roll={roll}
+              tdsAmount={tdsAmount}
+              tdsRate={preset.tdsRate}
+              showNetPayable
+            />
           </Box>
         </Box>
       </Stack>
@@ -770,8 +808,7 @@ function ViewInvoiceDrawer({
 
   if (!invoice) return null
 
-  const phase = milestoneBillPhase(invoice)
-  const badge = milestoneStatusBadge(phase)
+  const billingBadges = clientInvoiceStatusBadges(invoice)
   const bal = balancePending(invoice)
   const showPay = bal > MONEY_EPS
   const bankReceived = totalReceivedBank(invoice.payments)
@@ -789,7 +826,11 @@ function ViewInvoiceDrawer({
           <Typography variant="body2" color="text.secondary">
             {projectName}
           </Typography>
-          <StatusBadge status={badge.type} label={badge.label} />
+          <Stack direction="row" gap={0.5} flexWrap="wrap">
+            {billingBadges.map((badge) => (
+              <StatusBadge key={badge.label} status={badge.type} label={badge.label} />
+            ))}
+          </Stack>
         </Stack>
       }
       width={560}
@@ -923,6 +964,204 @@ function ViewInvoiceDrawer({
   )
 }
 
+// ─── Receivable milestone row (nested under PO group) ─────────────────────────
+
+interface ReceivableMilestoneTableRowProps {
+  m: BillableMilestone
+  projectInvoices: ClientInvoice[]
+  baseline: Baseline | null
+  services: Service[]
+  clientPoById: Map<string, { tdsRate: number | null | undefined }>
+  onGenerate: (row: BillableMilestone) => void
+  onEditDraft: (invoice: ClientInvoice, row: BillableMilestone) => void
+  onView: (invoice: ClientInvoice) => void
+  onConvertTax: (invoice: ClientInvoice) => void
+  onPayment: (invoice: ClientInvoice) => void
+}
+
+function ReceivableMilestoneTableRow({
+  m,
+  projectInvoices,
+  baseline,
+  services,
+  clientPoById,
+  onGenerate,
+  onEditDraft,
+  onView,
+  onConvertTax,
+  onPayment,
+}: ReceivableMilestoneTableRowProps) {
+  const inv = findClientInvoiceForMilestone(
+    projectInvoices,
+    m.milestoneId,
+    m.serviceId,
+    m.milestoneName,
+  )
+  const coveringInvoices = findClientInvoicesForMilestone(
+    projectInvoices,
+    m.milestoneId,
+    m.serviceId,
+    m.milestoneName,
+  )
+  const draftInv = findDraftInvoiceForMilestone(coveringInvoices)
+  const paymentEligibleInv = findTaxInvoiceEligibleForPayment(coveringInvoices, balancePending)
+  const milestoneInvoices = inv ? [inv] : []
+  const isBilled = clientMilestoneIsBilled(
+    projectInvoices,
+    m.milestoneId,
+    m.serviceId,
+    m.milestoneName,
+  )
+  const poTdsRate = clientPoById.get(m.clientPoId)?.tdsRate ?? null
+  const billingPhase = milestoneBillingPhase(milestoneInvoices)
+  const paymentPhase = milestonePaymentPhase(milestoneInvoices)
+  const billingBadge = milestoneBillingStatusBadge(billingPhase)
+  const paymentBadge = milestonePaymentStatusBadge(paymentPhase)
+  const dueOverdue =
+    inv != null && balancePending(inv) > MONEY_EPS && isDueDateOverdue(inv.dueDate)
+
+  let base: number
+  let gstRate: number
+  let gstAmount: number
+  let labourCess = 0
+  let tdsAmount: number
+  let net: number
+  if (inv) {
+    const roll = rollupsFromLineItems(inv.lineItems)
+    base = roll.baseAmount
+    labourCess = roll.labourCessAmount
+    gstRate =
+      inv.baseAmount > 0 ? Math.round((100 * inv.gstAmount) / inv.baseAmount) : DEFAULT_GST_RATE
+    gstAmount = inv.gstAmount
+    const effectiveTdsRate = inv.tdsRate ?? poTdsRate
+    tdsAmount = calcClientInvoiceTdsAmount(base, effectiveTdsRate)
+    net = base + labourCess + gstAmount - tdsAmount
+  } else {
+    base = m.baseAmount
+    gstRate = resolveClientServiceGstRate(m.serviceId, baseline, services)
+    const taxed = computeLineItemTaxBreakdown(m.baseAmount, 0, gstRate)
+    gstAmount = taxed.gstAmount
+    tdsAmount = calcClientInvoiceTdsAmount(base, poTdsRate)
+    net = clientMilestoneNetPayable({
+      baseAmount: base,
+      gstRate,
+      tdsRate: poTdsRate,
+    })
+  }
+
+  const tds = inv ? inv.tdsAmount : 0
+  const received = inv ? totalReceivedBank(inv.payments) : 0
+  const outstanding = inv ? balancePending(inv) : 0
+
+  return (
+    <TableRow key={milestoneRowKey(m)} hover>
+      <TableCell sx={RECEIVABLES_TABLE_CELL_SX}>
+        <Typography variant="body2" sx={{ fontWeight: 600, lineHeight: 1.35 }}>
+          {m.milestoneName}
+        </Typography>
+        <Typography variant="caption" color="text.secondary" display="block">
+          {m.serviceName}
+        </Typography>
+      </TableCell>
+      <TableCell sx={RECEIVABLES_TABLE_CELL_SX}>
+        {inv ? (
+          <InvoiceDetailsColumn
+            invoiceNumber={inv.invoiceNumber}
+            invoiceDate={inv.invoiceDate}
+            onView={() => onView(inv)}
+          />
+        ) : (
+          <Typography variant="body2" color="text.disabled">
+            —
+          </Typography>
+        )}
+      </TableCell>
+      <TableCell sx={RECEIVABLES_TABLE_CELL_SX}>
+        <Typography
+          variant="body2"
+          color={inv ? (dueOverdue ? 'error.main' : 'text.primary') : 'text.disabled'}
+        >
+          {inv ? formatDate(inv.dueDate) : '—'}
+        </Typography>
+      </TableCell>
+      <TableCell sx={RECEIVABLES_TABLE_CELL_SX}>
+        <AmountBreakdownColumn
+          base={base}
+          gstRate={gstRate}
+          gstAmount={gstAmount}
+          labourCess={labourCess}
+          tdsRate={inv?.tdsRate ?? poTdsRate}
+          tdsAmount={tdsAmount}
+          net={net}
+        />
+      </TableCell>
+      <TableCell sx={RECEIVABLES_TABLE_CELL_SX}>
+        {inv ? (
+          <PaymentSummaryColumn
+            tds={tds}
+            labourCess={labourCess}
+            received={received}
+            outstanding={outstanding}
+          />
+        ) : (
+          <Typography variant="caption" color="text.disabled">
+            —
+          </Typography>
+        )}
+      </TableCell>
+      <TableCell sx={RECEIVABLES_STATUS_CELL_SX}>
+        <Box
+          sx={{
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            width: '100%',
+          }}
+        >
+          <Stack direction="column" gap={0.5} alignItems="center">
+            <StatusBadge status={billingBadge.type} label={billingBadge.label} />
+            <StatusBadge status={paymentBadge.type} label={paymentBadge.label} />
+          </Stack>
+        </Box>
+      </TableCell>
+      <TableCell sx={RECEIVABLES_ACTION_CELL_SX} align="center">
+        <ProjectLiveRowActionMenu
+          items={
+            !isBilled
+              ? [
+                  {
+                    label: 'Generate Invoice',
+                    onClick: () => onGenerate(m),
+                  },
+                ]
+              : [
+                  {
+                    label: 'View',
+                    onClick: () => onView(inv!),
+                  },
+                  {
+                    label: 'Convert to Tax Invoice',
+                    onClick: () => onConvertTax(draftInv!),
+                    hidden: draftInv == null,
+                  },
+                  {
+                    label: 'Edit Draft',
+                    onClick: () => onEditDraft(draftInv!, m),
+                    hidden: draftInv == null,
+                  },
+                  {
+                    label: 'Record Payment',
+                    onClick: () => onPayment(paymentEligibleInv!),
+                    hidden: paymentEligibleInv == null,
+                  },
+                ]
+          }
+        />
+      </TableCell>
+    </TableRow>
+  )
+}
+
 // ─── BillingTab ───────────────────────────────────────────────────────────────
 
 interface BillingTabProps {
@@ -934,13 +1173,21 @@ interface BillingTabProps {
 
 export default function BillingTab({ projectId, projectName, clientId, clientName }: BillingTabProps) {
   const dispatch = useAppDispatch()
+  const theme = useTheme()
   const { invoices } = useAppSelector((s) => s.live)
   const clientPOs = useAppSelector((s) => s.baseline.clientPOs)
+  const baseline = useAppSelector((s) => s.baseline.baseline)
+  const { services } = useAppSelector((s) => s.settings)
 
   const [generateOpen, setGenerateOpen] = useState(false)
   const [generatePreset, setGeneratePreset] = useState<BillableMilestone | null>(null)
+  const [editingInvoice, setEditingInvoice] = useState<ClientInvoice | null>(null)
   const [paymentInvoice, setPaymentInvoice] = useState<ClientInvoice | null>(null)
   const [viewInvoice, setViewInvoice] = useState<ClientInvoice | null>(null)
+  const [convertTaxTarget, setConvertTaxTarget] = useState<ClientInvoice | null>(null)
+  const [convertingTax, setConvertingTax] = useState(false)
+  const [expandedPoId, setExpandedPoId] = useState<string | null>(null)
+  const showToast = useToast((s) => s.showToast)
 
   useEffect(() => {
     dispatch(fetchServices())
@@ -958,6 +1205,11 @@ export default function BillingTab({ projectId, projectName, clientId, clientNam
     [clientPOs, projectId],
   )
 
+  const poGroups = useMemo(
+    () => buildClientPoReceivableGroups(billableTemplates, clientPOs, projectInvoices),
+    [billableTemplates, clientPOs, projectInvoices],
+  )
+
   const clientPoById = useMemo(() => {
     const map = new Map<string, { tdsRate: number | null | undefined }>()
     for (const po of clientPOs) {
@@ -967,7 +1219,13 @@ export default function BillingTab({ projectId, projectName, clientId, clientNam
   }, [clientPOs])
 
   function openGenerate(row: BillableMilestone) {
-    if (hasInvoiceForMilestone(projectInvoices, row)) return
+    setEditingInvoice(null)
+    setGeneratePreset(row)
+    setGenerateOpen(true)
+  }
+
+  function openEditDraft(invoice: ClientInvoice, row: BillableMilestone) {
+    setEditingInvoice(invoice)
     setGeneratePreset(row)
     setGenerateOpen(true)
   }
@@ -975,10 +1233,26 @@ export default function BillingTab({ projectId, projectName, clientId, clientNam
   function closeGenerate() {
     setGenerateOpen(false)
     setGeneratePreset(null)
+    setEditingInvoice(null)
   }
 
   function openPayment(inv: ClientInvoice) {
     setPaymentInvoice(inv)
+  }
+
+  async function confirmConvertTax() {
+    if (!convertTaxTarget) return
+    setConvertingTax(true)
+    try {
+      await dispatch(convertDraftToTax(convertTaxTarget.id)).unwrap()
+      showToast({ title: 'Converted to tax invoice', variant: 'success' })
+      void dispatch(fetchInvoices(projectId))
+    } catch (e) {
+      showToast({ title: String(e), variant: 'error' })
+    } finally {
+      setConvertingTax(false)
+      setConvertTaxTarget(null)
+    }
   }
 
   const viewInvoiceResolved = useMemo(() => {
@@ -991,204 +1265,201 @@ export default function BillingTab({ projectId, projectName, clientId, clientNam
     return projectInvoices.find((i) => i.id === paymentInvoice.id) ?? paymentInvoice
   }, [projectInvoices, paymentInvoice])
 
+  const hoverBg = alpha(theme.palette.primary.main, 0.04)
+  const expandedBg = alpha(theme.palette.primary.main, 0.03)
+
+  function togglePoExpanded(poId: string) {
+    setExpandedPoId((prev) => (prev === poId ? null : poId))
+  }
+
   return (
     <>
       <BillingPitchSummary projectId={projectId} />
 
       <WorkspaceSection title="Receivables" noPadding>
         <Box sx={{ width: '100%', overflow: 'hidden' }}>
-        <Table
-          size="small"
-          sx={{
-            tableLayout: 'fixed',
-            width: '100%',
-            '& .MuiTableCell-root': { verticalAlign: 'top', wordBreak: 'break-word' },
-          }}
-        >
-          <colgroup>
-            {Array.from({ length: RECEIVABLES_COLUMN_COUNT }, (_, index) => (
-              <col key={index} style={{ width: RECEIVABLES_COL_WIDTH }} />
-            ))}
-          </colgroup>
-          <TableHead>
-            <TableRow>
-              <TableCell sx={RECEIVABLES_TABLE_HEADER_SX}>Milestone / Service</TableCell>
-              <TableCell sx={RECEIVABLES_TABLE_HEADER_SX}>Invoice Details</TableCell>
-              <TableCell sx={RECEIVABLES_TABLE_HEADER_SX}>Due Date</TableCell>
-              <TableCell sx={RECEIVABLES_TABLE_HEADER_SX}>Amount Breakdown</TableCell>
-              <TableCell sx={RECEIVABLES_TABLE_HEADER_SX}>Payment Summary</TableCell>
-              <TableCell sx={RECEIVABLES_STATUS_HEADER_SX}>Status</TableCell>
-              <TableCell sx={RECEIVABLES_ACTION_HEADER_SX} align="center">
-                Action
-              </TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {billableTemplates.length === 0 && (
+          <Table
+            size="small"
+            sx={{
+              tableLayout: 'fixed',
+              width: '100%',
+              '& .MuiTableCell-root': { verticalAlign: 'middle', wordBreak: 'break-word' },
+            }}
+          >
+            <colgroup>
+              <col style={{ width: 44 }} />
+              <col style={{ width: '40%' }} />
+              <col style={{ width: '30%' }} />
+              <col style={{ width: '30%' }} />
+            </colgroup>
+            <TableHead>
               <TableRow>
-                <TableCell
-                  colSpan={RECEIVABLES_COLUMN_COUNT}
-                  sx={{
-                    ...RECEIVABLES_TABLE_CELL_SX,
-                    textAlign: 'center',
-                    color: 'text.secondary',
-                    fontSize: 13,
-                    py: 3,
-                  }}
-                >
-                  No billing milestones configured for this project
-                </TableCell>
+                <TableCell sx={{ ...TABLE_HEADER_SX, width: 44, px: 1 }} />
+                <TableCell sx={TABLE_HEADER_SX}>PO Number</TableCell>
+                <TableCell sx={RECEIVABLE_PARENT_CENTER_HEADER_SX}>Total Milestones</TableCell>
+                <TableCell sx={RECEIVABLE_PARENT_CENTER_HEADER_SX}>Payment Status</TableCell>
               </TableRow>
-            )}
-            {billableTemplates.map((m) => {
-              const inv = findInvoiceForMilestone(projectInvoices, m)
-              const phase = milestoneBillPhase(inv)
-              const badge = milestoneStatusBadge(phase)
-              const dueOverdue =
-                inv != null && balancePending(inv) > MONEY_EPS && isDueDateOverdue(inv.dueDate)
-
-              const poTdsRate = clientPoById.get(m.clientPoId)?.tdsRate ?? null
-
-              let base: number
-              let gstRate: number
-              let gstAmount: number
-              let labourCess = 0
-              let tdsAmount: number
-              let net: number
-              if (inv) {
-                const roll = rollupsFromLineItems(inv.lineItems)
-                base = roll.baseAmount
-                labourCess = roll.labourCessAmount
-                gstRate =
-                  inv.baseAmount > 0
-                    ? Math.round((100 * inv.gstAmount) / inv.baseAmount)
-                    : DEFAULT_GST_RATE
-                gstAmount = inv.gstAmount
-                const effectiveTdsRate = inv.tdsRate ?? poTdsRate
-                tdsAmount = calcTdsAmount(base, effectiveTdsRate)
-                net = base + labourCess + gstAmount - tdsAmount
-              } else {
-                base = m.baseAmount
-                gstRate = DEFAULT_GST_RATE
-                gstAmount = gstOnBase(m.baseAmount, DEFAULT_GST_RATE)
-                tdsAmount = calcTdsAmount(base, poTdsRate)
-                net = base + gstAmount - tdsAmount
-              }
-
-              const tds = inv ? inv.tdsAmount : 0
-              const received = inv ? totalReceivedBank(inv.payments) : 0
-              const outstanding = inv ? balancePending(inv) : 0
-
-              return (
-                <TableRow key={milestoneRowKey(m)} hover>
-                  <TableCell sx={RECEIVABLES_TABLE_CELL_SX}>
-                    <Typography variant="body2" sx={{ fontWeight: 600, lineHeight: 1.35 }}>
-                      {m.milestoneName}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary" display="block">
-                      {m.serviceName}
-                    </Typography>
-                  </TableCell>
-                  <TableCell sx={RECEIVABLES_TABLE_CELL_SX}>
-                    {inv ? (
-                      <InvoiceDetailsColumn
-                        invoiceNumber={inv.invoiceNumber}
-                        invoiceDate={inv.invoiceDate}
-                        onView={() => setViewInvoice(inv)}
-                      />
-                    ) : (
-                      <Typography variant="body2" color="text.disabled">
-                        —
-                      </Typography>
-                    )}
-                  </TableCell>
-                  <TableCell sx={RECEIVABLES_TABLE_CELL_SX}>
-                    <Typography
-                      variant="body2"
-                      color={inv ? (dueOverdue ? 'error.main' : 'text.primary') : 'text.disabled'}
-                    >
-                      {inv ? formatDate(inv.dueDate) : '—'}
-                    </Typography>
-                  </TableCell>
-                  <TableCell sx={RECEIVABLES_TABLE_CELL_SX}>
-                    <AmountBreakdownColumn
-                      base={base}
-                      gstRate={gstRate}
-                      gstAmount={gstAmount}
-                      labourCess={labourCess}
-                      tdsRate={inv?.tdsRate ?? poTdsRate}
-                      tdsAmount={tdsAmount}
-                      net={net}
-                    />
-                  </TableCell>
-                  <TableCell sx={RECEIVABLES_TABLE_CELL_SX}>
-                    {inv ? (
-                      <PaymentSummaryColumn
-                        tds={tds}
-                        labourCess={labourCess}
-                        received={received}
-                        outstanding={outstanding}
-                      />
-                    ) : (
-                      <Typography variant="caption" color="text.disabled">
-                        —
-                      </Typography>
-                    )}
-                  </TableCell>
-                  <TableCell sx={RECEIVABLES_STATUS_CELL_SX}>
-                    <Box
-                      sx={{
-                        display: 'flex',
-                        justifyContent: 'center',
-                        alignItems: 'center',
-                        width: '100%',
-                      }}
-                    >
-                      <StatusBadge status={badge.type} label={badge.label} />
-                    </Box>
-                  </TableCell>
-                  <TableCell sx={RECEIVABLES_ACTION_CELL_SX} align="center">
-                    <Box sx={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
-                      {phase === 'not_invoiced' ? (
-                        <Button
-                          size="sm"
-                          variant="contained"
-                          color="primary"
-                          label="Draft Invoice"
-                          onClick={() => openGenerate(m)}
-                          sx={RECEIVABLES_ACTION_BUTTON_SX}
-                        />
-                      ) : phase === 'draft' ? (
-                        <Button
-                          size="sm"
-                          variant="contained"
-                          color="secondary"
-                          label="Convert to Tax"
-                          onClick={() => {
-                            if (!inv) return
-                            void dispatch(convertDraftToTax(inv.id)).then(() => {
-                              void dispatch(fetchInvoices(projectId))
-                            })
-                          }}
-                          sx={RECEIVABLES_ACTION_BUTTON_SX}
-                        />
-                      ) : (
-                        <Button
-                          size="sm"
-                          variant="outlined"
-                          color="primary"
-                          label="View invoice"
-                          onClick={() => inv && setViewInvoice(inv)}
-                          sx={RECEIVABLES_ACTION_BUTTON_SX}
-                        />
-                      )}
-                    </Box>
+            </TableHead>
+            <TableBody>
+              {poGroups.length === 0 ? (
+                <TableRow>
+                  <TableCell
+                    colSpan={RECEIVABLE_PARENT_COL_COUNT}
+                    sx={{
+                      ...TABLE_CELL_SX,
+                      textAlign: 'center',
+                      color: 'text.secondary',
+                      fontSize: 13,
+                      py: 3,
+                    }}
+                  >
+                    No billing milestones configured for this project
                   </TableCell>
                 </TableRow>
-              )
-            })}
-          </TableBody>
-        </Table>
+              ) : (
+                poGroups.map((group) => {
+                  const isExpanded = expandedPoId === group.poId
+                  return (
+                    <Fragment key={group.poId}>
+                      <TableRow
+                        hover
+                        onClick={() => togglePoExpanded(group.poId)}
+                        sx={{
+                          cursor: 'pointer',
+                          bgcolor: isExpanded ? expandedBg : undefined,
+                          '&:hover': { bgcolor: hoverBg },
+                          '& td': { borderBottom: isExpanded ? 'none' : undefined },
+                        }}
+                      >
+                        <TableCell sx={{ ...TABLE_CELL_SX, px: 1, width: 44 }}>
+                          <IconButton
+                            size="small"
+                            aria-label={isExpanded ? 'Collapse milestones' : 'Expand milestones'}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              togglePoExpanded(group.poId)
+                            }}
+                            sx={{ p: 0.5 }}
+                          >
+                            {isExpanded ? (
+                              <ChevronDown size={16} strokeWidth={1.75} />
+                            ) : (
+                              <ChevronRight size={16} strokeWidth={1.75} />
+                            )}
+                          </IconButton>
+                        </TableCell>
+                        <TableCell sx={TABLE_CELL_SX}>
+                          <Typography
+                            variant="body2"
+                            sx={{ fontSize: 12, fontWeight: 500, fontFamily: 'monospace' }}
+                          >
+                            {group.poNumber}
+                          </Typography>
+                        </TableCell>
+                        <TableCell sx={RECEIVABLE_PARENT_CENTER_CELL_SX}>
+                          <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600 }}>
+                            {group.milestones.length}
+                          </Typography>
+                        </TableCell>
+                        <TableCell sx={RECEIVABLE_PARENT_CENTER_CELL_SX}>
+                          <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+                            <Badge
+                              label={group.paymentStatus}
+                              variant="soft"
+                              color={clientPOReceivablePaymentStatusColor(group.paymentStatus)}
+                              size="sm"
+                            />
+                          </Box>
+                        </TableCell>
+                      </TableRow>
+
+                      <TableRow>
+                        <TableCell
+                          colSpan={RECEIVABLE_PARENT_COL_COUNT}
+                          sx={{
+                            p: 0,
+                            borderBottom: isExpanded
+                              ? `1px solid ${tokens.color.neutral[100]}`
+                              : 'none',
+                          }}
+                        >
+                          <Collapse in={isExpanded} timeout="auto" unmountOnExit>
+                            <Box
+                              sx={{
+                                px: 2,
+                                py: 1.5,
+                                bgcolor: alpha(theme.palette.text.primary, 0.02),
+                              }}
+                            >
+                              <Table
+                                size="small"
+                                sx={{
+                                  tableLayout: 'fixed',
+                                  width: '100%',
+                                  bgcolor: 'background.paper',
+                                  border: `1px solid ${tokens.color.neutral[100]}`,
+                                  borderRadius: 1,
+                                  overflow: 'hidden',
+                                  '& .MuiTableCell-root': {
+                                    verticalAlign: 'top',
+                                    wordBreak: 'break-word',
+                                  },
+                                }}
+                              >
+                                <colgroup>
+                                  {Array.from({ length: RECEIVABLES_COLUMN_COUNT }, (_, index) => (
+                                    <col key={index} style={{ width: RECEIVABLES_COL_WIDTH }} />
+                                  ))}
+                                </colgroup>
+                                <TableHead>
+                                  <TableRow>
+                                    <TableCell sx={RECEIVABLES_TABLE_HEADER_SX}>
+                                      Milestone / Service
+                                    </TableCell>
+                                    <TableCell sx={RECEIVABLES_TABLE_HEADER_SX}>
+                                      Invoice Details
+                                    </TableCell>
+                                    <TableCell sx={RECEIVABLES_TABLE_HEADER_SX}>Due Date</TableCell>
+                                    <TableCell sx={RECEIVABLES_TABLE_HEADER_SX}>
+                                      Amount Breakdown
+                                    </TableCell>
+                                    <TableCell sx={RECEIVABLES_TABLE_HEADER_SX}>
+                                      Payment Summary
+                                    </TableCell>
+                                    <TableCell sx={RECEIVABLES_STATUS_HEADER_SX}>Status</TableCell>
+                                    <TableCell sx={RECEIVABLES_ACTION_HEADER_SX} align="center">
+                                      Action
+                                    </TableCell>
+                                  </TableRow>
+                                </TableHead>
+                                <TableBody>
+                                  {group.milestones.map((m) => (
+                                    <ReceivableMilestoneTableRow
+                                      key={milestoneRowKey(m)}
+                                      m={m}
+                                      projectInvoices={projectInvoices}
+                                      baseline={baseline}
+                                      services={services}
+                                      clientPoById={clientPoById}
+                                      onGenerate={openGenerate}
+                                      onEditDraft={openEditDraft}
+                                      onView={setViewInvoice}
+                                      onConvertTax={setConvertTaxTarget}
+                                      onPayment={openPayment}
+                                    />
+                                  ))}
+                                </TableBody>
+                              </Table>
+                            </Box>
+                          </Collapse>
+                        </TableCell>
+                      </TableRow>
+                    </Fragment>
+                  )
+                })
+              )}
+            </TableBody>
+          </Table>
         </Box>
       </WorkspaceSection>
 
@@ -1199,7 +1470,11 @@ export default function BillingTab({ projectId, projectName, clientId, clientNam
         clientId={clientId}
         clientName={clientName}
         preset={generatePreset}
+        editingInvoice={editingInvoice}
         onClose={closeGenerate}
+        onSaved={() => {
+          void dispatch(fetchInvoices(projectId))
+        }}
       />
       <RecordClientInvoicePaymentModal
         open={!!paymentInvoice}
@@ -1213,7 +1488,17 @@ export default function BillingTab({ projectId, projectName, clientId, clientNam
         projectName={projectName}
         onClose={() => setViewInvoice(null)}
         onRecordPayment={() => {
-          if (viewInvoiceResolved) openPayment(viewInvoiceResolved)
+          if (!viewInvoiceResolved) return
+          const eligible = findTaxInvoiceEligibleForPayment(
+            findClientInvoicesForMilestone(
+              projectInvoices,
+              viewInvoiceResolved.milestoneId,
+              viewInvoiceResolved.serviceId,
+              viewInvoiceResolved.milestoneName,
+            ),
+            balancePending,
+          )
+          if (eligible) openPayment(eligible)
         }}
         onDownloadPdf={() => {
           if (!viewInvoiceResolved) return
@@ -1238,6 +1523,32 @@ export default function BillingTab({ projectId, projectName, clientId, clientNam
           })
         }}
       />
+      <Modal
+        open={!!convertTaxTarget}
+        onClose={() => setConvertTaxTarget(null)}
+        title="Convert as tax invoice?"
+        size="xs"
+        footer={
+          <Stack direction="row" justifyContent="flex-end" gap={1}>
+            <Button
+              variant="outlined"
+              size="sm"
+              onClick={() => setConvertTaxTarget(null)}
+              disabled={convertingTax}
+            >
+              Cancel
+            </Button>
+            <Button variant="contained" size="sm" onClick={confirmConvertTax} loading={convertingTax}>
+              Convert
+            </Button>
+          </Stack>
+        }
+      >
+        <Typography variant="body2">
+          Convert <strong>{convertTaxTarget?.invoiceNumber}</strong> to a tax invoice? This cannot be
+          undone.
+        </Typography>
+      </Modal>
     </>
   )
 }

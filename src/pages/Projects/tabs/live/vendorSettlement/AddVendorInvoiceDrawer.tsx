@@ -8,19 +8,47 @@ import { fetchExpenses, fetchVendorInvoices, updateVendorInvoice, uploadVendorIn
 import type { Baseline, VendorPO } from '@/slices/baseline/reducer'
 import type { VendorMilestone } from '@/slices/pitch/reducer'
 import { formatCurrency } from '@/utils/formatters'
+import type { VendorInvoice } from '@/slices/live/types'
 import {
   DEFAULT_TDS_PERCENT,
   calcVendorInvoiceNetPayable,
   calcVendorInvoiceTdsAmount,
-  findInvoiceForMilestone,
   invoiceMatchesRow,
   resolveVendorMilestonesForRow,
   TDS_RATE_OPTIONS,
+  vendorMilestoneNetPayable,
   type VendorServiceRow,
 } from './utils'
+import {
+  getVendorInvoiceMilestoneAmount,
+  remainingVendorMilestoneValue,
+  vendorMilestoneIsSelectable,
+  type FlatVendorMilestone,
+} from '@/pages/Finance/utils/vendorBillable'
 
 function gstOnBase(base: number, rate: number): number {
   return Math.round((base * rate) / 100)
+}
+
+function vendorMilestoneBilledAmount(
+  scoped: VendorInvoice[],
+  vm: VendorMilestone,
+  serviceId: string,
+  serviceName: string,
+): number {
+  const milestone: FlatVendorMilestone = {
+    milestoneId: vm.id,
+    milestoneName: vm.name,
+    serviceId,
+    serviceName,
+    value: vm.value,
+    isRetention: vm.name.trim().toLowerCase() === 'retention',
+  }
+  let billed = 0
+  for (const inv of scoped) {
+    billed += getVendorInvoiceMilestoneAmount(inv, milestone, inv.vendorPoId ?? '')
+  }
+  return billed
 }
 
 export function AddVendorInvoiceDrawer({
@@ -65,10 +93,18 @@ export function AddVendorInvoiceDrawer({
     return resolveVendorMilestonesForRow(vendorPOs, baseline, context)
   }, [vendorPOs, baseline, context])
 
-  const uninvoicedMilestones = useMemo((): VendorMilestone[] => {
+  const selectableMilestones = useMemo((): VendorMilestone[] => {
     if (!context || milestones.length === 0) return []
     const scoped = projectScopedInvoices.filter((inv) => invoiceMatchesRow(inv, context))
-    return milestones.filter((vm) => !findInvoiceForMilestone(scoped, vm))
+    return milestones.filter((vm) => {
+      const billed = vendorMilestoneBilledAmount(
+        scoped,
+        vm,
+        context.serviceId,
+        context.serviceName,
+      )
+      return vendorMilestoneIsSelectable(billed, vm.value)
+    })
   }, [context, milestones, projectScopedInvoices])
 
   const lockedMilestone = useMemo(() => {
@@ -127,12 +163,16 @@ export function AddVendorInvoiceDrawer({
   }, [open, presetMilestoneId, existingInvoice])
 
   useEffect(() => {
-    if (!open || existingInvoice) return
+    if (!open || existingInvoice || !context) return
     const vm = lockedMilestone ?? milestones.find((m) => m.id === selectedMilestoneId)
-    if (vm && vm.value > 0) {
-      setBaseAmount(String(vm.value))
+    if (!vm) return
+    const scoped = projectScopedInvoices.filter((inv) => invoiceMatchesRow(inv, context))
+    const billed = vendorMilestoneBilledAmount(scoped, vm, context.serviceId, context.serviceName)
+    const remaining = remainingVendorMilestoneValue(billed, vm.value)
+    if (remaining > 0) {
+      setBaseAmount(String(remaining))
     }
-  }, [open, existingInvoice, lockedMilestone, selectedMilestoneId, milestones])
+  }, [open, existingInvoice, lockedMilestone, selectedMilestoneId, milestones, context, projectScopedInvoices])
 
   async function handleSubmit() {
     if (!context || milestones.length === 0) {
@@ -241,20 +281,20 @@ export function AddVendorInvoiceDrawer({
             </Typography>
           </FormField>
         ) : (
-          <FormField label="Milestone" required hint="Only milestones without an uploaded invoice">
+          <FormField label="Milestone" required hint="Milestones with remaining billable amount">
             <Select
               size="small"
               displayEmpty
               value={selectedMilestoneId}
               onChange={(e) => setSelectedMilestoneId(e.target.value)}
               fullWidth
-              disabled={uninvoicedMilestones.length === 0}
+              disabled={selectableMilestones.length === 0}
               sx={{ fontSize: 12 }}
             >
               <MenuItem value="" sx={{ fontSize: 12 }}>
-                {uninvoicedMilestones.length === 0 ? 'No milestones available' : 'Select milestone'}
+                {selectableMilestones.length === 0 ? 'No milestones available' : 'Select milestone'}
               </MenuItem>
-              {uninvoicedMilestones.map((vm) => (
+              {selectableMilestones.map((vm) => (
                 <MenuItem key={vm.id} value={vm.id} sx={{ fontSize: 12 }}>
                   {vm.name} · ₹{formatCurrency(vm.value)}
                 </MenuItem>
@@ -285,6 +325,26 @@ export function AddVendorInvoiceDrawer({
             startAdornment={<Typography sx={{ fontSize: 12 }}>₹</Typography>}
           />
         </FormField>
+        {baseNumber > 0 ? (
+          <Box sx={{ gridColumn: '1 / -1' }}>
+            <Typography variant="body2" sx={{ fontSize: 12 }}>
+              <Box component="span" color="text.secondary">
+                Remaining Base:{' '}
+              </Box>
+              <Box component="span" fontWeight={600}>
+                ₹{formatCurrency(baseNumber)}
+              </Box>
+            </Typography>
+            <Typography variant="body2" sx={{ fontSize: 12, mt: 0.5 }}>
+              <Box component="span" color="text.secondary">
+                Net Payable:{' '}
+              </Box>
+              <Box component="span" fontWeight={600}>
+                ₹{formatCurrency(vendorMilestoneNetPayable(baseNumber, tdsRate))}
+              </Box>
+            </Typography>
+          </Box>
+        ) : null}
         <Box sx={{ gridColumn: '1 / -1' }}>
           <FormField label="Description" hint="Optional">
             <Textarea

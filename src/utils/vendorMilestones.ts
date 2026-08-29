@@ -72,6 +72,101 @@ export function sumVendorMilestonePercentages(m: VendorMapping): number {
   return fromMilestones + fromRetention
 }
 
+/**
+ * Global Vendor Offer % total across ALL services/milestones + retention once.
+ * Used by Add Vendor Offer — not per-service.
+ */
+export function sumVendorOfferGlobalPercentages(params: {
+  milestones: Array<{ percentage: number }>
+  retentionPercentage?: number
+}): number {
+  const fromMilestones = params.milestones.reduce((s, m) => s + (Number(m.percentage) || 0), 0)
+  const fromRetention = Number(params.retentionPercentage) || 0
+  return fromMilestones + fromRetention
+}
+
+export type VendorOfferGlobalPctValidation = {
+  valid: boolean
+  currentPct: number
+  nameMessage?: string
+  pctMessage?: string
+  structureMessage?: string
+}
+
+/**
+ * Validate the entire Vendor Offer: all milestone % + retention % === 100 (±0.01).
+ * Rows with a percentage but empty name fail with a clear field message (not silent drop).
+ */
+export function validateVendorOfferGlobalPercents(params: {
+  milestones: Array<{ name: string; percentage: number }>
+  retention?: { name?: string; percentage: number } | null
+}): VendorOfferGlobalPctValidation {
+  const milestones = params.milestones ?? []
+  const retention = params.retention ?? null
+  const hasRetention = Boolean(retention && (retention.percentage > 0 || Boolean(retention.name?.trim())))
+
+  for (const m of milestones) {
+    const pct = Number(m.percentage) || 0
+    if (pct > 0 && !m.name.trim()) {
+      return {
+        valid: false,
+        currentPct: sumVendorOfferGlobalPercentages({
+          milestones,
+          retentionPercentage: retention?.percentage,
+        }),
+        nameMessage: 'Milestone name is required.',
+      }
+    }
+  }
+
+  if (hasRetention && retention && !retention.name?.trim() && retention.percentage > 0) {
+    return {
+      valid: false,
+      currentPct: sumVendorOfferGlobalPercentages({
+        milestones,
+        retentionPercentage: retention.percentage,
+      }),
+      nameMessage: 'Retention name is required.',
+    }
+  }
+
+  const namedOrZero = milestones.filter((m) => m.name.trim() || (Number(m.percentage) || 0) === 0)
+  // Include every row that has a name OR a non-zero % (name errors already returned above).
+  const countable = milestones.filter(
+    (m) => m.name.trim() || (Number(m.percentage) || 0) > 0,
+  )
+  const currentPct = sumVendorOfferGlobalPercentages({
+    milestones: countable,
+    retentionPercentage: hasRetention ? retention?.percentage : 0,
+  })
+
+  if (!hasRetention && countable.length === 0) {
+    return { valid: true, currentPct: 0 }
+  }
+
+  if (hasRetention && countable.filter((m) => m.name.trim()).length === 0) {
+    return {
+      valid: false,
+      currentPct,
+      structureMessage:
+        'Add at least one milestone before retention. Retention cannot be used alone.',
+    }
+  }
+
+  // Ignore empty placeholder rows with 0% and no name
+  void namedOrZero
+
+  if (Math.abs(currentPct - 100) > VENDOR_MILESTONE_PCT_EPS) {
+    return {
+      valid: false,
+      currentPct,
+      pctMessage: `Total must equal exactly 100% (currently ${currentPct.toFixed(1)}%)`,
+    }
+  }
+
+  return { valid: true, currentPct }
+}
+
 export type VendorMilestoneValidation = {
   valid: boolean
   currentPct: number

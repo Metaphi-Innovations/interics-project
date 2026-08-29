@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import {
-  Box, Typography, TextField, MenuItem,
+  Box, Typography, TextField,
   Table, TableHead, TableRow, TableCell, TableBody, TableContainer,
   Chip,
   Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions,
@@ -8,6 +8,7 @@ import {
 import { Plus } from 'lucide-react'
 import { useTheme } from '@mui/material/styles'
 import { Button, Modal, StatusBadge, useToast } from '@/design-system/components'
+import { SettingsStatusSelect } from '../components/SettingsStatusSelect'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import {
   fetchStatuses, createStatus, updateStatus, toggleStatusMaster,
@@ -205,17 +206,14 @@ export default function StatusesSection() {
             value={form.name}
             onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
           />
-          <TextField
-            select
-            size="small"
+          <SettingsStatusSelect
             label="Status"
             fullWidth
             value={form.status}
-            onChange={e => setForm(f => ({ ...f, status: e.target.value as StatusForm['status'] }))}
-          >
-            <MenuItem value="active">Active</MenuItem>
-            <MenuItem value="inactive">Inactive</MenuItem>
-          </TextField>
+            onChange={(status) =>
+              setForm((f) => ({ ...f, status: status as StatusForm['status'] }))
+            }
+          />
         </Box>
       </Modal>
 

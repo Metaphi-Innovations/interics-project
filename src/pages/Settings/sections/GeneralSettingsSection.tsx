@@ -1,5 +1,6 @@
 import { useState, useEffect, type ReactNode } from 'react'
-import { Box, Typography, TextField, MenuItem, Divider, Skeleton } from '@mui/material'
+import { Box, Typography, TextField, Divider, Skeleton } from '@mui/material'
+import { SearchableSelect } from '@/components/listing'
 import { Edit } from '@mui/icons-material'
 import { Button, useToast } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
@@ -242,17 +243,18 @@ export default function GeneralSettingsSection() {
               <TextField size="small" label="Company Name" {...field('companyName')} />
               <TextField size="small" label="GSTIN" {...field('gstin')} />
               <TextField size="small" label="PAN" {...field('pan')} />
-              <TextField
-                select
-                size="small"
+              <SearchableSelect
                 label="Company Type"
+                fullWidth
                 value={editForm.companyType}
-                onChange={e => setEditForm(prev => ({ ...prev, companyType: e.target.value as CompanyProfile['companyType'] }))}
-              >
-                {COMPANY_TYPE_OPTIONS.map(o => (
-                  <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>
-                ))}
-              </TextField>
+                onChange={(companyType) =>
+                  setEditForm((prev) => ({
+                    ...prev,
+                    companyType: companyType as CompanyProfile['companyType'],
+                  }))
+                }
+                options={COMPANY_TYPE_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+              />
 
               <SectionDivider />
 

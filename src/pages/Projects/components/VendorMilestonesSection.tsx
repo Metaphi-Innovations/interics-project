@@ -4,6 +4,7 @@ import {
   Chip,
   Collapse,
   IconButton,
+  Stack,
   Table,
   TableBody,
   TableCell,
@@ -12,17 +13,29 @@ import {
   Typography,
 } from '@mui/material'
 import { alpha, useTheme } from '@mui/material/styles'
-import { ChevronDown, ChevronRight, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronRight } from 'lucide-react'
 import { WorkspaceSection } from '@/components/templates'
-import { Badge, Button, ConfirmDialog, useToast } from '@/design-system/components'
+import { Badge, ConfirmDialog, StatusBadge, useToast } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import type { Baseline, VendorPO } from '@/slices/baseline/reducer'
 import { deleteVendorPO, fetchVendorPOs } from '@/slices/baseline/thunk'
-import type { VendorInvoice } from '@/slices/live/types'
+import type { VendorInvoice, VendorPayment } from '@/slices/live/types'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
-import { fetchExpenses, fetchVendorInvoices } from '@/slices/live/thunk'
-import { fetchCategories, fetchServices } from '@/slices/settings/thunk'
-import { formatCurrency } from '@/utils/formatters'
+import { fetchExpenses, fetchPayments, fetchVendorInvoices } from '@/slices/live/thunk'
+import { dropdownsApi } from '@/api/dropdownsApi'
+import { isDueDateOverdue, MONEY_EPS } from '@/pages/Projects/tabs/live/clientInvoiceUtils'
+import {
+  PayableAmountBreakdownColumn,
+  PayableDueDateCell,
+  PayableInvoiceDetailsColumn,
+  PayablePaymentSummaryColumn,
+  PayableStatusCell,
+} from '@/pages/Projects/tabs/live/projectLivePayableMilestoneColumns'
+import {
+  resolvePayableMilestoneAmounts,
+  resolvePayableMilestoneDueDate,
+  resolvePayableMilestonePaymentSummary,
+} from '@/pages/Projects/tabs/live/projectLivePayableMilestoneDisplay'
 import { resolvePitchVersionForProject } from '@/store/selectors/pitchSelectors'
 import {
   buildVendorPOMilestoneOverviewRows,
@@ -31,14 +44,36 @@ import {
   type VendorServiceNameCatalogEntry,
 } from '@/pages/Projects/tabs/live/vendorPOHelpers'
 import {
+  flattenVendorPoMilestones,
+} from '@/pages/Finance/utils/vendorBillable'
+import {
+  findVendorInvoicesForMilestone,
+  vendorMilestoneIsBilled,
+} from '@/pages/Projects/tabs/live/milestonePaymentStatus'
+import {
+  projectLivePayableBillingPhase,
+  projectLivePayableBillingStatusBadge,
+  projectLivePayablePaymentPhase,
+  projectLivePayablePaymentStatusBadge,
+  findPayableInvoiceEligibleForPayment,
+  findPayableInvoiceForView,
+  vendorInvoiceOutstanding,
+} from '@/pages/Projects/tabs/live/vendorProjectLivePayableStatus'
+import {
+  shouldShowPayableRecordPayment,
+  shouldShowPayableViewInvoice,
+} from '@/pages/Projects/tabs/live/projectLivePayableActions'
+import { ProjectLiveRowActionMenu } from '@/pages/Projects/tabs/live/ProjectLiveRowActionMenu'
+import {
   UploadVendorInvoiceDrawer,
-  buildEligibleVendorInvoiceUploadEntries,
+  VendorPayableWorkflowDrawer,
   buildProjectVendorOptionsFromVendorPOs,
-  findInvoiceForMilestone,
+  computeMilestonePayableStatus,
   invoiceMatchesRow,
+  type VendorMilestoneEntry,
+  type VendorPayableDrawerFocus,
   type VendorServiceRow,
 } from '@/pages/Projects/tabs/live/vendorSettlement'
-import { vendorMilestonePaymentStatus } from '@/pages/Projects/tabs/live/milestonePaymentStatus'
 import type { ParsedPayableContext } from '@/utils/payableNavigation'
 
 const TABLE_HEADER_SX = {
@@ -84,10 +119,50 @@ const NESTED_CELL_SX = {
   py: 1.25,
 } as const
 
+const PAYABLES_COLUMN_COUNT = 7
+const PAYABLES_COL_WIDTH = `${100 / PAYABLES_COLUMN_COUNT}%`
+
+const PAYABLES_TABLE_HEADER_SX = {
+  ...NESTED_HEADER_SX,
+  width: PAYABLES_COL_WIDTH,
+} as const
+
+const PAYABLES_TABLE_CELL_SX = {
+  ...NESTED_CELL_SX,
+  width: PAYABLES_COL_WIDTH,
+  verticalAlign: 'top',
+} as const
+
+const PAYABLES_STATUS_HEADER_SX = {
+  ...PAYABLES_TABLE_HEADER_SX,
+  textAlign: 'center' as const,
+} as const
+
+const PAYABLES_STATUS_CELL_SX = {
+  ...PAYABLES_TABLE_CELL_SX,
+  textAlign: 'center' as const,
+  verticalAlign: 'middle' as const,
+} as const
+
+const PAYABLES_ACTION_CELL_SX = {
+  ...PAYABLES_TABLE_CELL_SX,
+  textAlign: 'center' as const,
+  verticalAlign: 'middle' as const,
+} as const
+
+const PAYABLES_NESTED_HEADERS = [
+  'Milestone / Service',
+  'Invoice Details',
+  'Due Date',
+  'Amount Breakdown',
+  'Payment Summary',
+  'Status',
+] as const
+
 const PARENT_COL_COUNT = 5
 
 type OverallStatus = 'Paid' | 'Partial' | 'Unpaid'
-type InvoiceStatus = 'Uploaded' | 'Partial' | 'Pending'
+type InvoiceBillingLabel = 'Not Invoiced' | 'Partially Invoiced' | 'Fully Invoiced'
 
 interface VendorPOGroup {
   poId: string
@@ -96,7 +171,7 @@ interface VendorPOGroup {
   vendor: string
   milestones: VendorPOMilestoneOverviewRow[]
   overallStatus: OverallStatus
-  invoiceStatus: InvoiceStatus
+  invoiceStatus: InvoiceBillingLabel
 }
 
 function rowToVendorContext(row: VendorPOMilestoneOverviewRow): VendorServiceRow | null {
@@ -112,6 +187,7 @@ function rowToVendorContext(row: VendorPOMilestoneOverviewRow): VendorServiceRow
 function buildPoGroups(
   milestoneRows: VendorPOMilestoneOverviewRow[],
   projectScopedInvoices: VendorInvoice[],
+  projectPayments: VendorPayment[],
 ): VendorPOGroup[] {
   const byPo = new Map<string, VendorPOMilestoneOverviewRow[]>()
   for (const row of milestoneRows) {
@@ -128,21 +204,25 @@ function buildPoGroups(
 
     for (const m of milestones) {
       const context = rowToVendorContext(m)
-      const milestoneVm = {
-        id: m.milestoneId,
-        name: m.name,
-        percentage: m.pct,
-        value: m.amount,
-      }
-      const existingInvoice =
-        context &&
-        findInvoiceForMilestone(
+      const isBilled =
+        context != null &&
+        vendorMilestoneIsBilled(
           projectScopedInvoices.filter((inv) => invoiceMatchesRow(inv, context)),
-          milestoneVm,
+          m.milestoneId,
+          m.serviceId,
+          m.name,
         )
-      if (existingInvoice) {
+      if (isBilled) {
         uploadedCount += 1
-        if (vendorMilestonePaymentStatus([existingInvoice], m.milestoneId) === 'Paid') {
+        const covering = findVendorInvoicesForMilestone(
+          projectScopedInvoices.filter((inv) => invoiceMatchesRow(inv, context!)),
+          m.milestoneId,
+          m.serviceId,
+          m.name,
+        )
+        if (
+          projectLivePayablePaymentPhase(covering, projectPayments) === 'paid'
+        ) {
           paidCount += 1
         }
       }
@@ -151,8 +231,12 @@ function buildPoGroups(
     const total = milestones.length
     const overallStatus: OverallStatus =
       paidCount === 0 ? 'Unpaid' : paidCount === total ? 'Paid' : 'Partial'
-    const invoiceStatus: InvoiceStatus =
-      uploadedCount === 0 ? 'Pending' : uploadedCount === total ? 'Uploaded' : 'Partial'
+    const invoiceStatus: InvoiceBillingLabel =
+      uploadedCount === 0
+        ? 'Not Invoiced'
+        : uploadedCount === total
+          ? 'Fully Invoiced'
+          : 'Partially Invoiced'
 
     groups.push({
       poId: first.poId,
@@ -178,12 +262,6 @@ function overallStatusColor(status: OverallStatus): 'success' | 'warning' | 'neu
   return 'neutral'
 }
 
-function invoiceStatusColor(status: InvoiceStatus): 'success' | 'warning' | 'neutral' {
-  if (status === 'Uploaded') return 'success'
-  if (status === 'Partial') return 'warning'
-  return 'neutral'
-}
-
 export interface VendorMilestonesSectionProps {
   projectId: string
   projectName?: string
@@ -202,14 +280,16 @@ export function VendorMilestonesSection({
   const dispatch = useAppDispatch()
   const theme = useTheme()
   const toast = useToast()
-  const { vendorInvoices } = useAppSelector((s) => s.live)
+  const { vendorInvoices, payments } = useAppSelector((s) => s.live)
   const project = useAppSelector((s) =>
     (s.projects.items ?? []).find((p) => p.id === projectId),
   )
-  const settingsServices = useAppSelector((s) => s.settings.services)
   const { activeVersion, versions } = useAppSelector((s) => s.pitch)
   const resolvedProjectName = projectName || project?.name || ''
 
+  const [masterServiceCatalog, setMasterServiceCatalog] = useState<VendorServiceNameCatalogEntry[]>(
+    [],
+  )
   const [uploadOpen, setUploadOpen] = useState(false)
   const [expandedPoId, setExpandedPoId] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<VendorPOGroup | null>(null)
@@ -217,22 +297,37 @@ export function VendorMilestonesSection({
   const [initialSelection, setInitialSelection] = useState<{
     projectId: string
     vendorId: string
+    vendorPoId?: string
     serviceId: string
     milestoneId?: string
+  } | null>(null)
+  const [workflowDrawer, setWorkflowDrawer] = useState<{
+    entry: VendorMilestoneEntry
+    invoiceId: string
+    focus: VendorPayableDrawerFocus
   } | null>(null)
 
   useEffect(() => {
     void dispatch(fetchVendorInvoices(projectId))
     void dispatch(fetchExpenses({ projectId }))
-    void dispatch(fetchCategories())
-    void dispatch(fetchServices())
+    void dispatch(fetchPayments(projectId))
+    let cancelled = false
+    void dropdownsApi
+      .getServices()
+      .then((rows) => {
+        if (cancelled) return
+        setMasterServiceCatalog(rows.map((r) => ({ id: r.value, name: r.label })))
+      })
+      .catch(() => {
+        if (!cancelled) setMasterServiceCatalog([])
+      })
+    return () => {
+      cancelled = true
+    }
   }, [dispatch, projectId])
 
   const serviceNameCatalog = useMemo((): VendorServiceNameCatalogEntry[] => {
-    const catalog: VendorServiceNameCatalogEntry[] = settingsServices.map((s) => ({
-      id: s.id,
-      name: s.name,
-    }))
+    const catalog: VendorServiceNameCatalogEntry[] = [...masterServiceCatalog]
 
     const appendFromCategories = (
       categories:
@@ -265,7 +360,7 @@ export function VendorMilestonesSection({
       appendFromCategories(pitchVersion.categories)
     }
     return catalog
-  }, [settingsServices, baseline, projectId, activeVersion, versions])
+  }, [masterServiceCatalog, baseline, projectId, activeVersion, versions])
 
   const milestoneRows = useMemo(
     () => buildVendorPOMilestoneOverviewRows(vendorPOs, projectId, baseline, serviceNameCatalog),
@@ -278,20 +373,14 @@ export function VendorMilestonesSection({
     [vendorInvoices, projectId],
   )
 
-  const poGroups = useMemo(
-    () => buildPoGroups(milestoneRows, projectScopedInvoices),
-    [milestoneRows, projectScopedInvoices],
+  const projectScopedPayments = useMemo(
+    () => payments.filter((p) => p.projectId === projectId),
+    [payments, projectId],
   )
 
-  const eligibleEntries = useMemo(
-    () =>
-      buildEligibleVendorInvoiceUploadEntries(
-        [{ id: projectId, name: resolvedProjectName }],
-        { [projectId]: vendorPOs },
-        { [projectId]: baseline },
-        vendorInvoices,
-      ),
-    [projectId, resolvedProjectName, vendorPOs, baseline, vendorInvoices],
+  const poGroups = useMemo(
+    () => buildPoGroups(milestoneRows, projectScopedInvoices, projectScopedPayments),
+    [milestoneRows, projectScopedInvoices, projectScopedPayments],
   )
 
   const projectVendorOptions = useMemo(
@@ -305,6 +394,7 @@ export function VendorMilestonesSection({
 
   function openUploadInvoice(prefill?: {
     vendorId: string
+    vendorPoId: string
     serviceId: string
     milestoneId?: string
   }) {
@@ -313,6 +403,7 @@ export function VendorMilestonesSection({
         ? {
             projectId,
             vendorId: prefill.vendorId,
+            vendorPoId: prefill.vendorPoId,
             serviceId: prefill.serviceId,
             milestoneId: prefill.milestoneId,
           }
@@ -324,6 +415,38 @@ export function VendorMilestonesSection({
   function closeUploadInvoice() {
     setUploadOpen(false)
     setInitialSelection(null)
+  }
+
+  function buildWorkflowEntry(row: VendorPOMilestoneOverviewRow): VendorMilestoneEntry | null {
+    const context = rowToVendorContext(row)
+    if (!context) return null
+    return {
+      projectId,
+      projectName: resolvedProjectName,
+      row: context,
+      milestone: {
+        id: row.milestoneId,
+        name: row.name,
+        percentage: row.pct,
+        value: row.amount,
+      },
+    }
+  }
+
+  function openPayableWorkflow(
+    row: VendorPOMilestoneOverviewRow,
+    invoiceId: string,
+    focus: VendorPayableDrawerFocus,
+  ) {
+    const entry = buildWorkflowEntry(row)
+    if (!entry) return
+    setWorkflowDrawer({ entry, invoiceId, focus })
+  }
+
+  function closePayableWorkflow() {
+    setWorkflowDrawer(null)
+    void dispatch(fetchVendorInvoices(projectId))
+    void dispatch(fetchPayments(projectId))
   }
 
   function togglePoExpanded(poId: string) {
@@ -355,6 +478,7 @@ export function VendorMilestonesSection({
     setExpandedPoId(row.poId)
     openUploadInvoice({
       vendorId: row.vendorId,
+      vendorPoId: row.poId,
       serviceId: row.serviceId,
       milestoneId: row.milestoneId,
     })
@@ -380,20 +504,7 @@ export function VendorMilestonesSection({
   const expandedBg = alpha(theme.palette.primary.main, 0.03)
 
   return (
-    <WorkspaceSection
-      title="Vendor Milestones"
-      noPadding
-      action={
-        <Button
-          size="sm"
-          variant="contained"
-          color="primary"
-          label="Upload Invoice"
-          onClick={() => openUploadInvoice()}
-          disabled={projectVendorOptions.length === 0}
-        />
-      }
-    >
+    <WorkspaceSection title="Vendor Milestones" noPadding>
       <Box id="vendor-milestones-section" sx={{ width: '100%', overflow: 'hidden' }}>
         <Table
           size="small"
@@ -416,7 +527,7 @@ export function VendorMilestonesSection({
               <TableCell sx={TABLE_HEADER_SX}>Vendor</TableCell>
               <TableCell sx={TABLE_HEADER_SX}>PO Number</TableCell>
               <TableCell sx={CENTER_HEADER_SX}>Total Milestones</TableCell>
-              <TableCell sx={CENTER_HEADER_SX}>Overall Status</TableCell>
+              <TableCell sx={CENTER_HEADER_SX}>Payment Status</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -524,75 +635,124 @@ export function VendorMilestonesSection({
                                 border: `1px solid ${tokens.color.neutral[100]}`,
                                 borderRadius: 1,
                                 overflow: 'hidden',
+                                '& .MuiTableCell-root': {
+                                  verticalAlign: 'top',
+                                  wordBreak: 'break-word',
+                                },
                               }}
                             >
+                              <colgroup>
+                                {Array.from({ length: PAYABLES_COLUMN_COUNT }, (_, index) => (
+                                  <col key={index} style={{ width: PAYABLES_COL_WIDTH }} />
+                                ))}
+                              </colgroup>
                               <TableHead>
                                 <TableRow>
-                                  {[
-                                    'Service',
-                                    'Milestone',
-                                    'Percentage',
-                                    'Status',
-                                    'Value',
-                                    'Invoice Status',
-                                    'Action',
-                                  ].map((col) => (
+                                  {PAYABLES_NESTED_HEADERS.map((col) => (
                                     <TableCell
                                       key={col}
                                       sx={
-                                        col === 'Status' ||
-                                        col === 'Percentage' ||
-                                        col === 'Invoice Status' ||
-                                        col === 'Action'
-                                          ? { ...NESTED_HEADER_SX, textAlign: 'center' }
-                                          : NESTED_HEADER_SX
+                                        col === 'Status'
+                                          ? PAYABLES_STATUS_HEADER_SX
+                                          : PAYABLES_TABLE_HEADER_SX
                                       }
                                     >
                                       {col}
                                     </TableCell>
                                   ))}
+                                  <TableCell sx={PAYABLES_ACTION_CELL_SX} align="center" />
                                 </TableRow>
                               </TableHead>
                               <TableBody>
-                                {group.milestones.map((row, milestoneIndex) => {
+                                {group.milestones.map((row) => {
                                   const context = rowToVendorContext(row)
-                                  const milestoneVm = {
-                                    id: row.milestoneId,
-                                    name: row.name,
-                                    percentage: row.pct,
-                                    value: row.amount,
-                                  }
-                                  const existingInvoice =
-                                    context &&
-                                    findInvoiceForMilestone(
-                                      projectScopedInvoices.filter((inv) =>
+                                  const scopedInvoices = context
+                                    ? projectScopedInvoices.filter((inv) =>
                                         invoiceMatchesRow(inv, context),
-                                      ),
-                                      milestoneVm,
-                                    )
-                                  const milestoneStatus = existingInvoice
-                                    ? vendorMilestonePaymentStatus(
-                                        [existingInvoice],
-                                        row.milestoneId,
                                       )
-                                    : 'Unpaid'
-                                  const milestoneInvoiceStatus: InvoiceStatus = existingInvoice
-                                    ? 'Uploaded'
-                                    : 'Pending'
+                                    : []
+                                  const milestoneInvoices = context
+                                    ? findVendorInvoicesForMilestone(
+                                        scopedInvoices,
+                                        row.milestoneId,
+                                        row.serviceId,
+                                        row.name,
+                                      )
+                                    : []
+                                  const vendorPo = vendorPOs.find((po) => po.id === group.poId)
+                                  const flatMilestone = vendorPo
+                                    ? flattenVendorPoMilestones(vendorPo).find(
+                                        (m) => m.milestoneId === row.milestoneId,
+                                      )
+                                    : undefined
+                                  const isBilled =
+                                    context != null &&
+                                    vendorMilestoneIsBilled(
+                                      scopedInvoices,
+                                      row.milestoneId,
+                                      row.serviceId,
+                                      row.name,
+                                    )
+                                  const billingPhase =
+                                    projectLivePayableBillingPhase(milestoneInvoices)
+                                  const paymentPhase = projectLivePayablePaymentPhase(
+                                    milestoneInvoices,
+                                    projectScopedPayments,
+                                  )
+                                  const billingBadge =
+                                    projectLivePayableBillingStatusBadge(billingPhase)
+                                  const paymentBadge =
+                                    projectLivePayablePaymentStatusBadge(paymentPhase)
+                                  const showRecordPayment = shouldShowPayableRecordPayment(
+                                    billingPhase,
+                                    paymentPhase,
+                                  )
+                                  const showViewInvoice = shouldShowPayableViewInvoice(billingPhase)
+                                  const viewInvoice = findPayableInvoiceForView(milestoneInvoices)
+                                  const paymentEligibleInv = findPayableInvoiceEligibleForPayment(
+                                    milestoneInvoices,
+                                    projectScopedPayments,
+                                  )
+                                  const serviceLabel =
+                                    row.serviceName && row.serviceName !== '—'
+                                      ? row.serviceName
+                                      : row.service
+                                  const amounts = resolvePayableMilestoneAmounts(
+                                    row,
+                                    viewInvoice,
+                                    vendorPo,
+                                  )
+                                  const paymentSummary = resolvePayableMilestonePaymentSummary(
+                                    viewInvoice,
+                                    projectScopedPayments,
+                                  )
+                                  const dueDate = resolvePayableMilestoneDueDate(
+                                    viewInvoice,
+                                    vendorPo,
+                                    row.milestoneId,
+                                  )
+                                  const dueOverdue =
+                                    viewInvoice != null &&
+                                    vendorInvoiceOutstanding(viewInvoice, projectScopedPayments) >
+                                      MONEY_EPS &&
+                                    dueDate != null &&
+                                    isDueDateOverdue(dueDate)
 
                                   return (
                                     <TableRow key={row.key}>
-                                      <TableCell sx={NESTED_CELL_SX}>
-                                        {row.serviceName && row.serviceName !== '—'
-                                          ? row.serviceName
-                                          : row.service}
-                                      </TableCell>
-                                      <TableCell sx={NESTED_CELL_SX}>
+                                      <TableCell sx={PAYABLES_TABLE_CELL_SX}>
                                         <Typography
                                           variant="body2"
-                                          sx={{ fontSize: 12, fontWeight: 600 }}
+                                          sx={{ fontWeight: 600, lineHeight: 1.35 }}
                                         >
                                           {row.name}
+                                        </Typography>
+                                        <Typography
+                                          variant="caption"
+                                          color="text.secondary"
+                                          display="block"
+                                        >
+                                          {serviceLabel}
                                         </Typography>
                                         <Chip
                                           label={vendorMilestoneTypeLabel(row.milestoneType)}
@@ -600,65 +760,92 @@ export function VendorMilestonesSection({
                                           sx={{ mt: 0.5, fontSize: 10, height: 18 }}
                                         />
                                       </TableCell>
-                                      <TableCell
-                                        sx={{ ...NESTED_CELL_SX, textAlign: 'center' }}
-                                      >
-                                        {row.pct}%
-                                      </TableCell>
-                                      <TableCell
-                                        sx={{ ...NESTED_CELL_SX, textAlign: 'center' }}
-                                      >
-                                        <Typography
-                                          variant="body2"
-                                          sx={{
-                                            fontSize: 12,
-                                            fontWeight: 600,
-                                            color:
-                                              milestoneStatus === 'Paid'
-                                                ? 'success.main'
-                                                : 'text.secondary',
-                                          }}
-                                        >
-                                          {milestoneStatus}
-                                        </Typography>
-                                      </TableCell>
-                                      <TableCell sx={{ ...NESTED_CELL_SX, fontWeight: 600 }}>
-                                        ₹{formatCurrency(row.amount)}
-                                      </TableCell>
-                                      <TableCell
-                                        sx={{ ...NESTED_CELL_SX, textAlign: 'center' }}
-                                      >
-                                        <Box sx={{ display: 'flex', justifyContent: 'center' }}>
-                                          <Badge
-                                            label={milestoneInvoiceStatus}
-                                            variant="soft"
-                                            color={invoiceStatusColor(milestoneInvoiceStatus)}
-                                            size="sm"
+                                      <TableCell sx={PAYABLES_TABLE_CELL_SX}>
+                                        {viewInvoice ? (
+                                          <PayableInvoiceDetailsColumn
+                                            invoiceNumber={viewInvoice.invoiceNumber}
+                                            invoiceDate={viewInvoice.invoiceDate}
+                                            onView={() =>
+                                              openPayableWorkflow(row, viewInvoice.id, 'details')
+                                            }
                                           />
-                                        </Box>
+                                        ) : (
+                                          <Typography variant="body2" color="text.disabled">
+                                            —
+                                          </Typography>
+                                        )}
                                       </TableCell>
-                                      <TableCell
-                                        sx={{ ...NESTED_CELL_SX, textAlign: 'center' }}
-                                      >
-                                        {milestoneIndex === 0 ? (
-                                          <IconButton
-                                            size="small"
-                                            aria-label={`Delete vendor PO ${group.poNumber}`}
-                                            onClick={(e) => {
-                                              e.stopPropagation()
-                                              setDeleteTarget(group)
-                                            }}
-                                            sx={{
-                                              p: 0.75,
-                                              color: tokens.color.error[500],
-                                              '&:hover': {
-                                                bgcolor: alpha(tokens.color.error[500], 0.08),
-                                              },
-                                            }}
-                                          >
-                                            <Trash2 size={16} strokeWidth={1.75} />
-                                          </IconButton>
-                                        ) : null}
+                                      <TableCell sx={PAYABLES_TABLE_CELL_SX}>
+                                        <PayableDueDateCell
+                                          dueDate={dueDate}
+                                          overdue={dueOverdue}
+                                        />
+                                      </TableCell>
+                                      <TableCell sx={PAYABLES_TABLE_CELL_SX}>
+                                        <PayableAmountBreakdownColumn {...amounts} />
+                                      </TableCell>
+                                      <TableCell sx={PAYABLES_TABLE_CELL_SX}>
+                                        {paymentSummary ? (
+                                          <PayablePaymentSummaryColumn {...paymentSummary} />
+                                        ) : (
+                                          <Typography variant="caption" color="text.disabled">
+                                            —
+                                          </Typography>
+                                        )}
+                                      </TableCell>
+                                      <TableCell sx={PAYABLES_STATUS_CELL_SX}>
+                                        <PayableStatusCell>
+                                          <Stack direction="column" gap={0.5} alignItems="center">
+                                            <StatusBadge
+                                              status={billingBadge.type}
+                                              label={billingBadge.label}
+                                              size="small"
+                                            />
+                                            <StatusBadge
+                                              status={paymentBadge.type}
+                                              label={paymentBadge.label}
+                                              size="small"
+                                            />
+                                          </Stack>
+                                        </PayableStatusCell>
+                                      </TableCell>
+                                      <TableCell sx={PAYABLES_ACTION_CELL_SX} align="center">
+                                        <ProjectLiveRowActionMenu
+                                          alwaysShowTrigger
+                                          items={[
+                                            {
+                                              label: 'Upload Invoice',
+                                              onClick: () =>
+                                                openUploadInvoice({
+                                                  vendorId: row.vendorId!,
+                                                  vendorPoId: group.poId,
+                                                  serviceId: row.serviceId!,
+                                                  milestoneId: row.milestoneId,
+                                                }),
+                                              hidden: !(context && flatMilestone && !isBilled),
+                                            },
+                                            {
+                                              label: 'View Invoice',
+                                              onClick: () =>
+                                                openPayableWorkflow(
+                                                  row,
+                                                  viewInvoice!.id,
+                                                  'details',
+                                                ),
+                                              hidden: !(showViewInvoice && viewInvoice),
+                                            },
+                                            {
+                                              label: 'Record Payment',
+                                              onClick: () =>
+                                                openPayableWorkflow(
+                                                  row,
+                                                  paymentEligibleInv!.id,
+                                                  'payment',
+                                                ),
+                                              hidden: !(showRecordPayment && paymentEligibleInv),
+                                            },
+                                          ]}
+                                        />
                                       </TableCell>
                                     </TableRow>
                                   )
@@ -680,11 +867,34 @@ export function VendorMilestonesSection({
       <UploadVendorInvoiceDrawer
         open={uploadOpen}
         onClose={closeUploadInvoice}
+        vendorInvoices={projectScopedInvoices}
+        allVendorPOs={vendorPOs}
         projectId={projectId}
         projectName={resolvedProjectName}
-        eligibleEntries={eligibleEntries}
         projectVendors={projectVendorOptions}
         initialSelection={initialSelection}
+      />
+
+      <VendorPayableWorkflowDrawer
+        key={
+          workflowDrawer
+            ? `${workflowDrawer.invoiceId}-${workflowDrawer.entry.milestone.id}-${workflowDrawer.focus}`
+            : 'closed'
+        }
+        open={workflowDrawer != null}
+        onClose={closePayableWorkflow}
+        entry={workflowDrawer?.entry ?? null}
+        baseline={baseline}
+        focus={workflowDrawer?.focus ?? 'details'}
+        readOnly={workflowDrawer?.focus === 'details'}
+        invoiceId={workflowDrawer?.invoiceId}
+        paymentStatus={
+          workflowDrawer
+            ? computeMilestonePayableStatus(
+                projectScopedInvoices.find((inv) => inv.id === workflowDrawer.invoiceId),
+              )
+            : undefined
+        }
       />
 
       <ConfirmDialog

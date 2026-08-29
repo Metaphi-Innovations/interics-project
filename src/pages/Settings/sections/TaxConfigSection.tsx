@@ -35,6 +35,7 @@ import { SettingsEditAction, SettingsTableActionsCell } from '../components/Sett
 import {
   requiredText,
   optionalMaxLength,
+  requiredGstRateInput,
   requiredRateInput,
   collectErrors,
   hasErrors,
@@ -43,6 +44,7 @@ import {
 import { parseSettingsApiError, clearFieldError } from '@/modules/system-settings/shared/api-errors'
 import { LISTING_DEFAULT_PAGE_SIZE } from '@/components/listing/listingStandards'
 import { SettingsListingPagination } from '../components/SettingsListingPagination'
+import { SettingsStatusSelect } from '../components/SettingsStatusSelect'
 
 type GSTForm = Omit<GSTRate, 'id'>
 type TDSForm = Omit<TDSSection, 'id'>
@@ -228,7 +230,7 @@ export default function TaxConfigSection() {
   const handleSaveGST = () => {
     const next = collectErrors([
       ['slabName', requiredText(gstForm.slabName, 'Slab Name', 100)],
-      ['rate', requiredRateInput(gstRateInput, 'Rate')],
+      ['rate', requiredGstRateInput(gstRateInput)],
       ['description', optionalMaxLength(gstForm.description, 'Description', 500)],
     ])
     setGstFieldErrors(next)
@@ -719,23 +721,19 @@ export default function TaxConfigSection() {
               setTdsRateInput(e.target.value)
               setTdsFieldErrors(errors => clearFieldError(errors, 'defaultRate'))
             }}
-            inputProps={{ min: 0, max: 100, step: 'any' }}
+            inputProps={{ min: 0, max: 100, step: 1 }}
             error={!!tdsFieldErrors.defaultRate}
             helperText={tdsFieldErrors.defaultRate}
           />
           <Box sx={{ display: 'flex', gap: 2 }}>
-            <TextField
-              select
-              size="small"
+            <SettingsStatusSelect
               label="Status"
               fullWidth
               value={tdsForm.status}
-              onChange={e => setTdsForm(f => ({ ...f, status: e.target.value as TDSSection['status'] }))}
-              sx={{ flex: 1, minWidth: 0 }}
-            >
-              <MenuItem value="active">Active</MenuItem>
-              <MenuItem value="inactive">Inactive</MenuItem>
-            </TextField>
+              onChange={(status) =>
+                setTdsForm((f) => ({ ...f, status: status as TDSSection['status'] }))
+              }
+            />
           </Box>
           <TextField
             size="small"
