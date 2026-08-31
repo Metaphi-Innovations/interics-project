@@ -29,7 +29,6 @@ import {
   useToast,
 } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
-import { DEFAULT_GST_RATE } from '@/config/billingRates'
 import { useAppDispatch, useAppSelector } from '../../../../store/hooks'
 import { createInvoice, fetchInvoices } from '../../../../slices/live/thunk'
 import type { ClientInvoice, ClientInvoiceLineItem } from '../../../../slices/live/types'
@@ -47,7 +46,6 @@ import { BillingPitchSummary } from './BillingPitchSummary'
 import {
   balancePending,
   calcClientInvoiceTdsAmount,
-  clientMilestoneNetPayable,
   computeLineItemTaxBreakdown,
   isDueDateOverdue,
   MONEY_EPS,
@@ -67,6 +65,10 @@ import {
   milestonePaymentPhase,
   milestonePaymentStatusBadge,
 } from './clientMilestoneBillingStatus'
+import {
+  resolveReceivableMilestoneAmounts,
+  resolveReceivableMilestonePaymentSummary,
+} from './projectLiveReceivableMilestoneDisplay'
 import {
   clientMilestoneIsBilled,
   findClientInvoiceForMilestone,
@@ -467,15 +469,8 @@ function GenerateInvoiceDrawer({
   }, [open, preset, editingInvoice, services, sacCodes, baseline])
 
   const roll = useMemo(() => rollupsFromLineItems(lineItemsToPayload(lines)), [lines])
-  const milestoneInvoiceNet =
-    preset != null
-      ? clientMilestoneNetPayable({
-          baseAmount: preset.baseAmount,
-          gstRate: resolveClientServiceGstRate(preset.serviceId, baseline, services),
-          tdsRate: preset.tdsRate,
-        })
-      : 0
   const tdsAmount = calcClientInvoiceTdsAmount(roll.baseAmount, preset?.tdsRate)
+  const invoiceNet = roll.grossAmount - tdsAmount
 
   function validateForm(): boolean {
     const next: typeof fieldErrors = {}
@@ -694,7 +689,7 @@ function GenerateInvoiceDrawer({
                 Invoice Net
               </Typography>
               <Typography variant="h6" sx={{ fontWeight: 700, fontSize: '1.125rem' }}>
-                ₹{formatInr(milestoneInvoiceNet)}
+                ₹{formatInr(invoiceNet)}
               </Typography>
             </Box>
           </Stack>
@@ -708,6 +703,8 @@ function GenerateInvoiceDrawer({
               lines={lines}
               services={services}
               sacCodes={sacCodes}
+              onChange={setLines}
+              editableLabourCessInReadMode
               projectSourced
               allowEmpty={false}
               manualAddCollapsed
@@ -976,7 +973,7 @@ interface ReceivableMilestoneTableRowProps {
   onEditDraft: (invoice: ClientInvoice, row: BillableMilestone) => void
   onView: (invoice: ClientInvoice) => void
   onConvertTax: (invoice: ClientInvoice) => void
-  onPayment: (invoice: ClientInvoice) => void
+  onPayment: (invoice: ClientInvoice, milestoneId: string) => void
 }
 
 function ReceivableMilestoneTableRow({
@@ -1014,44 +1011,18 @@ function ReceivableMilestoneTableRow({
   )
   const poTdsRate = clientPoById.get(m.clientPoId)?.tdsRate ?? null
   const billingPhase = milestoneBillingPhase(milestoneInvoices)
-  const paymentPhase = milestonePaymentPhase(milestoneInvoices)
+  const paymentPhase = milestonePaymentPhase(milestoneInvoices, m.milestoneId)
   const billingBadge = milestoneBillingStatusBadge(billingPhase)
   const paymentBadge = milestonePaymentStatusBadge(paymentPhase)
   const dueOverdue =
     inv != null && balancePending(inv) > MONEY_EPS && isDueDateOverdue(inv.dueDate)
 
-  let base: number
-  let gstRate: number
-  let gstAmount: number
-  let labourCess = 0
-  let tdsAmount: number
-  let net: number
-  if (inv) {
-    const roll = rollupsFromLineItems(inv.lineItems)
-    base = roll.baseAmount
-    labourCess = roll.labourCessAmount
-    gstRate =
-      inv.baseAmount > 0 ? Math.round((100 * inv.gstAmount) / inv.baseAmount) : DEFAULT_GST_RATE
-    gstAmount = inv.gstAmount
-    const effectiveTdsRate = inv.tdsRate ?? poTdsRate
-    tdsAmount = calcClientInvoiceTdsAmount(base, effectiveTdsRate)
-    net = base + labourCess + gstAmount - tdsAmount
-  } else {
-    base = m.baseAmount
-    gstRate = resolveClientServiceGstRate(m.serviceId, baseline, services)
-    const taxed = computeLineItemTaxBreakdown(m.baseAmount, 0, gstRate)
-    gstAmount = taxed.gstAmount
-    tdsAmount = calcClientInvoiceTdsAmount(base, poTdsRate)
-    net = clientMilestoneNetPayable({
-      baseAmount: base,
-      gstRate,
-      tdsRate: poTdsRate,
-    })
-  }
-
-  const tds = inv ? inv.tdsAmount : 0
-  const received = inv ? totalReceivedBank(inv.payments) : 0
-  const outstanding = inv ? balancePending(inv) : 0
+  const rowAmounts = resolveReceivableMilestoneAmounts(m, inv, poTdsRate, baseline, services)
+  const paymentSummary = resolveReceivableMilestonePaymentSummary(inv, m.milestoneId, rowAmounts)
+  const { base, gstRate, gstAmount, labourCess, tdsAmount, net } = rowAmounts
+  const tds = paymentSummary?.tds ?? 0
+  const received = paymentSummary?.received ?? 0
+  const outstanding = paymentSummary?.outstanding ?? 0
 
   return (
     <TableRow key={milestoneRowKey(m)} hover>
@@ -1151,7 +1122,7 @@ function ReceivableMilestoneTableRow({
                   },
                   {
                     label: 'Record Payment',
-                    onClick: () => onPayment(paymentEligibleInv!),
+                    onClick: () => onPayment(paymentEligibleInv!, m.milestoneId),
                     hidden: paymentEligibleInv == null,
                   },
                 ]
@@ -1183,6 +1154,7 @@ export default function BillingTab({ projectId, projectName, clientId, clientNam
   const [generatePreset, setGeneratePreset] = useState<BillableMilestone | null>(null)
   const [editingInvoice, setEditingInvoice] = useState<ClientInvoice | null>(null)
   const [paymentInvoice, setPaymentInvoice] = useState<ClientInvoice | null>(null)
+  const [paymentMilestoneId, setPaymentMilestoneId] = useState<string | undefined>()
   const [viewInvoice, setViewInvoice] = useState<ClientInvoice | null>(null)
   const [convertTaxTarget, setConvertTaxTarget] = useState<ClientInvoice | null>(null)
   const [convertingTax, setConvertingTax] = useState(false)
@@ -1236,8 +1208,9 @@ export default function BillingTab({ projectId, projectName, clientId, clientNam
     setEditingInvoice(null)
   }
 
-  function openPayment(inv: ClientInvoice) {
+  function openPayment(inv: ClientInvoice, milestoneId: string) {
     setPaymentInvoice(inv)
+    setPaymentMilestoneId(milestoneId)
   }
 
   async function confirmConvertTax() {
@@ -1480,7 +1453,12 @@ export default function BillingTab({ projectId, projectName, clientId, clientNam
         open={!!paymentInvoice}
         projectId={projectId}
         invoice={paymentInvoiceResolved}
-        onClose={() => setPaymentInvoice(null)}
+        targetMilestoneId={paymentMilestoneId}
+        paymentEntryMode="project_live"
+        onClose={() => {
+          setPaymentInvoice(null)
+          setPaymentMilestoneId(undefined)
+        }}
       />
       <ViewInvoiceDrawer
         open={!!viewInvoice}
@@ -1498,7 +1476,7 @@ export default function BillingTab({ projectId, projectName, clientId, clientNam
             ),
             balancePending,
           )
-          if (eligible) openPayment(eligible)
+          if (eligible) openPayment(eligible, viewInvoiceResolved.milestoneId)
         }}
         onDownloadPdf={() => {
           if (!viewInvoiceResolved) return

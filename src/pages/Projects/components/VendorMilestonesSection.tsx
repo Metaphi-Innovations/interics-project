@@ -22,6 +22,7 @@ import { deleteVendorPO, fetchVendorPOs } from '@/slices/baseline/thunk'
 import type { VendorInvoice, VendorPayment } from '@/slices/live/types'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { fetchExpenses, fetchPayments, fetchVendorInvoices } from '@/slices/live/thunk'
+import { fetchServices } from '@/slices/settings/thunk'
 import { dropdownsApi } from '@/api/dropdownsApi'
 import { isDueDateOverdue, MONEY_EPS } from '@/pages/Projects/tabs/live/clientInvoiceUtils'
 import {
@@ -57,7 +58,6 @@ import {
   projectLivePayablePaymentStatusBadge,
   findPayableInvoiceEligibleForPayment,
   findPayableInvoiceForView,
-  vendorInvoiceOutstanding,
 } from '@/pages/Projects/tabs/live/vendorProjectLivePayableStatus'
 import {
   shouldShowPayableRecordPayment,
@@ -221,7 +221,7 @@ function buildPoGroups(
           m.name,
         )
         if (
-          projectLivePayablePaymentPhase(covering, projectPayments) === 'paid'
+          projectLivePayablePaymentPhase(covering, projectPayments, m.milestoneId) === 'paid'
         ) {
           paidCount += 1
         }
@@ -285,6 +285,7 @@ export function VendorMilestonesSection({
     (s.projects.items ?? []).find((p) => p.id === projectId),
   )
   const { activeVersion, versions } = useAppSelector((s) => s.pitch)
+  const { services } = useAppSelector((s) => s.settings)
   const resolvedProjectName = projectName || project?.name || ''
 
   const [masterServiceCatalog, setMasterServiceCatalog] = useState<VendorServiceNameCatalogEntry[]>(
@@ -311,6 +312,7 @@ export function VendorMilestonesSection({
     void dispatch(fetchVendorInvoices(projectId))
     void dispatch(fetchExpenses({ projectId }))
     void dispatch(fetchPayments(projectId))
+    void dispatch(fetchServices())
     let cancelled = false
     void dropdownsApi
       .getServices()
@@ -698,6 +700,7 @@ export function VendorMilestonesSection({
                                   const paymentPhase = projectLivePayablePaymentPhase(
                                     milestoneInvoices,
                                     projectScopedPayments,
+                                    row.milestoneId,
                                   )
                                   const billingBadge =
                                     projectLivePayableBillingStatusBadge(billingPhase)
@@ -721,10 +724,16 @@ export function VendorMilestonesSection({
                                     row,
                                     viewInvoice,
                                     vendorPo,
+                                    baseline,
+                                    services,
                                   )
                                   const paymentSummary = resolvePayableMilestonePaymentSummary(
                                     viewInvoice,
                                     projectScopedPayments,
+                                    flatMilestone,
+                                    group.poId,
+                                    amounts,
+                                    row.milestoneId,
                                   )
                                   const dueDate = resolvePayableMilestoneDueDate(
                                     viewInvoice,
@@ -733,8 +742,7 @@ export function VendorMilestonesSection({
                                   )
                                   const dueOverdue =
                                     viewInvoice != null &&
-                                    vendorInvoiceOutstanding(viewInvoice, projectScopedPayments) >
-                                      MONEY_EPS &&
+                                    (paymentSummary?.outstanding ?? 0) > MONEY_EPS &&
                                     dueDate != null &&
                                     isDueDateOverdue(dueDate)
 

@@ -15,7 +15,6 @@ import {
   Select as DsSelect,
   useToast,
 } from '@/design-system/components'
-import { DEFAULT_GST_RATE } from '@/config/billingRates'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { fetchVendorInvoices, uploadVendorInvoice } from '@/slices/live/thunk'
 import type { VendorPO } from '@/slices/baseline/reducer'
@@ -23,6 +22,7 @@ import type { VendorInvoice } from '@/slices/live/types'
 import { baselineService } from '@/modules/projects/baseline.service'
 import { payablesService } from '@/modules/finance/payables.service'
 import { formatInr } from '@/utils/formatters'
+import { vendorMilestonePayableTaxBreakdown } from '@/pages/Projects/tabs/live/clientInvoiceUtils'
 import {
   flattenVendorPoMilestones,
   remainingVendorMilestoneValue,
@@ -33,8 +33,6 @@ import {
 } from '@/pages/Finance/utils/vendorBillable'
 import {
   DEFAULT_TDS_PERCENT,
-  calcVendorInvoiceNetPayable,
-  calcVendorInvoiceTdsAmount,
   TDS_RATE_OPTIONS,
 } from './utils'
 import type { ProjectVendorOption } from './eligibleInvoiceUpload'
@@ -86,10 +84,6 @@ function SectionHeader({ children }: { children: string }) {
   )
 }
 
-function gstOnBase(base: number, rate: number): number {
-  return Math.round((base * rate) / 100)
-}
-
 function buildVendorOptionsFromPos(
   vendorPOs: VendorPO[],
   vendorInvoices: VendorInvoice[],
@@ -135,6 +129,8 @@ export function UploadVendorInvoiceDrawer({
 }) {
   const dispatch = useAppDispatch()
   const { saving } = useAppSelector((s) => s.live)
+  const baseline = useAppSelector((s) => s.baseline.baseline)
+  const { services } = useAppSelector((s) => s.settings)
   const toast = useToast()
 
   const isProjectScoped = Boolean(lockedProjectId)
@@ -248,15 +244,22 @@ export function UploadVendorInvoiceDrawer({
 
   const combinedBaseAmount = useMemo(() => sumVendorInvoiceLineItemAmounts(lineItems), [lineItems])
 
-  const tdsAmount = useMemo(
-    () => calcVendorInvoiceTdsAmount(combinedBaseAmount, tdsRate),
-    [combinedBaseAmount, tdsRate],
+  const payableTax = useMemo(
+    () =>
+      vendorMilestonePayableTaxBreakdown(
+        combinedBaseAmount,
+        serviceId,
+        tdsRate,
+        baseline,
+        services,
+      ),
+    [combinedBaseAmount, serviceId, tdsRate, baseline, services],
   )
 
-  const netPayable = useMemo(
-    () => calcVendorInvoiceNetPayable(combinedBaseAmount, 0, tdsRate, 0),
-    [combinedBaseAmount, tdsRate],
-  )
+  const tdsAmount = payableTax.tdsAmount
+  const netPayable = payableTax.net
+  const gstAmount = payableTax.gstAmount
+  const gstRate = payableTax.gstRate
 
   const firstSelectedMilestone = useMemo(() => {
     const firstId = selectedMilestoneIds[0]
@@ -276,6 +279,13 @@ export function UploadVendorInvoiceDrawer({
     setDocumentFileName(undefined)
     setErrors({})
   }, [])
+
+  useEffect(() => {
+    if (!selectedPo) return
+    if (selectedPo.tdsRate != null && !Number.isNaN(selectedPo.tdsRate)) {
+      setTdsRate(selectedPo.tdsRate)
+    }
+  }, [selectedPo?.id, selectedPo?.tdsRate])
 
   useEffect(() => {
     if (!open) {
@@ -399,8 +409,6 @@ export function UploadVendorInvoiceDrawer({
     if (!validate() || !vendor || !selectedPo || lineItems.length === 0) return
 
     const base = combinedBaseAmount
-    const gstRate = DEFAULT_GST_RATE
-    const gstAmount = gstOnBase(base, gstRate)
     const headerMilestone = firstSelectedMilestone ?? poMilestones.find((m) => m.milestoneId === lineItems[0]?.milestoneId)
 
     try {
@@ -422,12 +430,12 @@ export function UploadVendorInvoiceDrawer({
             gstRate,
             gstAmount,
             tdsRate,
-            tdsAmount: calcVendorInvoiceTdsAmount(base, tdsRate),
+            tdsAmount,
             linkedExpenseIds: [],
             expenseDeductions: 0,
             linkedAdditionExpenseIds: [],
             expenseAdditions: 0,
-            netPayable: calcVendorInvoiceNetPayable(base, 0, tdsRate, 0),
+            netPayable,
             status: 'not_paid',
             documentUrl,
             fileName: documentFileName,
@@ -707,6 +715,14 @@ export function UploadVendorInvoiceDrawer({
                   </Typography>
                   <Typography variant="body2" fontWeight={500}>
                     ₹{formatInr(combinedBaseAmount)}
+                  </Typography>
+                </Stack>
+                <Stack direction="row" justifyContent="space-between">
+                  <Typography variant="body2" color="text.secondary">
+                    GST ({gstRate}%)
+                  </Typography>
+                  <Typography variant="body2" fontWeight={500}>
+                    ₹{formatInr(gstAmount)}
                   </Typography>
                 </Stack>
                 <Stack direction="row" justifyContent="space-between">

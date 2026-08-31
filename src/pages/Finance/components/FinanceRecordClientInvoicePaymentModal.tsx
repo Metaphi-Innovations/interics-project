@@ -32,6 +32,7 @@ export function FinanceRecordClientInvoicePaymentModal({
       onClose={onClose}
       projectId={invoice?.projectId ?? ''}
       invoice={clientInvoice}
+      paymentEntryMode="finance"
       saving={saving}
       onRecordPayment={async (payload) => {
         await dispatch(
@@ -43,6 +44,7 @@ export function FinanceRecordClientInvoicePaymentModal({
               tdsDeducted: 0,
               paymentMode: payload.paymentMode,
               reference: payload.reference,
+              allocationMode: 'finance',
             },
           }),
         ).unwrap()

@@ -1,7 +1,7 @@
 import { DEFAULT_GST_RATE } from '@/config/billingRates'
-import type { Baseline, ClientPOMilestone } from '@/slices/baseline/reducer'
+import type { Baseline, ClientPOMilestone, VendorPO } from '@/slices/baseline/reducer'
 import type { ClientInvoice, ClientInvoiceLineItem, ClientInvoicePayment } from '@/slices/live/types'
-import type { PitchService } from '@/slices/pitch/reducer'
+import type { PitchService, VendorMapping } from '@/slices/pitch/reducer'
 import type { Service } from '@/slices/settings/reducer'
 import { resolvePitchServiceGstRate } from './pitchGstDisplay'
 
@@ -53,6 +53,64 @@ export function computeLineItemTaxBreakdown(
   const gstAmount = roundMoney(taxableAmount * (gstRate / 100))
   const grossAmount = roundMoney(taxableAmount + gstAmount)
   return { labourCessAmount, taxableAmount, gstAmount, grossAmount }
+}
+
+export interface VendorMilestonePayableAmounts {
+  base: number
+  gstRate: number
+  gstAmount: number
+  tdsRate: number | null
+  tdsAmount: number
+  gross: number
+  net: number
+}
+
+/**
+ * Canonical Project Live Payable tax breakdown:
+ * gross = base + GST; net = gross − vendor TDS (TDS on base).
+ */
+export function vendorMilestonePayableTaxBreakdown(
+  baseAmount: number,
+  serviceId: string,
+  tdsRate: number | null | undefined,
+  baseline: Baseline | null,
+  settingsServices: Service[] = [],
+  vendorPo?: Pick<VendorPO, 'linkedVendorMappingId' | 'linkedBaselineServiceIds'>,
+): VendorMilestonePayableAmounts {
+  const gstRate = resolveVendorPayableServiceGstRate(
+    serviceId,
+    vendorPo,
+    baseline,
+    settingsServices,
+  )
+  const { gstAmount, grossAmount } = computeLineItemTaxBreakdown(baseAmount, 0, gstRate)
+  const tdsAmount =
+    tdsRate != null && tdsRate > 0 ? calcClientInvoiceTdsAmount(baseAmount, tdsRate) : 0
+  return {
+    base: baseAmount,
+    gstRate,
+    gstAmount,
+    tdsRate: tdsRate ?? null,
+    tdsAmount,
+    gross: grossAmount,
+    net: roundMoney(grossAmount - tdsAmount),
+  }
+}
+
+export function vendorMilestonePayableNet(
+  baseAmount: number,
+  serviceId: string,
+  tdsRate: number | null | undefined,
+  baseline: Baseline | null,
+  settingsServices: Service[] = [],
+): number {
+  return vendorMilestonePayableTaxBreakdown(
+    baseAmount,
+    serviceId,
+    tdsRate,
+    baseline,
+    settingsServices,
+  ).net
 }
 
 export interface InvoiceLineRollups {
@@ -175,9 +233,73 @@ export function resolveClientServiceGstRate(
   baseline: Baseline | null,
   settingsServices: Service[] = [],
 ): number {
-  const svc = findBaselineService(baseline, serviceId)
-  if (svc) return resolvePitchServiceGstRate(svc, settingsServices)
+  const trimmed = serviceId.trim()
+  if (!trimmed) return 0
+
+  const pitchSvc = findBaselineService(baseline, trimmed)
+  if (pitchSvc) return resolvePitchServiceGstRate(pitchSvc, settingsServices)
+
+  const master = settingsServices.find((s) => s.id === trimmed)
+  if (master?.gstRate != null && !Number.isNaN(master.gstRate)) {
+    return master.gstRate
+  }
+
   return DEFAULT_GST_RATE
+}
+
+function findVendorMappingInBaseline(
+  baseline: Baseline | null,
+  mappingId: string,
+): { service: PitchService; mapping: VendorMapping } | null {
+  if (!baseline || !mappingId.trim()) return null
+  for (const cat of baseline.categories ?? []) {
+    for (const svc of cat.services ?? []) {
+      const mapping = svc.vendorMappings?.find((m) => m.id === mappingId)
+      if (mapping) return { service: svc, mapping }
+    }
+  }
+  return null
+}
+
+/** Resolve vendor PO milestone service id for GST lookup. */
+export function resolveVendorMilestoneServiceId(
+  milestoneServiceId: string | undefined,
+  vendorPo: Pick<VendorPO, 'linkedVendorMappingId' | 'linkedBaselineServiceIds'> | undefined,
+  baseline: Baseline | null,
+): string {
+  const fromMilestone = milestoneServiceId?.trim()
+  if (fromMilestone) return fromMilestone
+
+  const mappingId = vendorPo?.linkedVendorMappingId?.trim()
+  if (mappingId) {
+    const linked = findVendorMappingInBaseline(baseline, mappingId)
+    if (linked) {
+      return linked.service.subcategoryId?.trim() || linked.service.id
+    }
+  }
+
+  return vendorPo?.linkedBaselineServiceIds?.[0]?.trim() ?? ''
+}
+
+/** GST % for a vendor PO milestone (mapping override → pitch service → settings master). */
+export function resolveVendorPayableServiceGstRate(
+  serviceId: string,
+  vendorPo: Pick<VendorPO, 'linkedVendorMappingId' | 'linkedBaselineServiceIds'> | undefined,
+  baseline: Baseline | null,
+  settingsServices: Service[] = [],
+): number {
+  const mappingId = vendorPo?.linkedVendorMappingId?.trim()
+  if (mappingId) {
+    const linked = findVendorMappingInBaseline(baseline, mappingId)
+    if (linked) {
+      if (linked.mapping.gstRate != null && !Number.isNaN(linked.mapping.gstRate)) {
+        return linked.mapping.gstRate
+      }
+      return resolvePitchServiceGstRate(linked.service, settingsServices)
+    }
+  }
+
+  return resolveClientServiceGstRate(serviceId, baseline, settingsServices)
 }
 
 /** Tax-inclusive gross for a pre-tax milestone base amount. */

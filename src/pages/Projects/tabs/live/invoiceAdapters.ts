@@ -36,6 +36,8 @@ function toClientLineItem(li: LineItem): ClientInvoiceLineItem {
     taxableAmount: li.taxableAmount ?? breakdown.taxableAmount,
     gstRate: li.gstRate,
     gstAmount: li.gstAmount,
+    tdsAmount: li.tdsAmount,
+    netAmount: li.netAmount,
     milestoneId: li.milestoneId,
     baselineServiceId: li.baselineServiceId,
     lineSource: toClientLineSource(li),
@@ -52,6 +54,10 @@ function paymentToClient(p: Payment): ClientInvoicePayment {
     paymentMode: mode,
     reference: p.reference,
     recordedAt: p.recordedAt,
+    allocations: p.allocations?.map((row) => ({
+      milestoneId: row.milestoneId,
+      allocatedAmount: row.allocatedAmount,
+    })),
   }
 }
 

@@ -34,6 +34,8 @@ export interface LineItem {
   taxableAmount?: number
   gstRate: number
   gstAmount: number
+  tdsAmount?: number
+  netAmount?: number
   milestoneId?: string
   /** Baseline service row id when lineSource is service */
   baselineServiceId?: string
@@ -49,6 +51,7 @@ export interface Payment {
   paymentMode: 'bank_transfer' | 'cheque' | 'upi' | 'other'
   reference?: string
   recordedAt: string
+  allocations?: Array<{ milestoneId: string; allocatedAmount: number }>
 }
 
 export interface Invoice {

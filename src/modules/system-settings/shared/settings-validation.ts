@@ -18,6 +18,8 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const PINCODE_REGEX = /^[1-9][0-9]{5}$/
 const SAC_CODE_REGEX = /^\d{6}$/
 const ALLOWED_PAGINATION = [10, 25, 50, 100] as const
+/** Official GST rate slabs permitted in Tax Configuration. */
+export const OFFICIAL_GST_RATE_SLABS = [0, 5, 12, 18, 28] as const
 
 function trim(value: string | null | undefined): string {
   return (value ?? '').trim()
@@ -102,13 +104,42 @@ export function requiredPhone(value: string | null | undefined): string | undefi
   return undefined
 }
 
+const WEBSITE_MAX_LENGTH = 2048
+const HOSTNAME_LABEL_REGEX = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i
+
+/** Public website hostname must include a valid multi-label domain with TLD. */
+export function isValidWebsiteHostname(hostname: string): boolean {
+  if (!hostname || /\s/.test(hostname)) return false
+  if (hostname === 'localhost') return false
+
+  const host = hostname.toLowerCase()
+  if (!host.includes('.')) return false
+
+  const labels = host.split('.')
+  if (labels.some((label) => label.length === 0)) return false
+
+  const tld = labels[labels.length - 1]!
+  if (!/^[a-z]{2,63}$/.test(tld)) return false
+
+  return labels.every((label) => HOSTNAME_LABEL_REGEX.test(label))
+}
+
 export function optionalWebsite(value: string | null | undefined): string | undefined {
   const raw = trim(value)
   if (!raw) return undefined
-  const withProtocol = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`
+  if (raw.length > WEBSITE_MAX_LENGTH) return 'Website URL is too long'
+  if (/\s/.test(raw)) return 'Invalid website URL'
+  if (!/^https?:\/\//i.test(raw)) {
+    return 'Website must start with http:// or https://'
+  }
   try {
-    // eslint-disable-next-line no-new
-    new URL(withProtocol)
+    const url = new URL(raw)
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      return 'Invalid website URL'
+    }
+    if (!isValidWebsiteHostname(url.hostname)) {
+      return 'Invalid website URL'
+    }
   } catch {
     return 'Invalid website URL'
   }
@@ -147,15 +178,18 @@ export function ratePercent(value: number | null | undefined, label = 'Rate'): s
   return undefined
 }
 
-/** Validate GST rate input in Tax & Configuration (integer, non-negative). */
+/** Validate GST rate input in Tax & Configuration (official slabs only). */
 export function requiredGstRateInput(raw: string | null | undefined): string | undefined {
   const v = trim(raw)
   if (!v) return 'Rate is required'
+  if (!/^-?\d+$/.test(v)) return 'Rate must be a number'
   const n = Number(v)
   if (!Number.isFinite(n)) return 'Rate must be a number'
   if (n < 0) return 'GST rate cannot be negative.'
   if (!Number.isInteger(n)) return 'GST rate must be a whole number.'
-  if (n > 100) return 'Rate must be between 0 and 100'
+  if (!(OFFICIAL_GST_RATE_SLABS as readonly number[]).includes(n)) {
+    return 'GST rate must be one of 0, 5, 12, 18, or 28.'
+  }
   return undefined
 }
 
@@ -163,6 +197,7 @@ export function requiredGstRateInput(raw: string | null | undefined): string | u
 export function requiredRateInput(raw: string | null | undefined, label = 'Rate'): string | undefined {
   const v = trim(raw)
   if (!v) return `${label} is required`
+  if (!/^-?\d+$/.test(v)) return `${label} must be a number`
   const n = Number(v)
   if (!Number.isFinite(n)) return `${label} must be a number`
   if (n < 0) return `${label} must not be negative`

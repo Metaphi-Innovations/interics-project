@@ -344,13 +344,16 @@ function AppShellLayout({ user, onLogout }: AppShellLayoutProps) {
 
 function ProtectedRoute() {
   const dispatch = useAppDispatch()
-  const { user, token } = useAppSelector(s => s.auth)
+  const { user, token, loading } = useAppSelector(s => s.auth)
   const location = useLocation()
   useEffect(() => {
     if (token) {
       void dispatch(fetchMeThunk())
     }
   }, [dispatch, token])
+  if (loading) {
+    return null
+  }
   if (!user || !token) {
     return <Navigate to="/login" replace state={{ from: location }} />
   }
@@ -555,7 +558,8 @@ function AppInner() {
               </UserManagementPermissionRoute>
             }
           />
-          <Route path="settings" element={<SettingsPage />} />
+          <Route path="settings" element={<Navigate to="/settings/general" replace />} />
+          <Route path="settings/:section" element={<SettingsPage />} />
           <Route path="*" element={<DefaultAppRedirect />} />
         </Route>
       </Route>

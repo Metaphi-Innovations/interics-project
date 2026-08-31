@@ -130,7 +130,8 @@ export default function AppRoutes({ navConfig, user, onSignOut, onProfileClick, 
                     </UserManagementPermissionRoute>
                   }
                 />
-                <Route path="/settings" element={<SettingsPage />} />
+                <Route path="/settings" element={<Navigate to="/settings/general" replace />} />
+                <Route path="/settings/:section" element={<SettingsPage />} />
                 <Route index element={<Navigate to="/projects" replace />} />
                 <Route path="*" element={<Navigate to="/projects" replace />} />
               </Routes>

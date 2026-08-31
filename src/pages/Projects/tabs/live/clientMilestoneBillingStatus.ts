@@ -1,6 +1,11 @@
 import type { StatusType } from '@/design-system/components'
 import type { ClientInvoice } from '@/slices/live/types'
 import { balancePending, totalReceivedBank } from '@/pages/Projects/tabs/live/clientInvoiceUtils'
+import {
+  deriveRowPaymentPhase,
+  resolveClientLineNetFromInvoice,
+  sumClientLinePaidFromPayments,
+} from '@/pages/Projects/tabs/live/paymentAllocation'
 
 const MONEY_EPS = 0.01
 
@@ -15,12 +20,37 @@ export function milestoneBillingPhase(milestoneInvoices: ClientInvoice[]): Miles
   return 'fully_invoiced'
 }
 
-export function milestonePaymentPhase(milestoneInvoices: ClientInvoice[]): MilestonePaymentPhase {
+function clientInvoiceNetPayable(inv: ClientInvoice): number {
+  return Math.max(0, (inv.grossAmount ?? 0) - (inv.tdsAmount ?? 0))
+}
+
+function resolveClientLineNet(inv: ClientInvoice, milestoneId: string): number {
+  return resolveClientLineNetFromInvoice(inv, milestoneId)
+}
+
+export function milestonePaymentPhase(
+  milestoneInvoices: ClientInvoice[],
+  milestoneId?: string,
+): MilestonePaymentPhase {
   if (milestoneInvoices.length === 0) return 'unpaid'
-  const allPaid = milestoneInvoices.every((inv) => balancePending(inv) <= MONEY_EPS)
+  const inv = milestoneInvoices[0]
+  if (!inv) return 'unpaid'
+
+  if (milestoneId) {
+    const lineNet = resolveClientLineNet(inv, milestoneId)
+    if (lineNet <= MONEY_EPS) return 'unpaid'
+    const invoiceNet = clientInvoiceNetPayable(inv)
+    const linePaid = sumClientLinePaidFromPayments(inv.payments, milestoneId, {
+      invoiceNet,
+      lineNet,
+    })
+    return deriveRowPaymentPhase(lineNet, linePaid)
+  }
+
+  const allPaid = milestoneInvoices.every((invoice) => balancePending(invoice) <= MONEY_EPS)
   if (allPaid) return 'paid'
   const anyReceived = milestoneInvoices.some(
-    (inv) => totalReceivedBank(inv.payments) > MONEY_EPS,
+    (invoice) => totalReceivedBank(invoice.payments) > MONEY_EPS,
   )
   return anyReceived ? 'partially_paid' : 'unpaid'
 }
@@ -61,3 +91,23 @@ export function clientInvoiceStatusBadges(
   const payment = milestonePaymentStatusBadge(milestonePaymentPhase([inv]))
   return [billing, payment]
 }
+
+export function clientLinePaidAmount(
+  inv: ClientInvoice,
+  milestoneId: string,
+): number {
+  const lineNet = resolveClientLineNet(inv, milestoneId)
+  const invoiceNet = clientInvoiceNetPayable(inv)
+  return sumClientLinePaidFromPayments(inv.payments, milestoneId, {
+    invoiceNet,
+    lineNet,
+  })
+}
+
+export function clientLineOutstanding(inv: ClientInvoice, milestoneId: string): number {
+  const lineNet = resolveClientLineNet(inv, milestoneId)
+  const paid = clientLinePaidAmount(inv, milestoneId)
+  return Math.max(0, lineNet - paid)
+}
+
+export { resolveClientLineNet, clientInvoiceNetPayable }

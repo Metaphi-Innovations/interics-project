@@ -22,6 +22,8 @@ export type RecordClientInvoicePaymentBody = {
   amountReceived: number
   paymentMode: ClientInvoicePaymentMode
   reference?: string
+  allocationMode?: 'project_live' | 'finance'
+  targetMilestoneId?: string
 }
 
 export type CreateVendorInvoiceBody = Omit<VendorInvoice, 'id' | 'projectId'>

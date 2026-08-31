@@ -44,7 +44,6 @@ import {
 import { parseSettingsApiError, clearFieldError } from '@/modules/system-settings/shared/api-errors'
 import { LISTING_DEFAULT_PAGE_SIZE } from '@/components/listing/listingStandards'
 import { SettingsListingPagination } from '../components/SettingsListingPagination'
-import { SettingsStatusSelect } from '../components/SettingsStatusSelect'
 
 type GSTForm = Omit<GSTRate, 'id'>
 type TDSForm = Omit<TDSSection, 'id'>
@@ -58,7 +57,6 @@ const tdsDataColWidth = settingsDataColWidth(TDS_DATA_COL_COUNT)
 type GSTFilterOptions = {
   slabName: ColumnFilterOption[]
   ratePercent: ColumnFilterOption[]
-  description: ColumnFilterOption[]
   status: ColumnFilterOption[]
 }
 type TDSFilterOptions = {
@@ -108,7 +106,6 @@ export default function TaxConfigSection() {
   const [gstFilterOptions, setGstFilterOptions] = useState<GSTFilterOptions>({
     slabName: [],
     ratePercent: [],
-    description: [],
     status: [],
   })
   const [tdsFilterOptions, setTdsFilterOptions] = useState<TDSFilterOptions>({
@@ -122,17 +119,19 @@ export default function TaxConfigSection() {
   const isGstSearchPending = gstSearch.length > 0 && gstSearch !== gstListing.debouncedSearch
   const isTdsSearchPending = tdsSearch.length > 0 && tdsSearch !== tdsListing.debouncedSearch
 
-  useEffect(() => {
+  const loadGstFilterOptions = () => {
     void taxConfigurationService.getGstFilters()
       .then((data) => {
         setGstFilterOptions({
           slabName: data.slabName ?? [],
           ratePercent: data.ratePercent ?? [],
-          description: data.description ?? [],
           status: data.status ?? [],
         })
       })
       .catch(() => undefined)
+  }
+
+  const loadTdsFilterOptions = () => {
     void taxConfigurationService.getTdsFilters()
       .then((data) => {
         setTdsFilterOptions({
@@ -143,7 +142,17 @@ export default function TaxConfigSection() {
         })
       })
       .catch(() => undefined)
+  }
+
+  useEffect(() => {
+    loadGstFilterOptions()
+    loadTdsFilterOptions()
   }, [dispatch])
+
+  useEffect(() => {
+    if (tab === 0) loadGstFilterOptions()
+    else loadTdsFilterOptions()
+  }, [tab])
 
   const buildGstListParams = () => ({
     force: true as const,
@@ -152,7 +161,6 @@ export default function TaxConfigSection() {
     search: gstListing.debouncedSearch || undefined,
     slabName: gstListing.filters.slabName,
     ratePercent: gstListing.filters.ratePercent,
-    description: gstListing.filters.description,
     status: gstListing.filters.status,
     sortBy: gstSortField,
     sortOrder: gstSortField ? gstSortDirection : undefined,
@@ -199,6 +207,22 @@ export default function TaxConfigSection() {
     setTdsSortDirection(direction)
   }
 
+  const closeGstDrawer = () => {
+    setGstDrawerOpen(false)
+    setEditingGST(null)
+    setGstForm(defaultGSTForm)
+    setGstRateInput('')
+    setGstFieldErrors({})
+  }
+
+  const closeTdsDrawer = () => {
+    setTdsDrawerOpen(false)
+    setEditingTDS(null)
+    setTdsForm(defaultTDSForm)
+    setTdsRateInput('')
+    setTdsFieldErrors({})
+  }
+
   const resetGstListing = () => {
     gstListing.setSearch('')
     gstListing.setFilters({})
@@ -228,9 +252,12 @@ export default function TaxConfigSection() {
     setGstDrawerOpen(true)
   }
   const handleSaveGST = () => {
+    const rateValidator = editingGST
+      ? (raw: string) => requiredRateInput(raw, 'Rate')
+      : requiredGstRateInput
     const next = collectErrors([
       ['slabName', requiredText(gstForm.slabName, 'Slab Name', 100)],
-      ['rate', requiredGstRateInput(gstRateInput)],
+      ['rate', rateValidator(gstRateInput)],
       ['description', optionalMaxLength(gstForm.description, 'Description', 500)],
     ])
     setGstFieldErrors(next)
@@ -248,7 +275,9 @@ export default function TaxConfigSection() {
       : dispatch(createGSTRate(payload))
     action.unwrap()
       .then(() => {
-        setGstDrawerOpen(false)
+        closeGstDrawer()
+        loadGstFilterOptions()
+        void dispatch(fetchGSTRates(buildGstListParams()))
         success(editingGST ? 'GST rate updated' : 'GST rate added')
       })
       .catch((err) => {
@@ -299,7 +328,9 @@ export default function TaxConfigSection() {
       : dispatch(createTDSSection(payload))
     action.unwrap()
       .then(() => {
-        setTdsDrawerOpen(false)
+        closeTdsDrawer()
+        loadTdsFilterOptions()
+        void dispatch(fetchTDSSections(buildTdsListParams()))
         success(editingTDS ? 'TDS section updated' : 'TDS section added')
       })
       .catch((err) => {
@@ -316,6 +347,7 @@ export default function TaxConfigSection() {
       if (toggleTarget.kind === 'gst') {
         await dispatch(toggleGSTRateStatus(toggleTarget.row.id)).unwrap()
         void dispatch(fetchGSTRates(buildGstListParams()))
+        loadGstFilterOptions()
         success(
           toggleTarget.row.status === 'active'
             ? 'GST rate deactivated'
@@ -324,6 +356,7 @@ export default function TaxConfigSection() {
       } else {
         await dispatch(toggleTDSSectionStatus(toggleTarget.row.id)).unwrap()
         void dispatch(fetchTDSSections(buildTdsListParams()))
+        loadTdsFilterOptions()
         success(
           toggleTarget.row.status === 'active'
             ? 'TDS section deactivated'
@@ -411,9 +444,10 @@ export default function TaxConfigSection() {
                   sortField={gstSortField}
                   sortDirection={gstSortDirection}
                   onSort={handleGstSort}
-                  filterValue={gstListing.filters.description ?? ''}
-                  filterOptions={gstFilterOptions.description}
-                  onFilter={applyGstFilter('description')}
+                  filterable={false}
+                  filterValue=""
+                  filterOptions={[]}
+                  onFilter={() => {}}
                   sx={SETTINGS_TABLE_HEADER_CELL_SX}
                 />
                 <FilterableSortHeader
@@ -602,12 +636,12 @@ export default function TaxConfigSection() {
 
       <Modal
         open={gstDrawerOpen}
-        onClose={() => setGstDrawerOpen(false)}
+        onClose={closeGstDrawer}
         title={editingGST ? 'Edit GST Rate' : 'Add GST Rate'}
         size="xs"
         footer={
           <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
-            <Button size="sm" variant="outlined" color="secondary" onClick={() => setGstDrawerOpen(false)}>
+            <Button size="sm" variant="outlined" color="secondary" onClick={closeGstDrawer}>
               Cancel
             </Button>
             <Button size="sm" variant="contained" color="primary" onClick={handleSaveGST} disabled={saving}>
@@ -644,7 +678,7 @@ export default function TaxConfigSection() {
                 setGstRateInput(e.target.value)
                 setGstFieldErrors(errors => clearFieldError(errors, 'rate'))
               }}
-              inputProps={{ min: 0, max: 100, step: 'any' }}
+              inputProps={{ min: 0, max: 100, step: 1 }}
               sx={{ flex: 1, minWidth: 0 }}
               error={!!gstFieldErrors.rate}
               helperText={gstFieldErrors.rate}
@@ -680,12 +714,12 @@ export default function TaxConfigSection() {
 
       <Modal
         open={tdsDrawerOpen}
-        onClose={() => setTdsDrawerOpen(false)}
+        onClose={closeTdsDrawer}
         title={editingTDS ? 'Edit TDS Section' : 'Add TDS Section'}
         size="xs"
         footer={
           <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
-            <Button size="sm" variant="outlined" color="secondary" onClick={() => setTdsDrawerOpen(false)}>
+            <Button size="sm" variant="outlined" color="secondary" onClick={closeTdsDrawer}>
               Cancel
             </Button>
             <Button size="sm" variant="contained" color="primary" onClick={handleSaveTDS} disabled={saving}>
@@ -709,36 +743,42 @@ export default function TaxConfigSection() {
             error={!!tdsFieldErrors.section}
             helperText={tdsFieldErrors.section}
           />
-          <TextField
-            size="small"
-            label="Default Rate (%)"
-            type="number"
-            required
-            fullWidth
-            placeholder="e.g. 10"
-            value={tdsRateInput}
-            onChange={e => {
-              setTdsRateInput(e.target.value)
-              setTdsFieldErrors(errors => clearFieldError(errors, 'defaultRate'))
-            }}
-            inputProps={{ min: 0, max: 100, step: 1 }}
-            error={!!tdsFieldErrors.defaultRate}
-            helperText={tdsFieldErrors.defaultRate}
-          />
           <Box sx={{ display: 'flex', gap: 2 }}>
-            <SettingsStatusSelect
+            <TextField
+              size="small"
+              label="Default Rate (%)"
+              type="number"
+              required
+              fullWidth
+              placeholder="e.g. 10"
+              value={tdsRateInput}
+              onChange={e => {
+                setTdsRateInput(e.target.value)
+                setTdsFieldErrors(errors => clearFieldError(errors, 'defaultRate'))
+              }}
+              inputProps={{ min: 0, max: 100, step: 1 }}
+              sx={{ flex: 1, minWidth: 0 }}
+              error={!!tdsFieldErrors.defaultRate}
+              helperText={tdsFieldErrors.defaultRate}
+            />
+            <TextField
+              select
+              size="small"
               label="Status"
               fullWidth
               value={tdsForm.status}
-              onChange={(status) =>
-                setTdsForm((f) => ({ ...f, status: status as TDSSection['status'] }))
-              }
-            />
+              onChange={e => setTdsForm(f => ({ ...f, status: e.target.value as TDSSection['status'] }))}
+              sx={{ flex: 1, minWidth: 0 }}
+            >
+              <MenuItem value="active">Active</MenuItem>
+              <MenuItem value="inactive">Inactive</MenuItem>
+            </TextField>
           </Box>
           <TextField
             size="small"
             label="Description"
             fullWidth
+            placeholder="Optional description"
             value={tdsForm.description}
             onChange={e => {
               setTdsForm(f => ({ ...f, description: e.target.value }))

@@ -844,6 +844,7 @@ export function buildVendorPOMilestonePayloadForUpdate(
         dueDate: prev?.dueDate ?? null,
         status: prev?.status ?? 'Pending',
         kind: 'regular' as const,
+        serviceId: prev?.serviceId,
       }
     })
 
@@ -856,6 +857,7 @@ export function buildVendorPOMilestonePayloadForUpdate(
       dueDate: existingRetention?.dueDate ?? null,
       status: existingRetention?.status ?? 'Pending',
       kind: 'retention',
+      serviceId: existingRetention?.serviceId,
     })
   }
 

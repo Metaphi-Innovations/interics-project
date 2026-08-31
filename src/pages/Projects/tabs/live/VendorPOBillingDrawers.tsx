@@ -71,6 +71,7 @@ import { dropdownCategoryOptions, dropdownServiceOptions } from './clientPOServi
 import {
   VendorOfferMilestoneCardEditor,
   VendorOfferRetentionCardEditor,
+  milestoneServiceIdsFromCards,
   type VendorOfferMilestoneCard,
   type VendorOfferRetentionCard,
 } from './VendorOfferMilestoneCards'
@@ -1165,8 +1166,13 @@ export function EditVendorPODrawer({
       flat.retention,
       resolvedPo.milestones,
     )
+    const serviceIdByMilestoneId = milestoneServiceIdsFromCards(milestoneCards, retentionCards)
+    const editorPayloadWithServiceIds = editorPayload.map((m) => ({
+      ...m,
+      serviceId: serviceIdByMilestoneId.get(m.id) ?? m.serviceId,
+    }))
     const nextMilestones = recalculateVendorPOMilestonesForExecutedValue(
-      editorPayload,
+      editorPayloadWithServiceIds,
       executedValueNum,
       projectVendorInvoices,
     )

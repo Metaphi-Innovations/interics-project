@@ -1392,6 +1392,7 @@ export default function PaymentsPage() {
           readOnly={workflowDrawer?.readOnly}
           invoiceId={workflowDrawer?.invoiceId}
           paymentStatus={workflowDrawer?.paymentStatus}
+          paymentEntryMode="finance"
           onUploadInvoice={openUploadInvoiceFromWorkflow}
         />
 

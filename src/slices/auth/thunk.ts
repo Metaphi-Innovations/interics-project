@@ -1,5 +1,6 @@
 import { createAsyncThunk } from '@reduxjs/toolkit'
 import { authApi } from '../../api/authApi'
+import { refreshAuthSessionSingleFlight } from '@/api/authRefresh'
 import {
   mapBackendLoginResponse,
   mapBackendUserToAuthUser,
@@ -48,6 +49,25 @@ export const logoutThunk = createAsyncThunk('auth/logout', async () => {
     clearStoredAuth()
   }
 })
+
+/**
+ * Cold-start session restoration: reuse sessionStorage when present, otherwise
+ * attempt cookie-backed refresh before ProtectedRoute decides auth state.
+ */
+export const bootstrapAuthThunk = createAsyncThunk(
+  'auth/bootstrap',
+  async (_, { dispatch, rejectWithValue }) => {
+    try {
+      if (!getStoredToken()) {
+        await refreshAuthSessionSingleFlight()
+      }
+      await dispatch(fetchMeThunk()).unwrap()
+    } catch {
+      clearStoredAuth()
+      return rejectWithValue('unauthenticated')
+    }
+  },
+)
 
 export const fetchMeThunk = createAsyncThunk(
   'auth/me',

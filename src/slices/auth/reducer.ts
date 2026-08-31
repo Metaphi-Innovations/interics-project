@@ -2,7 +2,7 @@ import { createSlice } from '@reduxjs/toolkit'
 import type { PayloadAction } from '@reduxjs/toolkit'
 import type { UserPermissions } from '@/types/permissions'
 import { clearStoredAuth, getStoredToken, storeAuthSession } from '@/utils/authStorage'
-import { loginThunk, logoutThunk, fetchMeThunk } from './thunk'
+import { loginThunk, logoutThunk, fetchMeThunk, bootstrapAuthThunk } from './thunk'
 
 export interface AuthUser {
   id: string
@@ -59,6 +59,20 @@ const authSlice = createSlice({
   },
   extraReducers: (builder) => {
     builder
+      .addCase(bootstrapAuthThunk.pending, (state) => {
+        state.loading = true
+        state.error = null
+      })
+      .addCase(bootstrapAuthThunk.fulfilled, (state) => {
+        state.loading = false
+        state.token = getStoredToken()
+      })
+      .addCase(bootstrapAuthThunk.rejected, (state) => {
+        state.loading = false
+        state.user = null
+        state.token = null
+        state.error = null
+      })
       .addCase(loginThunk.pending, (state) => {
         state.loading = true
         state.error = null

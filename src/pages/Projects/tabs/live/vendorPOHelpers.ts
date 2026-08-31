@@ -2,6 +2,9 @@ import type { Baseline, VendorPO, VendorPOMilestone } from '@/slices/baseline/re
 import type { VendorInvoice } from '@/slices/live/types'
 import type { PitchCategory, PitchService, PitchVersion, VendorMapping } from '@/slices/pitch/reducer'
 import {
+  resolveVendorMilestoneServiceId,
+} from '@/pages/Projects/tabs/live/clientInvoiceUtils'
+import {
   flattenVendorPoMilestones,
   getVendorInvoiceMilestoneAmount,
   remainingVendorMilestoneValue,
@@ -215,11 +218,11 @@ export function buildVendorPOMilestoneOverviewRows(
 ): VendorPOMilestoneOverviewRow[] {
   const rows: VendorPOMilestoneOverviewRow[] = []
   for (const po of vendorPOs.filter((p) => p.projectId === projectId)) {
-    const primaryServiceId = po.linkedBaselineServiceIds?.[0] ?? ''
-    const primaryServiceName =
-      resolveLinkedServiceName(primaryServiceId, baseline, catalog) || '—'
     const serviceLabel = linkedServiceLabels(po, baseline, catalog)
     for (const m of Array.isArray(po.milestones) ? po.milestones : []) {
+      const milestoneServiceId = resolveVendorMilestoneServiceId(m.serviceId, po, baseline)
+      const primaryServiceName =
+        resolveLinkedServiceName(milestoneServiceId, baseline, catalog) || '—'
       const milestoneType = resolveVendorPOMilestoneKind(m)
       const rawName = (m.name ?? '').trim()
       const displayName =
@@ -232,7 +235,7 @@ export function buildVendorPOMilestoneOverviewRows(
         poNumber: po.poNumber,
         vendorId: po.vendorId,
         vendor: po.vendorName,
-        serviceId: primaryServiceId,
+        serviceId: milestoneServiceId,
         serviceName: primaryServiceName,
         service: serviceLabel === '—' ? primaryServiceName : serviceLabel,
         milestoneId: m.id,

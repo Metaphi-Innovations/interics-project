@@ -1,7 +1,7 @@
 import { configureStore } from '@reduxjs/toolkit'
 import authReducer, { syncTokensFromRefresh } from '../slices/auth/reducer'
 import type { AuthUser } from '../slices/auth/reducer'
-import { fetchMeThunk } from '../slices/auth/thunk'
+import { bootstrapAuthThunk, fetchMeThunk } from '../slices/auth/thunk'
 import customersReducer from '../slices/customers/reducer'
 import vendorsReducer from '../slices/vendors/reducer'
 import projectsReducer from '../slices/projects/reducer'
@@ -29,12 +29,13 @@ try {
 }
 
 const usePersistedSession = Boolean(savedToken && savedUser)
+const needsBootstrap = !usePersistedSession
 
 const preloadedState = {
   auth: {
     user: usePersistedSession ? savedUser! : null,
     token: usePersistedSession ? savedToken! : null,
-    loading: false,
+    loading: needsBootstrap,
     error: null,
   },
 }
@@ -65,6 +66,10 @@ setOnTokensRefreshed((tokens) => {
   store.dispatch(syncTokensFromRefresh({ token: tokens.accessToken }))
   void store.dispatch(fetchMeThunk())
 })
+
+if (needsBootstrap && typeof window !== 'undefined') {
+  void store.dispatch(bootstrapAuthThunk())
+}
 
 export type RootState = ReturnType<typeof store.getState>
 export type AppDispatch = typeof store.dispatch

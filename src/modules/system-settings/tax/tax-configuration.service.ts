@@ -38,7 +38,6 @@ export type GstListParams = {
   search?: string
   slabName?: string
   ratePercent?: string
-  description?: string
   status?: string
   sortBy?: string
   sortOrder?: 'asc' | 'desc'
@@ -59,7 +58,6 @@ export type TdsListParams = {
 type GstFilters = {
   slabName?: ColumnFilterOption[]
   ratePercent?: ColumnFilterOption[]
-  description?: ColumnFilterOption[]
   status?: ColumnFilterOption[]
 }
 
@@ -116,7 +114,6 @@ export const taxConfigurationService = {
       search: params.search,
       slabName: params.slabName,
       ratePercent: params.ratePercent,
-      description: params.description,
       status: params.status,
       sortBy: params.sortBy,
       sortOrder: params.sortOrder,

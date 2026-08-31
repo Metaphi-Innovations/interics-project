@@ -25,9 +25,9 @@ export function shouldShowPayableViewInvoice(
 /** Record Payment is available when invoiced and not fully paid (no Draft/Tax checks). */
 export function shouldShowPayableRecordPayment(
   billingPhase: 'not_invoiced' | 'invoiced',
-  paymentPhase: 'unpaid' | 'paid',
+  paymentPhase: 'unpaid' | 'partially_paid' | 'paid',
 ): boolean {
-  return billingPhase === 'invoiced' && paymentPhase === 'unpaid'
+  return billingPhase === 'invoiced' && paymentPhase !== 'paid'
 }
 
 /** Whether the action-menu trigger (⋮) should render for a milestone row. */

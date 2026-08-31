@@ -147,7 +147,10 @@ export default function GeneralSettingsSection() {
       error(firstErrorMessage(next, 'Please fix the highlighted fields'))
       return
     }
-    mutateAsync(editForm)
+    mutateAsync({
+      ...editForm,
+      website: editForm.website.trim(),
+    })
       .then(() => {
         setIsEditing(false)
         success('Company profile saved')
@@ -261,7 +264,15 @@ export default function GeneralSettingsSection() {
               <GroupTitle label="Contact" />
               <TextField size="small" label="Email" {...field('email')} />
               <TextField size="small" label="Phone" {...field('phone')} />
-              <TextField size="small" label="Website" {...field('website')} sx={{ gridColumn: '1 / -1' }} />
+              <TextField
+                size="small"
+                label="Website"
+                placeholder="https://www.example.com"
+                inputProps={{ maxLength: 2048 }}
+                {...field('website')}
+                helperText={fieldErrors.website || 'Must start with http:// or https://'}
+                sx={{ gridColumn: '1 / -1' }}
+              />
 
               <SectionDivider />
 

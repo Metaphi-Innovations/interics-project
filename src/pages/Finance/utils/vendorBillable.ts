@@ -41,8 +41,8 @@ export function flattenVendorPoMilestones(po: VendorPO | null | undefined): Flat
     out.push({
       milestoneId: m.id,
       milestoneName: isRetention ? m.name.trim() || 'Retention' : m.name.trim(),
-      serviceId: defaultServiceId,
-      serviceName: defaultServiceId,
+      serviceId: m.serviceId?.trim() || defaultServiceId,
+      serviceName: m.serviceId?.trim() || defaultServiceId,
       value: Number(m.value) || 0,
       kind,
       isRetention,

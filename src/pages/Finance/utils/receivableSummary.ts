@@ -5,12 +5,12 @@ export interface ReceivableSummaryKpis {
    * scoped by Client PO.startDate to the Receivable KPI Date Range.
    */
   totalPoValue: number
-  /** Sum of recorded client payments across invoices in the selected invoiceDate range. */
+  /** Sum of recorded client payments (bank only) on invoices in the filtered population. */
   receivedTillDate: number
-  /** Outstanding on tax (non-draft) invoices: Tax Invoice Amount − Received on the same population. */
+  /** Outstanding on tax (non-draft) invoices: sum of invoice net − received per invoice. */
   pending: number
-  /** Gross totalAmount on tax (non-draft) invoices in the selected invoiceDate range. */
+  /** Net receivable on tax (non-draft) invoices: Base + GST + Labour Cess − Client TDS. */
   taxInvoiceRaised: number
-  /** Total of draft/uploaded invoices not yet converted to tax. */
+  /** Net receivable on draft/uploaded invoices: Base + GST + Labour Cess − Client TDS. */
   draftInvoiceSent: number
 }

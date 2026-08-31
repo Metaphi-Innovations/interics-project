@@ -5,4 +5,6 @@ export interface RecordPaymentPayload {
   tdsDeducted: number
   paymentMode: 'bank_transfer' | 'cheque' | 'upi' | 'cash' | 'other'
   reference?: string
+  allocationMode?: 'project_live' | 'finance'
+  targetMilestoneId?: string
 }

@@ -1,10 +1,16 @@
 import type { StatusType } from '@/design-system/components'
 import type { VendorInvoice, VendorPayment } from '@/slices/live/types'
-
-const MONEY_EPS = 0.01
+import {
+  deriveInvoiceSettlementStatus,
+  deriveRowPaymentPhase,
+  PAYMENT_MONEY_EPS,
+  resolveVendorLineNetFromInvoice,
+  sumVendorInvoicePaidFromPayments,
+  sumVendorLinePaidFromPayments,
+} from '@/pages/Projects/tabs/live/paymentAllocation'
 
 export type ProjectLivePayableBillingPhase = 'not_invoiced' | 'invoiced'
-export type ProjectLivePayablePaymentPhase = 'unpaid' | 'paid'
+export type ProjectLivePayablePaymentPhase = 'unpaid' | 'partially_paid' | 'paid'
 
 /** Any covering vendor invoice → Invoiced; no draft/tax distinction for Project Live Payable. */
 export function projectLivePayableBillingPhase(
@@ -13,13 +19,8 @@ export function projectLivePayableBillingPhase(
   return milestoneInvoices.length === 0 ? 'not_invoiced' : 'invoiced'
 }
 
-function vendorInvoicePaidAmount(invoiceId: string, payments: VendorPayment[]): number {
-  return payments
-    .filter(
-      (payment) =>
-        payment.linkedInvoiceIds.includes(invoiceId) && payment.status !== 'not_paid',
-    )
-    .reduce((sum, payment) => sum + payment.netPaid, 0)
+export function vendorInvoicePaidAmount(invoiceId: string, payments: VendorPayment[]): number {
+  return sumVendorInvoicePaidFromPayments(payments, invoiceId)
 }
 
 export function vendorInvoiceOutstanding(
@@ -29,13 +30,39 @@ export function vendorInvoiceOutstanding(
   return Math.max(0, invoice.netPayable - vendorInvoicePaidAmount(invoice.id, payments))
 }
 
-export { vendorInvoicePaidAmount }
+export function vendorLinePaidAmount(
+  invoice: VendorInvoice,
+  milestoneId: string,
+  payments: VendorPayment[],
+): number {
+  const lineNet = resolveVendorLineNetFromInvoice(invoice, milestoneId)
+  const invoiceNet = Number(invoice.netPayable) || 0
+  return sumVendorLinePaidFromPayments(payments, invoice.id, milestoneId, {
+    invoiceNet,
+    lineNet,
+  })
+}
+
+export function vendorLineOutstanding(
+  invoice: VendorInvoice,
+  milestoneId: string,
+  payments: VendorPayment[],
+): number {
+  const lineNet = resolveVendorLineNetFromInvoice(invoice, milestoneId)
+  const paid = vendorLinePaidAmount(invoice, milestoneId, payments)
+  return Math.max(0, lineNet - paid)
+}
 
 function isVendorInvoiceFullyPaid(
   invoice: VendorInvoice,
   payments: VendorPayment[],
 ): boolean {
-  return vendorInvoicePaidAmount(invoice.id, payments) >= invoice.netPayable - MONEY_EPS
+  return (
+    deriveInvoiceSettlementStatus(
+      invoice.netPayable,
+      vendorInvoicePaidAmount(invoice.id, payments),
+    ) === 'paid'
+  )
 }
 
 /** First covering invoice — same precedence as findVendorInvoiceForMilestone. */
@@ -53,16 +80,29 @@ export function findPayableInvoiceEligibleForPayment(
   return milestoneInvoices.find((invoice) => !isVendorInvoiceFullyPaid(invoice, payments))
 }
 
-/** Paid only when settlement payments cover the invoice net payable; invoice existence alone is not Paid. */
+/** Row payment phase from persisted allocations (legacy proportional fallback). */
 export function projectLivePayablePaymentPhase(
   milestoneInvoices: VendorInvoice[],
   payments: VendorPayment[],
+  milestoneId?: string,
 ): ProjectLivePayablePaymentPhase {
   if (milestoneInvoices.length === 0) return 'unpaid'
-  const allPaid = milestoneInvoices.every((invoice) =>
-    isVendorInvoiceFullyPaid(invoice, payments),
+  const invoice = milestoneInvoices[0]
+  if (!invoice) return 'unpaid'
+
+  if (milestoneId) {
+    const lineNet = resolveVendorLineNetFromInvoice(invoice, milestoneId)
+    if (lineNet <= PAYMENT_MONEY_EPS) return 'unpaid'
+    const linePaid = vendorLinePaidAmount(invoice, milestoneId, payments)
+    return deriveRowPaymentPhase(lineNet, linePaid)
+  }
+
+  const allPaid = milestoneInvoices.every((inv) => isVendorInvoiceFullyPaid(inv, payments))
+  if (allPaid) return 'paid'
+  const anyPaid = milestoneInvoices.some(
+    (inv) => vendorInvoicePaidAmount(inv.id, payments) > PAYMENT_MONEY_EPS,
   )
-  return allPaid ? 'paid' : 'unpaid'
+  return anyPaid ? 'partially_paid' : 'unpaid'
 }
 
 export function projectLivePayableBillingStatusBadge(
@@ -82,7 +122,11 @@ export function projectLivePayablePaymentStatusBadge(
   switch (phase) {
     case 'unpaid':
       return { type: 'unpaid', label: 'Unpaid' }
+    case 'partially_paid':
+      return { type: 'partially_paid', label: 'Partially Paid' }
     case 'paid':
       return { type: 'paid', label: 'Paid' }
   }
 }
+
+export { PAYMENT_MONEY_EPS }

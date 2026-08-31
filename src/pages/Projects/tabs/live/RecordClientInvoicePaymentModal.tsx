@@ -10,8 +10,9 @@ import {
   balancePending,
   MONEY_EPS,
   roundMoney,
-  totalReceivedBank,
 } from '@/pages/Projects/tabs/live/clientInvoiceUtils'
+import { clientLineOutstanding } from '@/pages/Projects/tabs/live/clientMilestoneBillingStatus'
+import { sumClientInvoicePaidFromPayments } from '@/pages/Projects/tabs/live/paymentAllocation'
 
 const PAYMENT_MODES: { label: string; value: ClientInvoicePaymentMode }[] = [
   { label: 'Bank Transfer', value: 'bank_transfer' },
@@ -27,6 +28,8 @@ export type RecordClientInvoicePaymentPayload = {
   amountReceived: number
   paymentMode: ClientInvoicePaymentMode
   reference?: string
+  allocationMode?: 'project_live' | 'finance'
+  targetMilestoneId?: string
 }
 
 export interface RecordClientInvoicePaymentModalProps {
@@ -34,6 +37,10 @@ export interface RecordClientInvoicePaymentModalProps {
   onClose: () => void
   projectId: string
   invoice: ClientInvoice | null
+  /** When set, complete payment pays this milestone/retention row outstanding (Project Live). */
+  targetMilestoneId?: string
+  /** project_live = row allocation; finance = invoice-level proportional allocation */
+  paymentEntryMode?: 'project_live' | 'finance'
   /** When set, used instead of Live `recordInvoicePayment` (Finance Receivable adapter). */
   onRecordPayment?: (payload: RecordClientInvoicePaymentPayload) => Promise<void>
   /** Override saving state (defaults to Live slice). */
@@ -47,6 +54,8 @@ export function RecordClientInvoicePaymentModal({
   onClose,
   projectId,
   invoice,
+  targetMilestoneId,
+  paymentEntryMode = 'project_live',
   onRecordPayment,
   saving: savingOverride,
   onRecorded,
@@ -65,7 +74,13 @@ export function RecordClientInvoicePaymentModal({
   const gross = invoice?.grossAmount ?? 0
   const invoiceTds = invoice?.tdsAmount ?? 0
   const netPayable = roundMoney(gross - invoiceTds)
-  const priorBank = invoice ? totalReceivedBank(invoice.payments) : 0
+  const priorBank = invoice ? sumClientInvoicePaidFromPayments(invoice.payments) : 0
+  const rowOutstanding =
+    invoice && targetMilestoneId && paymentEntryMode === 'project_live'
+      ? clientLineOutstanding(invoice, targetMilestoneId)
+      : invoice
+        ? balancePending(invoice)
+        : 0
   const bal = invoice ? balancePending(invoice) : 0
 
   const amtLive = amountReceived.trim() === '' ? 0 : Number(amountReceived)
@@ -81,14 +96,17 @@ export function RecordClientInvoicePaymentModal({
 
   useEffect(() => {
     if (open && invoice) {
-      const pending = balancePending(invoice)
+      const pending =
+        paymentEntryMode === 'finance' || !targetMilestoneId
+          ? balancePending(invoice)
+          : clientLineOutstanding(invoice, targetMilestoneId)
       setAmountReceived(pending > MONEY_EPS ? String(pending) : '')
       setPaymentDate(new Date())
       setPaymentMode('bank_transfer')
       setReference('')
       setError('')
     }
-  }, [open, invoice])
+  }, [open, invoice, targetMilestoneId, paymentEntryMode])
 
   async function handleSubmit() {
     if (!invoice) return
@@ -104,6 +122,15 @@ export function RecordClientInvoicePaymentModal({
       return
     }
 
+    if (
+      paymentEntryMode === 'project_live' &&
+      targetMilestoneId &&
+      a > rowOutstanding + MONEY_EPS
+    ) {
+      setError('Payment exceeds milestone outstanding balance')
+      return
+    }
+
     if (!paymentDate) {
       setError('Payment date is required')
       return
@@ -115,26 +142,28 @@ export function RecordClientInvoicePaymentModal({
     const dateIso = `${y}-${mo}-${day}`
 
     setError('')
+    const allocationMode = paymentEntryMode
+    const paymentPayload = {
+      date: dateIso,
+      amountReceived: a,
+      paymentMode,
+      reference: reference.trim() || undefined,
+      allocationMode,
+      targetMilestoneId:
+        paymentEntryMode === 'project_live' ? targetMilestoneId : undefined,
+    }
     try {
       if (onRecordPayment) {
         await onRecordPayment({
           invoiceId: invoice.id,
-          date: dateIso,
-          amountReceived: a,
-          paymentMode,
-          reference: reference.trim() || undefined,
+          ...paymentPayload,
         })
       } else {
         await dispatch(
           recordInvoicePayment({
             projectId,
             invoiceId: invoice.id,
-            data: {
-              date: dateIso,
-              amountReceived: a,
-              paymentMode,
-              reference: reference.trim() || undefined,
-            },
+            data: paymentPayload,
           }),
         ).unwrap()
         void dispatch(fetchInvoices(projectId))
@@ -153,6 +182,10 @@ export function RecordClientInvoicePaymentModal({
     bal <= MONEY_EPS ? tokens.color.success[600] : tokens.color.error[600]
   const remainingColor =
     remainingProjected <= MONEY_EPS ? tokens.color.success[600] : tokens.color.error[600]
+
+  const isFinanceMode = paymentEntryMode === 'finance'
+  const invoiceNetReceivable = netPayable
+  const outstanding = bal
 
   const submitDisabled =
     !amountReceived.trim() || Number(amountReceived) <= 0 || Number.isNaN(Number(amountReceived))
@@ -198,57 +231,92 @@ export function RecordClientInvoicePaymentModal({
             borderColor: 'divider',
           }}
         >
-          <Stack direction="row" justifyContent="space-between">
-            <Typography variant="body2" color="text.secondary">
-              Gross invoice amount
-            </Typography>
-            <Typography variant="body2" fontWeight={600}>
-              ₹{formatInr(gross)}
-            </Typography>
-          </Stack>
-          <Stack direction="row" justifyContent="space-between">
-            <Typography variant="body2" color="text.secondary">
-              Invoice TDS
-            </Typography>
-            <Typography variant="body2" fontWeight={600}>
-              −₹{formatInr(invoiceTds)}
-            </Typography>
-          </Stack>
-          <Stack direction="row" justifyContent="space-between">
-            <Typography variant="body2" color="text.secondary">
-              Net payable
-            </Typography>
-            <Typography variant="body2" fontWeight={600}>
-              ₹{formatInr(netPayable)}
-            </Typography>
-          </Stack>
-          <Stack direction="row" justifyContent="space-between">
-            <Typography variant="body2" color="text.secondary">
-              Prior received
-            </Typography>
-            <Typography variant="body2" fontWeight={600} sx={{ color: tokens.color.success[600] }}>
-              ₹{formatInr(priorBank)}
-            </Typography>
-          </Stack>
-          <Stack direction="row" justifyContent="space-between">
-            <Typography variant="body2" color="text.secondary">
-              Balance pending
-            </Typography>
-            <Typography variant="body2" fontWeight={700} sx={{ color: balancePendingColor }}>
-              ₹{formatInr(bal)}
-            </Typography>
-          </Stack>
+          {isFinanceMode ? (
+            <>
+              <Stack direction="row" justifyContent="space-between">
+                <Typography variant="body2" color="text.secondary">
+                  Invoice amount / net receivable
+                </Typography>
+                <Typography variant="body2" fontWeight={600}>
+                  ₹{formatInr(invoiceNetReceivable)}
+                </Typography>
+              </Stack>
+              <Stack direction="row" justifyContent="space-between">
+                <Typography variant="body2" color="text.secondary">
+                  Already received
+                </Typography>
+                <Typography variant="body2" fontWeight={600} sx={{ color: tokens.color.success[600] }}>
+                  ₹{formatInr(priorBank)}
+                </Typography>
+              </Stack>
+              <Stack direction="row" justifyContent="space-between">
+                <Typography variant="body2" color="text.secondary">
+                  Outstanding
+                </Typography>
+                <Typography variant="body2" fontWeight={700} sx={{ color: balancePendingColor }}>
+                  ₹{formatInr(outstanding)}
+                </Typography>
+              </Stack>
+            </>
+          ) : (
+            <>
+              <Stack direction="row" justifyContent="space-between">
+                <Typography variant="body2" color="text.secondary">
+                  Gross invoice amount
+                </Typography>
+                <Typography variant="body2" fontWeight={600}>
+                  ₹{formatInr(gross)}
+                </Typography>
+              </Stack>
+              <Stack direction="row" justifyContent="space-between">
+                <Typography variant="body2" color="text.secondary">
+                  Invoice TDS
+                </Typography>
+                <Typography variant="body2" fontWeight={600}>
+                  −₹{formatInr(invoiceTds)}
+                </Typography>
+              </Stack>
+              <Stack direction="row" justifyContent="space-between">
+                <Typography variant="body2" color="text.secondary">
+                  Net payable
+                </Typography>
+                <Typography variant="body2" fontWeight={600}>
+                  ₹{formatInr(netPayable)}
+                </Typography>
+              </Stack>
+              <Stack direction="row" justifyContent="space-between">
+                <Typography variant="body2" color="text.secondary">
+                  Prior received
+                </Typography>
+                <Typography variant="body2" fontWeight={600} sx={{ color: tokens.color.success[600] }}>
+                  ₹{formatInr(priorBank)}
+                </Typography>
+              </Stack>
+              <Stack direction="row" justifyContent="space-between">
+                <Typography variant="body2" color="text.secondary">
+                  Balance pending
+                </Typography>
+                <Typography variant="body2" fontWeight={700} sx={{ color: balancePendingColor }}>
+                  ₹{formatInr(bal)}
+                </Typography>
+              </Stack>
+            </>
+          )}
         </Stack>
 
         <Input
-          label="Amount Received (Bank)"
+          label={isFinanceMode ? 'Payment Amount' : 'Amount Received (Bank)'}
           type="number"
           fullWidth
           required
           size="sm"
           value={amountReceived}
           onChange={setAmountReceived}
-          helperText="Bank credit only. Partial payments are allowed up to the net payable balance."
+          helperText={
+            isFinanceMode
+              ? 'Invoice-level payment against net receivable outstanding.'
+              : 'Bank credit only. Partial payments are allowed up to the net payable balance.'
+          }
         />
 
         <Stack
@@ -307,7 +375,13 @@ export function RecordClientInvoicePaymentModal({
           required
         />
 
-        <Input label="Reference No" fullWidth size="sm" value={reference} onChange={setReference} />
+        <Input
+          label={isFinanceMode ? 'Reference for Received Payment' : 'Reference No'}
+          fullWidth
+          size="sm"
+          value={reference}
+          onChange={setReference}
+        />
 
         {error ? (
           <Typography variant="caption" color="error">

@@ -68,6 +68,8 @@ export interface VendorPOMilestone {
   dueDate: string | null
   status: 'Paid' | 'Pending' | 'Overdue'
   kind?: 'regular' | 'retention'
+  /** Baseline/master service id for GST resolution (multi-service PO cards). */
+  serviceId?: string
 }
 
 export type VendorPOExecutionStatus = 'Draft' | 'Issued' | 'Accepted'

@@ -416,6 +416,31 @@ export default function BillingsPage() {
     () => resolveReceivableKpiDateRange(kpiPeriod, kpiCustomFrom, kpiCustomTo),
     [kpiPeriod, kpiCustomFrom, kpiCustomTo],
   )
+  const kpiQueryParams = useMemo(() => {
+    if (!kpiDateBounds) return null
+    const listDates = mergeReceivableListDateParams(
+      kpiDateBounds,
+      filters.dateFrom,
+      filters.dateTo,
+    )
+    if (listDates.emptyIntersection) return { emptyIntersection: true as const }
+    return {
+      dateFrom: listDates.dateFrom,
+      dateTo: listDates.dateTo,
+      clientId: columnFilters.clientId || filters.clientId || undefined,
+      projectId: columnFilters.projectId || filters.projectId || undefined,
+      search: filters.search || undefined,
+    }
+  }, [
+    kpiDateBounds,
+    filters.dateFrom,
+    filters.dateTo,
+    filters.clientId,
+    filters.projectId,
+    filters.search,
+    columnFilters.clientId,
+    columnFilters.projectId,
+  ])
   const kpiCustomIncomplete =
     kpiPeriod === 'Custom Date Range' && (!kpiCustomFrom || !kpiCustomTo)
   const kpiCustomInvalid =
@@ -518,9 +543,19 @@ export default function BillingsPage() {
   }
 
   function refreshKpis() {
-    if (!kpiDateBounds) return
+    if (!kpiQueryParams) return
+    if ('emptyIntersection' in kpiQueryParams) {
+      setKpis({
+        totalPoValue: 0,
+        receivedTillDate: 0,
+        pending: 0,
+        taxInvoiceRaised: 0,
+        draftInvoiceSent: 0,
+      })
+      return
+    }
     void financeApi
-      .getReceivablesSummary(kpiDateBounds)
+      .getReceivablesSummary(kpiQueryParams)
       .then((res) => {
         const data = unwrapApiData<ReceivableSummaryKpis>(res.data)
         if (data) setKpis(data)
@@ -622,10 +657,20 @@ export default function BillingsPage() {
   }, [kpiDateBounds, dispatch])
 
   useEffect(() => {
-    if (!kpiDateBounds) return
+    if (!kpiQueryParams) return
+    if ('emptyIntersection' in kpiQueryParams) {
+      setKpis({
+        totalPoValue: 0,
+        receivedTillDate: 0,
+        pending: 0,
+        taxInvoiceRaised: 0,
+        draftInvoiceSent: 0,
+      })
+      return
+    }
     let cancelled = false
     void financeApi
-      .getReceivablesSummary(kpiDateBounds)
+      .getReceivablesSummary(kpiQueryParams)
       .then((res) => {
         const data = unwrapApiData<ReceivableSummaryKpis>(res.data)
         if (!cancelled && data) setKpis(data)
@@ -634,7 +679,7 @@ export default function BillingsPage() {
     return () => {
       cancelled = true
     }
-  }, [kpiDateBounds])
+  }, [kpiQueryParams])
 
   useEffect(() => {
     return () => {

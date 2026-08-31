@@ -580,6 +580,7 @@ export function buildVendorPOMilestonePayloadFromGroup(
       dueDate: null,
       status: 'Pending' as const,
       kind: 'regular' as const,
+      serviceId: group.serviceId,
     }))
 
   for (const retention of group.retentions) {
@@ -592,10 +593,36 @@ export function buildVendorPOMilestonePayloadFromGroup(
       dueDate: null,
       status: 'Pending',
       kind: 'retention',
+      serviceId: group.serviceId,
     })
   }
 
   return rows
+}
+
+/** Map milestone/retention row ids → service id from card editor state (for GST persistence). */
+export function milestoneServiceIdsFromCards(
+  milestoneCards: VendorOfferMilestoneCard[],
+  retentionCards: VendorOfferRetentionCard[],
+): Map<string, string> {
+  const map = new Map<string, string>()
+  for (const card of milestoneCards) {
+    const serviceId = card.serviceId?.trim()
+    if (!serviceId) continue
+    for (const m of card.milestones) {
+      if (m.id?.trim()) map.set(m.id.trim(), serviceId)
+    }
+  }
+  for (const retention of retentionCards) {
+    const serviceId = retention.serviceId?.trim()
+    if (!serviceId) continue
+    const id = retention.id?.trim()
+    if (id) {
+      map.set(id, serviceId)
+      map.set(`vpo-ret-${id}`, serviceId)
+    }
+  }
+  return map
 }
 
 /**
@@ -618,6 +645,7 @@ export function buildVendorOfferGlobalMilestonePayload(
         dueDate: null,
         status: 'Pending',
         kind: 'regular',
+        serviceId: card.serviceId,
       })
     }
   }
@@ -631,6 +659,7 @@ export function buildVendorOfferGlobalMilestonePayload(
       dueDate: null,
       status: 'Pending',
       kind: 'retention',
+      serviceId: retention.serviceId,
     })
   }
   return rows

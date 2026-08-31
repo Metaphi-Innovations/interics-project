@@ -100,6 +100,12 @@ export const recordInvoicePayment = createAsyncThunk<
       paymentMode: data.paymentMode === 'cash' ? 'other' : data.paymentMode,
       reference: data.reference,
     }
+    if (data.allocationMode === 'finance' || data.allocationMode === 'project_live') {
+      payload.allocationMode = data.allocationMode
+    }
+    if (data.targetMilestoneId?.trim()) {
+      payload.targetMilestoneId = data.targetMilestoneId.trim()
+    }
     const invoice = await liveApi.recordInvoicePayment(projectId, invoiceId, payload)
     return invoiceToClientInvoice(invoice)
   } catch (err) {

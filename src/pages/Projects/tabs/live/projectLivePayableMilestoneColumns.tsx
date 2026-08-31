@@ -10,6 +10,8 @@ import type {
 
 export function PayableAmountBreakdownColumn({
   base,
+  gstRate,
+  gstAmount,
   tdsRate,
   tdsAmount,
   net,
@@ -18,6 +20,9 @@ export function PayableAmountBreakdownColumn({
     <Stack gap={0.25}>
       <Typography variant="caption" sx={{ color: 'text.secondary' }}>
         Base: ₹{formatInr(base)}
+      </Typography>
+      <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+        GST ({gstRate}%): ₹{formatInr(gstAmount)}
       </Typography>
       {tdsAmount > 0 ? (
         <Typography variant="caption" sx={{ color: 'text.secondary' }}>

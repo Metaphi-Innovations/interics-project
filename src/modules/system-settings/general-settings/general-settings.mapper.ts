@@ -37,11 +37,8 @@ function toFormCompanyType(value: ApiCompanyType | null | undefined): FormCompan
   return API_TO_FORM_COMPANY_TYPE[value] ?? DEFAULT_COMPANY_TYPE
 }
 
-function normalizeWebsiteForApi(website: string): string | null {
-  const value = emptyToNull(website)
-  if (!value) return null
-  if (/^https?:\/\//i.test(value)) return value
-  return `https://${value}`
+function websiteForApi(website: string): string | null {
+  return emptyToNull(website)
 }
 
 /** Unwrap `{ success, data }` envelopes while accepting flat MSW payloads. */
@@ -98,7 +95,7 @@ export function toUpdateSystemSettingsPayload(
     payload.phone = emptyToNull(profile.phone)
   }
   if (profile.website !== undefined) {
-    payload.website = normalizeWebsiteForApi(profile.website)
+    payload.website = websiteForApi(profile.website)
   }
   if (profile.addressLine1 !== undefined) {
     payload.addressLine1 = emptyToNull(profile.addressLine1)

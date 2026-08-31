@@ -17,6 +17,7 @@ type FilterableSortHeaderBase = {
   sortDirection?: 'asc' | 'desc'
   onSort?: (field: string, direction: 'asc' | 'desc') => void
   sortable?: boolean
+  filterable?: boolean
   sx?: object
 }
 
@@ -52,11 +53,13 @@ export function FilterableSortHeader(props: FilterableSortHeaderProps) {
     sortDirection,
     onSort,
     sortable = true,
+    filterable = true,
     sx,
   } = props
   const canSort = Boolean(sortable && field && onSort)
   const isActive = Boolean(canSort && sortField === field)
   const isDualDate = props.filterMode === 'dual-date'
+  const showFilter = filterable && !isDualDate
 
   return (
     <TableCell
@@ -96,24 +99,24 @@ export function FilterableSortHeader(props: FilterableSortHeaderProps) {
           )
         ) : null}
         <Box onClick={(e) => e.stopPropagation()} sx={{ display: 'inline-flex', flexShrink: 0 }}>
-          {isDualDate ? (
+          {showFilter && isDualDate ? (
             <ColumnFilterPopover
               columnLabel={label}
               mode="dual-date"
-              dualValue={props.filterDualValue}
-              onApplyDual={props.onFilterDual}
-              startLabel={props.dualStartLabel}
-              endLabel={props.dualEndLabel}
+              dualValue={(props as FilterableSortHeaderDual).filterDualValue}
+              onApplyDual={(props as FilterableSortHeaderDual).onFilterDual}
+              startLabel={(props as FilterableSortHeaderDual).dualStartLabel}
+              endLabel={(props as FilterableSortHeaderDual).dualEndLabel}
             />
-          ) : (
+          ) : showFilter ? (
             <ColumnFilterPopover
               columnLabel={label}
-              value={props.filterValue}
-              options={props.filterOptions}
-              onApply={props.onFilter}
-              mode={props.filterMode}
+              value={(props as FilterableSortHeaderSingle).filterValue}
+              options={(props as FilterableSortHeaderSingle).filterOptions}
+              onApply={(props as FilterableSortHeaderSingle).onFilter}
+              mode={(props as FilterableSortHeaderSingle).filterMode}
             />
-          )}
+          ) : null}
         </Box>
       </Stack>
     </TableCell>

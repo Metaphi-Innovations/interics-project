@@ -33,10 +33,17 @@ import {
 import type { Baseline } from '@/slices/baseline/reducer'
 import type { Expense, VendorPayment } from '@/slices/live/types'
 import { formatCurrency, formatDate } from '@/utils/formatters'
+import { vendorMilestonePayableTaxBreakdown } from '@/pages/Projects/tabs/live/clientInvoiceUtils'
+import {
+  resolveVendorLineAmountsFromInvoice,
+} from '@/pages/Projects/tabs/live/paymentAllocation'
+import {
+  vendorInvoiceOutstanding,
+  vendorLineOutstanding,
+  vendorInvoicePaidAmount,
+} from '@/pages/Projects/tabs/live/vendorProjectLivePayableStatus'
 import {
   computeMilestonePayableStatus,
-  calcVendorInvoiceNetPayable,
-  calcVendorInvoiceTdsAmount,
   findInvoiceForMilestone,
   invoiceMatchesRow,
   payableStatusBadgeColor,
@@ -76,6 +83,8 @@ export interface VendorPayableWorkflowDrawerProps {
   /** Payment status from the payables row so View matches the listing. */
   paymentStatus?: PayablePaymentStatus
   onUploadInvoice?: (milestoneId: string) => void
+  /** project_live = pay specific milestone row; finance = invoice-level proportional allocation */
+  paymentEntryMode?: 'project_live' | 'finance'
 }
 
 function ReadOnlyField({ label, value }: { label: string; value: string }) {
@@ -95,16 +104,19 @@ export function VendorPayableWorkflowDrawer({
   open,
   onClose,
   entry,
+  baseline,
   focus = 'details',
   readOnly = false,
   invoiceId,
   paymentStatus: listPaymentStatus,
   onUploadInvoice,
+  paymentEntryMode = 'project_live',
 }: VendorPayableWorkflowDrawerProps) {
   const dispatch = useAppDispatch()
   const toast = useToast()
 
   const { vendorInvoices, expenses, payments, saving } = useAppSelector((s) => s.live)
+  const { services } = useAppSelector((s) => s.settings)
 
   const [paymentDate, setPaymentDate] = useState('')
   const [referenceNumber, setReferenceNumber] = useState('')
@@ -192,17 +204,96 @@ export function VendorPayableWorkflowDrawer({
     }
   }, [milestoneInvoice?.id, milestoneInvoice?.tdsRate])
 
+  const invoicePayable = useMemo(() => {
+    if (!milestoneInvoice || !milestone) return null
+
+    if (paymentEntryMode === 'finance') {
+      const expenseDeductions = milestoneInvoice.expenseDeductions ?? 0
+      const expenseAdditions = milestoneInvoice.expenseAdditions ?? 0
+      const netPayable = Math.max(
+        0,
+        (milestoneInvoice.netPayable ?? 0) - expenseDeductions + expenseAdditions,
+      )
+      return {
+        base: milestoneInvoice.baseAmount ?? 0,
+        gstAmount: milestoneInvoice.gstAmount ?? 0,
+        gstRate: milestoneInvoice.gstRate ?? 0,
+        tdsAmount: milestoneInvoice.tdsAmount ?? 0,
+        netPayable,
+      }
+    }
+
+    if (paymentEntryMode === 'project_live') {
+      const lineAmounts = resolveVendorLineAmountsFromInvoice(milestoneInvoice, milestone.id)
+      if (lineAmounts) {
+        const expenseDeductions = milestoneInvoice.expenseDeductions ?? 0
+        const expenseAdditions = milestoneInvoice.expenseAdditions ?? 0
+        const netPayable = Math.max(0, lineAmounts.net - expenseDeductions + expenseAdditions)
+        return {
+          base: lineAmounts.base,
+          gstAmount: lineAmounts.gstAmount,
+          gstRate:
+            lineAmounts.base > 0
+              ? Math.round((100 * lineAmounts.gstAmount) / lineAmounts.base)
+              : 0,
+          tdsAmount: lineAmounts.tdsAmount,
+          netPayable,
+        }
+      }
+    }
+
+    const serviceId = row?.serviceId || milestoneInvoice.serviceId || ''
+    const tax = vendorMilestonePayableTaxBreakdown(
+      milestoneInvoice.baseAmount,
+      serviceId,
+      tdsRateDraft,
+      baseline,
+      services,
+    )
+    const expenseDeductions = milestoneInvoice.expenseDeductions ?? 0
+    const expenseAdditions = milestoneInvoice.expenseAdditions ?? 0
+    const netPayable = Math.max(0, tax.net - expenseDeductions + expenseAdditions)
+    return {
+      base: tax.base,
+      gstAmount: tax.gstAmount,
+      gstRate: tax.gstRate,
+      tdsAmount: tax.tdsAmount,
+      netPayable,
+    }
+  }, [
+    milestoneInvoice,
+    milestone,
+    paymentEntryMode,
+    row?.serviceId,
+    tdsRateDraft,
+    baseline,
+    services,
+  ])
+
+  const rowNetPayable = useMemo(() => {
+    if (!milestoneInvoice || !milestone) return 0
+    if (paymentEntryMode === 'finance') {
+      return vendorInvoiceOutstanding(milestoneInvoice, projectPayments)
+    }
+    return vendorLineOutstanding(milestoneInvoice, milestone.id, projectPayments)
+  }, [milestoneInvoice, milestone, paymentEntryMode, projectPayments])
+
   async function handleTdsRateChange(nextRate: number) {
     if (!milestoneInvoice || readOnly || milestoneInvoice.status === 'paid' || tdsSaving) return
     const prevRate = tdsRateDraft
     setTdsRateDraft(nextRate)
-    const tdsAmount = calcVendorInvoiceTdsAmount(milestoneInvoice.baseAmount, nextRate)
-    const netPayable = calcVendorInvoiceNetPayable(
+    const serviceId = row?.serviceId || milestoneInvoice.serviceId || ''
+    const tax = vendorMilestonePayableTaxBreakdown(
       milestoneInvoice.baseAmount,
-      milestoneInvoice.expenseDeductions ?? 0,
+      serviceId,
       nextRate,
-      milestoneInvoice.expenseAdditions ?? 0,
+      baseline,
+      services,
     )
+    const expenseDeductions = milestoneInvoice.expenseDeductions ?? 0
+    const expenseAdditions = milestoneInvoice.expenseAdditions ?? 0
+    const tdsAmount = tax.tdsAmount
+    const netPayable = Math.max(0, tax.net - expenseDeductions + expenseAdditions)
     setTdsSaving(true)
     try {
       await dispatch(
@@ -220,17 +311,14 @@ export function VendorPayableWorkflowDrawer({
     }
   }
 
-  const invoiceTdsAmount = milestoneInvoice
-    ? calcVendorInvoiceTdsAmount(milestoneInvoice.baseAmount, tdsRateDraft)
-    : 0
-  const invoiceNetPayable = milestoneInvoice
-    ? calcVendorInvoiceNetPayable(
-        milestoneInvoice.baseAmount,
-        milestoneInvoice.expenseDeductions ?? 0,
-        tdsRateDraft,
-        milestoneInvoice.expenseAdditions ?? 0,
-      )
-    : 0
+  const invoiceTdsAmount = invoicePayable?.tdsAmount ?? 0
+  const invoiceNetPayable = invoicePayable?.netPayable ?? 0
+  const financeAlreadyPaid =
+    paymentEntryMode === 'finance' && milestoneInvoice
+      ? vendorInvoicePaidAmount(milestoneInvoice.id, projectPayments)
+      : 0
+  const financeOutstanding = rowNetPayable
+  const paymentCap = rowNetPayable
   const tdsEditable =
     !readOnly && milestoneInvoice != null && milestoneInvoice.status !== 'paid' && !tdsSaving
 
@@ -243,13 +331,15 @@ export function VendorPayableWorkflowDrawer({
     (partialAmount.trim() !== '' &&
       Number.isFinite(partialAmountNumber) &&
       partialAmountNumber > 0 &&
-      partialAmountNumber < invoiceNetPayable)
+      partialAmountNumber < paymentCap)
 
   const canSubmitPayment =
     showReleasePayment &&
     paymentDate.trim() !== '' &&
-    (paymentOutcome === 'not_paid' || referenceNumber.trim() !== '') &&
-    (paymentOutcome !== 'complete' || invoiceNetPayable > 0) &&
+    (paymentOutcome === 'not_paid' ||
+      referenceNumber.trim() !== '' ||
+      paymentEntryMode === 'finance') &&
+    (paymentOutcome !== 'complete' || paymentCap > 0) &&
     partialAmountValid &&
     !saving
 
@@ -263,16 +353,33 @@ export function VendorPayableWorkflowDrawer({
   }, [dispatch, projectId])
 
   async function handleCreatePayment() {
-    if (!row || !milestoneInvoice || !canSubmitPayment) return
+    if (!row || !milestoneInvoice || !milestone || !canSubmitPayment) return
 
     const paymentStatus = paymentStatusFromOutcome(paymentOutcome)
     const netPaid =
       paymentOutcome === 'complete'
-        ? invoiceNetPayable
+        ? paymentCap
         : paymentOutcome === 'partial'
           ? partialAmountNumber
           : 0
     const totalAmount = paymentOutcome === 'not_paid' ? 0 : netPaid
+    const allocationMode = paymentEntryMode
+    const targetMilestoneId =
+      paymentEntryMode === 'project_live' && paymentOutcome !== 'not_paid'
+        ? milestone.id
+        : undefined
+    const allocations =
+      paymentEntryMode === 'project_live' &&
+      paymentOutcome !== 'not_paid' &&
+      targetMilestoneId
+        ? [
+            {
+              invoiceId: milestoneInvoice.id,
+              milestoneId: targetMilestoneId,
+              allocatedAmount: netPaid,
+            },
+          ]
+        : undefined
 
     try {
       await dispatch(
@@ -293,6 +400,9 @@ export function VendorPayableWorkflowDrawer({
             netPaid,
             status: paymentStatus,
             referenceNumber: referenceNumber.trim() || undefined,
+            allocationMode,
+            targetMilestoneId,
+            allocations,
           },
         }),
       ).unwrap()
@@ -367,7 +477,7 @@ export function VendorPayableWorkflowDrawer({
                 />
                 <ReadOnlyField
                   label="Invoice amount"
-                  value={`₹${formatCurrency(milestoneInvoice.baseAmount)}`}
+                  value={`₹${formatCurrency(invoiceNetPayable)}`}
                 />
                 <ReadOnlyField
                   label="Net payable"
@@ -418,7 +528,7 @@ export function VendorPayableWorkflowDrawer({
                 <ReadOnlyField label="Invoice date" value={formatDate(milestoneInvoice.invoiceDate)} />
                 <ReadOnlyField
                   label="Invoice amount"
-                  value={`₹${formatCurrency(milestoneInvoice.baseAmount)}`}
+                  value={`₹${formatCurrency(invoiceNetPayable)}`}
                 />
                 <Box>
                   <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
@@ -494,12 +604,22 @@ export function VendorPayableWorkflowDrawer({
               <Stack gap={0.5}>
                 <Stack direction="row" justifyContent="space-between">
                   <Typography variant="body2" sx={{ fontSize: 12 }}>
-                    Invoice amount
+                    Base
                   </Typography>
                   <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600 }}>
-                    ₹{formatCurrency(milestoneInvoice.baseAmount)}
+                    ₹{formatCurrency(invoicePayable?.base ?? milestoneInvoice.baseAmount)}
                   </Typography>
                 </Stack>
+                {(invoicePayable?.gstAmount ?? 0) > 0 ? (
+                  <Stack direction="row" justifyContent="space-between">
+                    <Typography variant="body2" sx={{ fontSize: 12 }}>
+                      GST ({invoicePayable?.gstRate ?? 0}%)
+                    </Typography>
+                    <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600 }}>
+                      + ₹{formatCurrency(invoicePayable?.gstAmount ?? 0)}
+                    </Typography>
+                  </Stack>
+                ) : null}
                 {(milestoneInvoice.expenseAdditions ?? 0) > 0 ? (
                   <Stack direction="row" justifyContent="space-between">
                     <Typography variant="body2" sx={{ fontSize: 12 }}>
@@ -615,6 +735,46 @@ export function VendorPayableWorkflowDrawer({
               >
                 Release payment
               </Typography>
+              {paymentEntryMode === 'finance' ? (
+                <Stack
+                  spacing={1}
+                  sx={{
+                    mb: 2,
+                    p: 1.5,
+                    borderRadius: 1,
+                    bgcolor: tokens.color.neutral[50],
+                    border: `1px solid ${tokens.color.neutral[100]}`,
+                  }}
+                >
+                  <Stack direction="row" justifyContent="space-between">
+                    <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary' }}>
+                      Invoice net payable
+                    </Typography>
+                    <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600 }}>
+                      ₹{formatCurrency(invoiceNetPayable)}
+                    </Typography>
+                  </Stack>
+                  <Stack direction="row" justifyContent="space-between">
+                    <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary' }}>
+                      Already paid
+                    </Typography>
+                    <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600 }}>
+                      ₹{formatCurrency(financeAlreadyPaid)}
+                    </Typography>
+                  </Stack>
+                  <Stack direction="row" justifyContent="space-between">
+                    <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary' }}>
+                      Outstanding
+                    </Typography>
+                    <Typography
+                      variant="body2"
+                      sx={{ fontSize: 12, fontWeight: 700, color: 'primary.main' }}
+                    >
+                      ₹{formatCurrency(financeOutstanding)}
+                    </Typography>
+                  </Stack>
+                </Stack>
+              ) : null}
               <Grid container spacing={1.5}>
                 <Grid size={{ xs: 12 }}>
                   <FormField label="Payment type" required>
@@ -643,14 +803,21 @@ export function VendorPayableWorkflowDrawer({
                         value={partialAmount}
                         onChange={setPartialAmount}
                         size="sm"
-                        placeholder={`Less than ₹${formatCurrency(invoiceNetPayable)}`}
+                        placeholder={`Less than ₹${formatCurrency(paymentCap)}`}
                       />
                     </FormField>
                   </Grid>
                 ) : null}
                 {paymentOutcome !== 'not_paid' ? (
                   <Grid size={{ xs: 12, sm: 6 }}>
-                    <FormField label="Payment reference" required>
+                    <FormField
+                      label={
+                        paymentEntryMode === 'finance'
+                          ? 'Reference for Received Payment'
+                          : 'Payment reference'
+                      }
+                      required={paymentEntryMode !== 'finance'}
+                    >
                       <Input value={referenceNumber} onChange={setReferenceNumber} size="sm" />
                     </FormField>
                   </Grid>
