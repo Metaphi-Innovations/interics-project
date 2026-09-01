@@ -20,19 +20,27 @@ import {
 import {
   Autocomplete,
   Box,
-  Grid,
+  CircularProgress,
   MenuItem,
   Select as MuiSelect,
   TextField,
   Typography,
 } from '@mui/material'
 import { useTheme } from '@mui/material/styles'
-import type { TooltipContentProps } from 'recharts'
+import {
+  Bar as RechartsBar,
+  BarChart as RechartsBarChart,
+  CartesianGrid,
+  Cell as RechartsCell,
+  ResponsiveContainer,
+  Tooltip,
+  type TooltipContentProps,
+  XAxis,
+  YAxis,
+} from 'recharts'
 import {
   BarChart,
   ChartCard,
-  Checkbox,
-  useToast,
 } from '@/design-system/components'
 import { CHART_COLORS, tokens } from '@/design-system/tokens'
 import { formatCurrency } from '@/utils/formatters'
@@ -40,6 +48,8 @@ import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { fetchProjects } from '@/slices/projects/thunk'
 import type { Project } from '@/slices/projects/reducer'
 import { getProjectAssignedMembers } from '@/utils/projectAssignedTeam'
+import client from '@/api/client'
+import { unwrapApiData } from '@/modules/system-settings/shared/api'
 
 interface ChartSeriesLegendItem {
   label: string
@@ -82,10 +92,10 @@ function ChartSeriesLegend({ items }: { items: ChartSeriesLegendItem[] }) {
 }
 
 function projectDurationDays(project: Project): number | null {
-  if (!project.startDate) return null
-  const start = new Date(project.startDate)
-  const endIso = project.expectedEndDate
-  if (!endIso) return null
+  if (project.status !== 'Completed') return null
+  if (!project.createdAt || !project.completedAt) return null
+  const start = new Date(project.createdAt)
+  const endIso = project.completedAt
   const end = new Date(endIso)
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null
   const diff = Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24))
@@ -454,12 +464,14 @@ export function getTeamAnalytics(
 export const TEAM_METRIC_OPTIONS = [
   'Revenue',
   'Project Duration',
-  'Number of Projects',
+  'No of Projects',
+  'Area',
   'Completed Projects – Year Comparison',
-  'Pitch vs Live Projects',
 ] as const
 
 export type TeamMetric = (typeof TEAM_METRIC_OPTIONS)[number]
+
+export const DEFAULT_TEAM_PERFORMANCE_MEMBERS = 5
 
 export interface TeamMemberOption {
   value: string
@@ -485,6 +497,114 @@ export interface TeamPerformanceChartConfig {
 export interface TeamPerformanceBundle {
   memberOptions: TeamMemberOption[]
   performanceChart: TeamPerformanceChartConfig
+}
+
+export interface TeamRevenueProjectBreakdown {
+  projectId: string
+  projectName: string
+  revenue: number
+}
+
+export interface TeamRevenueYearPoint {
+  year: number
+  revenue: number
+  projects: TeamRevenueProjectBreakdown[]
+}
+
+export interface TeamMemberYearlyRevenuePoint {
+  userId: string
+  member: string
+  years: TeamRevenueYearPoint[]
+}
+
+export interface YearlyRevenueByTeamMemberBundle {
+  memberOptions: TeamMemberOption[]
+  years: number[]
+  members: TeamMemberYearlyRevenuePoint[]
+}
+
+interface TeamRevenueYearChartConfig {
+  subtitle: string
+  data: TeamRevenueYearPoint[]
+}
+
+export interface TeamLifecycleProjectPoint {
+  projectId: string
+  projectName: string
+  areaSqFt: number
+  status: string
+  createdAt: string
+  wentLiveAt: string | null
+  completedAt: string | null
+  archivedAt: string | null
+  cancelledAt: string | null
+}
+
+export interface TeamMemberProjectLifecyclePoint {
+  userId: string
+  member: string
+  projects: TeamLifecycleProjectPoint[]
+}
+
+export interface ProjectLifecycleByTeamMemberBundle {
+  memberOptions: TeamMemberOption[]
+  members: TeamMemberProjectLifecyclePoint[]
+}
+
+interface ProjectLifecycleStageSegment {
+  key: 'pitchDays' | 'liveDays' | 'completedDays'
+  label: 'Pitch' | 'Live' | 'Completed'
+  startDate: string
+  endDate: string
+  days: number
+}
+
+interface ProjectLifecycleChartRow {
+  projectId: string
+  projectName: string
+  status: string
+  pitchDays: number
+  liveDays: number
+  completedDays: number
+  stages: ProjectLifecycleStageSegment[]
+}
+
+interface ProjectLifecycleChartConfig {
+  subtitle: string
+  data: ProjectLifecycleChartRow[]
+}
+
+type ProjectStatusProgressKey = 'pitch' | 'live' | 'completed' | 'archived' | 'cancelled'
+
+interface ProjectStatusProgressStage {
+  key: ProjectStatusProgressKey
+  label: 'Pitch' | 'Live' | 'Completed' | 'Archived' | 'Cancelled'
+  startDate: string | null
+  endDate: string | null
+  days: number | null
+}
+
+type ProjectStatusProgressChartRow = Record<ProjectStatusProgressKey, number> & {
+  projectId: string
+  projectName: string
+  status: string
+  stages: ProjectStatusProgressStage[]
+}
+
+interface ProjectStatusProgressChartConfig {
+  subtitle: string
+  data: ProjectStatusProgressChartRow[]
+}
+
+interface ProjectAreaChartRow {
+  projectId: string
+  projectName: string
+  areaSqFt: number
+}
+
+interface ProjectAreaChartConfig {
+  subtitle: string
+  data: ProjectAreaChartRow[]
 }
 
 interface DateBounds {
@@ -578,10 +698,35 @@ function getPerformancePeriodBounds(period: TeamTimePeriod, now = new Date()): {
   }
 }
 
+function getFinancialYearComparisonBounds(now = new Date()): {
+  current: DateBounds
+  previous: DateBounds
+} {
+  const year = now.getFullYear()
+  const currentFyStartYear = now.getMonth() >= 3 ? year : year - 1
+  return {
+    current: {
+      start: startOfDay(new Date(currentFyStartYear, 3, 1)),
+      end: endOfDay(new Date(currentFyStartYear + 1, 2, 31)),
+    },
+    previous: {
+      start: startOfDay(new Date(currentFyStartYear - 1, 3, 1)),
+      end: endOfDay(new Date(currentFyStartYear, 2, 31)),
+    },
+  }
+}
+
 function projectInBounds(project: Project, bounds: DateBounds): boolean {
   const anchor = projectAnchorDate(project)
   if (!anchor) return false
   return anchor >= bounds.start && anchor <= bounds.end
+}
+
+function completedProjectInBounds(project: Project, bounds: DateBounds): boolean {
+  if (project.status !== 'Completed') return false
+  const completed = parseDate(project.completedAt)
+  if (!completed) return false
+  return completed >= bounds.start && completed <= bounds.end
 }
 
 /** Live segment for Number of Projects: status Live and Live/Start Date in period. */
@@ -593,7 +738,7 @@ function liveProjectStartInBounds(project: Project, bounds: DateBounds): boolean
 }
 
 function projectRevenue(project: Project): number {
-  return project.totalClientPOValue || project.projectValue || 0
+  return project.totalClientPOValue || 0
 }
 
 function projectSqft(project: Project): number | null {
@@ -748,10 +893,10 @@ function buildPerformanceChart(
           total: m.totalDurationDays,
         })),
       }
-    case 'Number of Projects':
+    case 'No of Projects':
       return {
         subtitle: 'Project status distribution by team member',
-        yAxisLabel: 'Number of Projects',
+        yAxisLabel: 'No of Projects',
         format: 'count',
         series: [
           { key: 'pitch', label: 'Pitch', color: CHART_COLORS.blue },
@@ -775,28 +920,13 @@ function buildPerformanceChart(
         yAxisLabel: 'Completed Projects',
         format: 'count',
         series: [
-          { key: 'current', label: 'Current Year', color: CHART_COLORS.teal },
-          { key: 'previous', label: 'Previous Year', color: CHART_COLORS.grey },
+          { key: 'current', label: 'Current Financial Year', color: CHART_COLORS.green },
+          { key: 'previous', label: 'Previous Financial Year', color: CHART_COLORS.grey },
         ],
         data: members.map((m, i) => ({
           ...dataBase[i],
           current: m.completedProjects,
           previous: m.previousCompletedProjects,
-        })),
-      }
-    case 'Pitch vs Live Projects':
-      return {
-        subtitle: 'Pitch vs Live projects by team member',
-        yAxisLabel: 'Pitch vs Live Projects',
-        format: 'count',
-        series: [
-          { key: 'pitch', label: 'Pitch Projects', color: CHART_COLORS.blue },
-          { key: 'live', label: 'Live Projects', color: CHART_COLORS.teal },
-        ],
-        data: members.map((m, i) => ({
-          ...dataBase[i],
-          pitch: m.pitches,
-          live: m.liveProjects,
         })),
       }
     default:
@@ -849,7 +979,7 @@ function getMetricSortValue(m: MemberMetrics, metric: TeamMetric): number {
       return m.totalRevenue
     case 'Project Duration':
       return m.totalDurationDays
-    case 'Number of Projects':
+    case 'No of Projects':
       return (
         m.pitches +
         m.liveProjectsInPeriod +
@@ -858,9 +988,7 @@ function getMetricSortValue(m: MemberMetrics, metric: TeamMetric): number {
         m.archivedProjects
       )
     case 'Completed Projects – Year Comparison':
-      return m.completedProjects
-    case 'Pitch vs Live Projects':
-      return m.pitches + m.liveProjects
+      return m.completedProjects + m.previousCompletedProjects
     default:
       return m.projectCount
   }
@@ -872,13 +1000,25 @@ export function getTeamPerformanceAnalytics(
   timePeriod: TeamTimePeriod,
   teamMemberIds: string[],
   metric: TeamMetric,
+  allMemberOptions?: TeamMemberOption[],
 ): TeamPerformanceBundle {
-  const memberOptions = buildMemberOptions(projects)
+  const memberOptions = allMemberOptions ?? buildMemberOptions(projects)
+  const isYearComparisonMetric = metric === 'Completed Projects – Year Comparison'
   const { current: currentBounds, previous: previousBounds } =
-    getPerformancePeriodBounds(timePeriod)
+    isYearComparisonMetric
+      ? getFinancialYearComparisonBounds()
+      : getPerformancePeriodBounds(timePeriod)
 
-  const currentProjects = projects.filter((p) => projectInBounds(p, currentBounds))
-  const previousProjects = projects.filter((p) => projectInBounds(p, previousBounds))
+  const currentProjects = projects.filter((p) =>
+    isYearComparisonMetric
+      ? completedProjectInBounds(p, currentBounds)
+      : projectInBounds(p, currentBounds),
+  )
+  const previousProjects = projects.filter((p) =>
+    isYearComparisonMetric
+      ? completedProjectInBounds(p, previousBounds)
+      : projectInBounds(p, previousBounds),
+  )
 
   const currentMap = new Map<string, MemberAccumulator>()
   const previousMap = new Map<string, MemberAccumulator>()
@@ -955,13 +1095,17 @@ export function getTeamPerformanceAnalytics(
     members.sort((a, b) => getMetricSortValue(b, metric) - getMetricSortValue(a, metric) || a.name.localeCompare(b.name))
   }
 
+  if (!hasSpecificSelection) {
+    members = members.slice(0, DEFAULT_TEAM_PERFORMANCE_MEMBERS)
+  }
+
   return {
     memberOptions,
     performanceChart: buildPerformanceChart(members, metric),
   }
 }
 
-export const MAX_SQFT_TEAM_MEMBERS = 10
+export const DEFAULT_SQFT_TEAM_MEMBERS = 5
 
 export interface TeamMemberSqftPoint {
   userId: string
@@ -972,6 +1116,189 @@ export interface TeamMemberSqftPoint {
 export interface SqftByTeamMemberBundle {
   memberOptions: TeamMemberOption[]
   members: TeamMemberSqftPoint[]
+}
+
+export interface TeamMemberRevenuePoint {
+  userId: string
+  member: string
+  projectCount: number
+  totalRevenue: number
+  averageRevenue: number
+  completedProjectCount: number
+  totalDurationDays: number
+  averageDurationDays: number
+}
+
+export interface PerformanceByTeamMemberBundle {
+  memberOptions: TeamMemberOption[]
+  members: TeamMemberRevenuePoint[]
+}
+
+interface TeamDashboardResponse {
+  data?: {
+    performanceByTeamMember?: unknown
+    projectLifecycleByTeamMember?: unknown
+    sqftByTeamMember?: unknown
+    yearlyRevenueByTeamMember?: unknown
+  }
+}
+
+function asTeamMemberOptions(value: unknown): TeamMemberOption[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((row) => {
+      const record = row && typeof row === 'object' ? (row as Record<string, unknown>) : {}
+      return {
+        value: String(record.value ?? ''),
+        label: String(record.label ?? ''),
+      }
+    })
+    .filter((row) => row.value && row.label)
+}
+
+function asTeamMemberRevenuePoints(value: unknown): TeamMemberRevenuePoint[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((row) => {
+      const record = row && typeof row === 'object' ? (row as Record<string, unknown>) : {}
+      const projectCount = Number(record.projectCount ?? 0)
+      const totalRevenue = Number(record.totalRevenue ?? 0)
+      const averageRevenue = Number(record.averageRevenue ?? 0)
+      const completedProjectCount = Number(record.completedProjectCount ?? 0)
+      const totalDurationDays = Number(record.totalDurationDays ?? 0)
+      const averageDurationDays = Number(record.averageDurationDays ?? 0)
+      return {
+        userId: String(record.userId ?? ''),
+        member: String(record.member ?? ''),
+        projectCount: Number.isFinite(projectCount) ? Math.round(projectCount) : 0,
+        totalRevenue: Number.isFinite(totalRevenue) ? Math.round(totalRevenue) : 0,
+        averageRevenue: Number.isFinite(averageRevenue) ? Math.round(averageRevenue) : 0,
+        completedProjectCount: Number.isFinite(completedProjectCount)
+          ? Math.round(completedProjectCount)
+          : 0,
+        totalDurationDays: Number.isFinite(totalDurationDays)
+          ? Math.round(totalDurationDays)
+          : 0,
+        averageDurationDays: Number.isFinite(averageDurationDays)
+          ? Math.round(averageDurationDays)
+          : 0,
+      }
+    })
+    .filter((row) => row.userId && row.member)
+}
+
+function asTeamRevenueProjectBreakdowns(value: unknown): TeamRevenueProjectBreakdown[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((row) => {
+      const record = row && typeof row === 'object' ? (row as Record<string, unknown>) : {}
+      const revenue = Number(record.revenue ?? 0)
+      return {
+        projectId: String(record.projectId ?? ''),
+        projectName: String(record.projectName ?? 'Unknown Project'),
+        revenue: Number.isFinite(revenue) ? Math.round(revenue) : 0,
+      }
+    })
+    .filter((row) => row.projectId && row.revenue > 0)
+}
+
+function asTeamRevenueYearPoints(value: unknown): TeamRevenueYearPoint[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((row) => {
+      const record = row && typeof row === 'object' ? (row as Record<string, unknown>) : {}
+      const year = Number(record.year ?? 0)
+      const revenue = Number(record.revenue ?? 0)
+      return {
+        year: Number.isFinite(year) ? Math.round(year) : 0,
+        revenue: Number.isFinite(revenue) ? Math.round(revenue) : 0,
+        projects: asTeamRevenueProjectBreakdowns(record.projects),
+      }
+    })
+    .filter((row) => row.year > 0)
+}
+
+function asTeamMemberYearlyRevenuePoints(value: unknown): TeamMemberYearlyRevenuePoint[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((row) => {
+      const record = row && typeof row === 'object' ? (row as Record<string, unknown>) : {}
+      return {
+        userId: String(record.userId ?? ''),
+        member: String(record.member ?? ''),
+        years: asTeamRevenueYearPoints(record.years),
+      }
+    })
+    .filter((row) => row.userId && row.member)
+}
+
+function asTeamLifecycleProjectPoints(value: unknown): TeamLifecycleProjectPoint[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((row) => {
+      const record = row && typeof row === 'object' ? (row as Record<string, unknown>) : {}
+      const areaSqFt = Number(record.areaSqFt ?? 0)
+      return {
+        projectId: String(record.projectId ?? ''),
+        projectName: String(record.projectName ?? 'Unknown Project'),
+        areaSqFt: Number.isFinite(areaSqFt) ? Math.round(areaSqFt) : 0,
+        status: String(record.status ?? ''),
+        createdAt: String(record.createdAt ?? ''),
+        wentLiveAt: record.wentLiveAt == null ? null : String(record.wentLiveAt),
+        completedAt: record.completedAt == null ? null : String(record.completedAt),
+        archivedAt: record.archivedAt == null ? null : String(record.archivedAt),
+        cancelledAt: record.cancelledAt == null ? null : String(record.cancelledAt),
+      }
+    })
+    .filter((row) => row.projectId && row.projectName && row.createdAt)
+}
+
+function asTeamMemberProjectLifecyclePoints(value: unknown): TeamMemberProjectLifecyclePoint[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((row) => {
+      const record = row && typeof row === 'object' ? (row as Record<string, unknown>) : {}
+      return {
+        userId: String(record.userId ?? ''),
+        member: String(record.member ?? ''),
+        projects: asTeamLifecycleProjectPoints(record.projects),
+      }
+    })
+    .filter((row) => row.userId && row.member)
+}
+
+function asPerformanceByTeamMemberBundle(value: unknown): PerformanceByTeamMemberBundle | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const record = value as Record<string, unknown>
+  return {
+    memberOptions: asTeamMemberOptions(record.memberOptions),
+    members: asTeamMemberRevenuePoints(record.members),
+  }
+}
+
+function asProjectLifecycleByTeamMemberBundle(value: unknown): ProjectLifecycleByTeamMemberBundle | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const record = value as Record<string, unknown>
+  return {
+    memberOptions: asTeamMemberOptions(record.memberOptions),
+    members: asTeamMemberProjectLifecyclePoints(record.members),
+  }
+}
+
+function asYearlyRevenueByTeamMemberBundle(value: unknown): YearlyRevenueByTeamMemberBundle | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const record = value as Record<string, unknown>
+  const years = Array.isArray(record.years)
+    ? record.years
+        .map((year) => Number(year))
+        .filter((year) => Number.isFinite(year) && year > 0)
+        .map((year) => Math.round(year))
+    : []
+  return {
+    memberOptions: asTeamMemberOptions(record.memberOptions),
+    years,
+    members: asTeamMemberYearlyRevenuePoints(record.members),
+  }
 }
 
 /** Total sq.ft designed per team member from real project assignments. */
@@ -1008,6 +1335,545 @@ export function getSqftDesignedByTeamMember(
     .sort((a, b) => a.label.localeCompare(b.label))
 
   return { memberOptions, members }
+}
+
+function continuousYearRange(years: number[]): number[] {
+  const validYears = years.filter((year) => Number.isFinite(year) && year > 0)
+  const currentYear = new Date().getFullYear()
+  if (validYears.length === 0) return [currentYear]
+  const minYear = Math.min(...validYears)
+  const maxYear = Math.max(...validYears, currentYear)
+  return Array.from({ length: maxYear - minYear + 1 }, (_value, index) => minYear + index)
+}
+
+function buildYearlyRevenueByTeamMemberFromProjects(
+  projects: Project[],
+): YearlyRevenueByTeamMemberBundle {
+  const memberNameById = new Map<string, string>()
+  const yearlyByUserId = new Map<string, Map<number, Map<string, TeamRevenueProjectBreakdown>>>()
+  const years = new Set<number>()
+
+  for (const project of projects) {
+    const revenue = projectRevenue(project)
+    if (revenue <= 0) continue
+    const year = (projectAnchorDate(project) ?? new Date()).getFullYear()
+    years.add(year)
+
+    for (const member of uniqueAssignedMembers(project)) {
+      memberNameById.set(member.userId, member.name)
+      let memberYears = yearlyByUserId.get(member.userId)
+      if (!memberYears) {
+        memberYears = new Map()
+        yearlyByUserId.set(member.userId, memberYears)
+      }
+      let projectsById = memberYears.get(year)
+      if (!projectsById) {
+        projectsById = new Map()
+        memberYears.set(year, projectsById)
+      }
+      projectsById.set(project.id, {
+        projectId: project.id,
+        projectName: project.name,
+        revenue: Math.round(revenue),
+      })
+    }
+  }
+
+  const memberOptions = Array.from(memberNameById.entries())
+    .map(([value, label]) => ({ value, label }))
+    .sort((a, b) => a.label.localeCompare(b.label))
+
+  const members = Array.from(yearlyByUserId.entries())
+    .map(([userId, memberYears]) => ({
+      userId,
+      member: memberNameById.get(userId) ?? 'Unknown',
+      years: Array.from(memberYears.entries())
+        .map(([year, projectsById]) => {
+          const projectsForYear = Array.from(projectsById.values()).sort(
+            (a, b) => b.revenue - a.revenue || a.projectName.localeCompare(b.projectName),
+          )
+          return {
+            year,
+            revenue: projectsForYear.reduce((sum, project) => sum + project.revenue, 0),
+            projects: projectsForYear,
+          }
+        })
+        .sort((a, b) => a.year - b.year),
+    }))
+    .sort((a, b) => a.member.localeCompare(b.member))
+
+  return {
+    memberOptions,
+    years: continuousYearRange(Array.from(years)),
+    members,
+  }
+}
+
+function buildRevenueYearChart(
+  source: YearlyRevenueByTeamMemberBundle,
+  selectedUserId: string | null,
+): TeamRevenueYearChartConfig {
+  const selectedMember = selectedUserId
+    ? source.members.find((member) => member.userId === selectedUserId) ?? null
+    : null
+  const rowsByYear = new Map<number, TeamRevenueYearPoint>()
+
+  if (selectedMember) {
+    for (const row of selectedMember.years) {
+      rowsByYear.set(row.year, {
+        year: row.year,
+        revenue: row.revenue,
+        projects: row.projects,
+      })
+    }
+  } else {
+    const projectsByYear = new Map<number, Map<string, TeamRevenueProjectBreakdown>>()
+    for (const member of source.members) {
+      for (const row of member.years) {
+        let projectsForYear = projectsByYear.get(row.year)
+        if (!projectsForYear) {
+          projectsForYear = new Map()
+          projectsByYear.set(row.year, projectsForYear)
+        }
+        for (const project of row.projects) {
+          if (!projectsForYear.has(project.projectId)) {
+            projectsForYear.set(project.projectId, project)
+          }
+        }
+      }
+    }
+
+    for (const [year, projectsForYear] of projectsByYear.entries()) {
+      const projectsForChart = Array.from(projectsForYear.values()).sort(
+        (a, b) => b.revenue - a.revenue || a.projectName.localeCompare(b.projectName),
+      )
+      rowsByYear.set(year, {
+        year,
+        revenue: projectsForChart.reduce((sum, project) => sum + project.revenue, 0),
+        projects: projectsForChart,
+      })
+    }
+  }
+
+  const yearRange = continuousYearRange([
+    ...source.years,
+    ...Array.from(rowsByYear.keys()),
+  ])
+
+  return {
+    subtitle: selectedMember
+      ? `${selectedMember.member} revenue generated by year`
+      : 'Total project revenue generated by year',
+    data: yearRange.map((year) => ({
+      year,
+      revenue: rowsByYear.get(year)?.revenue ?? 0,
+      projects: rowsByYear.get(year)?.projects ?? [],
+    })),
+  }
+}
+
+function buildProjectLifecycleByTeamMemberFromProjects(
+  projects: Project[],
+): ProjectLifecycleByTeamMemberBundle {
+  const memberNameById = new Map<string, string>()
+  const projectsByUserId = new Map<string, Map<string, TeamLifecycleProjectPoint>>()
+
+  for (const project of projects) {
+    if (!project.createdAt) continue
+    for (const member of uniqueAssignedMembers(project)) {
+      memberNameById.set(member.userId, member.name)
+      let projectMap = projectsByUserId.get(member.userId)
+      if (!projectMap) {
+        projectMap = new Map()
+        projectsByUserId.set(member.userId, projectMap)
+      }
+      projectMap.set(project.id, {
+        projectId: project.id,
+        projectName: project.name,
+        areaSqFt: Math.round(projectSqft(project) ?? 0),
+        status: project.status,
+        createdAt: project.createdAt,
+        wentLiveAt: project.wentLiveAt ?? null,
+        completedAt: project.completedAt ?? null,
+        archivedAt: project.archivedAt ?? null,
+        cancelledAt: project.cancelledAt ?? null,
+      })
+    }
+  }
+
+  const memberOptions = Array.from(memberNameById.entries())
+    .map(([value, label]) => ({ value, label }))
+    .sort((a, b) => a.label.localeCompare(b.label))
+
+  const members = Array.from(projectsByUserId.entries())
+    .map(([userId, projectMap]) => ({
+      userId,
+      member: memberNameById.get(userId) ?? 'Unknown',
+      projects: Array.from(projectMap.values()).sort(
+        (a, b) =>
+          (parseDate(a.createdAt)?.getTime() ?? 0) - (parseDate(b.createdAt)?.getTime() ?? 0) ||
+          a.projectName.localeCompare(b.projectName),
+      ),
+    }))
+    .sort((a, b) => a.member.localeCompare(b.member))
+
+  return { memberOptions, members }
+}
+
+function safeLifecycleDate(value: string | null | undefined): Date | null {
+  const parsed = parseDate(value)
+  return parsed && Number.isFinite(parsed.getTime()) ? parsed : null
+}
+
+function lifecycleDays(start: Date, end: Date): number {
+  return Math.max(0, Math.ceil((end.getTime() - start.getTime()) / 86_400_000))
+}
+
+function addLifecycleSegment(
+  segments: ProjectLifecycleStageSegment[],
+  key: ProjectLifecycleStageSegment['key'],
+  label: ProjectLifecycleStageSegment['label'],
+  start: Date,
+  end: Date,
+): void {
+  if (end.getTime() < start.getTime()) return
+  const rawDays = lifecycleDays(start, end)
+  const days = label === 'Completed' ? Math.max(1, rawDays) : rawDays
+  if (days <= 0) return
+  segments.push({
+    key,
+    label,
+    startDate: start.toISOString(),
+    endDate: end.toISOString(),
+    days,
+  })
+}
+
+function projectLifecycleSegments(
+  project: TeamLifecycleProjectPoint,
+  now = new Date(),
+): ProjectLifecycleStageSegment[] {
+  const createdAt = safeLifecycleDate(project.createdAt)
+  if (!createdAt) return []
+  const wentLiveAt = safeLifecycleDate(project.wentLiveAt)
+  const completedAt = safeLifecycleDate(project.completedAt)
+  const status = project.status.trim().toUpperCase()
+  const segments: ProjectLifecycleStageSegment[] = []
+
+  const hasLiveDate = Boolean(wentLiveAt && wentLiveAt.getTime() >= createdAt.getTime())
+  const hasCompletedDate = Boolean(completedAt && completedAt.getTime() >= createdAt.getTime())
+
+  if (hasLiveDate && wentLiveAt) {
+    addLifecycleSegment(segments, 'pitchDays', 'Pitch', createdAt, wentLiveAt)
+  } else if (!hasLiveDate && status === 'PITCH') {
+    addLifecycleSegment(segments, 'pitchDays', 'Pitch', createdAt, now)
+  }
+
+  const liveStart =
+    hasLiveDate && wentLiveAt
+      ? wentLiveAt
+      : ['LIVE', 'COMPLETED', 'ARCHIVED'].includes(status)
+        ? createdAt
+        : null
+  if (liveStart) {
+    const liveEnd = hasCompletedDate && completedAt ? completedAt : now
+    addLifecycleSegment(segments, 'liveDays', 'Live', liveStart, liveEnd)
+  }
+
+  if (hasCompletedDate && completedAt) {
+    addLifecycleSegment(segments, 'completedDays', 'Completed', completedAt, now)
+  }
+
+  return segments
+}
+
+function buildProjectLifecycleChart(
+  source: ProjectLifecycleByTeamMemberBundle,
+  selectedUserId: string | null,
+): ProjectLifecycleChartConfig {
+  const selectedMember = selectedUserId
+    ? source.members.find((member) => member.userId === selectedUserId) ?? null
+    : null
+  const projectMap = new Map<string, TeamLifecycleProjectPoint>()
+
+  const sourceMembers = selectedMember ? [selectedMember] : source.members
+  for (const member of sourceMembers) {
+    for (const project of member.projects) {
+      if (!projectMap.has(project.projectId)) {
+        projectMap.set(project.projectId, project)
+      }
+    }
+  }
+
+  const data = Array.from(projectMap.values())
+    .map((project): ProjectLifecycleChartRow | null => {
+      const stages = projectLifecycleSegments(project)
+      if (stages.length === 0) return null
+      return {
+        projectId: project.projectId,
+        projectName: project.projectName,
+        status: project.status,
+        pitchDays: stages.find((stage) => stage.key === 'pitchDays')?.days ?? 0,
+        liveDays: stages.find((stage) => stage.key === 'liveDays')?.days ?? 0,
+        completedDays: stages.find((stage) => stage.key === 'completedDays')?.days ?? 0,
+        stages,
+      }
+    })
+    .filter((row): row is ProjectLifecycleChartRow => row != null)
+    .sort((a, b) => a.projectName.localeCompare(b.projectName))
+
+  return {
+    subtitle: selectedMember
+      ? `${selectedMember.member} project lifecycle by weeks`
+      : 'Project lifecycle by weeks',
+    data,
+  }
+}
+
+const PROJECT_STATUS_PROGRESS_SERIES: Array<{
+  key: ProjectStatusProgressKey
+  label: ProjectStatusProgressStage['label']
+  color: string
+}> = [
+  { key: 'pitch', label: 'Pitch', color: CHART_COLORS.blue },
+  { key: 'live', label: 'Live', color: CHART_COLORS.teal },
+  { key: 'completed', label: 'Completed', color: CHART_COLORS.green },
+  { key: 'archived', label: 'Archived', color: CHART_COLORS.orange },
+  { key: 'cancelled', label: 'Cancelled', color: CHART_COLORS.red },
+]
+
+function normalizedProjectStatus(project: TeamLifecycleProjectPoint): string {
+  return project.status.trim().toUpperCase()
+}
+
+function completedLifecycleProjectInBounds(
+  project: TeamLifecycleProjectPoint,
+  bounds: DateBounds,
+): boolean {
+  if (normalizedProjectStatus(project) !== 'COMPLETED') return false
+  const completed = safeLifecycleDate(project.completedAt)
+  if (!completed) return false
+  return completed >= bounds.start && completed <= bounds.end
+}
+
+function buildCompletedProjectsYearComparisonChart(
+  source: ProjectLifecycleByTeamMemberBundle,
+  selectedUserId: string | null,
+): TeamPerformanceChartConfig {
+  const { current: currentBounds, previous: previousBounds } =
+    getFinancialYearComparisonBounds()
+  const selectedMember = selectedUserId
+    ? source.members.find((member) => member.userId === selectedUserId) ?? null
+    : null
+  const sourceMembers = selectedMember ? [selectedMember] : source.members
+
+  const rows = sourceMembers
+    .map((member) => {
+      const current = member.projects.filter((project) =>
+        completedLifecycleProjectInBounds(project, currentBounds),
+      ).length
+      const previous = member.projects.filter((project) =>
+        completedLifecycleProjectInBounds(project, previousBounds),
+      ).length
+      return {
+        member: member.member,
+        userId: member.userId,
+        current,
+        previous,
+      }
+    })
+    .sort(
+      (a, b) =>
+        b.current + b.previous - (a.current + a.previous) ||
+        a.member.localeCompare(b.member),
+    )
+
+  return {
+    subtitle: selectedMember
+      ? `${selectedMember.member} completed projects: Current FY vs Previous FY`
+      : 'Completed projects: Current FY vs Previous FY',
+    yAxisLabel: 'Completed Projects',
+    format: 'count',
+    series: [
+      { key: 'current', label: 'Current Financial Year', color: CHART_COLORS.green },
+      { key: 'previous', label: 'Previous Financial Year', color: CHART_COLORS.grey },
+    ],
+    data: selectedMember ? rows : rows.slice(0, DEFAULT_TEAM_PERFORMANCE_MEMBERS),
+  }
+}
+
+function projectReachedStatusKeys(project: TeamLifecycleProjectPoint): ProjectStatusProgressKey[] {
+  const status = normalizedProjectStatus(project)
+  const keys = new Set<ProjectStatusProgressKey>(['pitch'])
+
+  if (project.wentLiveAt || ['LIVE', 'COMPLETED', 'ARCHIVED'].includes(status)) {
+    keys.add('live')
+  }
+  if (project.completedAt || ['COMPLETED', 'ARCHIVED'].includes(status)) {
+    keys.add('completed')
+  }
+  if (project.archivedAt || status === 'ARCHIVED') {
+    keys.add('archived')
+  }
+  if (project.cancelledAt || status === 'CANCELLED') {
+    keys.add('cancelled')
+  }
+
+  return PROJECT_STATUS_PROGRESS_SERIES
+    .map((stage) => stage.key)
+    .filter((key) => keys.has(key))
+}
+
+function isoFromDate(value: Date | null): string | null {
+  return value ? value.toISOString() : null
+}
+
+function statusStageBounds(
+  project: TeamLifecycleProjectPoint,
+  key: ProjectStatusProgressKey,
+  now: Date,
+): { start: Date | null; end: Date | null } {
+  const status = normalizedProjectStatus(project)
+  const createdAt = safeLifecycleDate(project.createdAt)
+  const wentLiveAt = safeLifecycleDate(project.wentLiveAt)
+  const completedAt = safeLifecycleDate(project.completedAt)
+  const archivedAt = safeLifecycleDate(project.archivedAt)
+  const cancelledAt = safeLifecycleDate(project.cancelledAt)
+
+  switch (key) {
+    case 'pitch':
+      return {
+        start: createdAt,
+        end: wentLiveAt ?? cancelledAt ?? archivedAt ?? completedAt ?? now,
+      }
+    case 'live': {
+      const hasLiveStage = Boolean(wentLiveAt) || ['LIVE', 'COMPLETED', 'ARCHIVED'].includes(status)
+      if (!hasLiveStage) return { start: null, end: null }
+      return {
+        start: wentLiveAt ?? createdAt,
+        end: completedAt ?? archivedAt ?? cancelledAt ?? now,
+      }
+    }
+    case 'completed': {
+      const hasCompletedStage = Boolean(completedAt) || ['COMPLETED', 'ARCHIVED'].includes(status)
+      if (!hasCompletedStage) return { start: null, end: null }
+      return {
+        start: completedAt ?? wentLiveAt ?? createdAt,
+        end: archivedAt ?? now,
+      }
+    }
+    case 'archived':
+      if (!archivedAt && status !== 'ARCHIVED') return { start: null, end: null }
+      return {
+        start: archivedAt ?? completedAt ?? wentLiveAt ?? createdAt,
+        end: now,
+      }
+    case 'cancelled':
+      if (!cancelledAt && status !== 'CANCELLED') return { start: null, end: null }
+      return {
+        start: cancelledAt ?? completedAt ?? wentLiveAt ?? createdAt,
+        end: now,
+      }
+    default:
+      return { start: null, end: null }
+  }
+}
+
+function projectStatusProgressStages(
+  project: TeamLifecycleProjectPoint,
+  now = new Date(),
+): ProjectStatusProgressStage[] {
+  return projectReachedStatusKeys(project).map((key) => {
+    const definition = PROJECT_STATUS_PROGRESS_SERIES.find((stage) => stage.key === key)
+    const { start, end } = statusStageBounds(project, key, now)
+    const days = start && end ? lifecycleDays(start, end) : null
+    return {
+      key,
+      label: definition?.label ?? 'Pitch',
+      startDate: isoFromDate(start),
+      endDate: isoFromDate(end),
+      days,
+    }
+  })
+}
+
+function buildProjectStatusProgressChart(
+  source: ProjectLifecycleByTeamMemberBundle,
+  selectedUserId: string | null,
+): ProjectStatusProgressChartConfig {
+  const selectedMember = selectedUserId
+    ? source.members.find((member) => member.userId === selectedUserId) ?? null
+    : null
+  const projectMap = new Map<string, TeamLifecycleProjectPoint>()
+  const sourceMembers = selectedMember ? [selectedMember] : source.members
+
+  for (const member of sourceMembers) {
+    for (const project of member.projects) {
+      if (!projectMap.has(project.projectId)) {
+        projectMap.set(project.projectId, project)
+      }
+    }
+  }
+
+  const rows = Array.from(projectMap.values())
+    .map((project): ProjectStatusProgressChartRow | null => {
+      const stages = projectStatusProgressStages(project)
+      if (stages.length === 0) return null
+      return {
+        projectId: project.projectId,
+        projectName: project.projectName,
+        status: project.status,
+        pitch: 1,
+        live: 1,
+        completed: 1,
+        archived: 1,
+        cancelled: 1,
+        stages,
+      }
+    })
+    .filter((row): row is ProjectStatusProgressChartRow => row != null)
+    .sort((a, b) => a.projectName.localeCompare(b.projectName))
+
+  return {
+    subtitle: selectedMember
+      ? `${selectedMember.member} project status progression`
+      : 'Top 5 project status progressions',
+    data: selectedMember ? rows : rows.slice(0, DEFAULT_TEAM_PERFORMANCE_MEMBERS),
+  }
+}
+
+function buildProjectAreaChart(
+  source: ProjectLifecycleByTeamMemberBundle,
+  selectedUserId: string | null,
+): ProjectAreaChartConfig {
+  const selectedMember = selectedUserId
+    ? source.members.find((member) => member.userId === selectedUserId) ?? null
+    : null
+  const projectMap = new Map<string, TeamLifecycleProjectPoint>()
+  const sourceMembers = selectedMember ? [selectedMember] : source.members
+
+  for (const member of sourceMembers) {
+    for (const project of member.projects) {
+      if (!projectMap.has(project.projectId)) {
+        projectMap.set(project.projectId, project)
+      }
+    }
+  }
+
+  const rows = Array.from(projectMap.values())
+    .map((project) => ({
+      projectId: project.projectId,
+      projectName: project.projectName,
+      areaSqFt: Math.max(0, Math.round(project.areaSqFt)),
+    }))
+    .sort((a, b) => b.areaSqFt - a.areaSqFt || a.projectName.localeCompare(b.projectName))
+
+  return {
+    subtitle: selectedMember
+      ? `${selectedMember.member} project area by project`
+      : 'Top 5 projects by area',
+    data: selectedMember ? rows : rows.slice(0, DEFAULT_TEAM_PERFORMANCE_MEMBERS),
+  }
 }
 
 const METRIC_SELECT_SX = { minWidth: 200, fontSize: 12, height: 32 } as const
@@ -1083,10 +1949,580 @@ function ChartTooltipShell({ children }: { children: ReactNode }) {
         px: 1.5,
         py: 1,
         boxShadow: tokens.shadow.md,
-        maxWidth: 280,
+        width: 'max-content',
+        minWidth: 160,
+        maxWidth: 360,
+        whiteSpace: 'nowrap',
       }}
     >
       {children}
+    </Box>
+  )
+}
+
+function buildProjectAreaAxis(rows: ProjectAreaChartRow[]): { domainMax: number; ticks: number[] } {
+  const maxValue = Math.max(0, ...rows.map((row) => row.areaSqFt))
+  const step = 10_000
+  const domainMax = Math.max(step, Math.ceil(maxValue / step) * step)
+  const ticks: number[] = []
+  for (let tick = 0; tick <= domainMax; tick += step) {
+    ticks.push(tick)
+  }
+  return { domainMax, ticks }
+}
+
+function ProjectAreaTooltip({ active, payload }: TooltipContentProps) {
+  if (!active || !payload?.length) return null
+  const row = payload[0]?.payload as ProjectAreaChartRow | undefined
+  if (!row) return null
+
+  return (
+    <ChartTooltipShell>
+      <Typography variant="caption" fontWeight={700} sx={{ fontSize: 12, display: 'block', mb: 0.5 }}>
+        {row.projectName}
+      </Typography>
+      <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11, display: 'block' }}>
+        Area:{' '}
+        <Box component="span" sx={{ fontWeight: 700, color: 'text.primary' }}>
+          {formatSqft(row.areaSqFt)} sqft
+        </Box>
+      </Typography>
+    </ChartTooltipShell>
+  )
+}
+
+function ProjectAreaChart({ data }: { data: ProjectAreaChartRow[] }) {
+  const theme = useTheme()
+  const axis = useMemo(() => buildProjectAreaAxis(data), [data])
+  const height = Math.max(300, data.length * 46 + 86)
+
+  return (
+    <Box sx={{ maxHeight: 520, overflowY: 'auto', overflowX: 'hidden' }}>
+      <ResponsiveContainer width="100%" height={height}>
+        <RechartsBarChart
+          data={data}
+          layout="vertical"
+          barCategoryGap="28%"
+          margin={{ top: 12, right: 24, left: 34, bottom: 22 }}
+        >
+          <CartesianGrid
+            stroke={tokens.color.neutral[200]}
+            strokeDasharray="3 3"
+            horizontal={false}
+            vertical
+          />
+          <XAxis
+            type="number"
+            domain={[0, axis.domainMax]}
+            ticks={axis.ticks}
+            tick={{ fill: theme.palette.text.secondary, fontSize: 11 }}
+            tickLine={false}
+            axisLine={{ stroke: tokens.color.neutral[200] }}
+            tickFormatter={formatSqft}
+            label={{
+              value: 'Area (sqft)',
+              position: 'insideBottom',
+              offset: -12,
+              fill: theme.palette.text.secondary,
+              fontSize: 11,
+            }}
+          />
+          <YAxis
+            type="category"
+            dataKey="projectName"
+            width={150}
+            tick={{ fill: theme.palette.text.secondary, fontSize: 11 }}
+            tickLine={false}
+            axisLine={{ stroke: tokens.color.neutral[200] }}
+          />
+          <Tooltip
+            content={(props) => <ProjectAreaTooltip {...props} />}
+            isAnimationActive={false}
+            animationDuration={0}
+            allowEscapeViewBox={{ x: true, y: true }}
+            offset={12}
+            wrapperStyle={{
+              outline: 'none',
+              pointerEvents: 'none',
+              zIndex: tokens.zIndex.tooltip,
+            }}
+            cursor={{ fill: theme.palette.action.hover }}
+          />
+          <RechartsBar
+            dataKey="areaSqFt"
+            name="Area"
+            fill={CHART_COLORS.amber}
+            radius={[0, 4, 4, 0]}
+            maxBarSize={22}
+            activeBar={false}
+            animationDuration={800}
+          />
+        </RechartsBarChart>
+      </ResponsiveContainer>
+    </Box>
+  )
+}
+
+function buildCurrencyAxis(rows: TeamRevenueYearPoint[]): { domainMax: number; ticks: number[] } {
+  const maxValue = Math.max(0, ...rows.map((row) => row.revenue))
+  if (maxValue <= 0) return { domainMax: 100_000, ticks: [0, 25_000, 50_000, 75_000, 100_000] }
+
+  const roughStep = maxValue / 4
+  const magnitude = 10 ** Math.floor(Math.log10(roughStep))
+  const normalized = roughStep / magnitude
+  const stepMultiplier = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10
+  const step = stepMultiplier * magnitude
+  const domainMax = Math.ceil(maxValue / step) * step
+  const ticks: number[] = []
+  for (let tick = 0; tick <= domainMax; tick += step) {
+    ticks.push(Math.round(tick))
+  }
+  return { domainMax, ticks }
+}
+
+function TeamRevenueYearTooltip({ active, payload }: TooltipContentProps) {
+  if (!active || !payload?.length) return null
+  const row = payload[0]?.payload as TeamRevenueYearPoint | undefined
+  if (!row) return null
+
+  return (
+    <ChartTooltipShell>
+      <Typography variant="caption" fontWeight={700} sx={{ fontSize: 12, display: 'block', mb: 0.5 }}>
+        Year: {row.year}
+      </Typography>
+      {row.projects.length > 0 ? (
+        <Box
+          sx={{
+            maxHeight: 220,
+            overflowY: 'auto',
+          }}
+        >
+          {row.projects.map((project) => (
+            <Typography
+              key={project.projectId}
+              variant="caption"
+              color="text.secondary"
+              sx={{ fontSize: 11, display: 'block', mt: 0.25 }}
+            >
+              <Box component="span" sx={{ color: 'text.primary' }}>
+                {project.projectName}
+              </Box>
+              {' - '}
+              <Box component="span" sx={{ fontWeight: 700, color: 'text.primary' }}>
+                {formatMetricValue(project.revenue, 'currency')}
+              </Box>
+            </Typography>
+          ))}
+        </Box>
+      ) : null}
+      <Typography
+        variant="caption"
+        color="text.secondary"
+        sx={{
+          fontSize: 11,
+          display: 'block',
+          mt: 0.75,
+          pt: 0.5,
+          borderTop: `1px solid ${tokens.color.neutral[200]}`,
+        }}
+      >
+        Total -{' '}
+        <Box component="span" sx={{ fontWeight: 700, color: 'text.primary' }}>
+          {formatMetricValue(row.revenue, 'currency')}
+        </Box>
+      </Typography>
+    </ChartTooltipShell>
+  )
+}
+
+function TeamRevenueYearChart({ data }: { data: TeamRevenueYearPoint[] }) {
+  const theme = useTheme()
+  const axis = useMemo(() => buildCurrencyAxis(data), [data])
+
+  return (
+    <ResponsiveContainer width="100%" height={340}>
+      <RechartsBarChart
+        data={data}
+        margin={{ top: 12, right: 24, left: 36, bottom: 16 }}
+      >
+        <CartesianGrid
+          stroke={tokens.color.neutral[200]}
+          strokeDasharray="3 3"
+          horizontal
+          vertical={false}
+        />
+        <XAxis
+          dataKey="year"
+          tick={{ fill: theme.palette.text.secondary, fontSize: 11 }}
+          tickLine={false}
+          axisLine={{ stroke: tokens.color.neutral[200] }}
+        />
+        <YAxis
+          domain={[0, axis.domainMax]}
+          ticks={axis.ticks}
+          tick={{ fill: theme.palette.text.secondary, fontSize: 11 }}
+          tickLine={false}
+          axisLine={false}
+          tickFormatter={formatAxisAmount}
+        />
+        <Tooltip
+          content={(props) => <TeamRevenueYearTooltip {...props} />}
+          cursor={{ fill: theme.palette.action.hover }}
+          isAnimationActive={false}
+          animationDuration={0}
+          allowEscapeViewBox={{ x: true, y: true }}
+          offset={12}
+          wrapperStyle={{
+            outline: 'none',
+            pointerEvents: 'none',
+            zIndex: tokens.zIndex.tooltip,
+          }}
+        />
+        <RechartsBar
+          dataKey="revenue"
+          name="Revenue"
+          fill={CHART_COLORS.teal}
+          radius={[5, 5, 0, 0]}
+          maxBarSize={48}
+          activeBar={false}
+          animationDuration={800}
+        />
+      </RechartsBarChart>
+    </ResponsiveContainer>
+  )
+}
+
+const PROJECT_LIFECYCLE_SERIES: Array<{
+  key: ProjectLifecycleStageSegment['key']
+  label: ProjectLifecycleStageSegment['label']
+  color: string
+}> = [
+  { key: 'pitchDays', label: 'Pitch', color: CHART_COLORS.blue },
+  { key: 'liveDays', label: 'Live', color: CHART_COLORS.teal },
+  { key: 'completedDays', label: 'Completed', color: CHART_COLORS.green },
+]
+
+function buildWeekAxis(rows: ProjectLifecycleChartRow[]): { domainMax: number; ticks: number[] } {
+  const maxDays = Math.max(
+    0,
+    ...rows.map((row) => row.pitchDays + row.liveDays + row.completedDays),
+  )
+  const maxWeeks = Math.max(1, Math.ceil(maxDays / 7))
+  const roughStep = Math.max(1, Math.ceil(maxWeeks / 5))
+  const stepWeeks =
+    roughStep <= 1 ? 1 : roughStep <= 2 ? 2 : roughStep <= 4 ? 4 : Math.ceil(roughStep / 5) * 5
+  const domainWeeks = Math.ceil(maxWeeks / stepWeeks) * stepWeeks
+  const ticks: number[] = []
+  for (let week = 0; week <= domainWeeks; week += stepWeeks) {
+    ticks.push(week * 7)
+  }
+  return { domainMax: domainWeeks * 7, ticks }
+}
+
+function formatWeeks(value: number | string): string {
+  const n = typeof value === 'number' ? value : Number(value)
+  if (Number.isNaN(n)) return String(value)
+  return `${Math.round(n / 7)}w`
+}
+
+function formatLifecycleDate(value: string): string {
+  const parsed = parseDate(value)
+  if (!parsed) return '—'
+  return parsed.toLocaleDateString('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  })
+}
+
+function ProjectLifecycleTooltip({ active, payload }: TooltipContentProps) {
+  if (!active || !payload?.length) return null
+  const row = payload[0]?.payload as ProjectLifecycleChartRow | undefined
+  if (!row) return null
+
+  return (
+    <ChartTooltipShell>
+      <Typography variant="caption" fontWeight={700} sx={{ fontSize: 12, display: 'block', mb: 0.5 }}>
+        {row.projectName}
+      </Typography>
+      {row.stages.map((stage) => (
+        <Typography
+          key={stage.key}
+          variant="caption"
+          color="text.secondary"
+          sx={{ fontSize: 11, display: 'block', mt: 0.25 }}
+        >
+          <Box
+            component="span"
+            sx={{
+              color: PROJECT_LIFECYCLE_SERIES.find((item) => item.key === stage.key)?.color,
+            }}
+          >
+            ●
+          </Box>{' '}
+          {stage.label} - {formatWeeks(stage.days)} ({stage.days} days)
+          <Box component="span" sx={{ display: 'block', pl: 1.75, color: 'text.secondary' }}>
+            {formatLifecycleDate(stage.startDate)} to {formatLifecycleDate(stage.endDate)}
+          </Box>
+        </Typography>
+      ))}
+    </ChartTooltipShell>
+  )
+}
+
+function ProjectLifecycleChart({ data }: { data: ProjectLifecycleChartRow[] }) {
+  const theme = useTheme()
+  const axis = useMemo(() => buildWeekAxis(data), [data])
+  const height = Math.max(300, data.length * 46 + 86)
+
+  return (
+    <Box>
+      <Box sx={{ maxHeight: 520, overflowY: 'auto', overflowX: 'hidden' }}>
+        <ResponsiveContainer width="100%" height={height}>
+          <RechartsBarChart
+            data={data}
+            layout="vertical"
+            barCategoryGap="28%"
+            margin={{ top: 12, right: 24, left: 34, bottom: 22 }}
+          >
+            <CartesianGrid
+              stroke={tokens.color.neutral[200]}
+              strokeDasharray="3 3"
+              horizontal={false}
+              vertical
+            />
+            <XAxis
+              type="number"
+              domain={[0, axis.domainMax]}
+              ticks={axis.ticks}
+              tick={{ fill: theme.palette.text.secondary, fontSize: 11 }}
+              tickLine={false}
+              axisLine={{ stroke: tokens.color.neutral[200] }}
+              tickFormatter={formatWeeks}
+              label={{
+                value: 'Weeks',
+                position: 'insideBottom',
+                offset: -12,
+                fill: theme.palette.text.secondary,
+                fontSize: 11,
+              }}
+            />
+            <YAxis
+              type="category"
+              dataKey="projectName"
+              width={150}
+              tick={{ fill: theme.palette.text.secondary, fontSize: 11 }}
+              tickLine={false}
+              axisLine={{ stroke: tokens.color.neutral[200] }}
+            />
+            <Tooltip
+              content={(props) => <ProjectLifecycleTooltip {...props} />}
+              isAnimationActive={false}
+              animationDuration={0}
+              allowEscapeViewBox={{ x: true, y: true }}
+              offset={12}
+              wrapperStyle={{
+                outline: 'none',
+                pointerEvents: 'none',
+                zIndex: tokens.zIndex.tooltip,
+              }}
+              cursor={{ fill: theme.palette.action.hover }}
+            />
+            {PROJECT_LIFECYCLE_SERIES.map((stage) => (
+              <RechartsBar
+                key={stage.key}
+                dataKey={stage.key}
+                name={stage.label}
+                stackId="lifecycle"
+                fill={stage.color}
+                radius={stage.key === 'completedDays' ? [0, 4, 4, 0] : 0}
+                maxBarSize={18}
+                minPointSize={stage.key === 'completedDays' ? 4 : 0}
+                activeBar={false}
+                animationDuration={800}
+              />
+            ))}
+          </RechartsBarChart>
+        </ResponsiveContainer>
+      </Box>
+      <Box sx={{ mt: 1, display: 'flex', justifyContent: 'center' }}>
+        <ChartSeriesLegend
+          items={PROJECT_LIFECYCLE_SERIES.map((stage) => ({
+            label: stage.label,
+            color: stage.color,
+          }))}
+        />
+      </Box>
+    </Box>
+  )
+}
+
+const PROJECT_STATUS_AXIS_TICKS = PROJECT_STATUS_PROGRESS_SERIES.map(
+  (_stage, index) => index + 0.5,
+)
+
+function formatStatusAxis(value: number | string): string {
+  const n = typeof value === 'number' ? value : Number(value)
+  if (Number.isNaN(n)) return String(value)
+  return PROJECT_STATUS_PROGRESS_SERIES[Math.floor(n)]?.label ?? ''
+}
+
+function formatStageDuration(days: number | null): string {
+  if (days == null) return 'Date unavailable'
+  if (days < 14) return `${days} day${days === 1 ? '' : 's'}`
+  if (days < 60) {
+    const weeks = Math.round(days / 7)
+    return `${weeks} week${weeks === 1 ? '' : 's'} (${days} days)`
+  }
+  if (days < 730) {
+    const months = Math.round(days / 30.4375)
+    return `${months} month${months === 1 ? '' : 's'} (${days} days)`
+  }
+  const years = Math.round(days / 365.25)
+  return `${years} year${years === 1 ? '' : 's'} (${days} days)`
+}
+
+function ProjectStatusProgressTooltip({ active, payload }: TooltipContentProps) {
+  if (!active || !payload?.length) return null
+  const row = payload[0]?.payload as ProjectStatusProgressChartRow | undefined
+  if (!row) return null
+
+  return (
+    <ChartTooltipShell>
+      <Typography variant="caption" fontWeight={700} sx={{ fontSize: 12, display: 'block', mb: 0.5 }}>
+        {row.projectName}
+      </Typography>
+      {row.stages.map((stage) => {
+        const color = PROJECT_STATUS_PROGRESS_SERIES.find((item) => item.key === stage.key)?.color
+        return (
+          <Typography
+            key={stage.key}
+            variant="caption"
+            color="text.secondary"
+            sx={{ fontSize: 11, display: 'block', mt: 0.25 }}
+          >
+            <Box
+              component="span"
+              sx={{
+                display: 'inline-block',
+                width: 8,
+                height: 8,
+                borderRadius: '50%',
+                bgcolor: color,
+                mr: 0.75,
+              }}
+            />
+            <Box component="span" sx={{ display: 'none' }}>
+              â—
+            </Box>{' '}
+            {stage.label} - {formatStageDuration(stage.days)}
+            {stage.startDate && stage.endDate ? (
+              <Box component="span" sx={{ display: 'block', pl: 1.75, color: 'text.secondary' }}>
+                {formatLifecycleDate(stage.startDate)} to {formatLifecycleDate(stage.endDate)}
+              </Box>
+            ) : null}
+          </Typography>
+        )
+      })}
+    </ChartTooltipShell>
+  )
+}
+
+function ProjectStatusProgressChart({ data }: { data: ProjectStatusProgressChartRow[] }) {
+  const theme = useTheme()
+  const height = Math.max(300, data.length * 46 + 86)
+
+  return (
+    <Box>
+      <Box sx={{ maxHeight: 520, overflowY: 'auto', overflowX: 'hidden' }}>
+        <ResponsiveContainer width="100%" height={height}>
+          <RechartsBarChart
+            data={data}
+            layout="vertical"
+            barCategoryGap="28%"
+            margin={{ top: 12, right: 24, left: 34, bottom: 22 }}
+          >
+            <CartesianGrid
+              stroke={tokens.color.neutral[200]}
+              strokeDasharray="3 3"
+              horizontal={false}
+              vertical
+            />
+            <XAxis
+              type="number"
+              domain={[0, PROJECT_STATUS_PROGRESS_SERIES.length]}
+              ticks={PROJECT_STATUS_AXIS_TICKS}
+              tick={{ fill: theme.palette.text.secondary, fontSize: 11 }}
+              tickLine={false}
+              axisLine={{ stroke: tokens.color.neutral[200] }}
+              tickFormatter={formatStatusAxis}
+              label={{
+                value: 'Status',
+                position: 'insideBottom',
+                offset: -12,
+                fill: theme.palette.text.secondary,
+                fontSize: 11,
+              }}
+            />
+            <YAxis
+              type="category"
+              dataKey="projectName"
+              width={150}
+              tick={{ fill: theme.palette.text.secondary, fontSize: 11 }}
+              tickLine={false}
+              axisLine={{ stroke: tokens.color.neutral[200] }}
+            />
+            <Tooltip
+              content={(props) => <ProjectStatusProgressTooltip {...props} />}
+              isAnimationActive={false}
+              animationDuration={0}
+              allowEscapeViewBox={{ x: true, y: true }}
+              offset={12}
+              wrapperStyle={{
+                outline: 'none',
+                pointerEvents: 'none',
+                zIndex: tokens.zIndex.tooltip,
+              }}
+              cursor={{ fill: theme.palette.action.hover }}
+            />
+            {PROJECT_STATUS_PROGRESS_SERIES.map((stage, stageIndex) => (
+              <RechartsBar
+                key={stage.key}
+                dataKey={stage.key}
+                name={stage.label}
+                stackId="status"
+                fill={stage.color}
+                radius={
+                  stageIndex === PROJECT_STATUS_PROGRESS_SERIES.length - 1
+                    ? [0, 4, 4, 0]
+                    : 0
+                }
+                maxBarSize={18}
+                activeBar={false}
+                animationDuration={800}
+              >
+                {data.map((row) => {
+                  const isReached = row.stages.some((item) => item.key === stage.key)
+                  return (
+                    <RechartsCell
+                      key={`${row.projectId}-${stage.key}`}
+                      fill={isReached ? stage.color : 'transparent'}
+                    />
+                  )
+                })}
+              </RechartsBar>
+            ))}
+          </RechartsBarChart>
+        </ResponsiveContainer>
+      </Box>
+      <Box sx={{ mt: 1, display: 'flex', justifyContent: 'center' }}>
+        <ChartSeriesLegend
+          items={PROJECT_STATUS_PROGRESS_SERIES.map((stage) => ({
+            label: stage.label,
+            color: stage.color,
+          }))}
+        />
+      </Box>
     </Box>
   )
 }
@@ -1099,7 +2535,7 @@ function TeamPerformanceTooltip({
   if (!active || !payload?.length) return null
   const member = String(payload[0]?.payload?.member ?? '')
 
-  // Calculate total projects if it's the Number of Projects status breakdown
+  // Calculate total projects if it's the project status breakdown.
   const isNumberProjects = payload.some((entry) =>
     ['pitch', 'live', 'completed', 'cancelled', 'archived'].includes(String(entry.dataKey)),
   )
@@ -1156,99 +2592,35 @@ function TeamPerformanceTooltip({
   )
 }
 
-export function TeamTab() {
-  const dispatch = useAppDispatch()
-  const toast = useToast()
-  const projects = useAppSelector((s) => s.projects.items ?? [])
-  const projectsLoading = useAppSelector((s) => s.projects.loading)
-
-  const [teamMemberIds, setTeamMemberIds] = useState<string[]>([])
-  const [metric, setMetric] = useState<TeamMetric>('Number of Projects')
-  const [sqftMemberIds, setSqftMemberIds] = useState<string[]>([])
-  const employeeId = 'all'
-  const timePeriod: TeamTimePeriod = 'This Year'
+function TeamPerformanceGraph({
+  chart,
+  projectAreaChart,
+  projectLifecycleChart,
+  projectStatusProgressChart,
+  revenueChart,
+  metric,
+  teamMemberIds,
+  loading,
+  yearComparison,
+}: {
+  chart: TeamPerformanceChartConfig
+  projectAreaChart: ProjectAreaChartConfig | null
+  projectLifecycleChart: ProjectLifecycleChartConfig | null
+  projectStatusProgressChart: ProjectStatusProgressChartConfig | null
+  revenueChart: TeamRevenueYearChartConfig | null
+  metric: TeamMetric
+  teamMemberIds: string[]
+  loading: boolean
+  yearComparison: boolean
+}) {
+  const [switching, setSwitching] = useState(false)
 
   useEffect(() => {
-    void dispatch(fetchProjects({ page: 1, pageSize: 500 }))
-  }, [dispatch])
+    setSwitching(true)
+    const timer = window.setTimeout(() => setSwitching(false), 160)
+    return () => window.clearTimeout(timer)
+  }, [chart, metric, projectAreaChart, projectLifecycleChart, projectStatusProgressChart, revenueChart, teamMemberIds])
 
-  const analytics = useMemo(
-    () => getTeamAnalytics(employeeId, timePeriod),
-    [employeeId, timePeriod],
-  )
-
-  const performance = useMemo(
-    () => getTeamPerformanceAnalytics(projects, timePeriod, teamMemberIds, metric),
-    [projects, timePeriod, teamMemberIds, metric],
-  )
-
-  // Filter out any selected member IDs that are not present in options
-  useEffect(() => {
-    const validIds = teamMemberIds.filter((id) =>
-      performance.memberOptions.some((o) => o.value === id),
-    )
-    if (validIds.length !== teamMemberIds.length) {
-      setTeamMemberIds(validIds)
-    }
-  }, [performance.memberOptions, teamMemberIds])
-
-  const selectedTeamMemberOptions = useMemo((): TeamMemberOption[] => {
-    return performance.memberOptions.filter((opt) => teamMemberIds.includes(opt.value))
-  }, [performance.memberOptions, teamMemberIds])
-
-  const handleTeamMemberChange = (
-    _event: SyntheticEvent,
-    value: TeamMemberOption[],
-  ) => {
-    // If selecting "All Team Members" (value contains 'all') or no members selected, clear to default top 10
-    if (value.some((o) => o.value === 'all')) {
-      setTeamMemberIds([])
-    } else {
-      setTeamMemberIds(value.map((o) => o.value))
-    }
-  }
-
-  const scopeLabel = 'team'
-
-  const sqftByMember = useMemo(
-    () => getSqftDesignedByTeamMember(projects, timePeriod),
-    [projects, timePeriod],
-  )
-
-  const selectedSqftMembers = useMemo(
-    () =>
-      sqftByMember.memberOptions.filter((opt) => sqftMemberIds.includes(opt.value)),
-    [sqftByMember.memberOptions, sqftMemberIds],
-  )
-
-  const sqftChartData = useMemo(() => {
-    const ranked =
-      sqftMemberIds.length === 0
-        ? sqftByMember.members.slice(0, MAX_SQFT_TEAM_MEMBERS)
-        : sqftByMember.members
-            .filter((row) => sqftMemberIds.includes(row.userId))
-            .sort((a, b) => b.sqft - a.sqft || a.member.localeCompare(b.member))
-            .slice(0, MAX_SQFT_TEAM_MEMBERS)
-    return [...ranked].reverse()
-  }, [sqftByMember.members, sqftMemberIds])
-
-  const sqftChartHeight = Math.max(280, Math.min(420, sqftChartData.length * 36 + 72))
-
-  const handleSqftMembersChange = (
-    _event: SyntheticEvent,
-    value: TeamMemberOption[],
-  ) => {
-    if (value.length > MAX_SQFT_TEAM_MEMBERS) {
-      toast.warning(
-        'Maximum 10 team members',
-        'A maximum of 10 team members can be compared at a time.',
-      )
-      return
-    }
-    setSqftMemberIds(value.map((opt) => opt.value))
-  }
-
-  const chart = performance.performanceChart
   const formatPerfY =
     chart.format === 'currency'
       ? formatAxisAmount
@@ -1257,14 +2629,315 @@ export function TeamTab() {
         : chart.format === 'days'
           ? formatDays
           : formatCount
-  const isYearComparison = metric === 'Completed Projects – Year Comparison'
-  // Grouped year-comparison needs taller rows so Current / Previous bars sit side-by-side
   const chartHeight = Math.max(
     300,
-    chart.data.length * (isYearComparison ? 64 : 44) + 80,
+    chart.data.length * (yearComparison ? 64 : 44) + 80,
+  )
+  const memberAxisWidth = Math.min(
+    240,
+    Math.max(
+      140,
+      ...chart.data.map((row) => String(row.member ?? '').length * 7 + 24),
+    ),
   )
   const hasChartData = chart.data.length > 0
+  const hasRevenueData = Boolean(
+    revenueChart?.data.some((row) => row.revenue > 0 || row.projects.length > 0),
+  )
+  const hasProjectLifecycleData = Boolean(projectLifecycleChart?.data.length)
+  const hasProjectStatusProgressData = Boolean(projectStatusProgressChart?.data.length)
+  const hasProjectAreaData = Boolean(projectAreaChart?.data.length)
+  const showLoader = loading || switching
 
+  if (showLoader) {
+    return (
+      <Box
+        sx={{
+          minHeight: 300,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <CircularProgress size={28} />
+      </Box>
+    )
+  }
+
+  if (metric === 'Revenue') {
+    if (!revenueChart || !hasRevenueData) {
+      return (
+        <Typography
+          variant="body2"
+          color="text.secondary"
+          sx={{ fontSize: 12, py: 6, textAlign: 'center' }}
+        >
+          No revenue data for the selected team member.
+        </Typography>
+      )
+    }
+    return <TeamRevenueYearChart data={revenueChart.data} />
+  }
+
+  if (metric === 'Project Duration') {
+    if (!projectLifecycleChart || !hasProjectLifecycleData) {
+      return (
+        <Typography
+          variant="body2"
+          color="text.secondary"
+          sx={{ fontSize: 12, py: 6, textAlign: 'center' }}
+        >
+          No projects found for the selected team member.
+        </Typography>
+      )
+    }
+    return <ProjectLifecycleChart data={projectLifecycleChart.data} />
+  }
+
+  if (metric === 'No of Projects') {
+    if (!projectStatusProgressChart || !hasProjectStatusProgressData) {
+      return (
+        <Typography
+          variant="body2"
+          color="text.secondary"
+          sx={{ fontSize: 12, py: 6, textAlign: 'center' }}
+        >
+          No projects found for the selected team member.
+        </Typography>
+      )
+    }
+    return <ProjectStatusProgressChart data={projectStatusProgressChart.data} />
+  }
+
+  if (metric === 'Area') {
+    if (!projectAreaChart || !hasProjectAreaData) {
+      return (
+        <Typography
+          variant="body2"
+          color="text.secondary"
+          sx={{ fontSize: 12, py: 6, textAlign: 'center' }}
+        >
+          No project area found for the selected team member.
+        </Typography>
+      )
+    }
+    return <ProjectAreaChart data={projectAreaChart.data} />
+  }
+
+  if (!hasChartData) {
+    return (
+      <Typography
+        variant="body2"
+        color="text.secondary"
+        sx={{ fontSize: 12, py: 6, textAlign: 'center' }}
+      >
+        No team member data for the selected filters.
+      </Typography>
+    )
+  }
+
+  return (
+    <Box
+      sx={{
+        maxHeight: 520,
+        overflowY: 'auto',
+        overflowX: 'hidden',
+        '&::-webkit-scrollbar': { width: 6 },
+        '&::-webkit-scrollbar-track': { bgcolor: 'transparent' },
+        '&::-webkit-scrollbar-thumb': {
+          bgcolor: 'divider',
+          borderRadius: 3,
+        },
+      }}
+    >
+      <BarChart
+        key={`${teamMemberIds.join(',')}-${metric}`}
+        data={[...chart.data]}
+        xKey="member"
+        height={chartHeight}
+        orientation="horizontal"
+        stacked={false}
+        showLegend={false}
+        yAxisWidth={memberAxisWidth}
+        barSize={
+          yearComparison
+            ? 14
+            : chart.series.length > 1
+              ? 12
+              : 18
+        }
+        bars={chart.series.map((s) => ({
+          key: s.key,
+          label: s.label,
+          color: s.color,
+        }))}
+        formatX={formatPerfY}
+        tooltipContent={(props) => (
+          <TeamPerformanceTooltip {...props} format={chart.format} />
+        )}
+      />
+      {chart.series.length > 1 ? (
+        <Box sx={{ mt: 1, display: 'flex', justifyContent: 'center' }}>
+          <ChartSeriesLegend
+            items={chart.series.map((s) => ({ label: s.label, color: s.color }))}
+          />
+        </Box>
+      ) : null}
+    </Box>
+  )
+}
+
+export function TeamTab() {
+  const dispatch = useAppDispatch()
+  const projects = useAppSelector((s) => s.projects.items ?? [])
+  const projectsLoading = useAppSelector((s) => s.projects.loading)
+
+  const [teamMemberIds, setTeamMemberIds] = useState<string[]>([])
+  const [metric, setMetric] = useState<TeamMetric>('Revenue')
+  const [serverPerformanceByMember, setServerPerformanceByMember] =
+    useState<PerformanceByTeamMemberBundle | null>(null)
+  const [serverYearlyRevenueByMember, setServerYearlyRevenueByMember] =
+    useState<YearlyRevenueByTeamMemberBundle | null>(null)
+  const [serverProjectLifecycleByMember, setServerProjectLifecycleByMember] =
+    useState<ProjectLifecycleByTeamMemberBundle | null>(null)
+  const [teamDashboardLoading, setTeamDashboardLoading] = useState(false)
+  const timePeriod: TeamTimePeriod = 'Lifetime'
+
+  useEffect(() => {
+    void dispatch(fetchProjects({ page: 1, pageSize: 500 }))
+  }, [dispatch])
+
+  useEffect(() => {
+    let isMounted = true
+
+    async function loadTeamDashboard() {
+      setTeamDashboardLoading(true)
+      try {
+        const response = await client.get('/dashboard/team')
+        const data = unwrapApiData<TeamDashboardResponse>(response.data)
+        if (!isMounted) return
+        setServerPerformanceByMember(
+          asPerformanceByTeamMemberBundle(data.data?.performanceByTeamMember),
+        )
+        setServerProjectLifecycleByMember(
+          asProjectLifecycleByTeamMemberBundle(data.data?.projectLifecycleByTeamMember),
+        )
+        setServerYearlyRevenueByMember(
+          asYearlyRevenueByTeamMemberBundle(data.data?.yearlyRevenueByTeamMember),
+        )
+      } catch {
+        if (!isMounted) return
+        setServerPerformanceByMember(null)
+        setServerProjectLifecycleByMember(null)
+        setServerYearlyRevenueByMember(null)
+      } finally {
+        if (isMounted) setTeamDashboardLoading(false)
+      }
+    }
+
+    void loadTeamDashboard()
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
+
+  const performance = useMemo(() => {
+    return getTeamPerformanceAnalytics(
+      projects,
+      timePeriod,
+      teamMemberIds,
+      metric,
+      serverPerformanceByMember?.memberOptions,
+    )
+  }, [metric, projects, serverPerformanceByMember, teamMemberIds, timePeriod])
+
+  const localYearlyRevenueByMember = useMemo(
+    () => buildYearlyRevenueByTeamMemberFromProjects(projects),
+    [projects],
+  )
+  const yearlyRevenueByMember = serverYearlyRevenueByMember ?? localYearlyRevenueByMember
+  const revenueYearChart = useMemo(
+    () => buildRevenueYearChart(yearlyRevenueByMember, teamMemberIds[0] ?? null),
+    [teamMemberIds, yearlyRevenueByMember],
+  )
+  const localProjectLifecycleByMember = useMemo(
+    () => buildProjectLifecycleByTeamMemberFromProjects(projects),
+    [projects],
+  )
+  const projectLifecycleByMember =
+    serverProjectLifecycleByMember ?? localProjectLifecycleByMember
+  const projectLifecycleChart = useMemo(
+    () => buildProjectLifecycleChart(projectLifecycleByMember, teamMemberIds[0] ?? null),
+    [projectLifecycleByMember, teamMemberIds],
+  )
+  const projectStatusProgressChart = useMemo(
+    () => buildProjectStatusProgressChart(projectLifecycleByMember, teamMemberIds[0] ?? null),
+    [projectLifecycleByMember, teamMemberIds],
+  )
+  const projectAreaChart = useMemo(
+    () => buildProjectAreaChart(projectLifecycleByMember, teamMemberIds[0] ?? null),
+    [projectLifecycleByMember, teamMemberIds],
+  )
+  const completedProjectsYearComparisonChart = useMemo(
+    () =>
+      buildCompletedProjectsYearComparisonChart(
+        projectLifecycleByMember,
+        teamMemberIds[0] ?? null,
+      ),
+    [projectLifecycleByMember, teamMemberIds],
+  )
+  const teamMemberOptions =
+    metric === 'Revenue'
+      ? yearlyRevenueByMember.memberOptions
+      : metric === 'Project Duration' ||
+          metric === 'No of Projects' ||
+          metric === 'Area' ||
+          metric === 'Completed Projects – Year Comparison'
+        ? projectLifecycleByMember.memberOptions
+        : performance.memberOptions
+
+  // Filter out any selected member IDs that are not present in options
+  useEffect(() => {
+    const validIds = teamMemberIds.filter((id) =>
+      teamMemberOptions.some((o) => o.value === id),
+    )
+    if (validIds.length !== teamMemberIds.length) {
+      setTeamMemberIds(validIds)
+    }
+  }, [teamMemberOptions, teamMemberIds])
+
+  const selectedTeamMemberOption = useMemo((): TeamMemberOption | null => {
+    const selectedId = teamMemberIds[0]
+    if (!selectedId) return null
+    return teamMemberOptions.find((opt) => opt.value === selectedId) ?? null
+  }, [teamMemberOptions, teamMemberIds])
+
+  const handleTeamMemberChange = (
+    _event: SyntheticEvent,
+    value: TeamMemberOption | null,
+  ) => {
+    if (!value || value.value === 'all') {
+      setTeamMemberIds([])
+    } else {
+      setTeamMemberIds([value.value])
+    }
+  }
+
+  const isYearComparison = metric === 'Completed Projects – Year Comparison'
+  const chart = isYearComparison
+    ? completedProjectsYearComparisonChart
+    : performance.performanceChart
+  const teamPerformanceSubtitle =
+    metric === 'Revenue'
+      ? revenueYearChart.subtitle
+      : metric === 'Project Duration'
+        ? projectLifecycleChart.subtitle
+        : metric === 'No of Projects'
+          ? projectStatusProgressChart.subtitle
+          : metric === 'Area'
+            ? projectAreaChart.subtitle
+            : chart.subtitle
   return (
     <Box sx={{ mb: 3 }}>
       <Box sx={{ mb: 1.5 }}>
@@ -1279,7 +2952,7 @@ export function TeamTab() {
       <Box sx={{ mb: 2 }}>
         <ChartCard
           title="Team Performance"
-          subtitle={chart.subtitle}
+          subtitle={teamPerformanceSubtitle}
           action={
             <Box
               sx={{
@@ -1300,11 +2973,9 @@ export function TeamTab() {
                   Team Member
                 </Typography>
                 <Autocomplete
-                  multiple
-                  disableCloseOnSelect
                   size="small"
-                  options={performance.memberOptions}
-                  value={selectedTeamMemberOptions}
+                  options={teamMemberOptions}
+                  value={selectedTeamMemberOption}
                   onChange={handleTeamMemberChange}
                   getOptionLabel={(option) => option.label}
                   isOptionEqualToValue={(option, value) => option.value === value.value}
@@ -1313,42 +2984,25 @@ export function TeamTab() {
                     if (!query) return options
                     return options.filter((opt) => opt.label.toLowerCase().includes(query))
                   }}
-                  renderOption={(props, option, { selected }) => {
+                  renderOption={(props, option) => {
                     const { key, ...rest } = props as {
                       key: string
                     } & HTMLAttributes<HTMLLIElement>
                     return (
                       <li key={key} {...rest}>
-                        <Checkbox
-                          checked={selected}
-                          size="sm"
-                          sx={{ mr: 1, pointerEvents: 'none' }}
-                        />
                         <Typography variant="body2" sx={{ fontSize: 12 }}>
                           {option.label}
                         </Typography>
                       </li>
                     )
                   }}
-                  renderTags={(selected) => (
-                    <Typography
-                      variant="caption"
-                      sx={{ fontSize: 12, pl: 0.5, whiteSpace: 'nowrap' }}
-                    >
-                      {selected.length} selected
-                    </Typography>
-                  )}
                   renderInput={(params) => (
                     <TextField
                       {...params}
-                      placeholder={
-                        selectedTeamMemberOptions.length === 0
-                          ? 'All Team Members'
-                          : undefined
-                      }
+                      placeholder={selectedTeamMemberOption ? undefined : 'All Team Members'}
                       inputProps={{
                         ...params.inputProps,
-                        'aria-label': 'Search and select team members',
+                        'aria-label': 'Search and select a team member',
                       }}
                     />
                   )}
@@ -1402,225 +3056,28 @@ export function TeamTab() {
             </Box>
           }
         >
-          {projectsLoading && !hasChartData ? (
-            <Typography
-              variant="body2"
-              color="text.secondary"
-              sx={{ fontSize: 12, py: 6, textAlign: 'center' }}
-            >
-              Loading team performance…
-            </Typography>
-          ) : !hasChartData ? (
-            <Typography
-              variant="body2"
-              color="text.secondary"
-              sx={{ fontSize: 12, py: 6, textAlign: 'center' }}
-            >
-              No team member data for the selected filters.
-            </Typography>
-          ) : (
-            <Box
-              sx={{
-                maxHeight: 520,
-                overflowY: 'auto',
-                overflowX: 'hidden',
-                // Custom thin scrollbar styling
-                '&::-webkit-scrollbar': { width: 6 },
-                '&::-webkit-scrollbar-track': { bgcolor: 'transparent' },
-                '&::-webkit-scrollbar-thumb': {
-                  bgcolor: 'divider',
-                  borderRadius: 3,
-                },
-              }}
-            >
-              <BarChart
-                key={`${teamMemberIds.join(',')}-${metric}`}
-                data={[...chart.data]}
-                xKey="member"
-                height={chartHeight}
-                orientation="horizontal"
-                stacked={metric === 'Number of Projects'}
-                showLegend={false}
-                barSize={
-                  isYearComparison
-                    ? 14
-                    : chart.series.length > 1 && metric !== 'Number of Projects'
-                      ? 12
-                      : 18
-                }
-                bars={chart.series.map((s) => ({
-                  key: s.key,
-                  label: s.label,
-                  color: s.color,
-                }))}
-                formatX={formatPerfY}
-                tooltipContent={(props) => (
-                  <TeamPerformanceTooltip {...props} format={chart.format} />
-                )}
-              />
-              {chart.series.length > 1 ? (
-                <Box sx={{ mt: 1, display: 'flex', justifyContent: 'center' }}>
-                  <ChartSeriesLegend
-                    items={chart.series.map((s) => ({ label: s.label, color: s.color }))}
-                  />
-                </Box>
-              ) : null}
-            </Box>
-          )}
+          <TeamPerformanceGraph
+            chart={chart}
+            projectAreaChart={projectAreaChart}
+            projectLifecycleChart={projectLifecycleChart}
+            projectStatusProgressChart={projectStatusProgressChart}
+            revenueChart={revenueYearChart}
+            metric={metric}
+            teamMemberIds={teamMemberIds}
+            loading={
+              metric === 'Revenue' ||
+              metric === 'Project Duration' ||
+              metric === 'No of Projects' ||
+              metric === 'Area' ||
+              metric === 'Completed Projects – Year Comparison'
+                ? teamDashboardLoading
+                : projectsLoading
+            }
+            yearComparison={isYearComparison}
+          />
         </ChartCard>
       </Box>
 
-      <Grid container spacing={2}>
-        <Grid size={{ xs: 12 }}>
-          <ChartCard
-            title="Sq.ft Designed by Team Member"
-            subtitle="Total sq.ft designed by each team member"
-            action={
-              <Box sx={{ width: { xs: '100%', sm: 220 } }}>
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                  fontWeight={600}
-                  sx={FILTER_LABEL_SX}
-                >
-                  Team Members
-                </Typography>
-                <Autocomplete
-                  multiple
-                  disableCloseOnSelect
-                  size="small"
-                  options={sqftByMember.memberOptions}
-                  value={selectedSqftMembers}
-                  onChange={handleSqftMembersChange}
-                  getOptionLabel={(option) => option.label}
-                  isOptionEqualToValue={(option, value) => option.value === value.value}
-                  filterOptions={(options, state) => {
-                    const query = state.inputValue.trim().toLowerCase()
-                    if (!query) return options
-                    return options.filter((opt) => opt.label.toLowerCase().includes(query))
-                  }}
-                  renderOption={(props, option, { selected }) => {
-                    const { key, ...rest } = props as {
-                      key: string
-                    } & HTMLAttributes<HTMLLIElement>
-                    return (
-                      <li key={key} {...rest}>
-                        <Checkbox
-                          checked={selected}
-                          size="sm"
-                          sx={{ mr: 1, pointerEvents: 'none' }}
-                        />
-                        <Typography variant="body2" sx={{ fontSize: 12 }}>
-                          {option.label}
-                        </Typography>
-                      </li>
-                    )
-                  }}
-                  renderTags={(selected) => (
-                    <Typography
-                      variant="caption"
-                      sx={{ fontSize: 12, pl: 0.5, whiteSpace: 'nowrap' }}
-                    >
-                      {selected.length} selected
-                    </Typography>
-                  )}
-                  renderInput={(params) => (
-                    <TextField
-                      {...params}
-                      placeholder={
-                        selectedSqftMembers.length === 0
-                          ? 'Top 10 team members'
-                          : undefined
-                      }
-                      inputProps={{
-                        ...params.inputProps,
-                        'aria-label': 'Search and select team members',
-                      }}
-                    />
-                  )}
-                  slotProps={{
-                    listbox: {
-                      sx: { maxHeight: 280, overflow: 'auto' },
-                    },
-                    paper: {
-                      sx: {
-                        fontSize: 12,
-                        '& .MuiAutocomplete-option': { fontSize: 12, minHeight: 36 },
-                      },
-                    },
-                  }}
-                  sx={{
-                    ...MEMBER_AUTOCOMPLETE_SX,
-                    maxWidth: '100%',
-                    '& .MuiOutlinedInput-root': {
-                      ...MEMBER_AUTOCOMPLETE_SX['& .MuiOutlinedInput-root'],
-                      height: 'auto',
-                      minHeight: 32,
-                      flexWrap: 'nowrap',
-                    },
-                  }}
-                />
-              </Box>
-            }
-          >
-            {projectsLoading && sqftChartData.length === 0 ? (
-              <Typography
-                variant="body2"
-                color="text.secondary"
-                sx={{ fontSize: 12, py: 6, textAlign: 'center' }}
-              >
-                Loading team sq.ft data…
-              </Typography>
-            ) : sqftChartData.length === 0 ? (
-              <Typography
-                variant="body2"
-                color="text.secondary"
-                sx={{ fontSize: 12, py: 6, textAlign: 'center' }}
-              >
-                No sq.ft designed data for team members.
-              </Typography>
-            ) : (
-              <BarChart
-                data={sqftChartData}
-                xKey="member"
-                height={sqftChartHeight}
-                orientation="horizontal"
-                showLegend={false}
-                barSize={22}
-                bars={[{ key: 'sqft', label: 'Total Sq.ft Designed', color: CHART_COLORS.amber }]}
-                formatX={formatSqft}
-              />
-            )}
-          </ChartCard>
-        </Grid>
-
-        <Grid size={{ xs: 12, lg: 6 }}>
-          <ChartCard
-            title="Revenue vs Profit"
-            subtitle={`Current vs previous year for ${scopeLabel}`}
-            action={
-              <ChartSeriesLegend
-                items={[
-                  { label: 'Revenue', color: CHART_COLORS.teal },
-                  { label: 'Profit', color: CHART_COLORS.green },
-                ]}
-              />
-            }
-          >
-            <BarChart
-              data={[...analytics.revenueVsProfit]}
-              xKey="period"
-              height={300}
-              showLegend={false}
-              bars={[
-                { key: 'revenue', label: 'Revenue', color: CHART_COLORS.teal },
-                { key: 'profit', label: 'Profit', color: CHART_COLORS.green },
-              ]}
-              formatY={formatAxisAmount}
-            />
-          </ChartCard>
-        </Grid>
-      </Grid>
     </Box>
   )
 }

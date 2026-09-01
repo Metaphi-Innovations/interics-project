@@ -13,7 +13,6 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   Autocomplete,
   Box,
-  Chip,
   Grid,
   MenuItem,
   Paper,
@@ -22,7 +21,7 @@ import {
   Typography,
 } from '@mui/material'
 import { alpha, useTheme } from '@mui/material/styles'
-import { CircleDollarSign, FolderKanban } from 'lucide-react'
+import { CircleDollarSign } from 'lucide-react'
 import {
   Bar,
   BarChart as RechartsBarChart,
@@ -46,8 +45,11 @@ import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { fetchProjects } from '@/slices/projects/thunk'
 import { fetchVendors } from '@/slices/vendors/thunk'
 import type { VendorInvoice } from '@/slices/live/types'
+import type { VendorPO } from '@/slices/baseline/reducer'
 import type { Project } from '@/slices/projects/reducer'
 import type { Vendor } from '@/slices/vendors/reducer'
+import client from '@/api/client'
+import { unwrapApiData, unwrapApiList } from '@/modules/system-settings/shared/api'
 
 function projectDurationDays(project: Project): number | null {
   if (!project.startDate) return null
@@ -64,7 +66,7 @@ export interface VendorKpi {
   title: string
   value: string
   subtitle: string
-  icon: 'billing' | 'projects'
+  icon: 'billing'
 }
 
 /** Current-year vendor billing — sorted highest → lowest. */
@@ -211,17 +213,17 @@ const VENDOR_FULL_NAME: Record<Exclude<VendorFilterId, 'all'>, string> = {
 export const VENDOR_SUMMARY_KPIS: VendorKpi[] = [
   {
     id: 'billing',
-    title: 'Total Vendor Billing (Current Year)',
+    title: 'Total Vendor Billing',
     value: '₹1.86 Cr',
-    subtitle: 'Total vendor billing for the selected financial year.',
+    subtitle: '',
     icon: 'billing',
   },
   {
-    id: 'projects',
-    title: 'Projects Completed Together',
-    value: '27',
-    subtitle: 'Projects completed in partnership with vendors.',
-    icon: 'projects',
+    id: 'total-vendor-po-value',
+    title: 'Total Vendor PO Value',
+    value: '₹0',
+    subtitle: '',
+    icon: 'billing',
   },
 ]
 
@@ -241,14 +243,30 @@ export interface VendorAnalyticsBundle {
 
 /** Per-vendor amount within a year (for the yearly billing drill-down modal). */
 export interface VendorYearBillingBreakdownRow {
+  vendorId?: string
   vendor: string
   amount: number
+  completedProjects: number
+  totalArea: number
+  totalPayable: number
 }
 
 export interface TotalVendorBillingYearPoint {
   year: string
   total: number
+  completedProjects: number
+  totalArea: number
+  totalPayable: number
   vendors: VendorYearBillingBreakdownRow[]
+}
+
+interface VendorsDashboardResponse {
+  data?: {
+    vendorInvoicePoTotal?: unknown
+    totalVendorPoValue?: unknown
+    vendorBillingOverYears?: unknown
+    vendorProjectPerformance?: unknown
+  }
 }
 
 function buildYearVendorBreakdown(
@@ -265,6 +283,9 @@ function buildYearVendorBreakdown(
     .map((line) => ({
       vendor: line.label,
       amount: scale(Number(row[line.key] ?? 0), factor),
+      completedProjects: 0,
+      totalArea: 0,
+      totalPayable: 0,
     }))
     .filter((r) => r.amount > 0)
     .sort((a, b) => b.amount - a.amount)
@@ -280,6 +301,9 @@ function buildTotalBillingOverYears(
     return {
       year: row.year,
       total,
+      completedProjects: vendors.reduce((sum, vendor) => sum + vendor.completedProjects, 0),
+      totalArea: vendors.reduce((sum, vendor) => sum + vendor.totalArea, 0),
+      totalPayable: vendors.reduce((sum, vendor) => sum + vendor.totalPayable, 0),
       vendors,
     }
   })
@@ -338,7 +362,7 @@ export function formatBillingValue(amount: number): string {
 function billingTitle(period: VendorTimePeriod): string {
   switch (period) {
     case 'This Financial Year':
-      return 'Total Vendor Billing (Current Year)'
+      return 'Total Vendor Billing'
     case 'Last 5 Years':
       return 'Total Vendor Billing (Last 5 Years)'
     case 'Custom Range':
@@ -355,7 +379,7 @@ function billingSubtitle(period: VendorTimePeriod, vendorId: VendorFilterId): st
       : VENDOR_FULL_NAME[vendorId]
   switch (period) {
     case 'This Financial Year':
-      return `Total vendor billing for ${scope} in the selected financial year.`
+      return ''
     case 'Last 5 Years':
       return `Cumulative vendor billing for ${scope} over the last 5 years.`
     case 'Custom Range':
@@ -370,6 +394,8 @@ export function getVendorAnalytics(
   period: VendorTimePeriod,
   vendorId: VendorFilterId,
   customRange?: [Date | null, Date | null],
+  vendorInvoicePoTotal?: number | null,
+  totalVendorPoValue?: number | null,
 ): VendorAnalyticsBundle {
   const p =
     period === 'Custom Range' ? customRangeFactor(customRange) : periodFactor(period)
@@ -414,11 +440,11 @@ export function getVendorAnalytics(
     .sort((a, b) => b.projects - a.projects)
 
   const totalBilling =
-    vendorId === 'all'
-      ? billingRows.reduce((sum, row) => sum + row.billing, 0)
-      : billingRows[0]?.billing ?? scale(BASE_BILLING_CURRENT_YEAR[0].billing, p * v)
-
-  const totalProjects = projectsCompleted.reduce((sum, row) => sum + row.projects, 0)
+    typeof vendorInvoicePoTotal === 'number'
+      ? vendorInvoicePoTotal
+      : vendorId === 'all'
+        ? billingRows.reduce((sum, row) => sum + row.billing, 0)
+        : billingRows[0]?.billing ?? scale(BASE_BILLING_CURRENT_YEAR[0].billing, p * v)
 
   return {
     kpis: [
@@ -430,14 +456,11 @@ export function getVendorAnalytics(
         icon: 'billing',
       },
       {
-        id: 'projects',
-        title: 'Projects Completed Together',
-        value: String(totalProjects),
-        subtitle:
-          vendorId === 'all'
-            ? 'Projects completed in partnership with vendors.'
-            : `Projects completed with ${VENDOR_FULL_NAME[vendorId]}.`,
-        icon: 'projects',
+        id: 'total-vendor-po-value',
+        title: 'Total Vendor PO Value',
+        value: formatBillingValue(totalVendorPoValue ?? 0),
+        subtitle: '',
+        icon: 'billing',
       },
     ],
     billingCurrentYear: billingRows,
@@ -918,13 +941,23 @@ export interface VendorProjectPerformanceOption {
   label: string
 }
 
+export interface VendorProjectPerformanceProjectBreakdownRow {
+  projectId: string
+  project: string
+  invoiceCount: number
+  totalPoValue: number
+  amountPaid: number
+}
+
 export interface VendorProjectPerformanceRow {
   vendorId: string
   vendor: string
   projectCount: number
   totalValue: number
+  vendorCost: number
   /** Vendor billing in the selected financial year (invoice base amounts). */
   totalBilling: number
+  projectBreakdown: VendorProjectPerformanceProjectBreakdownRow[]
 }
 
 export interface VendorProjectPerformanceBundle {
@@ -932,10 +965,134 @@ export interface VendorProjectPerformanceBundle {
   rows: VendorProjectPerformanceRow[]
 }
 
+interface VendorProjectPerformanceSourceRow {
+  vendorId: string
+  vendor: string
+  liveProjectCount: number
+  liveProjectValue: number
+  liveVendorCost: number
+  completedProjectCount: number
+  completedProjectValue: number
+  completedVendorCost: number
+  totalBilling: number
+  projectBreakdown: VendorProjectPerformanceProjectBreakdownRow[]
+}
+
+interface VendorProjectPerformanceSourceBundle {
+  vendorOptions: VendorProjectPerformanceOption[]
+  rows: VendorProjectPerformanceSourceRow[]
+}
+
 function projectValueOf(project: Project | undefined): number {
   if (!project) return 0
   const value = project.projectValue ?? project.totalClientPOValue ?? 0
   return value > 0 ? value : 0
+}
+
+function vendorPoEffectiveValueOf(po: Pick<VendorPO, 'poValue' | 'executedValue'>): number {
+  const raw = po.executedValue ?? po.poValue ?? 0
+  const value =
+    typeof raw === 'number'
+      ? raw
+      : Number(String(raw).replace(/,/g, '').trim())
+  return Number.isFinite(value) && value > 0 ? value : 0
+}
+
+function vendorProjectCostKey(vendorId: string, projectId: string): string {
+  return `${vendorId}::${projectId}`
+}
+
+function sortProjectBreakdownRows(
+  rows: VendorProjectPerformanceProjectBreakdownRow[],
+): VendorProjectPerformanceProjectBreakdownRow[] {
+  return [...rows].sort(
+    (a, b) =>
+      b.amountPaid - a.amountPaid ||
+      b.totalPoValue - a.totalPoValue ||
+      b.invoiceCount - a.invoiceCount ||
+      a.project.localeCompare(b.project),
+  )
+}
+
+function buildLocalVendorProjectBreakdowns(
+  vendors: Vendor[],
+  projects: Project[],
+  vendorInvoices: VendorInvoice[],
+  vendorPOs: VendorPO[],
+  periodBounds: DateBounds,
+): Map<string, VendorProjectPerformanceProjectBreakdownRow[]> {
+  const vendorById = new Map(vendors.map((vendor) => [vendor.id, vendor]))
+  const idByNormalizedName = new Map<string, string>()
+  for (const vendor of vendors) {
+    const key = normalizeVendorKey(vendor.name)
+    if (key) idByNormalizedName.set(key, vendor.id)
+  }
+
+  const projectById = new Map(projects.map((project) => [project.id, project]))
+  const rowsByVendor = new Map<string, Map<string, VendorProjectPerformanceProjectBreakdownRow>>()
+
+  const resolveVendorId = (rawVendorId: string, vendorName: string) => {
+    const trimmedId = rawVendorId.trim()
+    const nameKey = normalizeVendorKey(vendorName)
+    return (
+      (trimmedId && vendorById.has(trimmedId) ? trimmedId : undefined) ??
+      (nameKey ? idByNormalizedName.get(nameKey) : undefined) ??
+      trimmedId
+    )
+  }
+
+  const ensureRow = (vendorId: string, project: Project) => {
+    let byProject = rowsByVendor.get(vendorId)
+    if (!byProject) {
+      byProject = new Map()
+      rowsByVendor.set(vendorId, byProject)
+    }
+    const existing = byProject.get(project.id)
+    if (existing) return existing
+    const row = {
+      projectId: project.id,
+      project: project.name || project.id,
+      invoiceCount: 0,
+      totalPoValue: 0,
+      amountPaid: 0,
+    }
+    byProject.set(project.id, row)
+    return row
+  }
+
+  for (const po of vendorPOs) {
+    const vendorId = resolveVendorId(po.vendorId || '', po.vendorName || '')
+    const project = projectById.get(po.projectId)
+    if (!vendorId || !vendorById.has(vendorId) || !project) continue
+    const row = ensureRow(vendorId, project)
+    row.totalPoValue += vendorPoEffectiveValueOf(po)
+  }
+
+  for (const invoice of vendorInvoices) {
+    const vendorId = resolveVendorId(invoice.vendorId || '', invoice.vendorName || '')
+    const project = projectById.get(invoice.projectId)
+    if (!vendorId || !vendorById.has(vendorId) || !project) continue
+    const row = ensureRow(vendorId, project)
+    row.invoiceCount += 1
+    if (inBounds(invoice.invoiceDate, periodBounds)) {
+      row.amountPaid += invoice.baseAmount ?? 0
+    }
+  }
+
+  const result = new Map<string, VendorProjectPerformanceProjectBreakdownRow[]>()
+  for (const [vendorId, rows] of rowsByVendor.entries()) {
+    result.set(
+      vendorId,
+      sortProjectBreakdownRows(
+        [...rows.values()].map((row) => ({
+          ...row,
+          totalPoValue: Math.round(row.totalPoValue),
+          amountPaid: Math.round(row.amountPaid),
+        })),
+      ),
+    )
+  }
+  return result
 }
 
 /**
@@ -947,8 +1104,9 @@ export function getVendorProjectPerformanceAnalytics(
   vendors: Vendor[],
   projects: Project[],
   vendorInvoices: VendorInvoice[],
+  vendorPOs: VendorPO[],
   metric: VendorProjectPerformanceMetric,
-  selectedVendorIds: string[],
+  selectedVendorId: string | null,
 ): VendorProjectPerformanceBundle {
   const idByNormalizedName = new Map<string, string>()
   const vendorById = new Map<string, Vendor>()
@@ -963,14 +1121,20 @@ export function getVendorProjectPerformanceAnalytics(
     .map((v) => ({ value: v.id, label: v.name }))
     .sort((a, b) => a.label.localeCompare(b.label))
 
-  const selectedSet = new Set(selectedVendorIds)
   const scopedVendors =
-    selectedSet.size === 0
-      ? [...vendorById.values()]
-      : [...vendorById.values()].filter((v) => selectedSet.has(v.id))
+    selectedVendorId && vendorById.has(selectedVendorId)
+      ? [vendorById.get(selectedVendorId)!]
+      : [...vendorById.values()]
+  const periodBounds = getVendorPeriodBounds('This Financial Year')
+  const projectBreakdowns = buildLocalVendorProjectBreakdowns(
+    vendors,
+    projects,
+    vendorInvoices,
+    vendorPOs,
+    periodBounds,
+  )
 
   if (metric === 'Total Billing for the Year') {
-    const periodBounds = getVendorPeriodBounds('This Financial Year')
     const accMap = buildVendorAccumulators(vendors, projects, vendorInvoices, periodBounds)
 
     const rows: VendorProjectPerformanceRow[] = scopedVendors
@@ -982,16 +1146,21 @@ export function getVendorProjectPerformanceAnalytics(
           vendor: vendor.name,
           projectCount: 0,
           totalValue: 0,
+          vendorCost: 0,
           totalBilling,
+          projectBreakdown: projectBreakdowns.get(vendor.id) ?? [],
         }
       })
-      .filter((row) => (selectedSet.size > 0 ? true : row.totalBilling > 0))
+      .filter((row) => (selectedVendorId ? true : row.totalBilling > 0))
       .sort(
         (a, b) =>
           b.totalBilling - a.totalBilling || a.vendor.localeCompare(b.vendor),
       )
 
-    return { vendorOptions, rows }
+    return {
+      vendorOptions,
+      rows: selectedVendorId ? rows : rows.slice(0, 5),
+    }
   }
 
   const projectById = new Map(projects.map((p) => [p.id, p]))
@@ -999,6 +1168,8 @@ export function getVendorProjectPerformanceAnalytics(
 
   /** vendorId → projectId → project */
   const linked = new Map<string, Map<string, Project>>()
+  const vendorPoCostByVendorProject = new Map<string, number>()
+  const invoiceCostByVendorProject = new Map<string, number>()
 
   const ensureLink = (vendorId: string, project: Project) => {
     let byProject = linked.get(vendorId)
@@ -1009,19 +1180,54 @@ export function getVendorProjectPerformanceAnalytics(
     byProject.set(project.id, project)
   }
 
+  const resolveVendorId = (rawVendorId: string, vendorName: string) => {
+    const trimmedId = rawVendorId.trim()
+    const nameKey = normalizeVendorKey(vendorName)
+    return (
+      (trimmedId && vendorById.has(trimmedId) ? trimmedId : undefined) ??
+      (nameKey ? idByNormalizedName.get(nameKey) : undefined) ??
+      trimmedId
+    )
+  }
+
+  for (const po of vendorPOs) {
+    const rawVendorId = (po.vendorId || '').trim()
+    const vendorName = (po.vendorName || '').trim()
+    const resolvedId = resolveVendorId(rawVendorId, vendorName)
+    if (!resolvedId || !vendorById.has(resolvedId)) continue
+
+    const project = projectById.get(po.projectId)
+    if (!project) continue
+    ensureLink(resolvedId, project)
+
+    const amount = vendorPoEffectiveValueOf(po)
+    if (amount > 0) {
+      const key = vendorProjectCostKey(resolvedId, project.id)
+      vendorPoCostByVendorProject.set(
+        key,
+        (vendorPoCostByVendorProject.get(key) ?? 0) + amount,
+      )
+    }
+  }
+
   for (const inv of vendorInvoices) {
     const rawVendorId = (inv.vendorId || '').trim()
     const vendorName = (inv.vendorName || '').trim()
-    const nameKey = normalizeVendorKey(vendorName)
-    const resolvedId =
-      (rawVendorId && vendorById.has(rawVendorId) ? rawVendorId : undefined) ??
-      (nameKey ? idByNormalizedName.get(nameKey) : undefined) ??
-      rawVendorId
+    const resolvedId = resolveVendorId(rawVendorId, vendorName)
     if (!resolvedId || !vendorById.has(resolvedId)) continue
 
     const project = projectById.get(inv.projectId)
     if (!project) continue
     ensureLink(resolvedId, project)
+
+    const amount = inv.baseAmount ?? 0
+    if (amount > 0) {
+      const key = vendorProjectCostKey(resolvedId, project.id)
+      invoiceCostByVendorProject.set(
+        key,
+        (invoiceCostByVendorProject.get(key) ?? 0) + amount,
+      )
+    }
   }
 
   // Also link via buildVendors name fields when present
@@ -1046,12 +1252,17 @@ export function getVendorProjectPerformanceAnalytics(
     const projectsForVendor = linked.get(vendor.id)
     let projectCount = 0
     let totalValue = 0
+    let vendorCost = 0
 
     if (projectsForVendor && projectsForVendor.size > 0) {
       for (const project of projectsForVendor.values()) {
         if (project.status !== targetStatus) continue
         projectCount += 1
         totalValue += projectValueOf(project)
+        const key = vendorProjectCostKey(vendor.id, project.id)
+        const vendorPoCost = vendorPoCostByVendorProject.get(key) ?? 0
+        const fallbackCost = vendorPoCost > 0 ? vendorPoCost : invoiceCostByVendorProject.get(key) ?? 0
+        vendorCost += metric === 'Projects Completed by Vendors' ? vendorPoCost : fallbackCost
       }
     } else {
       // Fallback when no invoice / build-vendor links exist
@@ -1064,6 +1275,7 @@ export function getVendorProjectPerformanceAnalytics(
       if (projectCount > 0) {
         const contract = fd?.totalContractValue ?? 0
         totalValue = contract > 0 ? contract : 0
+        vendorCost = fd?.totalPayables ?? vendor.totalPayables ?? 0
       }
     }
 
@@ -1074,28 +1286,85 @@ export function getVendorProjectPerformanceAnalytics(
       vendor: vendor.name,
       projectCount,
       totalValue: Math.round(totalValue),
+      vendorCost: Math.round(vendorCost),
       totalBilling: 0,
+      projectBreakdown: projectBreakdowns.get(vendor.id) ?? [],
     })
   }
 
-  rows.sort(
-    (a, b) =>
-      b.projectCount - a.projectCount ||
-      b.totalValue - a.totalValue ||
-      a.vendor.localeCompare(b.vendor),
-  )
+  rows.sort((a, b) => {
+    const secondary =
+      metric === 'Projects Completed by Vendors'
+        ? b.vendorCost - a.vendorCost
+        : b.totalValue - a.totalValue
+    return b.projectCount - a.projectCount || secondary || a.vendor.localeCompare(b.vendor)
+  })
 
-  return { vendorOptions, rows }
+  return {
+    vendorOptions,
+    rows: selectedVendorId ? rows : rows.slice(0, 5),
+  }
+}
+
+function buildVendorProjectPerformanceFromServer(
+  source: VendorProjectPerformanceSourceBundle,
+  metric: VendorProjectPerformanceMetric,
+  selectedVendorId: string | null,
+): VendorProjectPerformanceBundle {
+  const rows = source.rows
+    .filter((row) => (selectedVendorId ? row.vendorId === selectedVendorId : true))
+    .map((row): VendorProjectPerformanceRow => {
+      if (metric === 'Total Billing for the Year') {
+        return {
+          vendorId: row.vendorId,
+          vendor: row.vendor,
+          projectCount: 0,
+          totalValue: 0,
+          vendorCost: 0,
+          totalBilling: Math.round(row.totalBilling),
+          projectBreakdown: row.projectBreakdown,
+        }
+      }
+
+      const isLiveMetric = metric === 'No. of Projects'
+      return {
+        vendorId: row.vendorId,
+        vendor: row.vendor,
+        projectCount: isLiveMetric ? row.liveProjectCount : row.completedProjectCount,
+        totalValue: Math.round(isLiveMetric ? row.liveProjectValue : row.completedProjectValue),
+        vendorCost: Math.round(isLiveMetric ? row.liveVendorCost : row.completedVendorCost),
+        totalBilling: 0,
+        projectBreakdown: row.projectBreakdown,
+      }
+    })
+    .filter((row) => {
+      if (selectedVendorId) return true
+      return metric === 'Total Billing for the Year'
+        ? row.totalBilling > 0
+        : row.projectCount > 0
+    })
+    .sort((a, b) => {
+      if (metric === 'Total Billing for the Year') {
+        return b.totalBilling - a.totalBilling || a.vendor.localeCompare(b.vendor)
+      }
+      return (
+        b.projectCount - a.projectCount ||
+        b.vendorCost - a.vendorCost ||
+        b.totalValue - a.totalValue ||
+        a.vendor.localeCompare(b.vendor)
+      )
+    })
+
+  return {
+    vendorOptions: source.vendorOptions,
+    rows: selectedVendorId ? rows : rows.slice(0, 5),
+  }
 }
 
 const ICON_MAP: Record<VendorKpi['icon'], { node: ReactNode; color: string }> = {
   billing: {
     node: <CircleDollarSign size={18} strokeWidth={1.75} />,
     color: CHART_COLORS.teal,
-  },
-  projects: {
-    node: <FolderKanban size={18} strokeWidth={1.75} />,
-    color: CHART_COLORS.blue,
   },
 }
 
@@ -1131,17 +1400,169 @@ async function fetchJsonArray(url: string): Promise<unknown[]> {
     const res = await fetch(url)
     if (!res.ok) return []
     const data: unknown = await res.json()
-    if (Array.isArray(data)) return data
-    if (
-      data &&
-      typeof data === 'object' &&
-      Array.isArray((data as { items?: unknown[] }).items)
-    ) {
-      return (data as { items: unknown[] }).items
-    }
-    return []
+    return unwrapApiList<unknown>(data)
   } catch {
     return []
+  }
+}
+
+function toFiniteNumber(value: unknown): number {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0
+  if (typeof value === 'string') {
+    const n = Number(value.replace(/,/g, '').trim())
+    return Number.isFinite(n) ? n : 0
+  }
+  return 0
+}
+
+function vendorInvoicePoAmount(invoice: VendorInvoice): number {
+  const row = invoice as unknown as Record<string, unknown>
+  return toFiniteNumber(
+    row.baseAmount ??
+      row.poAmount ??
+      row.poValue ??
+      row.totalAmount ??
+      row.netPayable ??
+      row.amount,
+  )
+}
+
+function totalVendorInvoicePoValue(invoices: VendorInvoice[]): number {
+  return Math.round(invoices.reduce((sum, invoice) => sum + vendorInvoicePoAmount(invoice), 0))
+}
+
+function totalVendorPoValueFromRows(vendorPOs: VendorPO[]): number {
+  return Math.round(vendorPOs.reduce((sum, po) => sum + vendorPoEffectiveValueOf(po), 0))
+}
+
+function asVendorBillingOverYears(value: unknown): TotalVendorBillingYearPoint[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((raw): TotalVendorBillingYearPoint | null => {
+      if (!raw || typeof raw !== 'object') return null
+      const row = raw as Record<string, unknown>
+      const year = String(row.year ?? '').trim()
+      if (!year) return null
+      const vendors = Array.isArray(row.vendors)
+        ? row.vendors
+            .map((vendorRaw): VendorYearBillingBreakdownRow | null => {
+              if (!vendorRaw || typeof vendorRaw !== 'object') return null
+              const vendorRow = vendorRaw as Record<string, unknown>
+              const vendor = String(vendorRow.vendor ?? '').trim()
+              if (!vendor) return null
+              return {
+                vendorId:
+                  typeof vendorRow.vendorId === 'string'
+                    ? vendorRow.vendorId.trim() || undefined
+                    : undefined,
+                vendor,
+                amount: toFiniteNumber(vendorRow.amountPaid ?? vendorRow.amount),
+                completedProjects: toFiniteNumber(vendorRow.completedProjects),
+                totalArea: toFiniteNumber(vendorRow.totalArea),
+                totalPayable: toFiniteNumber(vendorRow.totalPayable),
+              }
+            })
+            .filter((vendor): vendor is VendorYearBillingBreakdownRow => Boolean(vendor))
+            .sort(
+              (a, b) =>
+                b.amount - a.amount ||
+                b.totalPayable - a.totalPayable ||
+                b.completedProjects - a.completedProjects ||
+                a.vendor.localeCompare(b.vendor),
+            )
+        : []
+      const calculatedTotal = vendors.reduce((sum, vendor) => sum + vendor.amount, 0)
+      return {
+        year,
+        total: toFiniteNumber(row.total) || calculatedTotal,
+        completedProjects:
+          toFiniteNumber(row.completedProjects) ||
+          vendors.reduce((sum, vendor) => sum + vendor.completedProjects, 0),
+        totalArea:
+          toFiniteNumber(row.totalArea) ||
+          vendors.reduce((sum, vendor) => sum + vendor.totalArea, 0),
+        totalPayable:
+          toFiniteNumber(row.totalPayable) ||
+          vendors.reduce((sum, vendor) => sum + vendor.totalPayable, 0),
+        vendors,
+      }
+    })
+    .filter((row): row is TotalVendorBillingYearPoint => Boolean(row))
+    .sort((a, b) => Number(a.year) - Number(b.year))
+}
+
+function asVendorProjectPerformanceSource(
+  value: unknown,
+): VendorProjectPerformanceSourceBundle | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const source = value as Record<string, unknown>
+
+  const rows = Array.isArray(source.rows)
+    ? source.rows
+        .map((raw): VendorProjectPerformanceSourceRow | null => {
+          if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+          const row = raw as Record<string, unknown>
+          const vendorId = String(row.vendorId ?? '').trim()
+          const vendor = String(row.vendor ?? '').trim()
+          if (!vendorId || !vendor) return null
+          const projectBreakdown = Array.isArray(row.projectBreakdown)
+            ? row.projectBreakdown
+                .map((rawProject): VendorProjectPerformanceProjectBreakdownRow | null => {
+                  if (!rawProject || typeof rawProject !== 'object' || Array.isArray(rawProject)) {
+                    return null
+                  }
+                  const projectRow = rawProject as Record<string, unknown>
+                  const projectId = String(projectRow.projectId ?? '').trim()
+                  const project = String(projectRow.project ?? '').trim()
+                  if (!projectId || !project) return null
+                  return {
+                    projectId,
+                    project,
+                    invoiceCount: toFiniteNumber(projectRow.invoiceCount),
+                    totalPoValue: toFiniteNumber(projectRow.totalPoValue),
+                    amountPaid: toFiniteNumber(projectRow.amountPaid),
+                  }
+                })
+                .filter(
+                  (row): row is VendorProjectPerformanceProjectBreakdownRow =>
+                    Boolean(row),
+                )
+            : []
+          return {
+            vendorId,
+            vendor,
+            liveProjectCount: toFiniteNumber(row.liveProjectCount),
+            liveProjectValue: toFiniteNumber(row.liveProjectValue),
+            liveVendorCost: toFiniteNumber(row.liveVendorCost),
+            completedProjectCount: toFiniteNumber(row.completedProjectCount),
+            completedProjectValue: toFiniteNumber(row.completedProjectValue),
+            completedVendorCost: toFiniteNumber(row.completedVendorCost),
+            totalBilling: toFiniteNumber(row.totalBilling),
+            projectBreakdown: sortProjectBreakdownRows(projectBreakdown),
+          }
+        })
+        .filter((row): row is VendorProjectPerformanceSourceRow => Boolean(row))
+    : []
+
+  const parsedOptions = Array.isArray(source.vendorOptions)
+    ? source.vendorOptions
+        .map((raw): VendorProjectPerformanceOption | null => {
+          if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+          const option = raw as Record<string, unknown>
+          const value = String(option.value ?? '').trim()
+          const label = String(option.label ?? '').trim()
+          return value && label ? { value, label } : null
+        })
+        .filter((option): option is VendorProjectPerformanceOption => Boolean(option))
+    : []
+
+  const options = parsedOptions.length
+    ? parsedOptions
+    : rows.map((row) => ({ value: row.vendorId, label: row.vendor }))
+
+  return {
+    vendorOptions: options.sort((a, b) => a.label.localeCompare(b.label)),
+    rows,
   }
 }
 
@@ -1161,8 +1582,10 @@ function ChartTooltipShell({ children }: { children: ReactNode }) {
         boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
         px: 1.5,
         py: 1,
+        width: 'max-content',
         minWidth: 160,
-        maxWidth: 260,
+        maxWidth: 360,
+        whiteSpace: 'nowrap',
       }}
     >
       {children}
@@ -1194,6 +1617,57 @@ function formatExactBillingAmount(amount: number): string {
   return `₹${Math.round(amount).toLocaleString('en-IN')}`
 }
 
+function formatAreaValue(area: number): string {
+  return `${Math.round(area).toLocaleString('en-IN')} sqft`
+}
+
+function billingRowsForVendor(
+  yearPoint: TotalVendorBillingYearPoint,
+  vendor: VendorProjectPerformanceOption,
+): VendorYearBillingBreakdownRow[] {
+  const vendorNameKey = normalizeVendorKey(vendor.label)
+  return yearPoint.vendors.filter((row) => {
+    if (row.vendorId && row.vendorId === vendor.value) return true
+    return normalizeVendorKey(row.vendor) === vendorNameKey
+  })
+}
+
+function summarizeBillingRows(
+  rows: VendorYearBillingBreakdownRow[],
+): Omit<VendorYearBillingBreakdownRow, 'vendor' | 'vendorId'> {
+  return {
+    amount: rows.reduce((sum, row) => sum + row.amount, 0),
+    completedProjects: rows.reduce((sum, row) => sum + row.completedProjects, 0),
+    totalArea: rows.reduce((sum, row) => sum + row.totalArea, 0),
+    totalPayable: rows.reduce((sum, row) => sum + row.totalPayable, 0),
+  }
+}
+
+function filterBillingYearsByVendor(
+  years: TotalVendorBillingYearPoint[],
+  vendor: VendorProjectPerformanceOption | null,
+): TotalVendorBillingYearPoint[] {
+  if (!vendor) return years
+
+  return years.map((yearPoint) => {
+    const summary = summarizeBillingRows(billingRowsForVendor(yearPoint, vendor))
+    const vendorRow: VendorYearBillingBreakdownRow = {
+      vendorId: vendor.value,
+      vendor: vendor.label,
+      ...summary,
+    }
+
+    return {
+      year: yearPoint.year,
+      total: summary.amount,
+      completedProjects: summary.completedProjects,
+      totalArea: summary.totalArea,
+      totalPayable: summary.totalPayable,
+      vendors: [vendorRow],
+    }
+  })
+}
+
 function VendorProjectPerformanceTooltip({
   active,
   payload,
@@ -1217,14 +1691,18 @@ function VendorProjectPerformanceTooltip({
 
   const countLabel =
     point.projectCount === 1 ? '1 Project' : `${point.projectCount} Projects`
+  const isNoOfProjects = metric === 'No. of Projects'
   return (
     <ChartTooltipShell>
       <TooltipTitle>{point.vendor}</TooltipTitle>
       <TooltipRow
-        label={metric === 'No. of Projects' ? 'Live Projects' : 'Completed Projects'}
+        label={isNoOfProjects ? 'Live Projects' : 'Completed Projects'}
         value={countLabel}
       />
-      <TooltipRow label="Total Project Value" value={formatBillingValue(point.totalValue)} />
+      <TooltipRow
+        label={isNoOfProjects ? 'Total Vendor Cost' : 'Total Vendor PO Amount'}
+        value={formatBillingValue(point.vendorCost)}
+      />
     </ChartTooltipShell>
   )
 }
@@ -1232,10 +1710,12 @@ function VendorProjectPerformanceTooltip({
 function VendorProjectPerformanceChart({
   data,
   metric,
+  onBillingBarClick,
   height = 300,
 }: {
   data: VendorProjectPerformanceRow[]
   metric: VendorProjectPerformanceMetric
+  onBillingBarClick?: (row: VendorProjectPerformanceRow) => void
   height?: number
 }) {
   const ct = useChartTheme()
@@ -1247,6 +1727,10 @@ function VendorProjectPerformanceChart({
       : metric === 'Projects Completed by Vendors'
         ? CHART_COLORS.blue
         : CHART_COLORS.amber
+  const vendorAxisWidth = Math.min(
+    220,
+    Math.max(110, ...data.map((row) => row.vendor.length * 7 + 24)),
+  )
 
   return (
     <Box sx={{ width: '100%' }}>
@@ -1285,8 +1769,8 @@ function VendorProjectPerformanceChart({
             tick={{ ...ct.axisStyle, textAnchor: 'end' }}
             tickLine={false}
             axisLine={{ stroke: ct.gridProps.stroke }}
-            width={ct.isMobile ? 78 : 100}
-            tickMargin={2}
+            width={ct.isMobile ? Math.min(120, vendorAxisWidth) : vendorAxisWidth}
+            tickMargin={8}
             interval={0}
           />
           <Tooltip
@@ -1295,6 +1779,9 @@ function VendorProjectPerformanceChart({
             content={(props) => (
               <VendorProjectPerformanceTooltip {...props} metric={metric} />
             )}
+            allowEscapeViewBox={{ x: true, y: true }}
+            offset={12}
+            wrapperStyle={ct.tooltipWrapperStyle}
             cursor={{
               fill: ct.theme.palette.action.hover,
               stroke: 'none',
@@ -1309,6 +1796,12 @@ function VendorProjectPerformanceChart({
             maxBarSize={22}
             isAnimationActive={false}
             activeBar={false}
+            cursor={isBilling ? 'pointer' : undefined}
+            onClick={(entry) => {
+              if (!isBilling) return
+              const payload = (entry as { payload?: VendorProjectPerformanceRow }).payload
+              if (payload) onBillingBarClick?.(payload)
+            }}
           />
         </RechartsBarChart>
       </ResponsiveContainer>
@@ -1316,21 +1809,167 @@ function VendorProjectPerformanceChart({
   )
 }
 
-function TotalVendorBillingYearTooltip({ active, payload }: TooltipContentProps) {
+function VendorProjectBillingBreakdownModal({
+  open,
+  vendor,
+  onClose,
+}: {
+  open: boolean
+  vendor: VendorProjectPerformanceRow | null
+  onClose: () => void
+}) {
+  const rows = useMemo(
+    () => (vendor ? sortProjectBreakdownRows(vendor.projectBreakdown) : []),
+    [vendor],
+  )
+
+  if (!vendor) return null
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={`Vendor Billing Breakdown - ${vendor.vendor}`}
+      size="lg"
+      sx={{
+        maxHeight: 'min(100vh - 64px, 90vh)',
+        width: { xs: undefined, sm: 980 },
+      }}
+    >
+      <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12, mb: 1.5 }}>
+        Project-wise invoice, PO, and payment summary for the selected vendor.
+      </Typography>
+
+      <Box
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: 'minmax(180px, 1.1fr) minmax(220px, 1.4fr) repeat(3, minmax(110px, auto))',
+          gap: 2,
+          pb: 1,
+          mb: 0.5,
+          borderBottom: `1px solid ${tokens.color.neutral[200]}`,
+          position: 'sticky',
+          top: 0,
+          zIndex: 1,
+          bgcolor: 'background.paper',
+        }}
+      >
+        {['Vendor Name', 'Project Name', 'Total PO Value', 'Invoices', 'Amount Paid'].map((label, index) => (
+          <Typography
+            key={label}
+            variant="caption"
+            color="text.secondary"
+            fontWeight={700}
+            sx={{
+              fontSize: 11,
+              letterSpacing: 0.4,
+              textTransform: 'uppercase',
+              textAlign: index >= 2 ? 'right' : 'left',
+            }}
+          >
+            {label}
+          </Typography>
+        ))}
+      </Box>
+
+      {rows.length === 0 ? (
+        <Typography
+          variant="body2"
+          color="text.secondary"
+          sx={{ fontSize: 12, py: 4, textAlign: 'center' }}
+        >
+          No project billing details found for this vendor.
+        </Typography>
+      ) : (
+        <Box
+          sx={{
+            maxHeight: 'min(48vh, 420px)',
+            overflowY: rows.length > 8 ? 'auto' : 'visible',
+            pr: rows.length > 8 ? 0.5 : 0,
+          }}
+        >
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: 'minmax(180px, 1.1fr) minmax(220px, 1.4fr) repeat(3, minmax(110px, auto))',
+              gap: 2,
+              py: 1,
+            }}
+          >
+            {rows.map((row) => (
+              <Box key={row.projectId} sx={{ display: 'contents' }}>
+                <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 500 }}>
+                  {vendor.vendor}
+                </Typography>
+                <Typography variant="body2" sx={{ fontSize: 13 }}>
+                  {row.project}
+                </Typography>
+                <Typography
+                  variant="body2"
+                  sx={{ fontSize: 13, fontWeight: 600, textAlign: 'right' }}
+                >
+                  {formatBillingValue(row.totalPoValue)}
+                </Typography>
+                <Typography
+                  variant="body2"
+                  sx={{ fontSize: 13, fontWeight: 600, textAlign: 'right' }}
+                >
+                  {row.invoiceCount}
+                </Typography>
+                <Typography
+                  variant="body2"
+                  sx={{ fontSize: 13, fontWeight: 600, textAlign: 'right' }}
+                >
+                  {formatBillingValue(row.amountPaid)}
+                </Typography>
+              </Box>
+            ))}
+          </Box>
+        </Box>
+      )}
+    </Modal>
+  )
+}
+
+function TotalVendorBillingYearTooltip({
+  active,
+  payload,
+  selectedVendorName,
+}: TooltipContentProps & { selectedVendorName?: string }) {
   if (!active || !payload?.length) return null
   const point = payload[0]?.payload as TotalVendorBillingYearPoint | undefined
   if (!point) return null
+  const activeVendor = selectedVendorName ? point.vendors[0] : null
+  const completedProjects = activeVendor?.completedProjects ?? point.completedProjects
+  const totalArea = activeVendor?.totalArea ?? point.totalArea
+  const totalPayable = activeVendor?.totalPayable ?? point.totalPayable
+
   return (
     <ChartTooltipShell>
       <TooltipTitle>{point.year}</TooltipTitle>
-      <TooltipRow label="Total Vendor Billing" value={formatBillingValue(point.total)} />
-      <Typography
-        variant="caption"
-        color="text.secondary"
-        sx={{ fontSize: 10, display: 'block', mt: 0.5, fontStyle: 'italic' }}
-      >
-        Click bar for vendor breakdown
-      </Typography>
+      {selectedVendorName ? <TooltipRow label="Vendor" value={selectedVendorName} /> : null}
+      <TooltipRow
+        label={selectedVendorName ? 'Amount Paid' : 'Total Vendor Billing'}
+        value={formatBillingValue(point.total)}
+      />
+      {!selectedVendorName ? (
+        <TooltipRow
+          label="Vendors"
+          value={`${point.vendors.filter((row) => row.amount > 0 || row.totalPayable > 0 || row.completedProjects > 0).length}`}
+        />
+      ) : null}
+      <TooltipRow label="Completed Projects" value={`${completedProjects}`} />
+      <TooltipRow label="Total Area" value={formatAreaValue(totalArea)} />
+      <TooltipRow label="Total Payable" value={formatBillingValue(totalPayable)} />
+      {!selectedVendorName ? (
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          sx={{ fontSize: 10, display: 'block', mt: 0.5, fontStyle: 'italic' }}
+        >
+          Click bar for vendor breakdown
+        </Typography>
+      ) : null}
     </ChartTooltipShell>
   )
 }
@@ -1338,11 +1977,13 @@ function TotalVendorBillingYearTooltip({ active, payload }: TooltipContentProps)
 function TotalVendorBillingOverYearsChart({
   data,
   selectedYear,
+  selectedVendorName,
   onYearClick,
   height = 320,
 }: {
   data: TotalVendorBillingYearPoint[]
   selectedYear: string | null
+  selectedVendorName?: string
   onYearClick: (year: string) => void
   height?: number
 }) {
@@ -1379,7 +2020,15 @@ function TotalVendorBillingOverYearsChart({
           <Tooltip
             isAnimationActive={false}
             animationDuration={0}
-            content={TotalVendorBillingYearTooltip}
+            content={(props) => (
+              <TotalVendorBillingYearTooltip
+                {...props}
+                selectedVendorName={selectedVendorName}
+              />
+            )}
+            allowEscapeViewBox={{ x: true, y: true }}
+            offset={12}
+            wrapperStyle={ct.tooltipWrapperStyle}
             cursor={{ fill: ct.theme.palette.action.hover, fillOpacity: 0.35 }}
           />
           <Bar
@@ -1388,6 +2037,7 @@ function TotalVendorBillingOverYearsChart({
             radius={[6, 6, 0, 0]}
             maxBarSize={48}
             isAnimationActive={false}
+            activeBar={false}
             cursor="pointer"
             onClick={(entry) => {
               const payload = (entry as { payload?: TotalVendorBillingYearPoint }).payload
@@ -1429,10 +2079,12 @@ function TotalVendorBillingOverYearsChart({
 function VendorBillingYearModal({
   open,
   yearPoint,
+  selectedVendorName,
   onClose,
 }: {
   open: boolean
   yearPoint: TotalVendorBillingYearPoint | null
+  selectedVendorName?: string
   onClose: () => void
 }) {
   const rows = useMemo(
@@ -1444,7 +2096,15 @@ function VendorBillingYearModal({
   )
 
   const vendorCount = rows.length
-  const modalSize = vendorCount > 30 ? 'xl' : vendorCount > 18 ? 'lg' : vendorCount > 8 ? 'md' : 'sm'
+  const modalSize = selectedVendorName
+    ? 'md'
+    : vendorCount > 30
+      ? 'xl'
+      : vendorCount > 18
+        ? 'lg'
+        : vendorCount > 8
+          ? 'md'
+          : 'sm'
   /** Only the vendor list scrolls; compact when few rows. */
   const listMaxHeight =
     vendorCount <= 8
@@ -1461,13 +2121,17 @@ function VendorBillingYearModal({
     <Modal
       open={open}
       onClose={onClose}
-      title={`Vendor Billing – ${yearPoint.year}`}
+      title={
+        selectedVendorName
+          ? `${selectedVendorName} Billing – ${yearPoint.year}`
+          : `Vendor Billing – ${yearPoint.year}`
+      }
       size={modalSize}
       sx={{
         maxHeight: 'min(100vh - 64px, 90vh)',
         width: {
           xs: undefined,
-          sm: modalSize === 'sm' ? 500 : modalSize === 'md' ? 600 : modalSize === 'lg' ? 800 : 1000,
+          sm: modalSize === 'sm' ? 720 : modalSize === 'md' ? 820 : modalSize === 'lg' ? 960 : 1100,
         },
       }}
       footer={
@@ -1480,7 +2144,7 @@ function VendorBillingYearModal({
           }}
         >
           <Typography variant="body2" fontWeight={600} sx={{ fontSize: 13 }}>
-            Total Vendor Billing ({yearPoint.year})
+            {selectedVendorName ? 'Amount Paid' : 'Total Vendor Billing'} ({yearPoint.year})
           </Typography>
           <Typography variant="body2" fontWeight={700} sx={{ fontSize: 14 }}>
             {formatBillingValue(yearPoint.total)}
@@ -1495,7 +2159,7 @@ function VendorBillingYearModal({
       <Box
         sx={{
           display: 'grid',
-          gridTemplateColumns: '1fr auto',
+          gridTemplateColumns: 'minmax(180px, 1.4fr) repeat(4, minmax(96px, auto))',
           columnGap: 3,
           pb: 1,
           mb: 0.5,
@@ -1514,19 +2178,22 @@ function VendorBillingYearModal({
         >
           Vendor
         </Typography>
-        <Typography
-          variant="caption"
-          color="text.secondary"
-          fontWeight={700}
-          sx={{
-            fontSize: 11,
-            letterSpacing: 0.4,
-            textTransform: 'uppercase',
-            textAlign: 'right',
-          }}
-        >
-          Amount Paid
-        </Typography>
+        {['Amount Paid', 'Completed', 'Area', 'Payable'].map((label) => (
+          <Typography
+            key={label}
+            variant="caption"
+            color="text.secondary"
+            fontWeight={700}
+            sx={{
+              fontSize: 11,
+              letterSpacing: 0.4,
+              textTransform: 'uppercase',
+              textAlign: 'right',
+            }}
+          >
+            {label}
+          </Typography>
+        ))}
       </Box>
 
       <Box
@@ -1539,7 +2206,7 @@ function VendorBillingYearModal({
         <Box
           sx={{
             display: 'grid',
-            gridTemplateColumns: '1fr auto',
+            gridTemplateColumns: 'minmax(180px, 1.4fr) repeat(4, minmax(96px, auto))',
             columnGap: 3,
             rowGap: 1,
             py: 1,
@@ -1555,6 +2222,24 @@ function VendorBillingYearModal({
                 sx={{ fontSize: 13, fontWeight: 600, textAlign: 'right' }}
               >
                 {formatBillingValue(row.amount)}
+              </Typography>
+              <Typography
+                variant="body2"
+                sx={{ fontSize: 13, fontWeight: 600, textAlign: 'right' }}
+              >
+                {row.completedProjects}
+              </Typography>
+              <Typography
+                variant="body2"
+                sx={{ fontSize: 13, fontWeight: 600, textAlign: 'right' }}
+              >
+                {formatAreaValue(row.totalArea)}
+              </Typography>
+              <Typography
+                variant="body2"
+                sx={{ fontSize: 13, fontWeight: 600, textAlign: 'right' }}
+              >
+                {formatBillingValue(row.totalPayable)}
               </Typography>
             </Box>
           ))}
@@ -1624,9 +2309,11 @@ function VendorKpiCard({ kpi }: { kpi: VendorKpi }) {
         {kpi.value}
       </Typography>
 
-      <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11, mt: 'auto' }}>
-        {kpi.subtitle}
-      </Typography>
+      {kpi.subtitle ? (
+        <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11, mt: 'auto' }}>
+          {kpi.subtitle}
+        </Typography>
+      ) : null}
     </Paper>
   )
 }
@@ -1640,45 +2327,106 @@ export function VendorsTab() {
 
   const [projectPerfMetric, setProjectPerfMetric] =
     useState<VendorProjectPerformanceMetric>('No. of Projects')
-  const [projectPerfVendorIds, setProjectPerfVendorIds] = useState<string[]>([])
+  const [projectPerfVendorId, setProjectPerfVendorId] = useState<string | null>(null)
+  const [projectBillingVendor, setProjectBillingVendor] =
+    useState<VendorProjectPerformanceRow | null>(null)
+  const [billingVendorId, setBillingVendorId] = useState<string | null>(null)
   const [vendorInvoices, setVendorInvoices] = useState<VendorInvoice[]>([])
+  const [vendorPOs, setVendorPOs] = useState<VendorPO[]>([])
   const [invoicesLoading, setInvoicesLoading] = useState(false)
   const [selectedBillingYear, setSelectedBillingYear] = useState<string | null>(null)
+  const [billingOverYears, setBillingOverYears] = useState<TotalVendorBillingYearPoint[]>([])
+  const [serverProjectPerformance, setServerProjectPerformance] =
+    useState<VendorProjectPerformanceSourceBundle | null>(null)
+  const [serverVendorInvoicePoTotal, setServerVendorInvoicePoTotal] = useState<number | null>(null)
+  const [serverTotalVendorPoValue, setServerTotalVendorPoValue] = useState<number | null>(null)
+  const [billingOverYearsLoading, setBillingOverYearsLoading] = useState(false)
+
+  const vendorInvoicePoTotal = useMemo(
+    () =>
+      serverVendorInvoicePoTotal ??
+      (vendorInvoices.length > 0 ? totalVendorInvoicePoValue(vendorInvoices) : null),
+    [serverVendorInvoicePoTotal, vendorInvoices],
+  )
+
+  const totalVendorPoValue = useMemo(
+    () =>
+      serverTotalVendorPoValue ??
+      (vendorPOs.length > 0 ? totalVendorPoValueFromRows(vendorPOs) : null),
+    [serverTotalVendorPoValue, vendorPOs],
+  )
 
   const analytics = useMemo(
-    () => getVendorAnalytics('This Financial Year', 'all', [null, null]),
-    [],
+    () =>
+      getVendorAnalytics(
+        'This Financial Year',
+        'all',
+        [null, null],
+        vendorInvoicePoTotal,
+        totalVendorPoValue,
+      ),
+    [totalVendorPoValue, vendorInvoicePoTotal],
   )
 
   const projectPerformance = useMemo(
-    () =>
-      getVendorProjectPerformanceAnalytics(
+    () => {
+      if (serverProjectPerformance) {
+        return buildVendorProjectPerformanceFromServer(
+          serverProjectPerformance,
+          projectPerfMetric,
+          projectPerfVendorId,
+        )
+      }
+      return getVendorProjectPerformanceAnalytics(
         vendors,
         projects,
         vendorInvoices,
+        vendorPOs,
         projectPerfMetric,
-        projectPerfVendorIds,
-      ),
-    [vendors, projects, vendorInvoices, projectPerfMetric, projectPerfVendorIds],
+        projectPerfVendorId,
+      )
+    },
+    [
+      serverProjectPerformance,
+      vendors,
+      projects,
+      vendorInvoices,
+      vendorPOs,
+      projectPerfMetric,
+      projectPerfVendorId,
+    ],
   )
 
-  const selectedProjectPerfVendors = useMemo(() => {
-    if (projectPerfVendorIds.length === 0) return []
-    const byId = new Map(
-      projectPerformance.vendorOptions.map((o) => [o.value, o] as const),
-    )
-    return projectPerfVendorIds
-      .map((id) => byId.get(id))
-      .filter((o): o is VendorProjectPerformanceOption => Boolean(o))
-  }, [projectPerformance.vendorOptions, projectPerfVendorIds])
+  const selectedProjectPerfVendor = useMemo(() => {
+    if (!projectPerfVendorId) return null
+    return projectPerformance.vendorOptions.find((o) => o.value === projectPerfVendorId) ?? null
+  }, [projectPerformance.vendorOptions, projectPerfVendorId])
+
+  const billingVendorOptions = useMemo(
+    () => serverProjectPerformance?.vendorOptions ?? projectPerformance.vendorOptions,
+    [projectPerformance.vendorOptions, serverProjectPerformance?.vendorOptions],
+  )
+
+  const selectedBillingVendor = useMemo(() => {
+    if (!billingVendorId) return null
+    return billingVendorOptions.find((o) => o.value === billingVendorId) ?? null
+  }, [billingVendorOptions, billingVendorId])
+
+  const billingChartData = useMemo(
+    () => filterBillingYearsByVendor(billingOverYears, selectedBillingVendor),
+    [billingOverYears, selectedBillingVendor],
+  )
 
   const selectedYearPoint = useMemo(
     () =>
-      analytics.totalBillingOverYears.find((row) => row.year === selectedBillingYear) ?? null,
-    [analytics.totalBillingOverYears, selectedBillingYear],
+      billingChartData.find((row) => row.year === selectedBillingYear) ?? null,
+    [billingChartData, selectedBillingYear],
   )
 
-  const projectPerfLoading = vendorsLoading || projectsLoading || invoicesLoading
+  const projectPerfLoading =
+    billingOverYearsLoading && !serverProjectPerformance
+      ? true
+      : !serverProjectPerformance && (vendorsLoading || projectsLoading || invoicesLoading)
   const projectPerfRows = projectPerformance.rows
   const projectPerfHeight = Math.max(
     280,
@@ -1691,33 +2439,97 @@ export function VendorsTab() {
   }, [dispatch])
 
   useEffect(() => {
+    let isMounted = true
+
+    async function loadVendorsDashboard() {
+      setBillingOverYearsLoading(true)
+      try {
+        const response = await client.get('/dashboard/vendors')
+        const data = unwrapApiData<VendorsDashboardResponse>(response.data)
+        if (!isMounted) return
+        setBillingOverYears(asVendorBillingOverYears(data.data?.vendorBillingOverYears))
+        setServerVendorInvoicePoTotal(toFiniteNumber(data.data?.vendorInvoicePoTotal))
+        setServerTotalVendorPoValue(toFiniteNumber(data.data?.totalVendorPoValue))
+        setServerProjectPerformance(
+          asVendorProjectPerformanceSource(data.data?.vendorProjectPerformance),
+        )
+      } catch {
+        if (!isMounted) return
+        setBillingOverYears([])
+        setServerVendorInvoicePoTotal(null)
+        setServerTotalVendorPoValue(null)
+        setServerProjectPerformance(null)
+      } finally {
+        if (isMounted) setBillingOverYearsLoading(false)
+      }
+    }
+
+    void loadVendorsDashboard()
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!selectedBillingYear) return
+    const exists = billingChartData.some((row) => row.year === selectedBillingYear)
+    if (!exists) setSelectedBillingYear(null)
+  }, [billingChartData, selectedBillingYear])
+
+  useEffect(() => {
     const valid = new Set(projectPerformance.vendorOptions.map((o) => o.value))
-    setProjectPerfVendorIds((prev) => {
-      const next = prev.filter((id) => valid.has(id))
-      return next.length === prev.length ? prev : next
-    })
+    setProjectPerfVendorId((prev) => (prev && valid.has(prev) ? prev : null))
   }, [projectPerformance.vendorOptions])
+
+  useEffect(() => {
+    if (projectPerfMetric !== 'Total Billing for the Year') {
+      setProjectBillingVendor(null)
+      return
+    }
+    const visibleVendorIds = new Set(projectPerfRows.map((row) => row.vendorId))
+    setProjectBillingVendor((prev) =>
+      prev && visibleVendorIds.has(prev.vendorId) ? prev : null,
+    )
+  }, [projectPerfMetric, projectPerfRows])
+
+  useEffect(() => {
+    const valid = new Set(billingVendorOptions.map((o) => o.value))
+    setBillingVendorId((prev) => (prev && valid.has(prev) ? prev : null))
+  }, [billingVendorOptions])
 
   useEffect(() => {
     if (projects.length === 0) {
       setVendorInvoices([])
+      setVendorPOs([])
       return
     }
     let cancelled = false
     setInvoicesLoading(true)
     void (async () => {
-      const results = await Promise.all(
-        projects.map(async (p) => {
-          const rows = await fetchJsonArray(`/api/projects/${p.id}/vendor-invoices`)
-          return rows as VendorInvoice[]
-        }),
-      )
+      const invoiceRequests = projects.map(async (p) => {
+        const rows = await fetchJsonArray(`/api/projects/${p.id}/vendor-invoices`)
+        return rows as VendorInvoice[]
+      })
+      const vendorPoRequests = projects.map(async (p) => {
+        const rows = await fetchJsonArray(`/api/projects/${p.id}/vendor-pos`)
+        return rows as VendorPO[]
+      })
+      const [invoiceResults, vendorPoResults] = await Promise.all([
+        Promise.all(invoiceRequests),
+        Promise.all(vendorPoRequests),
+      ])
       if (cancelled) return
       const merged: VendorInvoice[] = []
-      for (const rows of results) {
+      for (const rows of invoiceResults) {
         if (Array.isArray(rows)) merged.push(...rows)
       }
+      const mergedVendorPOs: VendorPO[] = []
+      for (const rows of vendorPoResults) {
+        if (Array.isArray(rows)) mergedVendorPOs.push(...rows)
+      }
       setVendorInvoices(merged)
+      setVendorPOs(mergedVendorPOs)
       setInvoicesLoading(false)
     })()
     return () => {
@@ -1747,7 +2559,7 @@ export function VendorsTab() {
       <Box sx={{ mb: 2 }}>
         <ChartCard
           title="Vendor Project Performance"
-          subtitle="Compare live and completed projects and their total project value by vendor."
+          subtitle="Compare vendor project counts and vendor PO amount by vendor."
           action={
             <Box
               sx={{
@@ -1768,47 +2580,26 @@ export function VendorsTab() {
                   Vendor
                 </Typography>
                 <Autocomplete
-                  multiple
                   size="small"
                   options={projectPerformance.vendorOptions}
-                  value={selectedProjectPerfVendors}
-                  onChange={(_, options) => {
-                    setProjectPerfVendorIds(options.map((o) => o.value))
+                  value={selectedProjectPerfVendor}
+                  onChange={(_, option) => {
+                    setProjectPerfVendorId(option?.value ?? null)
                   }}
                   getOptionLabel={(option) => option.label}
                   isOptionEqualToValue={(option, value) => option.value === value.value}
-                  filterSelectedOptions
-                  limitTags={2}
                   filterOptions={(options, state) => {
                     const query = state.inputValue.trim().toLowerCase()
                     if (!query) return options
                     return options.filter((opt) => opt.label.toLowerCase().includes(query))
                   }}
-                  renderTags={(tagValue, getTagProps) =>
-                    tagValue.map((option, index) => {
-                      const { key, ...tagProps } = getTagProps({ index })
-                      return (
-                        <Chip
-                          key={key}
-                          size="small"
-                          label={option.label}
-                          {...tagProps}
-                          sx={{ height: 22, fontSize: 11 }}
-                        />
-                      )
-                    })
-                  }
                   renderInput={(params) => (
                     <TextField
                       {...params}
-                      placeholder={
-                        selectedProjectPerfVendors.length === 0
-                          ? 'All Vendors'
-                          : 'Search vendors...'
-                      }
+                      placeholder={selectedProjectPerfVendor ? undefined : 'All Vendors'}
                       inputProps={{
                         ...params.inputProps,
-                        'aria-label': 'Search and select vendors',
+                        'aria-label': 'Search and select a vendor',
                       }}
                     />
                   )}
@@ -1873,6 +2664,7 @@ export function VendorsTab() {
             <VendorProjectPerformanceChart
               data={projectPerfRows}
               metric={projectPerfMetric}
+              onBillingBarClick={setProjectBillingVendor}
               height={projectPerfHeight}
             />
           )}
@@ -1883,14 +2675,84 @@ export function VendorsTab() {
         <Grid size={{ xs: 12 }}>
           <ChartCard
             title="Total Vendor Billing – Over the Years"
-            subtitle="Total amount paid to all vendors each year. Click a bar for vendor breakdown."
+            subtitle={
+              selectedBillingVendor
+                ? `Yearly amount paid and delivery metrics for ${selectedBillingVendor.label}.`
+                : 'Total amount paid to all vendors each year. Click a bar for vendor breakdown.'
+            }
+            action={
+              <Box sx={{ width: { xs: '100%', sm: 'auto' } }}>
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  fontWeight={600}
+                  sx={FILTER_LABEL_SX}
+                >
+                  Vendor
+                </Typography>
+                <Autocomplete
+                  size="small"
+                  options={billingVendorOptions}
+                  value={selectedBillingVendor}
+                  onChange={(_, option) => {
+                    setBillingVendorId(option?.value ?? null)
+                    setSelectedBillingYear(null)
+                  }}
+                  getOptionLabel={(option) => option.label}
+                  isOptionEqualToValue={(option, value) => option.value === value.value}
+                  filterOptions={(options, state) => {
+                    const query = state.inputValue.trim().toLowerCase()
+                    if (!query) return options
+                    return options.filter((opt) => opt.label.toLowerCase().includes(query))
+                  }}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      placeholder={selectedBillingVendor ? undefined : 'All Vendors'}
+                      inputProps={{
+                        ...params.inputProps,
+                        'aria-label': 'Search and select a vendor for yearly billing',
+                      }}
+                    />
+                  )}
+                  slotProps={{
+                    paper: {
+                      sx: {
+                        fontSize: 12,
+                        '& .MuiAutocomplete-option': { fontSize: 12, minHeight: 36 },
+                      },
+                    },
+                  }}
+                  sx={PERF_VENDOR_MULTI_SX}
+                />
+              </Box>
+            }
           >
-            <TotalVendorBillingOverYearsChart
-              data={analytics.totalBillingOverYears}
-              selectedYear={selectedBillingYear}
-              onYearClick={(year) => setSelectedBillingYear(year)}
-              height={320}
-            />
+            {billingOverYearsLoading && billingOverYears.length === 0 ? (
+              <Typography
+                variant="body2"
+                color="text.secondary"
+                sx={{ fontSize: 12, py: 6, textAlign: 'center' }}
+              >
+                Loading vendor billing...
+              </Typography>
+            ) : billingChartData.length === 0 ? (
+              <Typography
+                variant="body2"
+                color="text.secondary"
+                sx={{ fontSize: 12, py: 6, textAlign: 'center' }}
+              >
+                No vendor payments found for yearly billing.
+              </Typography>
+            ) : (
+              <TotalVendorBillingOverYearsChart
+                data={billingChartData}
+                selectedYear={selectedBillingYear}
+                selectedVendorName={selectedBillingVendor?.label}
+                onYearClick={(year) => setSelectedBillingYear(year)}
+                height={320}
+              />
+            )}
           </ChartCard>
         </Grid>
       </Grid>
@@ -1898,7 +2760,13 @@ export function VendorsTab() {
       <VendorBillingYearModal
         open={selectedBillingYear != null && selectedYearPoint != null}
         yearPoint={selectedYearPoint}
+        selectedVendorName={selectedBillingVendor?.label}
         onClose={() => setSelectedBillingYear(null)}
+      />
+      <VendorProjectBillingBreakdownModal
+        open={projectBillingVendor != null}
+        vendor={projectBillingVendor}
+        onClose={() => setProjectBillingVendor(null)}
       />
     </Box>
   )
