@@ -75,6 +75,11 @@ import client from '@/api/client'
 import { unwrapApiData } from '@/modules/system-settings/shared/api'
 import { formatDate } from '@/utils/formatters'
 import { getSectorTagSx } from '@/utils/sectorTagStyles'
+import { DashboardDateRangeFilter } from '../DashboardDateRangeFilter'
+import {
+  dashboardDateParams,
+  type DashboardDateRange,
+} from '../dashboardDateRange'
 
 /**
  * Project Analytics chart data is derived from the real Projects module state.
@@ -1958,6 +1963,7 @@ interface ProjectsOverviewSectionProps {
   clientFilter?: string
   statusFilter?: string
   pmFilter?: string
+  action?: ReactNode
 }
 
 function ProjectsOverviewSection({
@@ -1966,6 +1972,7 @@ function ProjectsOverviewSection({
   clientFilter = 'All Clients',
   statusFilter = 'All Status',
   pmFilter = 'All Managers',
+  action,
 }: ProjectsOverviewSectionProps) {
   const dispatch = useAppDispatch()
   const sectors = useAppSelector((s) => s.settings.sectors)
@@ -2007,13 +2014,26 @@ function ProjectsOverviewSection({
 
   return (
     <Box sx={{ mb: 3 }}>
-      <Box sx={{ mb: 1.5 }}>
-        <Typography variant="h6" fontWeight={700} sx={{ fontSize: 16 }}>
-          Projects Overview
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12, mt: 0.25 }}>
-          High-level overview of all projects across the portfolio.
-        </Typography>
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'flex-start',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: 1.5,
+          mb: 1.5,
+        }}
+      >
+        <Box>
+          <Typography variant="h6" fontWeight={700} sx={{ fontSize: 16 }}>
+            Projects Overview
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12, mt: 0.25 }}>
+            High-level overview of all projects across the portfolio.
+          </Typography>
+        </Box>
+
+        {action}
       </Box>
 
       <Grid container spacing={2} sx={{ mb: 2.5 }}>
@@ -3751,25 +3771,27 @@ function ProjectDesignAnalyticsSection({ projects }: { projects: Project[] }) {
   )
 }
 
-export function ProjectsTab() {
+export function ProjectsTab({
+  dateRange,
+  onDateRangeChange,
+}: {
+  dateRange: DashboardDateRange
+  onDateRangeChange: (range: DashboardDateRange) => void
+}) {
   const dispatch = useAppDispatch()
   const fallbackProjects = useAppSelector((s) => s.projects.items ?? [])
   const [dashboardProjects, setDashboardProjects] = useState<Project[] | null>(null)
   const [backendSectorPerformance, setBackendSectorPerformance] = useState<SectorPerformanceRow[]>([])
+  const requestParams = useMemo(() => dashboardDateParams(dateRange), [dateRange])
 
   const loadProjectsDashboard = useCallback(
     async (isActive: () => boolean) => {
       try {
-        const response = await client.get('/dashboard/projects')
+        const response = await client.get('/dashboard/projects', { params: requestParams })
         const data = unwrapApiData<ProjectsDashboardResponse>(response.data)
         if (!isActive()) return
         const projects = asDashboardProjects(data.data?.projects)
         setBackendSectorPerformance(asBackendSectorPerformance(data.data?.sectorPerformance))
-        if (projects.length === 0) {
-          setDashboardProjects(null)
-          void dispatch(fetchProjects({ page: 1, pageSize: 500 }))
-          return
-        }
         setDashboardProjects(projects)
       } catch {
         if (!isActive()) return
@@ -3778,7 +3800,7 @@ export function ProjectsTab() {
         void dispatch(fetchProjects({ page: 1, pageSize: 500 }))
       }
     },
-    [dispatch],
+    [dispatch, requestParams],
   )
 
   useEffect(() => {
@@ -3811,7 +3833,12 @@ export function ProjectsTab() {
 
   return (
     <Box>
-      <ProjectsOverviewSection projects={projects} />
+      <ProjectsOverviewSection
+        projects={projects}
+        action={
+          <DashboardDateRangeFilter value={dateRange} onChange={onDateRangeChange} />
+        }
+      />
       <ProjectAnalyticsSection projects={projects} />
       <SectorAnalyticsSection
         projects={projects}

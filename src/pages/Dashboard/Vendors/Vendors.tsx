@@ -50,6 +50,11 @@ import type { Project } from '@/slices/projects/reducer'
 import type { Vendor } from '@/slices/vendors/reducer'
 import client from '@/api/client'
 import { unwrapApiData, unwrapApiList } from '@/modules/system-settings/shared/api'
+import { DashboardDateRangeFilter } from '../DashboardDateRangeFilter'
+import {
+  dashboardDateParams,
+  type DashboardDateRange,
+} from '../dashboardDateRange'
 
 function projectDurationDays(project: Project): number | null {
   if (!project.startDate) return null
@@ -2318,7 +2323,13 @@ function VendorKpiCard({ kpi }: { kpi: VendorKpi }) {
   )
 }
 
-export function VendorsTab() {
+export function VendorsTab({
+  dateRange,
+  onDateRangeChange,
+}: {
+  dateRange: DashboardDateRange
+  onDateRangeChange: (range: DashboardDateRange) => void
+}) {
   const dispatch = useAppDispatch()
   const vendors = useAppSelector((s) => s.vendors.items ?? [])
   const projects = useAppSelector((s) => s.projects.items ?? [])
@@ -2341,6 +2352,7 @@ export function VendorsTab() {
   const [serverVendorInvoicePoTotal, setServerVendorInvoicePoTotal] = useState<number | null>(null)
   const [serverTotalVendorPoValue, setServerTotalVendorPoValue] = useState<number | null>(null)
   const [billingOverYearsLoading, setBillingOverYearsLoading] = useState(false)
+  const requestParams = useMemo(() => dashboardDateParams(dateRange), [dateRange])
 
   const vendorInvoicePoTotal = useMemo(
     () =>
@@ -2444,7 +2456,7 @@ export function VendorsTab() {
     async function loadVendorsDashboard() {
       setBillingOverYearsLoading(true)
       try {
-        const response = await client.get('/dashboard/vendors')
+        const response = await client.get('/dashboard/vendors', { params: requestParams })
         const data = unwrapApiData<VendorsDashboardResponse>(response.data)
         if (!isMounted) return
         setBillingOverYears(asVendorBillingOverYears(data.data?.vendorBillingOverYears))
@@ -2469,7 +2481,7 @@ export function VendorsTab() {
     return () => {
       isMounted = false
     }
-  }, [])
+  }, [requestParams])
 
   useEffect(() => {
     if (!selectedBillingYear) return
@@ -2539,13 +2551,26 @@ export function VendorsTab() {
 
   return (
     <Box sx={{ mb: 3 }}>
-      <Box sx={{ mb: 1.5 }}>
-        <Typography variant="h6" fontWeight={700} sx={{ fontSize: 16 }}>
-          Vendors
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12, mt: 0.25 }}>
-          Vendor billing and completed-project partnership overview.
-        </Typography>
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'flex-start',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: 1.5,
+          mb: 1.5,
+        }}
+      >
+        <Box>
+          <Typography variant="h6" fontWeight={700} sx={{ fontSize: 16 }}>
+            Vendors
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12, mt: 0.25 }}>
+            Vendor billing and completed-project partnership overview.
+          </Typography>
+        </Box>
+
+        <DashboardDateRangeFilter value={dateRange} onChange={onDateRangeChange} />
       </Box>
 
       <Grid container spacing={2} sx={{ mb: 2.5 }}>

@@ -50,6 +50,11 @@ import type { Project } from '@/slices/projects/reducer'
 import { getProjectAssignedMembers } from '@/utils/projectAssignedTeam'
 import client from '@/api/client'
 import { unwrapApiData } from '@/modules/system-settings/shared/api'
+import { DashboardDateRangeFilter } from '../DashboardDateRangeFilter'
+import {
+  dashboardDateParams,
+  type DashboardDateRange,
+} from '../dashboardDateRange'
 
 interface ChartSeriesLegendItem {
   label: string
@@ -2787,7 +2792,13 @@ function TeamPerformanceGraph({
   )
 }
 
-export function TeamTab() {
+export function TeamTab({
+  dateRange,
+  onDateRangeChange,
+}: {
+  dateRange: DashboardDateRange
+  onDateRangeChange: (range: DashboardDateRange) => void
+}) {
   const dispatch = useAppDispatch()
   const projects = useAppSelector((s) => s.projects.items ?? [])
   const projectsLoading = useAppSelector((s) => s.projects.loading)
@@ -2802,6 +2813,7 @@ export function TeamTab() {
     useState<ProjectLifecycleByTeamMemberBundle | null>(null)
   const [teamDashboardLoading, setTeamDashboardLoading] = useState(false)
   const timePeriod: TeamTimePeriod = 'Lifetime'
+  const requestParams = useMemo(() => dashboardDateParams(dateRange), [dateRange])
 
   useEffect(() => {
     void dispatch(fetchProjects({ page: 1, pageSize: 500 }))
@@ -2813,7 +2825,7 @@ export function TeamTab() {
     async function loadTeamDashboard() {
       setTeamDashboardLoading(true)
       try {
-        const response = await client.get('/dashboard/team')
+        const response = await client.get('/dashboard/team', { params: requestParams })
         const data = unwrapApiData<TeamDashboardResponse>(response.data)
         if (!isMounted) return
         setServerPerformanceByMember(
@@ -2840,7 +2852,7 @@ export function TeamTab() {
     return () => {
       isMounted = false
     }
-  }, [])
+  }, [requestParams])
 
   const performance = useMemo(() => {
     return getTeamPerformanceAnalytics(
@@ -2940,13 +2952,26 @@ export function TeamTab() {
             : chart.subtitle
   return (
     <Box sx={{ mb: 3 }}>
-      <Box sx={{ mb: 1.5 }}>
-        <Typography variant="h6" fontWeight={700} sx={{ fontSize: 16 }}>
-          Team
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12, mt: 0.25 }}>
-          Individual performance across revenue, delivery, and capacity.
-        </Typography>
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'flex-start',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: 1.5,
+          mb: 1.5,
+        }}
+      >
+        <Box>
+          <Typography variant="h6" fontWeight={700} sx={{ fontSize: 16 }}>
+            Team
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12, mt: 0.25 }}>
+            Individual performance across revenue, delivery, and capacity.
+          </Typography>
+        </Box>
+
+        <DashboardDateRangeFilter value={dateRange} onChange={onDateRangeChange} />
       </Box>
 
       <Box sx={{ mb: 2 }}>

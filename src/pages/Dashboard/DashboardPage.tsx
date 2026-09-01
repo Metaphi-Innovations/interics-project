@@ -8,8 +8,13 @@ import { RevenueTab } from './Revenue/Revenue'
 import { ProjectsTab } from './Projects/Projects'
 import { TeamTab } from './Teams/Teams'
 import { VendorsTab } from './Vendors/Vendors'
+import {
+  getCurrentFinancialYearRange,
+  type DashboardDateRange,
+} from './dashboardDateRange'
 
 type DashboardTab = 'revenue' | 'projects' | 'team' | 'vendors'
+type DashboardDateRanges = Record<DashboardTab, DashboardDateRange>
 
 const DASHBOARD_TABS = [
   { label: 'Revenue', value: 'revenue' },
@@ -20,6 +25,16 @@ const DASHBOARD_TABS = [
 
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState<DashboardTab>('revenue')
+  const [dateRanges, setDateRanges] = useState<DashboardDateRanges>(() => ({
+    revenue: getCurrentFinancialYearRange(),
+    projects: getCurrentFinancialYearRange(),
+    team: getCurrentFinancialYearRange(),
+    vendors: getCurrentFinancialYearRange(),
+  }))
+
+  const setTabDateRange = (tab: DashboardTab, range: DashboardDateRange) => {
+    setDateRanges((prev) => ({ ...prev, [tab]: range }))
+  }
 
   return (
     <Box>
@@ -52,10 +67,30 @@ export default function DashboardPage() {
         />
 
         <Box sx={{ p: 2 }}>
-          {activeTab === 'revenue' && <RevenueTab />}
-          {activeTab === 'projects' && <ProjectsTab />}
-          {activeTab === 'team' && <TeamTab />}
-          {activeTab === 'vendors' && <VendorsTab />}
+          {activeTab === 'revenue' && (
+            <RevenueTab
+              dateRange={dateRanges.revenue}
+              onDateRangeChange={(range) => setTabDateRange('revenue', range)}
+            />
+          )}
+          {activeTab === 'projects' && (
+            <ProjectsTab
+              dateRange={dateRanges.projects}
+              onDateRangeChange={(range) => setTabDateRange('projects', range)}
+            />
+          )}
+          {activeTab === 'team' && (
+            <TeamTab
+              dateRange={dateRanges.team}
+              onDateRangeChange={(range) => setTabDateRange('team', range)}
+            />
+          )}
+          {activeTab === 'vendors' && (
+            <VendorsTab
+              dateRange={dateRanges.vendors}
+              onDateRangeChange={(range) => setTabDateRange('vendors', range)}
+            />
+          )}
         </Box>
       </Paper>
     </Box>

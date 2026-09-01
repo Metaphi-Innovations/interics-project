@@ -22,6 +22,8 @@ import {
 import { alpha, useTheme } from '@mui/material/styles'
 import {
   Banknote,
+  ChevronLeft,
+  ChevronRight,
   CircleDollarSign,
   HandCoins,
   IndianRupee,
@@ -34,16 +36,24 @@ import {
 import {
   BarChart,
   ChartCard,
-  DateRangePicker,
   SearchInput,
   Select,
   StatusBadge,
 } from '@/design-system/components'
 import type { StatusType } from '@/design-system/components'
 import { CHART_COLORS, tokens } from '@/design-system/tokens'
+import {
+  clampListingPage0Based,
+  formatListingShowingLabel,
+} from '@/components/listing/listingStandards'
 import client from '@/api/client'
 import { unwrapApiData } from '@/modules/system-settings/shared/api'
 import { formatCurrency } from '@/utils/formatters'
+import { DashboardDateRangeFilter } from '../DashboardDateRangeFilter'
+import {
+  dashboardDateParams,
+  type DashboardDateRange,
+} from '../dashboardDateRange'
 
 interface ChartSeriesLegendItem {
   label: string
@@ -140,11 +150,25 @@ export interface RevenueAnalyticsBundle {
 type RevenueDrawerRow = Record<string, string | number>
 type RevenueKpiBreakdowns = Record<string, RevenueDrawerRow[]>
 
+export interface RevenueProjectListingRow {
+  id: string
+  projectName: string
+  projectValue: number
+  projectSize: number
+  teamLead: string
+  clientPOAmount: number
+  vendorPOAmount: number
+  clientReceived: number
+  vendorPaid: number
+  status: string
+}
+
 interface RevenueDashboardResponse {
   kpis: RevenueKpi[]
   charts?: RevenueDashboardChart[]
   data?: {
     kpiBreakdowns?: RevenueKpiBreakdowns
+    revenueProjects?: RevenueProjectListingRow[]
   }
 }
 
@@ -565,11 +589,7 @@ export interface FinancialRevenueYearAnalytics {
     invoiceValue: number
     amountReceived: number
   }
-  infoText: string
 }
-
-export const FINANCIAL_REVENUE_YEAR_INFO_TEXT =
-  'PO Value is grouped by PO date. Invoice Value follows invoice dates and typically lags PO bookings. Amount Received reflects cash collections and may lag invoicing.'
 
 function financialRevenueYearAnalyticsFromData(
   chartData: FinancialRevenueYearPoint[],
@@ -581,7 +601,6 @@ function financialRevenueYearAnalyticsFromData(
       invoiceValue: chartData.reduce((sum, row) => sum + row.invoiceValue, 0),
       amountReceived: chartData.reduce((sum, row) => sum + row.amountReceived, 0),
     },
-    infoText: FINANCIAL_REVENUE_YEAR_INFO_TEXT,
   }
 }
 
@@ -657,6 +676,28 @@ function asRevenueKpiBreakdowns(value: unknown): RevenueKpiBreakdowns {
       })
   }
   return output
+}
+
+function asRevenueProjectListingRows(value: unknown): RevenueProjectListingRow[] {
+  if (!Array.isArray(value)) return []
+
+  return value
+    .map((row) => {
+      const record = row && typeof row === 'object' ? (row as Record<string, unknown>) : {}
+      return {
+        id: String(record.id ?? ''),
+        projectName: String(record.projectName ?? 'Untitled Project'),
+        projectValue: Number(record.projectValue ?? 0),
+        projectSize: Number(record.projectSize ?? 0),
+        teamLead: String(record.teamLead ?? 'Unassigned'),
+        clientPOAmount: Number(record.clientPOAmount ?? 0),
+        vendorPOAmount: Number(record.vendorPOAmount ?? 0),
+        clientReceived: Number(record.clientReceived ?? 0),
+        vendorPaid: Number(record.vendorPaid ?? 0),
+        status: String(record.status ?? ''),
+      }
+    })
+    .filter((row) => row.id)
 }
 
 
@@ -1004,6 +1045,7 @@ const STATUS_TYPE_BY_LABEL: Record<string, StatusType> = {
   Live: 'live',
   Completed: 'completed',
   Archived: 'archived',
+  Cancelled: 'cancelled',
   Overdue: 'overdue',
   Pending: 'pending',
   Paid: 'paid',
@@ -1284,6 +1326,250 @@ export function RevenueKpiDrawer({
   )
 }
 
+const REVENUE_PROJECT_COLUMNS: Array<{
+  key: keyof RevenueProjectListingRow
+  label: string
+  align?: 'left' | 'right'
+  format?: 'currency' | 'area' | 'status'
+  width?: string
+}> = [
+  { key: 'projectName', label: 'Project Name', width: '18%' },
+  {
+    key: 'projectValue',
+    label: 'Project Value (Total PO Value)',
+    format: 'currency',
+    width: '14%',
+  },
+  {
+    key: 'projectSize',
+    label: 'Project Size (Area)',
+    format: 'area',
+    width: '12%',
+  },
+  { key: 'teamLead', label: 'Team Lead', width: '13%' },
+  {
+    key: 'clientPOAmount',
+    label: 'Client PO Amount',
+    format: 'currency',
+    width: '12%',
+  },
+  {
+    key: 'vendorPOAmount',
+    label: 'Vendor PO Amount',
+    format: 'currency',
+    width: '12%',
+  },
+  {
+    key: 'clientReceived',
+    label: 'Client Received',
+    format: 'currency',
+    width: '11%',
+  },
+  {
+    key: 'vendorPaid',
+    label: 'Vendor Paid',
+    format: 'currency',
+    width: '10%',
+  },
+  { key: 'status', label: 'Status', format: 'status', width: '8%' },
+]
+
+function formatArea(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return '0 sq.ft'
+  return `${Math.round(value).toLocaleString('en-IN')} sq.ft`
+}
+
+function renderRevenueProjectCell(
+  row: RevenueProjectListingRow,
+  column: (typeof REVENUE_PROJECT_COLUMNS)[number],
+) {
+  const value = row[column.key]
+
+  if (column.format === 'currency') return `₹${formatCurrency(Number(value ?? 0))}`
+  if (column.format === 'area') return formatArea(Number(value ?? 0))
+  if (column.format === 'status') {
+    const label = String(value || 'Draft')
+    const status = STATUS_TYPE_BY_LABEL[label] ?? 'draft'
+    return <StatusBadge status={status} label={label} size="small" />
+  }
+
+  return String(value ?? '')
+}
+
+const REVENUE_PROJECT_PAGE_SIZE_OPTIONS = [25, 50, 75, 100] as const
+
+function RevenueProjectListingTable({ rows }: { rows: RevenueProjectListingRow[] }) {
+  const [page, setPage] = useState(0)
+  const [rowsPerPage, setRowsPerPage] = useState(10)
+  const safePage = clampListingPage0Based(page, rows.length, rowsPerPage)
+  const visibleRows = useMemo(
+    () => rows.slice(safePage * rowsPerPage, safePage * rowsPerPage + rowsPerPage),
+    [rows, rowsPerPage, safePage],
+  )
+  const pageCount = Math.max(1, Math.ceil(rows.length / rowsPerPage))
+
+  useEffect(() => {
+    const nextPage = clampListingPage0Based(page, rows.length, rowsPerPage)
+    if (nextPage !== page) setPage(nextPage)
+  }, [page, rows.length, rowsPerPage])
+
+  return (
+    <ChartCard
+      title="Revenue Project Listing"
+      subtitle="Project-wise PO, area, collections, and vendor payment details"
+    >
+      <Box
+        sx={{
+          overflow: 'hidden',
+          border: `1px solid ${tokens.color.neutral[200]}`,
+          borderRadius: 1,
+        }}
+      >
+        <TableContainer sx={{ overflowX: 'auto' }}>
+          <Table
+            size="small"
+            sx={{
+              minWidth: 1280,
+              '& .MuiTableCell-head': {
+                fontSize: 12,
+                fontWeight: 600,
+                color: 'text.secondary',
+                bgcolor: tokens.color.neutral[50],
+                borderBottom: `1px solid ${tokens.color.neutral[200]}`,
+                py: 1.1,
+                px: 1.5,
+                whiteSpace: 'nowrap',
+                lineHeight: 1.35,
+                textAlign: 'left',
+              },
+              '& .MuiTableCell-body': {
+                fontSize: 13,
+                py: 1.15,
+                px: 1.5,
+                borderBottom: `1px solid ${tokens.color.neutral[100]}`,
+                whiteSpace: 'nowrap',
+                color: 'text.primary',
+                textAlign: 'left',
+              },
+            }}
+          >
+            <TableHead>
+              <TableRow>
+                {REVENUE_PROJECT_COLUMNS.map((column) => (
+                  <TableCell
+                    key={column.key}
+                    align="left"
+                    sx={{ width: column.width }}
+                  >
+                    {column.label}
+                  </TableCell>
+                ))}
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {visibleRows.map((row) => (
+                <TableRow key={row.id} hover={false}>
+                  {REVENUE_PROJECT_COLUMNS.map((column) => (
+                    <TableCell key={column.key} align="left">
+                      {renderRevenueProjectCell(row, column)}
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))}
+              {rows.length === 0 ? (
+                <TableRow>
+                  <TableCell
+                    colSpan={REVENUE_PROJECT_COLUMNS.length}
+                    sx={{ py: 4, textAlign: 'center' }}
+                  >
+                    <Typography variant="body2" color="text.secondary">
+                      No revenue projects found.
+                    </Typography>
+                  </TableCell>
+                </TableRow>
+              ) : null}
+            </TableBody>
+          </Table>
+        </TableContainer>
+
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: 1.5,
+            p: '10px 16px',
+            borderTop: `1px solid ${tokens.color.neutral[100]}`,
+          }}
+        >
+          <Typography variant="caption" color="text.secondary">
+            {formatListingShowingLabel(safePage, rowsPerPage, rows.length)}
+          </Typography>
+
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Typography variant="caption" color="text.secondary">
+                Rows per page:
+              </Typography>
+              <MuiSelect
+                size="small"
+                value={rowsPerPage}
+                onChange={(event) => {
+                  setRowsPerPage(Number(event.target.value))
+                  setPage(0)
+                }}
+                sx={{
+                  fontSize: 12,
+                  height: 28,
+                  bgcolor: tokens.color.neutral[50],
+                  borderRadius: '4px',
+                  '& .MuiOutlinedInput-notchedOutline': { border: 'none' },
+                }}
+              >
+                {rowsPerPage === 10 ? (
+                  <MenuItem value={10} sx={{ display: 'none' }}>
+                    10
+                  </MenuItem>
+                ) : null}
+                {REVENUE_PROJECT_PAGE_SIZE_OPTIONS.map((size) => (
+                  <MenuItem key={size} value={size} sx={MENU_ITEM_SX}>
+                    {size}
+                  </MenuItem>
+                ))}
+              </MuiSelect>
+            </Box>
+
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              <IconButton
+                size="small"
+                disabled={safePage === 0}
+                onClick={() => setPage((current) => Math.max(0, current - 1))}
+              >
+                <ChevronLeft size={16} />
+              </IconButton>
+              <Typography variant="caption" color="text.secondary">
+                {safePage + 1} / {pageCount}
+              </Typography>
+              <IconButton
+                size="small"
+                disabled={(safePage + 1) * rowsPerPage >= rows.length}
+                onClick={() =>
+                  setPage((current) =>
+                    clampListingPage0Based(current + 1, rows.length, rowsPerPage),
+                  )
+                }
+              >
+                <ChevronRight size={16} />
+              </IconButton>
+            </Box>
+          </Box>
+        </Box>
+      </Box>
+    </ChartCard>
+  )
+}
+
 
 function SummaryStat({
   label,
@@ -1376,25 +1662,20 @@ export function FinancialRevenueYearSection({
           <SummaryStat label="Total Amount Received" value={analytics.totals.amountReceived} />
         </Grid>
       </Grid>
-
-      <Typography
-        variant="caption"
-        color="text.secondary"
-        sx={{ fontSize: 11, lineHeight: 1.5, display: 'block', mt: 2 }}
-      >
-        {analytics.infoText}
-      </Typography>
     </ChartCard>
   )
 }
 
 
 const MENU_ITEM_SX = { fontSize: 12 } as const
-const REVENUE_PERIOD_SELECT_SX = { minWidth: 180, fontSize: 12, height: 32 } as const
 
-export function RevenueTab() {
-  const [revenuePeriod, setRevenuePeriod] = useState<RevenueTimePeriod>('This Financial Year')
-  const [customRange, setCustomRange] = useState<[Date | null, Date | null]>([null, null])
+export function RevenueTab({
+  dateRange,
+  onDateRangeChange,
+}: {
+  dateRange: DashboardDateRange
+  onDateRangeChange: (range: DashboardDateRange) => void
+}) {
   const [drawerKpi, setDrawerKpi] = useState<RevenueKpi | null>(null)
   const [serverKpis, setServerKpis] = useState<RevenueKpi[] | null>(null)
   const [serverClientVsVendorData, setServerClientVsVendorData] = useState<
@@ -1405,10 +1686,14 @@ export function RevenueTab() {
   >(null)
   const [serverKpiBreakdowns, setServerKpiBreakdowns] =
     useState<RevenueKpiBreakdowns | null>(null)
+  const [serverRevenueProjects, setServerRevenueProjects] = useState<
+    RevenueProjectListingRow[] | null
+  >(null)
+  const requestParams = useMemo(() => dashboardDateParams(dateRange), [dateRange])
 
   const localRevenueAnalytics = useMemo(
-    () => getRevenueAnalytics(revenuePeriod, customRange),
-    [revenuePeriod, customRange],
+    () => getRevenueAnalytics('Custom Range', dateRange),
+    [dateRange],
   )
   const revenueAnalytics = useMemo(
     () => ({
@@ -1425,7 +1710,7 @@ export function RevenueTab() {
 
     async function loadRevenueKpis() {
       try {
-        const response = await client.get('/dashboard/revenue')
+        const response = await client.get('/dashboard/revenue', { params: requestParams })
         const data = unwrapApiData<RevenueDashboardResponse>(response.data)
         const clientVsVendorChart = data.charts?.find(
           (chart) => chart.id === 'client-revenue-vs-vendor-payments',
@@ -1440,12 +1725,14 @@ export function RevenueTab() {
           asFinancialRevenueYearData(financialRevenueYearChart?.data),
         )
         setServerKpiBreakdowns(asRevenueKpiBreakdowns(data.data?.kpiBreakdowns))
+        setServerRevenueProjects(asRevenueProjectListingRows(data.data?.revenueProjects))
       } catch {
         if (!isMounted) return
         setServerKpis([])
         setServerClientVsVendorData([])
         setServerFinancialRevenueYearData([])
         setServerKpiBreakdowns({})
+        setServerRevenueProjects([])
       }
     }
 
@@ -1454,7 +1741,7 @@ export function RevenueTab() {
     return () => {
       isMounted = false
     }
-  }, [])
+  }, [requestParams])
 
   return (
     <Box>
@@ -1481,55 +1768,7 @@ export function RevenueTab() {
           </Typography>
         </Box>
 
-        <Box
-          sx={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            gap: 1.5,
-            alignItems: 'flex-end',
-          }}
-        >
-          <Box>
-            <Typography
-              variant="caption"
-              color="text.secondary"
-              fontWeight={600}
-              sx={{
-                display: 'block',
-                fontSize: 10,
-                letterSpacing: 0.5,
-                textTransform: 'uppercase',
-                mb: 0.5,
-              }}
-            >
-              Time Period
-            </Typography>
-            <MuiSelect
-              size="small"
-              value={revenuePeriod}
-              onChange={(e) =>
-                setRevenuePeriod(e.target.value as RevenueTimePeriod)
-              }
-              sx={REVENUE_PERIOD_SELECT_SX}
-            >
-              {REVENUE_TIME_PERIOD_OPTIONS.map((opt) => (
-                <MenuItem key={opt} value={opt} sx={MENU_ITEM_SX}>
-                  {opt}
-                </MenuItem>
-              ))}
-            </MuiSelect>
-          </Box>
-
-          {revenuePeriod === 'Custom Range' ? (
-            <DateRangePicker
-              size="sm"
-              value={customRange}
-              onChange={setCustomRange}
-              startLabel="From"
-              endLabel="To"
-            />
-          ) : null}
-        </Box>
+        <DashboardDateRangeFilter value={dateRange} onChange={onDateRangeChange} />
       </Box>
 
       <Grid container spacing={2} columns={{ xs: 1, sm: 2, md: 5 }} sx={{ mb: 3 }}>
@@ -1553,6 +1792,10 @@ export function RevenueTab() {
         kpi={drawerKpi}
         rowsByKpi={serverKpiBreakdowns}
       />
+
+      <Box sx={{ mb: 3 }}>
+        <RevenueProjectListingTable rows={serverRevenueProjects ?? []} />
+      </Box>
 
       <Typography
         variant="overline"
@@ -1610,8 +1853,8 @@ export function RevenueTab() {
 
         <Grid size={{ xs: 12 }}>
           <FinancialRevenueYearSection
-            period={revenuePeriod}
-            customRange={customRange}
+            period="Custom Range"
+            customRange={dateRange}
             data={serverFinancialRevenueYearData}
           />
         </Grid>
