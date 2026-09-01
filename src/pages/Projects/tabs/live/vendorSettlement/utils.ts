@@ -10,6 +10,8 @@ import type { Baseline, VendorPO } from '@/slices/baseline/reducer'
 import type { PitchService, VendorMilestone } from '@/slices/pitch/reducer'
 import { mappingMilestonesWithRetention } from '@/utils/vendorMilestones'
 import { vendorHasLinkedExpenseOnInvoice } from '@/utils/commonExpensePayables'
+import { commonExpenseInvoiceDeduction } from '@/utils/commonExpenseDeduction'
+import { findVendorInvoiceForMilestone } from '@/pages/Projects/tabs/live/milestonePaymentStatus'
 
 export {
   commonExpenseVendorsNeedingInvoiceLink,
@@ -17,6 +19,12 @@ export {
   isCommonExpenseFullyLinkedOnInvoices,
   vendorHasLinkedExpenseOnInvoice,
 } from '@/utils/commonExpensePayables'
+
+export {
+  commonExpenseAmountForVendor,
+  commonExpenseInvoiceDeduction,
+  isVendorIncludedInCommonRecovery,
+} from '@/utils/commonExpenseDeduction'
 
 export interface VendorServiceRow {
   vendorId: string
@@ -41,6 +49,11 @@ export function calcVendorInvoiceNetPayable(
 ): number {
   const subtotal = baseAmount + expenseAdditions - expenseDeductions
   return Math.max(0, subtotal - calcVendorInvoiceTdsAmount(baseAmount, tdsRate))
+}
+
+/** Net payable for a vendor milestone base slice (no GST). */
+export function vendorMilestoneNetPayable(baseAmount: number, tdsRate: number): number {
+  return calcVendorInvoiceNetPayable(baseAmount, 0, tdsRate, 0)
 }
 
 export const TABLE_HEADER_SX = {
@@ -146,22 +159,19 @@ export function resolveVendorMilestonesForRow(
 export function findInvoiceForMilestone(
   scopedInvoices: VendorInvoice[],
   vm: VendorMilestone,
+  options?: { vendorPoId?: string; serviceId?: string },
 ): VendorInvoice | undefined {
-  const byId = scopedInvoices.find(
-    (inv) =>
-      (inv.milestoneId && inv.milestoneId === vm.id) ||
-      (inv.lineItems ?? []).some((li) => li.milestoneId === vm.id),
+  const invoices = options?.vendorPoId
+    ? scopedInvoices.filter(
+        (inv) => !inv.vendorPoId?.trim() || inv.vendorPoId === options.vendorPoId,
+      )
+    : scopedInvoices
+  return findVendorInvoiceForMilestone(
+    invoices,
+    vm.id,
+    options?.serviceId ?? '',
+    vm.name,
   )
-  if (byId) return byId
-  const wanted = vm.name.trim()
-  if (!wanted) return undefined
-  const byName = scopedInvoices.filter(
-    (inv) =>
-      inv.milestoneName.trim() === wanted ||
-      (inv.lineItems ?? []).some((li) => (li.milestoneName ?? '').trim() === wanted),
-  )
-  if (byName.length === 1) return byName[0]
-  return undefined
 }
 
 export type MilestoneRowState = 1 | 2 | 3
@@ -183,33 +193,11 @@ export function vendorLinkedExpenseMatchesRow(e: Expense, row: VendorServiceRow)
   return e.serviceId === undefined || e.serviceId === ''
 }
 
-export function commonExpenseAmountForVendor(e: Expense, vendorId: string): number {
-  const row = e.vendorAllocations?.find((a) => a.vendorId === vendorId)
-  return row?.allocationAmount ?? 0
-}
-
-/** Whether this vendor participates in recovering their PO-ratio share. */
-export function isVendorIncludedInCommonRecovery(e: Expense, vendorId: string): boolean {
-  const row = e.vendorAllocations?.find((a) => a.vendorId === vendorId)
-  if (!row) return false
-  return row.includedInRecovery !== false
-}
-
 /** Full common-expense amount reimbursed to the Paid By vendor on their invoice. */
 export function commonExpenseInvoiceAddition(e: Expense, vendorId: string): number {
   if (e.type !== 'common') return 0
   if (e.paidByVendorId !== vendorId) return 0
   return Math.max(0, e.amount)
-}
-
-/**
- * PO-ratio share deducted from a vendor invoice when they are selected in Allocated To.
- * Uses the original stored ratio — never redistributes unselected vendors' shares.
- */
-export function commonExpenseInvoiceDeduction(e: Expense, vendorId: string): number {
-  if (e.type !== 'common') return 0
-  if (!isVendorIncludedInCommonRecovery(e, vendorId)) return 0
-  return Math.max(0, commonExpenseAmountForVendor(e, vendorId))
 }
 
 export type CommonExpenseExpenseRole = 'payer_credit' | 'vendor_debit'

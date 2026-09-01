@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  Alert,
   Stack,
   Box,
   Table,
@@ -21,19 +22,23 @@ import {
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import { useTheme, alpha } from '@mui/material/styles'
 import { Receipt, Plus, Wallet, Layers, Link2, Users, Building2 } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
 import { ListingTemplate } from '@/components/templates'
 import { financeApi } from '@/api/financeApi'
 import { unwrapApiData } from '@/modules/system-settings/shared/api'
 import type { FilterField, ColumnItem } from '@/components/templates/ListingTemplate'
 import { FilterableSortHeader, type ColumnFilterOption } from '@/components/listing'
+import {
+  isInvalidDateRange,
+  LISTING_DEFAULT_PAGE_SIZE,
+  clampListingPage0Based,
+} from '@/components/listing/listingStandards'
 import { StatusBadge, Modal, Button, useToast } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { fetchProjects } from '@/slices/projects/thunk'
 import { deleteExpense } from '@/slices/live/thunk'
 import type { Expense, ExpenseType } from '@/slices/live/types'
-import { formatCurrency, formatDate, toSlug } from '@/utils/formatters'
+import { formatDate, formatInr } from '@/utils/formatters'
 import { GlobalExpenseDrawer } from '@/components/expenses/GlobalExpenseDrawer'
 import { downloadCsv } from '@/api/downloadCsv'
 import {
@@ -185,7 +190,6 @@ function visibleColCount(v: VisibleCols): number {
 
 export default function ExpensesPage() {
   const dispatch = useAppDispatch()
-  const navigate = useNavigate()
   const theme = useTheme()
   const { showToast } = useToast()
   const canCreateExpense = usePermission('expenses', 'create')
@@ -198,10 +202,13 @@ export default function ExpensesPage() {
   const [items, setItems] = useState<Expense[]>([])
   const [totalCount, setTotalCount] = useState(0)
   const [listLoading, setListLoading] = useState(false)
+  const [listError, setListError] = useState<string | null>(null)
+  const requestSeq = useRef(0)
   const [filterOptions, setFilterOptions] = useState<Record<string, Array<{ value: string; label: string }>> | null>(null)
 
   const [financeLoaded, setFinanceLoaded] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [editingExpense, setEditingExpense] = useState<Expense | null>(null)
   const [viewExpense, setViewExpense] = useState<Expense | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Expense | null>(null)
 
@@ -232,7 +239,7 @@ export default function ExpensesPage() {
   })
 
   const [page, setPage] = useState(0)
-  const [pageSize, setPageSize] = useState(10)
+  const [pageSize, setPageSize] = useState(LISTING_DEFAULT_PAGE_SIZE)
   const [sortConfig, setSortConfig] = useState<{
     field: ExpensesSortField | null
     direction: 'asc' | 'desc'
@@ -261,6 +268,13 @@ export default function ExpensesPage() {
       const nextStatus = overrides.filterStatus ?? filterStatus
       const nextCols = { ...columnFilters, ...overrides.columnFilters }
       const visibility = overrides.visibleColumns ?? visibleColumns
+      const dateFrom = String(activeFilters.dateFrom ?? '')
+      const dateTo = String(activeFilters.dateTo ?? '')
+      if (isInvalidDateRange(dateFrom, dateTo)) {
+        setListError('Date from must be on or before date to')
+        return
+      }
+      const seq = ++requestSeq.current
       setListLoading(true)
       try {
         const res = await financeApi.getExpenses({
@@ -270,8 +284,8 @@ export default function ExpensesPage() {
           type: nextType === 'all' ? undefined : nextType,
           projectId: nextProjectId || undefined,
           status: nextStatus === 'all' ? undefined : nextStatus,
-          dateFrom: nextCols.date || String(activeFilters.dateFrom ?? '') || undefined,
-          dateTo: nextCols.date || String(activeFilters.dateTo ?? '') || undefined,
+          dateFrom: nextCols.date || dateFrom || undefined,
+          dateTo: nextCols.date || dateTo || undefined,
           description: nextCols.description || undefined,
           vendorId: nextCols.vendorId || undefined,
           service: nextCols.service || undefined,
@@ -280,16 +294,29 @@ export default function ExpensesPage() {
           sortBy: sortConfig.field || undefined,
           sortOrder: sortConfig.field ? sortConfig.direction : undefined,
         })
+        if (seq !== requestSeq.current) return
         const data = unwrapApiData<Expense[]>(res.data)
         const meta =
           res.data && typeof res.data === 'object' && 'meta' in res.data
             ? (res.data.meta as Record<string, unknown>)
             : {}
+        const total = typeof meta.total === 'number' ? meta.total : Array.isArray(data) ? data.length : 0
         setItems(Array.isArray(data) ? data : [])
-        setTotalCount(typeof meta.total === 'number' ? meta.total : Array.isArray(data) ? data.length : 0)
+        setTotalCount(total)
+        setListError(null)
+        const clamped = clampListingPage0Based(nextPage, total, pageSize)
+        if (clamped !== nextPage) {
+          setPage(clamped)
+          return
+        }
+      } catch (err) {
+        if (seq !== requestSeq.current) return
+        setListError(err instanceof Error ? err.message : 'Failed to load expenses')
       } finally {
-        setListLoading(false)
-        setFinanceLoaded(true)
+        if (seq === requestSeq.current) {
+          setListLoading(false)
+          setFinanceLoaded(true)
+        }
       }
     },
     [
@@ -330,8 +357,8 @@ export default function ExpensesPage() {
 
   const filterConfig: FilterField[] = useMemo(
     () => [
-      { field: 'dateFrom', label: 'Date from (YYYY-MM-DD)', type: 'text' },
-      { field: 'dateTo', label: 'Date to (YYYY-MM-DD)', type: 'text' },
+      { field: 'dateFrom', label: 'Date from', type: 'date' },
+      { field: 'dateTo', label: 'Date to', type: 'date' },
     ],
     [],
   )
@@ -344,8 +371,7 @@ export default function ExpensesPage() {
     officeExpenses: 0,
   })
 
-  useEffect(() => {
-    let cancelled = false
+  const refreshExpenseSummary = useCallback(() => {
     void financeApi
       .getExpensesSummary({ type: typeTab === 'all' ? undefined : typeTab })
       .then((res) => {
@@ -356,7 +382,7 @@ export default function ExpensesPage() {
           common?: number
           office?: number
         }>(res.data)
-        if (!cancelled && data) {
+        if (data) {
           setKpis({
             total: data.total ?? 0,
             additional: data.additional ?? 0,
@@ -367,39 +393,40 @@ export default function ExpensesPage() {
         }
       })
       .catch(() => undefined)
-    return () => {
-      cancelled = true
-    }
   }, [typeTab])
+
+  useEffect(() => {
+    refreshExpenseSummary()
+  }, [refreshExpenseSummary])
 
   const statCards = [
     {
       label: 'Total Expenses',
-      value: `₹${formatCurrency(kpis.total)}`,
+      value: `₹${formatInr(kpis.total)}`,
       variant: 'default' as const,
       icon: <Wallet size={24} strokeWidth={1.75} />,
     },
     {
       label: 'Additional',
-      value: `₹${formatCurrency(kpis.additional)}`,
+      value: `₹${formatInr(kpis.additional)}`,
       variant: 'purple' as const,
       icon: <Layers size={24} strokeWidth={1.75} />,
     },
     {
       label: 'Vendor Linked',
-      value: `₹${formatCurrency(kpis.vendorLinked)}`,
+      value: `₹${formatInr(kpis.vendorLinked)}`,
       variant: 'info' as const,
       icon: <Link2 size={24} strokeWidth={1.75} />,
     },
     {
       label: 'Common',
-      value: `₹${formatCurrency(kpis.common)}`,
+      value: `₹${formatInr(kpis.common)}`,
       variant: 'teal' as const,
       icon: <Users size={24} strokeWidth={1.75} />,
     },
     {
       label: 'Office Expenses',
-      value: `₹${formatCurrency(kpis.officeExpenses)}`,
+      value: `₹${formatInr(kpis.officeExpenses)}`,
       variant: 'warning' as const,
       icon: <Building2 size={24} strokeWidth={1.75} />,
     },
@@ -505,13 +532,19 @@ export default function ExpensesPage() {
     setMenuExpense(null)
   }
 
-  function goEditProject(exp: Expense) {
-    const name = projectNameById[exp.projectId]
-    if (!name) {
-      showToast({ title: 'Project not found', variant: 'error' })
-      return
-    }
-    navigate(`/projects/${toSlug(name)}#live`, { state: { liveSubTab: 'expenses' } })
+  function openAddDrawer() {
+    setEditingExpense(null)
+    setDrawerOpen(true)
+  }
+
+  function openEditDrawer(exp: Expense) {
+    setEditingExpense(exp)
+    setDrawerOpen(true)
+  }
+
+  function closeDrawer() {
+    setDrawerOpen(false)
+    setEditingExpense(null)
   }
 
   async function confirmDelete() {
@@ -522,7 +555,9 @@ export default function ExpensesPage() {
         deleteExpense({ projectId: deleteTarget.projectId, expenseId: deleteTarget.id }),
       ).unwrap()
       showToast({ title: 'Expense deleted', variant: 'success' })
-      await reloadExpenses()
+      const nextPage = clampListingPage0Based(page, Math.max(0, totalCount - 1), pageSize)
+      if (nextPage !== page) setPage(nextPage)
+      await reloadExpenses({ page: nextPage })
     } catch (err) {
       showToast({ title: String(err), variant: 'error' })
     }
@@ -535,7 +570,6 @@ export default function ExpensesPage() {
   const vendorOptions = toColumnFilterOptions(filterOptions?.vendors)
   const serviceOptions = toColumnFilterOptions(filterOptions?.services)
   const amountOptions = toColumnFilterOptions(filterOptions?.amounts)
-  const dateOptions = toColumnFilterOptions(filterOptions?.dates)
   const statusOptions = toColumnFilterOptions(filterOptions?.statuses)
 
   function handleColumnFilter(
@@ -648,7 +682,7 @@ export default function ExpensesPage() {
           canCreateExpense
             ? {
                 label: 'Add Expense',
-                onClick: () => setDrawerOpen(true),
+                onClick: openAddDrawer,
                 startIcon: <Plus size={16} strokeWidth={2} />,
               }
             : undefined
@@ -679,6 +713,11 @@ export default function ExpensesPage() {
           setPage(0)
         }}
       >
+        {listError ? (
+          <Alert severity="error" sx={{ mx: 2, mt: 2, mb: 0, fontSize: 12 }}>
+            {listError}
+          </Alert>
+        ) : null}
         <TableContainer sx={{ overflowX: 'auto', width: '100%' }}>
           <Table size="small" sx={{ tableLayout: 'fixed', width: '100%', minWidth: 0 }}>
             <colgroup>
@@ -780,7 +819,8 @@ export default function ExpensesPage() {
                     sortDirection={sortConfig.direction}
                     onSort={handleSort}
                     filterValue={columnFilters.date}
-                    filterOptions={dateOptions}
+                    filterOptions={[]}
+                    filterMode="date"
                     onFilter={(value) => handleColumnFilter('date', value)}
                     sx={HEADER_SX}
                   />
@@ -875,7 +915,7 @@ export default function ExpensesPage() {
                         <TableCell sx={CELL_SX}>{expenseServiceCell(exp)}</TableCell>
                       )}
                       {visibleColumns.amount && (
-                        <TableCell sx={CELL_SX}>₹{formatCurrency(exp.amount)}</TableCell>
+                        <TableCell sx={CELL_SX}>₹{formatInr(exp.amount)}</TableCell>
                       )}
                       {visibleColumns.date && (
                         <TableCell sx={CELL_SX}>{formatDate(exp.date)}</TableCell>
@@ -924,7 +964,7 @@ export default function ExpensesPage() {
               <MuiMenuItem
                 sx={menuItemSx}
                 onClick={() => {
-                  if (menuExpense) goEditProject(menuExpense)
+                  if (menuExpense) openEditDrawer(menuExpense)
                   closeMenu()
                 }}
               >
@@ -948,8 +988,12 @@ export default function ExpensesPage() {
 
       <GlobalExpenseDrawer
         open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        onSuccess={() => void reloadExpenses()}
+        onClose={closeDrawer}
+        editingExpense={editingExpense}
+        onSuccess={() => {
+          void reloadExpenses()
+          refreshExpenseSummary()
+        }}
       />
 
       <ViewExpenseModal

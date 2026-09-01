@@ -2,7 +2,8 @@ import client from '@/api/client'
 import {
   compactQueryParams,
   unwrapApiData,
-  unwrapApiList,
+  unwrapApiListWithMeta,
+  type ListResult,
 } from '@/modules/system-settings/shared/api'
 import { withInflight } from '@/modules/system-settings/shared/inflight'
 import type {
@@ -82,10 +83,10 @@ function toCreatePayload(data: ProjectManagementFormInput) {
 }
 
 export const projectManagementService = {
-  async getAll(params: ProjectManagementListParams = {}): Promise<ProjectManagementMasterCategory[]> {
+  async getAll(params: ProjectManagementListParams = {}): Promise<ListResult<ProjectManagementMasterCategory>> {
     const query = compactQueryParams({
       page: params.page ?? 1,
-      limit: params.limit ?? 100,
+      limit: params.limit ?? 10,
       search: params.search,
       category: params.category,
       totalCheckpoints: params.totalCheckpoints,
@@ -95,7 +96,8 @@ export const projectManagementService = {
     })
     return withInflight(`project-management:list:${JSON.stringify(query)}`, async () => {
       const res = await client.get(BASE, { params: query })
-      return unwrapApiList<ProjectManagementApi>(res.data).map(toProjectManagementMaster)
+      const { items, meta } = unwrapApiListWithMeta<ProjectManagementApi>(res.data)
+      return { items: items.map(toProjectManagementMaster), meta }
     })
   },
 

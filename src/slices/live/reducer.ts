@@ -12,6 +12,7 @@ import {
   createPayment,
   fetchExpenses,
   createExpense,
+  updateExpense,
   deleteExpense,
   fetchReimbursements,
   createReimbursement,
@@ -259,17 +260,28 @@ const liveSlice = createSlice({
         state.saving = false
         state.payments.push(action.payload)
         const pay = action.payload
-        const invoiceStatus =
-          pay.status === 'completed'
-            ? 'paid'
-            : pay.status === 'partial'
-              ? 'partially_paid'
-              : 'not_paid'
         for (const invId of pay.linkedInvoiceIds ?? []) {
           const idx = state.vendorInvoices.findIndex((v) => v.id === invId)
-          if (idx !== -1) {
-            state.vendorInvoices[idx] = { ...state.vendorInvoices[idx], status: invoiceStatus }
-          }
+          if (idx === -1) continue
+          const invoice = state.vendorInvoices[idx]
+          const invoicePayments = state.payments.filter(
+            (p) => p.status !== 'not_paid' && p.linkedInvoiceIds?.includes(invId),
+          )
+          const totalPaid = invoicePayments.reduce((sum, p) => {
+            const allocs = p.allocations?.filter((a) => a.invoiceId === invId) ?? []
+            if (allocs.length > 0) {
+              return sum + allocs.reduce((s, a) => s + a.allocatedAmount, 0)
+            }
+            return sum + (p.netPaid ?? 0)
+          }, 0)
+          const invoiceNet = invoice.netPayable ?? 0
+          const status =
+            totalPaid <= 0.01
+              ? 'not_paid'
+              : totalPaid + 0.01 >= invoiceNet
+                ? 'paid'
+                : 'partially_paid'
+          state.vendorInvoices[idx] = { ...invoice, status }
         }
         for (const expId of pay.linkedExpenseIds ?? []) {
           const idx = state.expenses.findIndex((e) => e.id === expId)
@@ -309,6 +321,20 @@ const liveSlice = createSlice({
         state.expenses.push(action.payload)
       })
       .addCase(createExpense.rejected, (state) => {
+        state.saving = false
+      })
+
+      .addCase(updateExpense.pending, (state) => {
+        state.saving = true
+      })
+      .addCase(updateExpense.fulfilled, (state, action) => {
+        state.saving = false
+        const idx = state.expenses.findIndex((e) => e.id === action.payload.id)
+        if (idx >= 0) {
+          state.expenses[idx] = action.payload
+        }
+      })
+      .addCase(updateExpense.rejected, (state) => {
         state.saving = false
       })
 

@@ -65,7 +65,7 @@ const VENDOR_OFFER_COLUMNS = [
   'Vendor Name',
   'Category',
   'Service',
-  'Offer Amount',
+  'Executable Value',
   'Notes / Tags',
   'Action',
 ] as const
@@ -76,6 +76,10 @@ export interface VendorOffersSectionProps {
   projectId: string
   vendorPOs: VendorPO[]
   baseline: Baseline | null
+  /** Same PROJECT_LIVE CREATE gate as Add Vendor Offer / Add Client PO. */
+  canCreatePo?: boolean
+  /** Same PROJECT_LIVE UPDATE gate as Edit Client PO. */
+  canEditPo?: boolean
 }
 
 export function VendorOffersSection({
@@ -84,17 +88,16 @@ export function VendorOffersSection({
   projectId,
   vendorPOs,
   baseline,
+  canCreatePo = true,
+  canEditPo = true,
 }: VendorOffersSectionProps) {
-  const { vendorInvoices } = useAppSelector((s) => s.live)
-
   const vendorRows = useMemo(
     () => buildLiveVendorOfferRows(vendorPOs, projectId, baseline),
     [vendorPOs, projectId, baseline],
   )
 
-  const projectVendorInvoices = useMemo(
-    () => vendorInvoices.filter((i) => i.projectId === projectId),
-    [vendorInvoices, projectId],
+  const projectVendorInvoices = useAppSelector((s) =>
+    s.live.vendorInvoices.filter((i) => i.projectId === projectId),
   )
 
   const [viewVendorPO, setViewVendorPO] = useState<VendorPO | null>(null)
@@ -107,13 +110,15 @@ export function VendorOffersSection({
         title="Vendor Offers"
         noPadding
         action={
-          <Button
-            size="sm"
-            variant="contained"
-            color="primary"
-            label="Add Vendor Offer"
-            onClick={onAddOffer}
-          />
+          canCreatePo ? (
+            <Button
+              size="sm"
+              variant="contained"
+              color="primary"
+              label="Add Vendor Offer"
+              onClick={onAddOffer}
+            />
+          ) : undefined
         }
       >
         {loading ? (
@@ -182,12 +187,16 @@ export function VendorOffersSection({
                         <TableCell className="vendor-offer-action-cell" sx={ACTION_CELL_SX}>
                           <RowIconActionsGroup>
                             <RowViewAction onClick={() => setViewVendorPO(row.po)} />
-                            <RowEditAction onClick={() => setEditVendorPO(row.po)} />
-                            <RowDeleteAction
-                              onClick={() => setDeleteVendorPO(row.po)}
-                              disabled={!canDelete}
-                              disabledReason="Cannot delete — milestones are billed or paid"
-                            />
+                            {canEditPo ? (
+                              <RowEditAction onClick={() => setEditVendorPO(row.po)} />
+                            ) : null}
+                            {canEditPo ? (
+                              <RowDeleteAction
+                                onClick={() => setDeleteVendorPO(row.po)}
+                                disabled={!canDelete}
+                                disabledReason="Cannot delete — milestone has invoice or payment activity"
+                              />
+                            ) : null}
                           </RowIconActionsGroup>
                         </TableCell>
                       </TableRow>
@@ -208,14 +217,14 @@ export function VendorOffersSection({
         baseline={baseline}
       />
       <EditVendorPODrawer
-        open={!!editVendorPO}
+        open={!!editVendorPO && canEditPo}
         onClose={() => setEditVendorPO(null)}
         projectId={projectId}
         po={editVendorPO}
         baseline={baseline}
       />
       <DeleteVendorPODialog
-        open={!!deleteVendorPO}
+        open={!!deleteVendorPO && canEditPo}
         po={deleteVendorPO}
         projectId={projectId}
         onClose={() => setDeleteVendorPO(null)}

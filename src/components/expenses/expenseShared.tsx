@@ -10,9 +10,18 @@ import {
   Typography,
 } from '@mui/material'
 import { FileText } from 'lucide-react'
-import { Modal, StatusBadge } from '@/design-system/components'
+import { Modal, StatusBadge, Button, useToast } from '@/design-system/components'
 import type { StatusType } from '@/design-system/components'
-import { UploadedDocumentLink } from '@/components/documents/UploadedDocumentLink'
+import {
+  downloadAuthenticatedDocument,
+  openAuthenticatedDocument,
+} from '@/utils/openAuthenticatedDocument'
+import {
+  expenseDocumentDisplayName,
+  expenseDocumentViewUrl,
+  isExpenseDocumentDownloadable,
+  isExpenseDocumentLocalOnly,
+} from '@/components/expenses/expenseDocumentUtils'
 import { tokens, TREND_COLORS } from '@/design-system/tokens'
 import type { CommonExpenseSplitMethod, Expense, ExpenseType } from '@/slices/live/types'
 import { formatCurrency, formatDate } from '@/utils/formatters'
@@ -103,24 +112,12 @@ function expenseVendorServiceDetail(expense: Expense): string {
   return '—'
 }
 
-function expenseDocumentDisplayName(documentUrl?: string): string | null {
-  if (!documentUrl) return null
-  if (documentUrl.startsWith('local://')) {
-    return documentUrl.slice('local://'.length) || null
-  }
-  try {
-    const path = new URL(documentUrl).pathname
-    const name = path.split('/').filter(Boolean).pop()
-    return name || documentUrl
-  } catch {
-    return documentUrl
-  }
-}
-
-function expenseDocumentOpenUrl(documentUrl: string): string | null {
-  if (documentUrl.startsWith('local://')) return null
-  return documentUrl
-}
+export {
+  expenseDocumentDisplayName,
+  expenseDocumentViewUrl,
+  isExpenseDocumentDownloadable,
+  isExpenseDocumentLocalOnly,
+} from '@/components/expenses/expenseDocumentUtils'
 
 function DetailField({
   label,
@@ -242,12 +239,15 @@ export function ViewExpenseModal({
   /** When set (e.g. global expenses page), shown in details */
   projectName?: string
 }) {
+  const { showToast } = useToast()
   if (!expense) return null
 
   const locked = expense.status === 'included_in_payment' || expense.status === 'adjusted'
   const statusDisplay = expenseStatusDisplay(expense.status)
   const documentName = expenseDocumentDisplayName(expense.documentUrl)
-  const documentOpenUrl = expense.documentUrl ? expenseDocumentOpenUrl(expense.documentUrl) : null
+  const documentViewUrl = expenseDocumentViewUrl(expense.documentUrl)
+  const documentDownloadable = isExpenseDocumentDownloadable(expense.documentUrl)
+  const documentLocalOnly = isExpenseDocumentLocalOnly(expense.documentUrl)
   const showVendorService =
     expense.type === 'vendor_linked' ||
     expense.type === 'reimbursable_expenses' ||
@@ -328,12 +328,8 @@ export function ViewExpenseModal({
               <Typography variant="caption" sx={{ fontSize: 11, display: 'block', color: FIELD_LABEL_COLOR }}>
                 Document
               </Typography>
-              {documentName && documentOpenUrl ? (
-                <Box sx={{ mt: 0.25 }}>
-                  <UploadedDocumentLink fileName={documentName} documentUrl={documentOpenUrl} />
-                </Box>
-              ) : documentName ? (
-                <Stack direction="row" alignItems="center" gap={1} sx={{ minWidth: 0, mt: 0.25 }}>
+              {documentName && documentDownloadable ? (
+                <Stack direction="row" alignItems="center" gap={1} sx={{ mt: 0.25, flexWrap: 'wrap' }}>
                   <Box sx={{ color: tokens.color.primary[500], flexShrink: 0, display: 'flex' }}>
                     <FileText size={16} strokeWidth={2} color={tokens.color.primary[500]} />
                   </Box>
@@ -348,10 +344,61 @@ export function ViewExpenseModal({
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
                       whiteSpace: 'nowrap',
+                      flex: 1,
                     }}
                   >
                     {documentName}
                   </Typography>
+                  <Button
+                    variant="text"
+                    color="primary"
+                    size="sm"
+                    label="View"
+                    onClick={() => {
+                      void openAuthenticatedDocument(documentViewUrl!, () => {
+                        showToast({ title: 'Failed to open document', variant: 'error' })
+                      })
+                    }}
+                  />
+                  <Button
+                    variant="text"
+                    color="primary"
+                    size="sm"
+                    label="Download"
+                    onClick={() => {
+                      void downloadAuthenticatedDocument(documentViewUrl!, documentName ?? undefined, () => {
+                        showToast({ title: 'Failed to download document', variant: 'error' })
+                      })
+                    }}
+                  />
+                </Stack>
+              ) : documentName ? (
+                <Stack direction="row" alignItems="center" gap={1} sx={{ minWidth: 0, mt: 0.25 }}>
+                  <Box sx={{ color: tokens.color.neutral[400], flexShrink: 0, display: 'flex' }}>
+                    <FileText size={16} strokeWidth={2} />
+                  </Box>
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography
+                      variant="body2"
+                      title={documentName}
+                      sx={{
+                        fontSize: 12,
+                        fontWeight: 600,
+                        color: 'text.primary',
+                        minWidth: 0,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {documentName}
+                    </Typography>
+                    {documentLocalOnly ? (
+                      <Typography variant="caption" sx={{ fontSize: 11, color: 'text.secondary', display: 'block' }}>
+                        Document unavailable — file was not uploaded to storage.
+                      </Typography>
+                    ) : null}
+                  </Box>
                 </Stack>
               ) : (
                 <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12, mt: 0.25 }}>

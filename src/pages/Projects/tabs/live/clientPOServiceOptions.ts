@@ -72,6 +72,48 @@ export function masterServiceOptions(services: Service[]): ServiceOption[] {
     .sort((a, b) => a.label.localeCompare(b.label))
 }
 
+/** Map unpaginated `/dropdowns/categories` rows into picker options. */
+export function dropdownCategoryOptions(
+  rows: Array<{ value: string; label: string }>,
+): CategoryOption[] {
+  return rows
+    .map((r) => ({ id: r.value, label: r.label }))
+    .sort((a, b) => a.label.localeCompare(b.label))
+}
+
+/** Map unpaginated `/dropdowns/services` rows into picker options. */
+export function dropdownServiceOptions(
+  rows: Array<{ value: string; label: string; categoryId: string }>,
+): ServiceOption[] {
+  return rows
+    .map((r) => ({ id: r.value, label: r.label, categoryId: r.categoryId }))
+    .sort((a, b) => a.label.localeCompare(b.label))
+}
+
+/** Map dropdown services into Client PO service options (needs category labels). */
+export function dropdownClientPOServiceOptions(
+  categories: Array<{ value: string; label: string }>,
+  services: Array<{ value: string; label: string; categoryId: string }>,
+): ClientPOServiceOption[] {
+  const catLabels = new Map(categories.map((c) => [c.value, c.label]))
+  const out: ClientPOServiceOption[] = []
+  for (const s of services) {
+    const categoryName = catLabels.get(s.categoryId)
+    if (!categoryName) continue
+    out.push({
+      id: s.value,
+      label: s.label,
+      categoryId: s.categoryId,
+      categoryName,
+    })
+  }
+  return out.sort((a, b) => {
+    const catCmp = a.categoryName.localeCompare(b.categoryName)
+    if (catCmp !== 0) return catCmp
+    return a.label.localeCompare(b.label)
+  })
+}
+
 /** Active masters as Client PO service options (includes category name for payloads). */
 export function masterClientPOServiceOptions(
   categories: Category[],
@@ -96,6 +138,15 @@ export function serviceNameForOption(
   serviceId: string,
 ): string {
   return options.find((o) => o.id === serviceId)?.label ?? ''
+}
+
+export function resolveClientPOMilestoneServiceOption(
+  storedServiceId: string,
+  serviceOptions: ClientPOServiceOption[],
+): ClientPOServiceOption | undefined {
+  const trimmed = storedServiceId.trim()
+  if (!trimmed) return undefined
+  return serviceOptions.find((option) => option.id === trimmed)
 }
 
 export function clientPOCategoryOptions(

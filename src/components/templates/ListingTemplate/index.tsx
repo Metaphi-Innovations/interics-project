@@ -32,6 +32,8 @@ import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import { useTheme, alpha } from '@mui/material/styles'
 import { tokens } from '@/design-system/tokens'
+import { DatePicker, dateFromIso, isoFromDate } from '@/design-system/components'
+import { isInvalidDateRange, formatListingShowingLabel } from '@/components/listing/listingStandards'
 import { KpiStatCard, type StatCardVariant } from '../KpiStatCard'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -91,7 +93,7 @@ export interface ColumnItem {
 export interface FilterField {
   field: string
   label: string
-  type: 'select' | 'multiselect' | 'text' | 'daterange'
+  type: 'select' | 'multiselect' | 'text' | 'date' | 'daterange'
   options?: { label: string; value: string }[]
   icon?: ReactNode
 }
@@ -189,17 +191,27 @@ export function FiltersPopover({
   onFilterReset,
 }: FiltersPopoverProps) {
   const [local, setLocal] = useState<Record<string, unknown>>(activeFilters)
+  const [rangeError, setRangeError] = useState('')
 
   useEffect(() => {
     setLocal(activeFilters)
+    setRangeError('')
   }, [activeFilters])
 
   function handleApply() {
+    const from = String(local.dateFrom ?? '')
+    const to = String(local.dateTo ?? '')
+    if (isInvalidDateRange(from, to)) {
+      setRangeError('Date from must be on or before date to')
+      return
+    }
+    setRangeError('')
     onFilterChange(local)
     onClose()
   }
 
   function handleReset() {
+    setRangeError('')
     onFilterReset()
     onClose()
   }
@@ -211,12 +223,12 @@ export function FiltersPopover({
       onClose={onClose}
       anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
       transformOrigin={{ vertical: 'top', horizontal: 'left' }}
-      PaperProps={{ sx: { width: 280, p: '12px', mt: '4px' } }}
+      PaperProps={{ sx: { width: 300, p: '12px', mt: '4px' } }}
     >
       {/* Header */}
       <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: '12px' }}>
         <Typography sx={{ fontWeight: 600, fontSize: '13px' }}>Filters</Typography>
-        <IconButton size="small" onClick={onClose}>
+        <IconButton size="small" onClick={onClose} aria-label="Close filters">
           <CloseIcon sx={{ fontSize: 14 }} />
         </IconButton>
       </Stack>
@@ -246,6 +258,23 @@ export function FiltersPopover({
                   ))}
                 </Select>
               </FormControl>
+            ) : f.type === 'date' || f.type === 'daterange' ? (
+              <DatePicker
+                label={f.label}
+                size="sm"
+                fullWidth
+                value={dateFromIso(String(local[f.field] ?? ''))}
+                onChange={(d) => {
+                  setRangeError('')
+                  setLocal((prev) => ({ ...prev, [f.field]: isoFromDate(d) }))
+                }}
+                error={
+                  (f.field === 'dateFrom' || f.field === 'dateTo') && Boolean(rangeError)
+                }
+                helperText={
+                  f.field === 'dateTo' && rangeError ? rangeError : undefined
+                }
+              />
             ) : (
               <TextField
                 fullWidth
@@ -738,7 +767,7 @@ export function ListingTemplate({
             {/* Left: showing text */}
             <Typography variant="caption" color="text.secondary">
               {totalCount !== undefined
-                ? `Showing ${Math.min(page * pageSize + 1, totalCount)}–${Math.min((page + 1) * pageSize, totalCount)} of ${totalCount}`
+                ? formatListingShowingLabel(page, pageSize, totalCount)
                 : ''}
             </Typography>
 

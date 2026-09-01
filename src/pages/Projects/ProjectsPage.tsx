@@ -41,6 +41,10 @@ import { useNavigate } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { fetchProjects, fetchProjectFilters, changeProjectStatus, updateProject } from '../../slices/projects/thunk'
 import { FilterableSortHeader, type ColumnFilterOption } from '@/components/listing'
+import {
+  buildProjectsStartEndCellModel,
+  mergeProjectsDualDateColFilters,
+} from './projectsDatesCell'
 import { projectsService, type ProjectFiltersApi } from '@/modules/projects'
 import { fetchUsers } from '../../slices/users/thunk'
 import { fetchRoles } from '../../slices/roles/thunk'
@@ -49,6 +53,7 @@ import {
   setFilters,
   resetFilters,
   setPage,
+  setPageSize,
   setSortConfig,
 } from '../../slices/projects/reducer'
 import type { Project } from '../../slices/projects/reducer'
@@ -60,7 +65,6 @@ import { useTheme } from '@mui/material/styles'
 import {
   formatCurrency,
   formatDate,
-  getDaysBetweenDates,
   getInitials,
   getAvatarColor,
 } from '../../utils/formatters'
@@ -278,6 +282,7 @@ interface ProjectsTableProps {
   colFilters: Record<string, string>
   filterOptions: Record<string, ColumnFilterOption[]>
   onColumnFilter: (field: string, value: string) => void
+  onDualDateFilter: (start: string, end: string) => void
   statusDateField: 'createdAt' | 'wentLiveAt' | 'completedAt' | 'archivedAt' | 'cancelledAt'
   statusDateLabel: string
   onView: (project: Project) => void
@@ -301,6 +306,7 @@ function ProjectsTable({
   colFilters,
   filterOptions,
   onColumnFilter,
+  onDualDateFilter,
   statusDateField,
   statusDateLabel,
   onView,
@@ -417,14 +423,16 @@ function ProjectsTable({
             )}
             {columns.dates && (
               <FilterableSortHeader
-                label="Start/End Date"
-                field="expectedStartDate"
-                sortField={sortField ?? undefined}
-                sortDirection={sortDirection}
-                onSort={onSort}
-                filterValue={colFilters.expectedStartDate ?? ''}
-                filterOptions={filterOptions.expectedStartDate ?? []}
-                onFilter={(v) => onColumnFilter('expectedStartDate', v)}
+                label="Start / End Date"
+                sortable={false}
+                filterMode="dual-date"
+                filterDualValue={{
+                  start: colFilters.expectedStartDate ?? '',
+                  end: colFilters.expectedEndDate ?? '',
+                }}
+                onFilterDual={({ start, end }) => onDualDateFilter(start, end)}
+                dualStartLabel="Expected Start Date"
+                dualEndLabel="Expected End Date"
                 sx={{ ...headSx, display: { xs: 'none', xl: 'table-cell' } }}
               />
             )}
@@ -435,7 +443,8 @@ function ProjectsTable({
               sortDirection={sortDirection}
               onSort={onSort}
               filterValue={colFilters[statusDateField] ?? ''}
-              filterOptions={filterOptions[statusDateField] ?? []}
+              filterOptions={[]}
+              filterMode="date"
               onFilter={(v) => onColumnFilter(statusDateField, v)}
               sx={{ ...headSx, display: { xs: 'none', lg: 'table-cell' } }}
             />
@@ -450,7 +459,7 @@ function ProjectsTable({
               project.status !== 'Completed' &&
               project.status !== 'Archived' &&
               project.status !== 'Cancelled'
-            const dateSpanDays = getDaysBetweenDates(
+            const datesCell = buildProjectsStartEndCellModel(
               project.startDate,
               project.expectedEndDate,
             )
@@ -506,14 +515,14 @@ function ProjectsTable({
                   </TableCell>
                 )}
 
-                {/* Start/End Date */}
+                {/* Start / End Date */}
                 {columns.dates && (
                   <TableCell sx={{ ...cellSx, display: { xs: 'none', xl: 'table-cell' } }}>
                     <Stack gap="2px">
                       <Stack direction="row" alignItems="center" gap="3px">
                         <CalendarToday sx={{ fontSize: 10, color: 'text.secondary' }} />
                         <Typography variant="caption" sx={{ fontSize: 10, color: 'text.secondary' }}>
-                          {formatDate(project.startDate)}
+                          {datesCell.startText}
                         </Typography>
                       </Stack>
                       <Stack direction="row" alignItems="center" gap="3px">
@@ -532,15 +541,15 @@ function ProjectsTable({
                               : 'text.secondary',
                           }}
                         >
-                          {formatDate(project.expectedEndDate)}
+                          {datesCell.endText}
                         </Typography>
                       </Stack>
-                      {dateSpanDays !== null && (
+                      {datesCell.durationText !== null && (
                         <Typography
                           variant="caption"
                           sx={{ fontSize: 10, color: 'text.secondary', pl: '13px' }}
                         >
-                          {dateSpanDays} {dateSpanDays === 1 ? 'day' : 'days'}
+                          {datesCell.durationText}
                         </Typography>
                       )}
                     </Stack>
@@ -863,55 +872,6 @@ function ProjectsGrid({
   )
 }
 
-// ─── Simple pagination ────────────────────────────────────────────────────────
-
-function SimplePagination({
-  page,
-  pageSize,
-  total,
-  onPageChange,
-}: {
-  page: number
-  pageSize: number
-  total: number
-  onPageChange: (p: number) => void
-}) {
-  const totalPages = Math.ceil(total / pageSize)
-  if (totalPages <= 1) return null
-  return (
-    <Stack
-      direction="row"
-      alignItems="center"
-      justifyContent="space-between"
-      sx={{ px: '14px', py: '10px', borderTop: `1px solid ${tokens.color.neutral[100]}` }}
-    >
-      <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
-        Showing {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} of {total}
-      </Typography>
-      <Stack direction="row" gap={1}>
-        <MuiButton
-          size="small"
-          variant="outlined"
-          disabled={page <= 1}
-          onClick={() => onPageChange(page - 1)}
-          sx={{ height: 28, minWidth: 64, fontSize: 12 }}
-        >
-          Prev
-        </MuiButton>
-        <MuiButton
-          size="small"
-          variant="outlined"
-          disabled={page >= totalPages}
-          onClick={() => onPageChange(page + 1)}
-          sx={{ height: 28, minWidth: 64, fontSize: 12 }}
-        >
-          Next
-        </MuiButton>
-      </Stack>
-    </Stack>
-  )
-}
-
 // ─── Change Status Dialog ─────────────────────────────────────────────────────
 
 interface ChangeStatusDialogProps {
@@ -1091,7 +1051,7 @@ export default function ProjectsPage() {
       dispatch(
         fetchProjects({
           page: nextPage,
-          pageSize: pagination.pageSize || 20,
+          pageSize: pagination.pageSize || 10,
           search: filters.search || undefined,
           status: statusParam,
           type: nextCols.projectType || filters.type || undefined,
@@ -1249,7 +1209,7 @@ export default function ProjectsPage() {
   const columnItems = [
     { field: 'type', label: 'Scope', visible: columnVisibility.type },
     { field: 'projectLead', label: 'Project Lead', visible: columnVisibility.projectLead },
-    { field: 'dates', label: 'Start/End Date', visible: columnVisibility.dates },
+    { field: 'dates', label: 'Start / End Date', visible: columnVisibility.dates },
   ]
 
   const activeFilterCount = [filters.status, filters.type, filters.projectManager].filter(
@@ -1298,8 +1258,12 @@ export default function ProjectsPage() {
     dispatch(setPage(1))
   }
 
-  function handlePageChange(newPage: number) {
-    dispatch(setPage(newPage))
+  function handlePageChange(zeroBasedPage: number) {
+    dispatch(setPage(zeroBasedPage + 1))
+  }
+
+  function handlePageSizeChange(size: number) {
+    dispatch(setPageSize(size))
   }
 
   function handleResetAll() {
@@ -1430,6 +1394,11 @@ export default function ProjectsPage() {
         onColumnVisibilityChange={handleColumnToggle}
         showViewToggle={true}
         onViewModeChange={(mode) => setViewMode(mode === 'grid' ? 'grid' : 'table')}
+        page={Math.max(0, pagination.page - 1)}
+        pageSize={pagination.pageSize}
+        totalCount={pagination.total}
+        onPageChange={handlePageChange}
+        onPageSizeChange={handlePageSizeChange}
       >
         {viewMode === 'grid' ? (
           <ProjectsGrid
@@ -1463,6 +1432,14 @@ export default function ProjectsPage() {
               dispatch(setPage(1))
               refetch({ page: 1, colFilters: { [field]: value } })
             }}
+            onDualDateFilter={(start, end) => {
+              setColFilters((prev) => mergeProjectsDualDateColFilters(prev, start, end))
+              dispatch(setPage(1))
+              refetch({
+                page: 1,
+                colFilters: { expectedStartDate: start, expectedEndDate: end },
+              })
+            }}
             statusDateField={statusDateConfig.field}
             statusDateLabel={statusDateConfig.label}
             onView={handleView}
@@ -1473,12 +1450,6 @@ export default function ProjectsPage() {
             onCancel={(p) => setLifecycleConfirm({ project: p, status: 'Cancelled' })}
           />
         )}
-        <SimplePagination
-          page={pagination.page}
-          pageSize={pagination.pageSize}
-          total={pagination.total}
-          onPageChange={handlePageChange}
-        />
       </ListingTemplate>
 
       {/* Edit Project Drawer */}

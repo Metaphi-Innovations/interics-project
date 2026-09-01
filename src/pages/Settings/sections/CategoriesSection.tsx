@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react'
 import {
   Box, Typography, Chip,
   Table, TableHead, TableRow, TableCell, TableBody, TableContainer,
-  TextField, MenuItem,
+  TextField,
   Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions,
+  Skeleton,
 } from '@mui/material'
 import { Plus } from 'lucide-react'
 import { Button, Modal, useToast } from '@/design-system/components'
@@ -42,6 +43,9 @@ import {
   firstErrorMessage,
 } from '@/modules/system-settings/shared/settings-validation'
 import { parseSettingsApiError, clearFieldError } from '@/modules/system-settings/shared/api-errors'
+import { LISTING_DEFAULT_PAGE_SIZE, clampListingPage0Based } from '@/components/listing/listingStandards'
+import { SettingsListingPagination } from '../components/SettingsListingPagination'
+import { SettingsStatusSelect } from '../components/SettingsStatusSelect'
 
 const CATEGORY_DATA_COL_COUNT = 4
 const categoryDataColWidth = settingsDataColWidth(CATEGORY_DATA_COL_COUNT)
@@ -58,7 +62,7 @@ export default function CategoriesSection() {
   const dispatch = useAppDispatch()
   const success = useToast((s) => s.success)
   const error = useToast((s) => s.error)
-  const { categories, saving } = useAppSelector(s => s.settings)
+  const { categories, categoriesTotal, saving, loading } = useAppSelector(s => s.settings)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [editingRow, setEditingRow] = useState<Category | null>(null)
   const [form, setForm] = useState<CategoryForm>(defaultForm)
@@ -66,7 +70,7 @@ export default function CategoriesSection() {
   const [deleteTarget, setDeleteTarget] = useState<Category | null>(null)
   const [toggleTarget, setToggleTarget] = useState<Category | null>(null)
   const [toggling, setToggling] = useState(false)
-  const listing = useListingQuery({ pageSize: 100 })
+  const listing = useListingQuery({ pageSize: LISTING_DEFAULT_PAGE_SIZE })
   const [sortField, setSortField] = useState<string>()
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
   const [filterOptions, setFilterOptions] = useState<CategoryFilterOptions>({
@@ -89,18 +93,22 @@ export default function CategoriesSection() {
       .catch(() => undefined)
   }, [dispatch])
 
+  const buildListParams = (page0Based = listing.page) => ({
+    force: true as const,
+    page: page0Based + 1,
+    limit: listing.pageSize,
+    search: listing.debouncedSearch || undefined,
+    name: listing.filters.name,
+    description: listing.filters.description,
+    isActive: listing.filters.isActive,
+    sortBy: sortField,
+    sortOrder: sortField ? sortDirection : undefined,
+  })
+
   useEffect(() => {
     if (isSearchPending) return
-    void dispatch(fetchCategories({
-      force: true,
-      search: listing.debouncedSearch || undefined,
-      name: listing.filters.name,
-      description: listing.filters.description,
-      isActive: listing.filters.isActive,
-      sortBy: sortField,
-      sortOrder: sortField ? sortDirection : undefined,
-    }))
-  }, [dispatch, isSearchPending, listing.debouncedSearch, listing.filters, search, sortDirection, sortField])
+    void dispatch(fetchCategories(buildListParams()))
+  }, [dispatch, isSearchPending, listing.debouncedSearch, listing.filters, listing.page, listing.pageSize, search, sortDirection, sortField])
 
   const applyColumnFilter = (key: string) => (value: string) => {
     listing.setFilter(key, value)
@@ -161,15 +169,15 @@ export default function CategoriesSection() {
     if (!deleteTarget) return
     try {
       await categoriesService.remove(deleteTarget.id)
-      void dispatch(fetchCategories({
-        force: true,
-        search: listing.debouncedSearch || undefined,
-        name: listing.filters.name,
-        description: listing.filters.description,
-        isActive: listing.filters.isActive,
-        sortBy: sortField,
-        sortOrder: sortField ? sortDirection : undefined,
-      }))
+      const clampedPage = clampListingPage0Based(
+        listing.page,
+        categoriesTotal - 1,
+        listing.pageSize,
+      )
+      if (clampedPage !== listing.page) {
+        listing.setPage(clampedPage)
+      }
+      void dispatch(fetchCategories(buildListParams(clampedPage)))
       success('Category deleted')
     } catch (err) {
       const parsed = parseSettingsApiError(err, 'Failed to delete category')
@@ -184,15 +192,7 @@ export default function CategoriesSection() {
     setToggling(true)
     try {
       await dispatch(toggleCategoryStatus(toggleTarget.id)).unwrap()
-      void dispatch(fetchCategories({
-        force: true,
-        search: listing.debouncedSearch || undefined,
-        name: listing.filters.name,
-        description: listing.filters.description,
-        isActive: listing.filters.isActive,
-        sortBy: sortField,
-        sortOrder: sortField ? sortDirection : undefined,
-      }))
+      void dispatch(fetchCategories(buildListParams()))
       success(
         toggleTarget.status === 'active'
           ? 'Category deactivated'
@@ -284,7 +284,17 @@ export default function CategoriesSection() {
           </TableRow>
         </TableHead>
         <TableBody>
-          {categories.map(row => (
+          {loading && categories.length === 0
+            ? [...Array(6)].map((_, i) => (
+                <TableRow key={i} sx={{ height: 44 }}>
+                  {[...Array(CATEGORY_DATA_COL_COUNT + 1)].map((__, j) => (
+                    <TableCell key={j} sx={SETTINGS_TABLE_CELL_SX}>
+                      <Skeleton height={20} />
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))
+            : categories.map(row => (
             <TableRow key={row.id} sx={{ height: 44 }}>
               <TableCell sx={{ ...SETTINGS_TABLE_CELL_SX, fontWeight: 500 }}>{row.name}</TableCell>
               <SettingsDescriptionCell value={row.description} textSx={{ color: 'text.secondary' }} />
@@ -319,6 +329,14 @@ export default function CategoriesSection() {
         </TableBody>
       </Table>
       </TableContainer>
+
+      <SettingsListingPagination
+        page={listing.page}
+        pageSize={listing.pageSize}
+        totalCount={categoriesTotal}
+        onPageChange={listing.setPage}
+        onPageSizeChange={listing.setPageSize}
+      />
 
       <Modal
         open={drawerOpen}
@@ -365,17 +383,14 @@ export default function CategoriesSection() {
             error={!!fieldErrors.description}
             helperText={fieldErrors.description}
           />
-          <TextField
-            select
-            size="small"
+          <SettingsStatusSelect
             label="Status"
             fullWidth
             value={form.status}
-            onChange={e => setForm(f => ({ ...f, status: e.target.value as Category['status'] }))}
-          >
-            <MenuItem value="active">Active</MenuItem>
-            <MenuItem value="inactive">Inactive</MenuItem>
-          </TextField>
+            onChange={(status) =>
+              setForm((f) => ({ ...f, status: status as Category['status'] }))
+            }
+          />
         </Box>
       </Modal>
 

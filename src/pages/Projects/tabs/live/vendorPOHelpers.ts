@@ -1,10 +1,23 @@
 import type { Baseline, VendorPO, VendorPOMilestone } from '@/slices/baseline/reducer'
+import type { VendorInvoice } from '@/slices/live/types'
 import type { PitchCategory, PitchService, PitchVersion, VendorMapping } from '@/slices/pitch/reducer'
+import {
+  resolveVendorMilestoneServiceId,
+} from '@/pages/Projects/tabs/live/clientInvoiceUtils'
+import {
+  flattenVendorPoMilestones,
+  getVendorInvoiceMilestoneAmount,
+  remainingVendorMilestoneValue,
+  scopeVendorInvoicesForPo,
+  VENDOR_MONEY_EPS,
+} from '@/pages/Finance/utils/vendorBillable'
 import { resolvePitchVersionForProject } from '@/store/selectors/pitchSelectors'
 import {
   normalizeVendorMapping,
   validateVendorMilestonePercents,
 } from '@/utils/vendorMilestones'
+import { vendorPOCategoryLabel } from './vendorPOCatalog'
+import type { VendorServiceNameCatalogEntry } from './vendorPOCatalog'
 
 export type VendorMilestoneKind = 'regular' | 'retention'
 
@@ -40,6 +53,46 @@ export interface VendorOption {
 /** Contractual PO value vs latest execution amount — calculations use executed when set. */
 export function vendorPoEffectiveValue(po: Pick<VendorPO, 'poValue' | 'executedValue'>): number {
   return po.executedValue ?? po.poValue
+}
+
+/**
+ * Invoice-aware payable total for one PO (Live Overview / Finance Payables KPIs).
+ * NOT the Vendor Offers listing column — that uses {@link vendorPoEffectiveValue} (Executed Value).
+ * Uninvoiced milestone → milestone value; invoiced/partial → netPayable + remaining uninvoiced portion.
+ * No milestones → executedValue ?? poValue.
+ */
+export function vendorPoExecutableAmount(
+  po: Pick<
+    VendorPO,
+    'id' | 'projectId' | 'vendorId' | 'poValue' | 'executedValue' | 'milestones' | 'linkedBaselineServiceIds'
+  >,
+  vendorInvoices: VendorInvoice[],
+): number {
+  const flatMilestones = flattenVendorPoMilestones(po as VendorPO)
+  if (flatMilestones.length === 0) return vendorPoEffectiveValue(po)
+  const serviceId = po.linkedBaselineServiceIds?.[0]?.trim() || ''
+  const scoped = scopeVendorInvoicesForPo(
+    vendorInvoices,
+    po.projectId,
+    po.id,
+    po.vendorId,
+    serviceId,
+  )
+  let sum = 0
+  for (const m of flatMilestones) {
+    let invoicedNet = 0
+    let billedBase = 0
+    for (const inv of scoped) {
+      const lineBase = getVendorInvoiceMilestoneAmount(inv, m, po.id)
+      if (lineBase <= VENDOR_MONEY_EPS) continue
+      billedBase += lineBase
+      const invBase = Number(inv.baseAmount) || lineBase
+      const share = invBase > VENDOR_MONEY_EPS ? lineBase / invBase : 1
+      invoicedNet += (Number(inv.netPayable) || 0) * share
+    }
+    sum += invoicedNet + remainingVendorMilestoneValue(billedBase, m.value)
+  }
+  return sum
 }
 
 export type VendorMappingRowStatus =
@@ -78,11 +131,6 @@ export interface VendorPOMilestoneOverviewRow {
   /** @deprecated use milestoneType === 'retention' */
   isRetention: boolean
   status: VendorPOMilestone['status']
-}
-
-export type VendorServiceNameCatalogEntry = {
-  id: string
-  name: string
 }
 
 const UUID_RE =
@@ -148,19 +196,19 @@ export function vendorPOLinkedServiceLabel(
   return linkedServiceLabels(po, baseline, catalog)
 }
 
-export function vendorPOCategoryLabel(po: VendorPO, baseline: Baseline | null): string {
-  const serviceId = po.linkedBaselineServiceIds?.[0]
-  if (!serviceId || !baseline) return '—'
-  const categories = Array.isArray(baseline.categories) ? baseline.categories : []
-  for (const cat of categories) {
-    if (
-      (cat.services ?? []).some((s) => s.id === serviceId || s.subcategoryId === serviceId)
-    ) {
-      return cat.categoryName
-    }
-  }
-  return '—'
-}
+export type {
+  VendorMasterCatalogLabels,
+  VendorServiceNameCatalogEntry,
+} from './vendorPOCatalog'
+export {
+  buildVendorServiceNameCatalog,
+  vendorPOCategoryLabel,
+} from './vendorPOCatalog'
+export type {
+  MasterServiceSelection,
+  ResolvedPitchServiceTarget,
+} from './masterServiceResolution'
+export { resolvePitchServiceForMasterSelection } from './masterServiceResolution'
 
 export function buildVendorPOMilestoneOverviewRows(
   vendorPOs: VendorPO[],
@@ -170,11 +218,11 @@ export function buildVendorPOMilestoneOverviewRows(
 ): VendorPOMilestoneOverviewRow[] {
   const rows: VendorPOMilestoneOverviewRow[] = []
   for (const po of vendorPOs.filter((p) => p.projectId === projectId)) {
-    const primaryServiceId = po.linkedBaselineServiceIds?.[0] ?? ''
-    const primaryServiceName =
-      resolveLinkedServiceName(primaryServiceId, baseline, catalog) || '—'
     const serviceLabel = linkedServiceLabels(po, baseline, catalog)
     for (const m of Array.isArray(po.milestones) ? po.milestones : []) {
+      const milestoneServiceId = resolveVendorMilestoneServiceId(m.serviceId, po, baseline)
+      const primaryServiceName =
+        resolveLinkedServiceName(milestoneServiceId, baseline, catalog) || '—'
       const milestoneType = resolveVendorPOMilestoneKind(m)
       const rawName = (m.name ?? '').trim()
       const displayName =
@@ -187,7 +235,7 @@ export function buildVendorPOMilestoneOverviewRows(
         poNumber: po.poNumber,
         vendorId: po.vendorId,
         vendor: po.vendorName,
-        serviceId: primaryServiceId,
+        serviceId: milestoneServiceId,
         serviceName: primaryServiceName,
         service: serviceLabel === '—' ? primaryServiceName : serviceLabel,
         milestoneId: m.id,
@@ -263,70 +311,6 @@ export function buildLiveVendorOfferRows(
 
 function normalizeOfferLabel(value: string): string {
   return value.trim().toLowerCase()
-}
-
-function pitchServiceLabel(svc: PitchService): string {
-  return normalizeOfferLabel(svc.subcategoryName ?? svc.name ?? svc.customName ?? '')
-}
-
-export interface MasterServiceSelection {
-  masterCategoryId: string
-  masterServiceId: string
-  masterCategoryName?: string
-  masterServiceName?: string
-}
-
-export interface ResolvedPitchServiceTarget {
-  categoryId: string
-  categoryName: string
-  service: PitchService
-}
-
-/** Map master category/service picker ids to a pitch or baseline service row. */
-export function resolvePitchServiceForMasterSelection(
-  version: { categories: PitchCategory[] } | null,
-  selection: MasterServiceSelection,
-): ResolvedPitchServiceTarget | null {
-  if (!version) return null
-
-  const masterCatName = selection.masterCategoryName?.trim()
-  const masterSvcName = selection.masterServiceName?.trim()
-
-  const serviceMatches = (svc: PitchService): boolean =>
-    svc.id === selection.masterServiceId ||
-    svc.subcategoryId === selection.masterServiceId ||
-    (masterSvcName != null &&
-      masterSvcName.length > 0 &&
-      pitchServiceLabel(svc) === normalizeOfferLabel(masterSvcName))
-
-  // Pass 1: category + service (ids or names)
-  for (const cat of version.categories) {
-    const categoryMatches =
-      cat.categoryId === selection.masterCategoryId ||
-      cat.id === selection.masterCategoryId ||
-      (masterCatName != null &&
-        masterCatName.length > 0 &&
-        normalizeOfferLabel(cat.categoryName) === normalizeOfferLabel(masterCatName))
-
-    if (!categoryMatches) continue
-
-    for (const svc of cat.services) {
-      if (serviceMatches(svc)) {
-        return { categoryId: cat.id, categoryName: cat.categoryName, service: svc }
-      }
-    }
-  }
-
-  // Pass 2: service only (category ids often differ between master and pitch/baseline rows)
-  for (const cat of version.categories) {
-    for (const svc of cat.services) {
-      if (serviceMatches(svc)) {
-        return { categoryId: cat.id, categoryName: cat.categoryName, service: svc }
-      }
-    }
-  }
-
-  return null
 }
 
 /** Stable key for a vendor-offer table row. */

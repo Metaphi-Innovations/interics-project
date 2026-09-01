@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
-import { Box, Typography, TextField, MenuItem } from '@mui/material'
+import { Box, Typography, TextField } from '@mui/material'
+import { SearchableSelect } from '@/components/listing'
 import { Edit } from '@mui/icons-material'
 import { Button } from '@/design-system/components'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
@@ -54,18 +55,15 @@ function SchemeGroup({
             sx={{ width: 140 }}
           />
           {formatKey && formatOptions && (
-            <TextField
-              select
-              size="small"
-              label="Format"
-              value={format}
-              onChange={e => onChange(formatKey, e.target.value)}
-              sx={{ width: 180 }}
-            >
-              {formatOptions.map(f => (
-                <MenuItem key={f} value={f}>{f}</MenuItem>
-              ))}
-            </TextField>
+            <Box sx={{ width: 180 }}>
+              <SearchableSelect
+                label="Format"
+                fullWidth
+                value={format}
+                onChange={(next) => onChange(formatKey, next)}
+                options={formatOptions.map((f) => ({ value: f, label: f }))}
+              />
+            </Box>
           )}
           <Box
             sx={{

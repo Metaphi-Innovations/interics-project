@@ -14,6 +14,7 @@ import {
   Menu,
   MenuItem,
   Divider,
+  Alert,
 } from '@mui/material'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong'
@@ -28,6 +29,8 @@ import { ListingTemplate, KpiStatCard } from '@/components/templates'
 import type { FilterField, ColumnItem } from '@/components/templates/ListingTemplate'
 import {
   FilterableSortHeader,
+  isInvalidDateRange,
+  clampListingPage1Based,
   type ColumnFilterOption,
 } from '@/components/listing'
 import { StatusBadge, Modal, Button, DatePicker, Select, useToast } from '@/design-system/components'
@@ -37,6 +40,7 @@ import {
   setFilters,
   setSortConfig,
   clearSelected,
+  clearListResults,
   setPage,
   setPageSize,
 } from '@/slices/receivables/reducer'
@@ -47,22 +51,21 @@ import { formatInr } from '@/utils/formatters'
 import { tokens } from '@/design-system/tokens'
 import { CreateInvoiceDrawer } from './components/CreateInvoiceDrawer'
 import { InvoiceDetailDrawer } from './components/InvoiceDetailDrawer'
-import { RecordPaymentModal } from './components/RecordPaymentModal'
+import { FinanceRecordClientInvoicePaymentModal } from './components/FinanceRecordClientInvoicePaymentModal'
 import type { ReceivableSummaryKpis } from './utils/receivableSummary'
+import {
+  resolveReceivableKpiDateRange,
+  mergeReceivableListDateParams,
+  type ReceivableKpiPeriod,
+} from './utils/receivableKpiDateRange'
 import { financeApi } from '@/api/financeApi'
 import { receivablesApi } from '@/api/receivablesApi'
 import { dropdownsApi } from '@/api/dropdownsApi'
 import { unwrapApiData } from '@/modules/system-settings/shared/api'
 import { downloadCsv } from '@/api/downloadCsv'
 import { invoiceStatusToBadgeType, mapInvoiceStatus, showPartialPaidAlongsideTabStatus } from './invoiceStatus'
+import { financeReceivableNetAmount, financeReceivableOutstanding } from './utils/financeReceivableListingAmounts'
 import { usePermission } from '@/hooks/usePermission'
-
-type ReceivableKpiPeriod =
-  | 'Today'
-  | 'This Week'
-  | 'This Month'
-  | 'This Year'
-  | 'Custom Date Range'
 
 const KPI_PERIOD_OPTIONS: { label: string; value: ReceivableKpiPeriod }[] = [
   { label: 'Today', value: 'Today' },
@@ -354,7 +357,8 @@ export default function BillingsPage() {
   const canDeleteReceivable = usePermission('receivables', 'delete')
   const hoverBg = alpha(theme.palette.primary.main, 0.04)
 
-  const { items: rawItems, loading, filters, sortConfig, pagination, saving } = useAppSelector((s) => s.receivables)
+  const { items: rawItems, loading, filters, sortConfig, pagination, saving, error: listError } =
+    useAppSelector((s) => s.receivables)
   const items = useMemo(
     () =>
       (rawItems ?? []).map((inv) => ({
@@ -408,6 +412,41 @@ export default function BillingsPage() {
     taxInvoiceRaised: 0,
     draftInvoiceSent: 0,
   })
+  const kpiDateBounds = useMemo(
+    () => resolveReceivableKpiDateRange(kpiPeriod, kpiCustomFrom, kpiCustomTo),
+    [kpiPeriod, kpiCustomFrom, kpiCustomTo],
+  )
+  const kpiQueryParams = useMemo(() => {
+    if (!kpiDateBounds) return null
+    const listDates = mergeReceivableListDateParams(
+      kpiDateBounds,
+      filters.dateFrom,
+      filters.dateTo,
+    )
+    if (listDates.emptyIntersection) return { emptyIntersection: true as const }
+    return {
+      dateFrom: listDates.dateFrom,
+      dateTo: listDates.dateTo,
+      clientId: columnFilters.clientId || filters.clientId || undefined,
+      projectId: columnFilters.projectId || filters.projectId || undefined,
+      search: filters.search || undefined,
+    }
+  }, [
+    kpiDateBounds,
+    filters.dateFrom,
+    filters.dateTo,
+    filters.clientId,
+    filters.projectId,
+    filters.search,
+    columnFilters.clientId,
+    columnFilters.projectId,
+  ])
+  const kpiCustomIncomplete =
+    kpiPeriod === 'Custom Date Range' && (!kpiCustomFrom || !kpiCustomTo)
+  const kpiCustomInvalid =
+    kpiPeriod === 'Custom Date Range' &&
+    Boolean(kpiCustomFrom && kpiCustomTo) &&
+    kpiDateBounds === null
   const [visibleColumns, setVisibleColumns] = useState<ReceivablesVisibleColumns>({
     clientName: true,
     projectName: true,
@@ -432,9 +471,9 @@ export default function BillingsPage() {
       { field: 'dueDate', label: 'Due date', visible: visibleColumns.dueDate },
       { field: 'baseAmount', label: 'Base', visible: visibleColumns.baseAmount },
       { field: 'gstAmount', label: 'GST', visible: visibleColumns.gstAmount },
-      { field: 'totalAmount', label: 'Total', visible: visibleColumns.totalAmount },
+      { field: 'totalAmount', label: 'Net Amount', visible: visibleColumns.totalAmount },
       { field: 'totalReceived', label: 'Received', visible: visibleColumns.totalReceived },
-      { field: 'balance', label: 'Net receivable', visible: visibleColumns.balance },
+      { field: 'balance', label: 'Pending Amount', visible: visibleColumns.balance },
       { field: 'status', label: 'Status', visible: visibleColumns.status },
     ],
     [visibleColumns],
@@ -457,13 +496,25 @@ export default function BillingsPage() {
     projectId?: string
     visibleColumns?: ReceivablesVisibleColumns
   } = {}) {
+    if (isInvalidDateRange(filters.dateFrom, filters.dateTo)) return
     const nextCols = { ...columnFilters, ...overrides.columnFilters }
-    const nextPage = overrides.page ?? pagination.page
+    const rawPage = overrides.page ?? pagination.page
+    const nextPage = clampListingPage1Based(rawPage, pagination.total, pagination.pageSize)
+    if (nextPage !== pagination.page) dispatch(setPage(nextPage))
     const statusTab = overrides.statusTab ?? filters.statusTab
     const toolbarClientId = overrides.clientId !== undefined ? overrides.clientId : filters.clientId
     const toolbarProjectId =
       overrides.projectId !== undefined ? overrides.projectId : filters.projectId
     const visibility = overrides.visibleColumns ?? visibleColumns
+    const listDates = mergeReceivableListDateParams(
+      kpiDateBounds,
+      filters.dateFrom,
+      filters.dateTo,
+    )
+    if (listDates.emptyIntersection) {
+      dispatch(clearListResults())
+      return
+    }
     dispatch(
       fetchInvoices({
         page: nextPage,
@@ -472,8 +523,8 @@ export default function BillingsPage() {
         search: filters.search || undefined,
         clientId: nextCols.clientId || toolbarClientId || undefined,
         projectId: nextCols.projectId || toolbarProjectId || undefined,
-        dateFrom: filters.dateFrom || undefined,
-        dateTo: filters.dateTo || undefined,
+        dateFrom: listDates.dateFrom,
+        dateTo: listDates.dateTo,
         amountMin: filters.amountMin || undefined,
         amountMax: filters.amountMax || undefined,
         invoiceNo: nextCols.invoiceNo || undefined,
@@ -492,8 +543,19 @@ export default function BillingsPage() {
   }
 
   function refreshKpis() {
+    if (!kpiQueryParams) return
+    if ('emptyIntersection' in kpiQueryParams) {
+      setKpis({
+        totalPoValue: 0,
+        receivedTillDate: 0,
+        pending: 0,
+        taxInvoiceRaised: 0,
+        draftInvoiceSent: 0,
+      })
+      return
+    }
     void financeApi
-      .getReceivablesSummary({ period: kpiPeriod })
+      .getReceivablesSummary(kpiQueryParams)
       .then((res) => {
         const data = unwrapApiData<ReceivableSummaryKpis>(res.data)
         if (data) setKpis(data)
@@ -586,12 +648,29 @@ export default function BillingsPage() {
     sortConfig.field,
     sortConfig.direction,
     visibleColumns,
+    kpiDateBounds,
   ])
 
+  /** Global Date Range change always restarts listing at page 1. */
   useEffect(() => {
+    dispatch(setPage(1))
+  }, [kpiDateBounds, dispatch])
+
+  useEffect(() => {
+    if (!kpiQueryParams) return
+    if ('emptyIntersection' in kpiQueryParams) {
+      setKpis({
+        totalPoValue: 0,
+        receivedTillDate: 0,
+        pending: 0,
+        taxInvoiceRaised: 0,
+        draftInvoiceSent: 0,
+      })
+      return
+    }
     let cancelled = false
     void financeApi
-      .getReceivablesSummary({ period: kpiPeriod })
+      .getReceivablesSummary(kpiQueryParams)
       .then((res) => {
         const data = unwrapApiData<ReceivableSummaryKpis>(res.data)
         if (!cancelled && data) setKpis(data)
@@ -600,7 +679,7 @@ export default function BillingsPage() {
     return () => {
       cancelled = true
     }
-  }, [kpiPeriod])
+  }, [kpiQueryParams])
 
   useEffect(() => {
     return () => {
@@ -625,8 +704,8 @@ export default function BillingsPage() {
     () => [
       { field: 'clientId', label: 'Client', type: 'select', options: clientOpts },
       { field: 'projectId', label: 'Project', type: 'select', options: projectOpts },
-      { field: 'dateFrom', label: 'Date from (YYYY-MM-DD)', type: 'text' },
-      { field: 'dateTo', label: 'Date to (YYYY-MM-DD)', type: 'text' },
+      { field: 'dateFrom', label: 'Date from', type: 'date' },
+      { field: 'dateTo', label: 'Date to', type: 'date' },
       { field: 'amountMin', label: 'Amount min', type: 'text' },
       { field: 'amountMax', label: 'Amount max', type: 'text' },
     ],
@@ -659,7 +738,7 @@ export default function BillingsPage() {
       icon: <CheckCircleIcon sx={{ fontSize: 24 }} />,
     },
     {
-      label: 'Pending',
+      label: 'Pending Invoiced Amount',
       value: `₹${formatInr(kpis.pending)}`,
       variant: 'warning' as const,
       icon: <WarningAmberIcon sx={{ fontSize: 24 }} />,
@@ -734,9 +813,14 @@ export default function BillingsPage() {
       </Stack>
 
       <Box sx={{ p: 2 }}>
-        {kpiPeriod === 'Custom Date Range' && (!kpiCustomFrom || !kpiCustomTo) ? (
+        {kpiCustomIncomplete ? (
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
             Select a start and end date to update KPI values.
+          </Typography>
+        ) : null}
+        {kpiCustomInvalid ? (
+          <Typography variant="caption" color="error" sx={{ display: 'block', mb: 1.5 }}>
+            End date must be on or after the start date.
           </Typography>
         ) : null}
         <Box
@@ -775,6 +859,7 @@ export default function BillingsPage() {
     setSearchInput(v)
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
     searchTimeoutRef.current = setTimeout(() => {
+      dispatch(setPage(1))
       dispatch(setFilters({ search: v }))
     }, 300)
   }
@@ -786,6 +871,7 @@ export default function BillingsPage() {
       clientId: String(next.clientId ?? ''),
       projectId: String(next.projectId ?? ''),
     }))
+    dispatch(setPage(1))
     dispatch(
       setFilters({
         clientId: String(next.clientId ?? ''),
@@ -801,6 +887,7 @@ export default function BillingsPage() {
   function handleFilterReset() {
     setActiveFilters({})
     setColumnFilters((prev) => ({ ...prev, clientId: '', projectId: '' }))
+    dispatch(setPage(1))
     dispatch(
       setFilters({
         clientId: '',
@@ -884,6 +971,9 @@ export default function BillingsPage() {
     )
     dispatch(setSortConfig({ field: null, direction: 'asc' }))
     dispatch(setPage(1))
+    setKpiPeriod('This Month')
+    setKpiCustomFrom(null)
+    setKpiCustomTo(null)
   }
 
   async function confirmSend() {
@@ -915,7 +1005,13 @@ export default function BillingsPage() {
     try {
       await dispatch(deleteInvoice(deleteTarget.id)).unwrap()
       showToast({ title: 'Invoice deleted', variant: 'success' })
-      reloadAfterMutation()
+      const nextPage = clampListingPage1Based(
+        pagination.page,
+        Math.max(0, pagination.total - 1),
+        pagination.pageSize,
+      )
+      reload({ page: nextPage })
+      refreshKpis()
     } catch (e) {
       showToast({ title: String(e), variant: 'error' })
     }
@@ -954,6 +1050,11 @@ export default function BillingsPage() {
 
   return (
     <>
+      {listError ? (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {listError}
+        </Alert>
+      ) : null}
       <ListingTemplate
         icon={<TrendingUp size={20} />}
         title="Receivable"
@@ -1043,6 +1144,7 @@ export default function BillingsPage() {
                       sortField={sortConfig.field ?? undefined}
                       sortDirection={sortConfig.direction}
                       onSort={handleSort}
+                      filterMode="date"
                       filterValue={columnFilters.invoiceDate}
                       filterOptions={invoiceDateOptions}
                       onFilter={(value) => handleColumnFilter('invoiceDate', value)}
@@ -1056,6 +1158,7 @@ export default function BillingsPage() {
                       sortField={sortConfig.field ?? undefined}
                       sortDirection={sortConfig.direction}
                       onSort={handleSort}
+                      filterMode="date"
                       filterValue={columnFilters.dueDate}
                       filterOptions={dueDateOptions}
                       onFilter={(value) => handleColumnFilter('dueDate', value)}
@@ -1090,7 +1193,7 @@ export default function BillingsPage() {
                   )}
                   {visibleColumns.totalAmount && (
                     <FilterableSortHeader
-                      label="Amount"
+                      label="Net Amount"
                       field="totalAmount"
                       sortField={sortConfig.field ?? undefined}
                       sortDirection={sortConfig.direction}
@@ -1116,7 +1219,7 @@ export default function BillingsPage() {
                   )}
                   {visibleColumns.balance && (
                     <FilterableSortHeader
-                      label="Net receivable"
+                      label="Pending Amount"
                       field="netReceivable"
                       sortField={sortConfig.field ?? undefined}
                       sortDirection={sortConfig.direction}
@@ -1234,7 +1337,9 @@ export default function BillingsPage() {
                             <TableCell sx={BODY_CELL_SX}>₹{formatInr(inv.gstAmount)}</TableCell>
                           )}
                           {visibleColumns.totalAmount && (
-                            <TableCell sx={{ ...BODY_CELL_SX, fontWeight: 700 }}>₹{formatInr(inv.totalAmount)}</TableCell>
+                            <TableCell sx={{ ...BODY_CELL_SX, fontWeight: 700 }}>
+                              ₹{formatInr(financeReceivableNetAmount(inv))}
+                            </TableCell>
                           )}
                           {visibleColumns.totalReceived && (
                             <TableCell sx={{ ...BODY_CELL_SX, color: pendingRow ? 'text.secondary' : 'success.main' }}>
@@ -1242,8 +1347,16 @@ export default function BillingsPage() {
                             </TableCell>
                           )}
                           {visibleColumns.balance && (
-                            <TableCell sx={{ ...BODY_CELL_SX, color: inv.balance > 0 ? 'error.main' : 'text.primary' }}>
-                              ₹{formatInr(inv.balance)}
+                            <TableCell
+                              sx={{
+                                ...BODY_CELL_SX,
+                                color:
+                                  financeReceivableOutstanding(inv) > 0
+                                    ? 'error.main'
+                                    : 'text.primary',
+                              }}
+                            >
+                              ₹{formatInr(financeReceivableOutstanding(inv))}
                             </TableCell>
                           )}
                           {visibleColumns.status && (
@@ -1420,7 +1533,7 @@ export default function BillingsPage() {
         }}
       />
 
-      <RecordPaymentModal
+      <FinanceRecordClientInvoicePaymentModal
         open={!!paymentInv}
         onClose={() => setPaymentInv(null)}
         invoice={paymentInv}

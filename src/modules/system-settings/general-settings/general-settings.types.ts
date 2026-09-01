@@ -43,17 +43,17 @@ export type SystemSettingsApi = {
 }
 
 export type UpdateSystemSettingsPayload = {
-  companyName?: string
-  gstin?: string
-  pan?: string
+  companyName?: string | null
+  gstin?: string | null
+  pan?: string | null
   companyType?: ApiCompanyType
-  email?: string
-  phone?: string
-  website?: string
-  addressLine1?: string
-  addressLine2?: string
-  city?: string
-  state?: string
-  pincode?: string
+  email?: string | null
+  phone?: string | null
+  website?: string | null
+  addressLine1?: string | null
+  addressLine2?: string | null
+  city?: string | null
+  state?: string | null
+  pincode?: string | null
   companyLogoFileId?: string | null
 }

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Link, Navigate, useParams } from 'react-router-dom'
 import { Box, Typography } from '@mui/material'
 import SettingsIcon from '@mui/icons-material/Settings'
 import BusinessIcon from '@mui/icons-material/Business'
@@ -37,9 +37,22 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'project-management', label: 'Project Management Master', icon: AccountTreeIcon },
 ]
 
+const DEFAULT_SECTION = NAV_ITEMS[0]!.id
+const VALID_SECTION_IDS = new Set(NAV_ITEMS.map((item) => item.id))
+
+function settingsSectionPath(sectionId: string): string {
+  return `/settings/${sectionId}`
+}
+
 export default function SettingsPage() {
   const theme = useTheme()
-  const [activeSection, setActiveSection] = useState('general')
+  const { section: sectionParam } = useParams<{ section: string }>()
+
+  if (!sectionParam || !VALID_SECTION_IDS.has(sectionParam)) {
+    return <Navigate to={settingsSectionPath(DEFAULT_SECTION)} replace />
+  }
+
+  const activeSection = sectionParam
 
   return (
     <Box
@@ -113,7 +126,8 @@ export default function SettingsPage() {
           return (
             <Box
               key={item.id}
-              onClick={() => setActiveSection(item.id)}
+              component={Link}
+              to={settingsSectionPath(item.id)}
               sx={{
                 display: 'flex',
                 alignItems: 'center',
@@ -123,6 +137,7 @@ export default function SettingsPage() {
                 mb: 0.5,
                 borderRadius: '8px',
                 cursor: 'pointer',
+                textDecoration: 'none',
                 bgcolor: isActive ? 'primary.main' : 'transparent',
                 color: isActive ? 'primary.contrastText' : 'text.secondary',
                 '&:hover': {

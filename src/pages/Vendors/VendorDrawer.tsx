@@ -47,10 +47,6 @@ interface FormState {
   city: string
   state: string
   pincode: string
-  shippingAddress: string
-  shippingCity: string
-  shippingState: string
-  shippingPincode: string
   tags: string[]
   paymentTerms: string
   notes: string
@@ -70,10 +66,6 @@ const defaultForm: FormState = {
   city: '',
   state: '',
   pincode: '',
-  shippingAddress: '',
-  shippingCity: '',
-  shippingState: '',
-  shippingPincode: '',
   tags: [],
   paymentTerms: '',
   notes: '',
@@ -100,20 +92,16 @@ export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: Vendo
   const [gstCertFile, setGstCertFile] = useState<File | null>(null)
   const [panDocFile, setPanDocFile] = useState<File | null>(null)
   const [pincodeLookupLoading, setPincodeLookupLoading] = useState(false)
-  const [shippingPincodeLookupLoading, setShippingPincodeLookupLoading] = useState(false)
   const gstFileInputRef = useRef<HTMLInputElement>(null)
   const panFileInputRef = useRef<HTMLInputElement>(null)
   const pincodeLookupSeq = useRef(0)
-  const shippingPincodeLookupSeq = useRef(0)
 
   useEffect(() => {
     if (open) {
       setGstCertFile(null)
       setPanDocFile(null)
       setPincodeLookupLoading(false)
-      setShippingPincodeLookupLoading(false)
       pincodeLookupSeq.current += 1
-      shippingPincodeLookupSeq.current += 1
       if (vendor && mode === 'edit') {
         setForm({
           name: vendor.name,
@@ -129,10 +117,6 @@ export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: Vendo
           city: vendor.city === 'Unknown' ? '' : vendor.city,
           state: vendor.state === 'Unknown' ? '' : vendor.state,
           pincode: vendor.pincode ?? '',
-          shippingAddress: vendor.shippingAddress ?? '',
-          shippingCity: vendor.shippingCity ?? '',
-          shippingState: vendor.shippingState ?? '',
-          shippingPincode: vendor.shippingPincode ?? '',
           tags: vendor.tags,
           paymentTerms: vendor.paymentTerms ?? '',
           notes: vendor.notes ?? '',
@@ -188,48 +172,6 @@ export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: Vendo
     void resolvePincode(pin)
   }
 
-  async function resolveShippingPincode(pin: string) {
-    const seq = ++shippingPincodeLookupSeq.current
-    setShippingPincodeLookupLoading(true)
-    setErrors((errs) =>
-      clearFieldError(
-        clearFieldError(clearFieldError(errs, 'shippingPincode'), 'shippingCity'),
-        'shippingState',
-      ),
-    )
-    try {
-      const location = await lookupPincodeLocation(pin)
-      if (seq !== shippingPincodeLookupSeq.current) return
-      setForm((f) => ({
-        ...f,
-        shippingPincode: location.pincode,
-        shippingCity: location.city,
-        shippingState: location.state,
-      }))
-    } catch {
-      if (seq !== shippingPincodeLookupSeq.current) return
-      setErrors((errs) => ({
-        ...errs,
-        shippingPincode: 'Could not resolve city/state for this pincode',
-      }))
-    } finally {
-      if (seq === shippingPincodeLookupSeq.current) {
-        setShippingPincodeLookupLoading(false)
-      }
-    }
-  }
-
-  function handleShippingPincodeChange(raw: string) {
-    const pin = digitsOnly(raw).slice(0, 6)
-    update('shippingPincode', pin)
-    if (pin.length < 6) {
-      shippingPincodeLookupSeq.current += 1
-      setShippingPincodeLookupLoading(false)
-      return
-    }
-    void resolveShippingPincode(pin)
-  }
-
   async function handleSubmit() {
     const wasPending = vendor?.profileStatus === 'pending'
 
@@ -247,13 +189,8 @@ export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: Vendo
       city: form.city.trim(),
       state: form.state.trim(),
       pincode: form.pincode.trim() || null,
-      shippingAddress: form.shippingAddress.trim() || null,
-      shippingCity: form.shippingCity.trim() || null,
-      shippingState: form.shippingState.trim() || null,
-      shippingPincode: form.shippingPincode.trim() || null,
       tags: form.tags,
       notes: form.notes.trim() || null,
-      status: (wasPending ? 'Active' : (vendor?.status ?? 'Active')) as 'Active' | 'Inactive',
       gstCertificateFile: gstCertFile,
       panCardFile: panDocFile,
     }
@@ -500,78 +437,6 @@ export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: Vendo
             value={form.state}
             onChange={(e) => update('state', e.target.value)}
             error={!!errors.state}
-          >
-            <MenuItem value="">
-              Select state…
-            </MenuItem>
-            {INDIAN_STATES.map((s) => (
-              <MenuItem key={s} value={s}>
-                {s}
-              </MenuItem>
-            ))}
-          </TextField>
-        </FormField>
-      </FormSection>
-
-      <FormSection title="Shipping Address" columns={2}>
-        <Box sx={{ gridColumn: 'span 2' }}>
-          <FormField label="Address">
-            <TextField
-              fullWidth
-              size="small"
-              multiline
-              rows={2}
-              value={form.shippingAddress}
-              onChange={(e) => update('shippingAddress', e.target.value)}
-              placeholder="Building, Street"
-            />
-          </FormField>
-        </Box>
-
-        <FormField
-          label="Pincode"
-          error={errors.shippingPincode}
-          hint={
-            shippingPincodeLookupLoading
-              ? 'Looking up city & state…'
-              : 'City and state auto-fill'
-          }
-        >
-          <TextField
-            fullWidth
-            size="small"
-            value={form.shippingPincode}
-            onChange={(e) => handleShippingPincodeChange(e.target.value)}
-            placeholder="560001"
-            inputProps={{ inputMode: 'numeric', maxLength: 6 }}
-            error={!!errors.shippingPincode}
-            InputProps={{
-              endAdornment: shippingPincodeLookupLoading ? (
-                <CircularProgress color="inherit" size={16} />
-              ) : undefined,
-            }}
-          />
-        </FormField>
-
-        <FormField label="City" error={errors.shippingCity}>
-          <TextField
-            fullWidth
-            size="small"
-            value={form.shippingCity}
-            onChange={(e) => update('shippingCity', e.target.value)}
-            placeholder="City"
-            error={!!errors.shippingCity}
-          />
-        </FormField>
-
-        <FormField label="State" error={errors.shippingState}>
-          <TextField
-            fullWidth
-            size="small"
-            select
-            value={form.shippingState}
-            onChange={(e) => update('shippingState', e.target.value)}
-            error={!!errors.shippingState}
           >
             <MenuItem value="">
               Select state…

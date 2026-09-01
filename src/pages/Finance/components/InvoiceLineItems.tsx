@@ -81,6 +81,8 @@ export interface InvoiceLineItemsProps {
   hideSacColumn?: boolean
   /** Show Labour cess % column between Amount and GST % */
   showLabourCessColumn?: boolean
+  /** In read mode, render Labour cess % as an editable input (Generate Invoice flow). */
+  editableLabourCessInReadMode?: boolean
   /** Disable adding manual lines from UI actions. */
   allowManualAdd?: boolean
 }
@@ -113,6 +115,7 @@ export function InvoiceLineItems({
   manualAddCollapsed = false,
   hideSacColumn = false,
   showLabourCessColumn = false,
+  editableLabourCessInReadMode = false,
   showTdsColumn = false,
   tdsRate = null,
   allowManualAdd = true,
@@ -262,8 +265,25 @@ export function InvoiceLineItems({
                   ) : null}
                   <TableCell sx={{ fontSize: 12, ...amountColSx }}>₹{formatInr(row.amount)}</TableCell>
                   {showLabourCessColumn ? (
-                    <TableCell sx={{ fontSize: 12 }}>
-                      {(row as DraftLineItem).labourCessRate ?? 0}%
+                    <TableCell
+                      sx={{
+                        fontSize: 12,
+                        py: editableLabourCessInReadMode ? 1.5 : undefined,
+                        verticalAlign: editableLabourCessInReadMode ? 'top' : undefined,
+                      }}
+                    >
+                      {editableLabourCessInReadMode && onChange ? (
+                        <Input
+                          size="sm"
+                          type="number"
+                          value={draft.labourCessRate ? String(draft.labourCessRate) : ''}
+                          onChange={(v) => updateLine(index, { labourCessRate: Number(v) || 0 })}
+                          fullWidth
+                          placeholder="0"
+                        />
+                      ) : (
+                        `${(row as DraftLineItem).labourCessRate ?? 0}%`
+                      )}
                     </TableCell>
                   ) : null}
                   <TableCell sx={{ fontSize: 12 }}>{row.gstRate}%</TableCell>

@@ -190,6 +190,9 @@ export default function PitchTab({ project }: { project: Project }) {
   const serviceSaveSeqRef = useRef<Map<string, number>>(new Map())
   const servicePendingPatchRef = useRef<Map<string, Partial<PitchService>>>(new Map())
   const serviceLatestPatchRef = useRef<Map<string, Partial<PitchService>>>(new Map())
+  const draftSaveTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+  const draftSaveSeqRef = useRef<Map<string, number>>(new Map())
+  const draftPendingPatchRef = useRef<Map<string, Partial<PitchService>>>(new Map())
   const [serviceLocalPatches, setServiceLocalPatches] = useState<
     Record<string, Partial<PitchService>>
   >({})
@@ -468,6 +471,53 @@ export default function PitchTab({ project }: { project: Project }) {
     }
   }
 
+  function scheduleDraftServiceSave(
+    category: PitchCategory,
+    patch: Partial<PitchService>,
+  ): void {
+    if (!activeVersion) return
+    const key = category.id
+    const merged = { ...(draftPendingPatchRef.current.get(key) ?? {}), ...patch }
+    draftPendingPatchRef.current.set(key, merged)
+    setServiceLocalPatches((prev) => ({
+      ...prev,
+      [CLIENT_OFFER_DRAFT_SERVICE_ID]: {
+        ...(prev[CLIENT_OFFER_DRAFT_SERVICE_ID] ?? {}),
+        ...patch,
+      },
+    }))
+
+    const existingTimer = draftSaveTimersRef.current.get(key)
+    if (existingTimer) clearTimeout(existingTimer)
+
+    const timer = setTimeout(() => {
+      draftSaveTimersRef.current.delete(key)
+      const finalPatch = draftPendingPatchRef.current.get(key)
+      draftPendingPatchRef.current.delete(key)
+      if (!finalPatch || Object.keys(finalPatch).length === 0) return
+
+      const seq = (draftSaveSeqRef.current.get(key) ?? 0) + 1
+      draftSaveSeqRef.current.set(key, seq)
+
+      void (async () => {
+        try {
+          await persistDraftServiceRow(category, finalPatch)
+          if (draftSaveSeqRef.current.get(key) !== seq) return
+          setServiceLocalPatches((prev) => {
+            if (!(CLIENT_OFFER_DRAFT_SERVICE_ID in prev)) return prev
+            const next = { ...prev }
+            delete next[CLIENT_OFFER_DRAFT_SERVICE_ID]
+            return next
+          })
+        } catch {
+          if (draftSaveSeqRef.current.get(key) !== seq) return
+        }
+      })()
+    }, LISTING_SEARCH_DEBOUNCE_MS)
+
+    draftSaveTimersRef.current.set(key, timer)
+  }
+
   async function addServiceRow(category: PitchCategory): Promise<void> {
     if (!activeVersion) return
     const draftService: Partial<PitchService> = {
@@ -608,6 +658,8 @@ export default function PitchTab({ project }: { project: Project }) {
     return () => {
       for (const timer of serviceSaveTimersRef.current.values()) clearTimeout(timer)
       serviceSaveTimersRef.current.clear()
+      for (const timer of draftSaveTimersRef.current.values()) clearTimeout(timer)
+      draftSaveTimersRef.current.clear()
     }
   }, [])
 
@@ -973,7 +1025,7 @@ export default function PitchTab({ project }: { project: Project }) {
                                               name: m?.name ?? '',
                                             }
                                             if (isDraft) {
-                                              void persistDraftServiceRow(category, patch)
+                                              scheduleDraftServiceSave(category, patch)
                                               return
                                             }
                                             scheduleServiceSave(category.id, service.id, patch)
@@ -998,7 +1050,7 @@ export default function PitchTab({ project }: { project: Project }) {
                                         onChange={(e) => {
                                           const value = Number(e.target.value) || 0
                                           if (isDraft) {
-                                            void persistDraftServiceRow(category, { value })
+                                            scheduleDraftServiceSave(category, { value })
                                             return
                                           }
                                           scheduleServiceSave(category.id, service.id, { value })

@@ -243,7 +243,7 @@ export function CreateContactPersonModal({
   const activeVendorOptions = useMemo<VendorOption[]>(
     () =>
       vendors
-        // Active complete vendors + Inactive (Pending Contacts / QuickAdd) vendors.
+        // Active + inactive vendors (Pending Contacts uses profileStatus, not isActive).
         .filter(
           (v) =>
             (v.status === 'Active' && isActiveVendorContact(v)) ||

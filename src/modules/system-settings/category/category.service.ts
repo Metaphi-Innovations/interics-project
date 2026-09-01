@@ -1,5 +1,5 @@
 import client from '@/api/client'
-import { compactQueryParams, toUiStatus, unwrapApiData, unwrapApiList } from '../shared/api'
+import { compactQueryParams, toUiStatus, unwrapApiData, unwrapApiListWithMeta, type ListResult } from '../shared/api'
 import { withInflight } from '../shared/inflight'
 import type { Category } from '@/slices/settings/reducer'
 import type { ColumnFilterOption } from '@/components/listing'
@@ -42,10 +42,10 @@ function toCategory(api: CategoryApi): Category {
 }
 
 export const categoriesService = {
-  async getAll(params: CategoryListParams = {}): Promise<Category[]> {
+  async getAll(params: CategoryListParams = {}): Promise<ListResult<Category>> {
     const query = compactQueryParams({
       page: params.page ?? 1,
-      limit: params.limit ?? 100,
+      limit: params.limit ?? 10,
       search: params.search,
       name: params.name,
       description: params.description,
@@ -55,7 +55,8 @@ export const categoriesService = {
     })
     return withInflight(`categories:list:${JSON.stringify(query)}`, async () => {
       const res = await client.get(BASE, { params: query })
-      return unwrapApiList<CategoryApi>(res.data).map(toCategory)
+      const { items, meta } = unwrapApiListWithMeta<CategoryApi>(res.data)
+      return { items: items.map(toCategory), meta }
     })
   },
 

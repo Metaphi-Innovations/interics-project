@@ -2,13 +2,14 @@ import { useState, useEffect } from 'react'
 import {
   Box, Typography, TextField, Chip,
   Table, TableHead, TableRow, TableCell, TableBody, TableContainer,
-  MenuItem,
   Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions,
+  Skeleton,
 } from '@mui/material'
 import { Plus } from 'lucide-react'
 import { Button, Modal, useToast } from '@/design-system/components'
 import {
   FilterableSortHeader,
+  SearchableSelect,
   SettingsSearchBar,
   StatusColumnToggle,
   useListingQuery,
@@ -40,6 +41,9 @@ import {
   firstErrorMessage,
 } from '@/modules/system-settings/shared/settings-validation'
 import { parseSettingsApiError, clearFieldError } from '@/modules/system-settings/shared/api-errors'
+import { LISTING_DEFAULT_PAGE_SIZE } from '@/components/listing/listingStandards'
+import { SettingsListingPagination } from '../components/SettingsListingPagination'
+import { SettingsStatusSelect } from '../components/SettingsStatusSelect'
 
 const SAC_DATA_COL_COUNT = 4
 const sacDataColWidth = settingsDataColWidth(SAC_DATA_COL_COUNT)
@@ -58,8 +62,8 @@ export default function SACCodesSection() {
   const dispatch = useAppDispatch()
   const success = useToast((s) => s.success)
   const error = useToast((s) => s.error)
-  const { sacCodes, gstRates, saving } = useAppSelector(s => s.settings)
-  const listing = useListingQuery({ pageSize: 20 })
+  const { sacCodes, sacCodesTotal, gstRates, saving, loading } = useAppSelector(s => s.settings)
+  const listing = useListingQuery({ pageSize: LISTING_DEFAULT_PAGE_SIZE })
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [editingRow, setEditingRow] = useState<SACCode | null>(null)
   const [form, setForm] = useState<SACForm>(defaultForm)
@@ -88,22 +92,26 @@ export default function SACCodesSection() {
         })
       })
       .catch(() => undefined)
-    void dispatch(fetchGSTRates())
+    void dispatch(fetchGSTRates({ force: true, page: 1, limit: 100 }))
   }, [dispatch])
+
+  const buildListParams = () => ({
+    force: true as const,
+    page: listing.apiPage,
+    limit: listing.pageSize,
+    search: listing.debouncedSearch || undefined,
+    sacCode: listing.filters.sacCode,
+    description: listing.filters.description,
+    gstSlabId: listing.filters.gstSlabId,
+    status: listing.filters.status,
+    sortBy: sortField,
+    sortOrder: sortField ? sortDirection : undefined,
+  })
 
   useEffect(() => {
     if (isSearchPending) return
-    void dispatch(fetchSACCodes({
-      force: true,
-      search: listing.debouncedSearch || undefined,
-      sacCode: listing.filters.sacCode,
-      description: listing.filters.description,
-      gstSlabId: listing.filters.gstSlabId,
-      status: listing.filters.status,
-      sortBy: sortField,
-      sortOrder: sortField ? sortDirection : undefined,
-    }))
-  }, [dispatch, isSearchPending, listing.debouncedSearch, listing.filters, search, sortDirection, sortField])
+    void dispatch(fetchSACCodes(buildListParams()))
+  }, [dispatch, isSearchPending, listing.debouncedSearch, listing.filters, listing.page, listing.pageSize, search, sortDirection, sortField])
 
   const applyColumnFilter = (key: string) => (value: string) => {
     listing.setFilter(key, value)
@@ -179,16 +187,7 @@ export default function SACCodesSection() {
     setToggling(true)
     try {
       await dispatch(toggleSACCodeStatus(toggleTarget.id)).unwrap()
-      void dispatch(fetchSACCodes({
-        force: true,
-        search: listing.debouncedSearch || undefined,
-        sacCode: listing.filters.sacCode,
-        description: listing.filters.description,
-        gstSlabId: listing.filters.gstSlabId,
-        status: listing.filters.status,
-        sortBy: sortField,
-        sortOrder: sortField ? sortDirection : undefined,
-      }))
+      void dispatch(fetchSACCodes(buildListParams()))
       success(
         toggleTarget.status === 'active'
           ? 'SAC code deactivated'
@@ -283,7 +282,17 @@ export default function SACCodesSection() {
           </TableRow>
         </TableHead>
         <TableBody>
-          {sacCodes.map(row => {
+          {loading && sacCodes.length === 0
+            ? [...Array(6)].map((_, i) => (
+                <TableRow key={i} sx={{ height: 44 }}>
+                  {[...Array(SAC_DATA_COL_COUNT + 1)].map((__, j) => (
+                    <TableCell key={j} sx={SETTINGS_TABLE_CELL_SX}>
+                      <Skeleton height={20} />
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))
+            : sacCodes.map(row => {
             const linkedGST = gstRates.find(g => g.id === row.gstRateId)
             return (
               <TableRow key={row.id} sx={{ height: 44 }}>
@@ -316,6 +325,14 @@ export default function SACCodesSection() {
         </TableBody>
       </Table>
       </TableContainer>
+
+      <SettingsListingPagination
+        page={listing.page}
+        pageSize={listing.pageSize}
+        totalCount={sacCodesTotal}
+        onPageChange={listing.setPage}
+        onPageSizeChange={listing.setPageSize}
+      />
 
       <Modal
         open={drawerOpen}
@@ -350,37 +367,30 @@ export default function SACCodesSection() {
             helperText={fieldErrors.code}
           />
           <Box sx={{ display: 'flex', gap: 2 }}>
-            <TextField
-              select
-              size="small"
+            <SearchableSelect
               label="GST Rate"
               required
               fullWidth
               value={form.gstRateId}
-              onChange={e => {
-                setForm(f => ({ ...f, gstRateId: e.target.value }))
-                setFieldErrors(errors => clearFieldError(errors, 'gstRateId'))
+              onChange={(gstRateId) => {
+                setForm((f) => ({ ...f, gstRateId }))
+                setFieldErrors((errors) => clearFieldError(errors, 'gstRateId'))
               }}
-              sx={{ flex: 1, minWidth: 0 }}
+              options={activeGST.map((g) => ({
+                value: g.id,
+                label: `${g.slabName} (${g.rate}%)`,
+              }))}
               error={!!fieldErrors.gstRateId}
               helperText={fieldErrors.gstRateId}
-            >
-              {activeGST.map(g => (
-                <MenuItem key={g.id} value={g.id}>{g.slabName} ({g.rate}%)</MenuItem>
-              ))}
-            </TextField>
-            <TextField
-              select
-              size="small"
+            />
+            <SettingsStatusSelect
               label="Status"
               fullWidth
               value={form.status}
-              onChange={e => setForm(f => ({ ...f, status: e.target.value as SACCode['status'] }))}
-              sx={{ flex: 1, minWidth: 0 }}
-            >
-              <MenuItem value="active">Active</MenuItem>
-              <MenuItem value="inactive">Inactive</MenuItem>
-            </TextField>
+              onChange={(status) =>
+                setForm((f) => ({ ...f, status: status as SACCode['status'] }))
+              }
+            />
           </Box>
           <TextField
             size="small"

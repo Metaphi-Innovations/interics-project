@@ -45,7 +45,7 @@ export function VendorPOSection({
   onEditPO,
   onDeletePO,
   canDeletePO,
-  deleteDisabledReason = 'Cannot delete — milestones are billed or paid',
+  deleteDisabledReason = 'Cannot delete — milestone has invoice or payment activity',
 }: VendorPOSectionProps) {
   const totalPOValue = vendorPOs.reduce((sum, po) => sum + vendorPoEffectiveValue(po), 0)
 

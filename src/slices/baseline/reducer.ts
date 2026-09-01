@@ -68,6 +68,8 @@ export interface VendorPOMilestone {
   dueDate: string | null
   status: 'Paid' | 'Pending' | 'Overdue'
   kind?: 'regular' | 'retention'
+  /** Baseline/master service id for GST resolution (multi-service PO cards). */
+  serviceId?: string
 }
 
 export type VendorPOExecutionStatus = 'Draft' | 'Issued' | 'Accepted'
@@ -88,6 +90,8 @@ export interface VendorPO {
   paymentTerms?: string
   status: VendorPOExecutionStatus
   linkedBaselineServiceIds?: string[]
+  /** TDS rate (%) applied to vendor invoices on this PO. */
+  tdsRate?: number | null
   /** Vendor mapping row id from the pitch/baseline offer (Live Contract → Add PO). */
   linkedVendorMappingId?: string
   documentUrl?: string | null

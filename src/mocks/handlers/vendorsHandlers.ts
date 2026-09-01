@@ -85,10 +85,6 @@ interface Vendor {
   state: string
   address: string | null
   pincode?: string | null
-  shippingAddress?: string | null
-  shippingCity?: string | null
-  shippingState?: string | null
-  shippingPincode?: string | null
   tags: string[]
   paymentTerms?: string | null
   notes: string | null
@@ -207,10 +203,6 @@ const seedVendors: Vendor[] = [
     state: 'Karnataka',
     address: 'Industrial Area, Phase 2',
     pincode: '560058',
-    shippingAddress: 'Warehouse 12, Peenya Industrial Estate',
-    shippingCity: 'Bangalore',
-    shippingState: 'Karnataka',
-    shippingPincode: '560058',
     tags: ['Civil', 'Contractor'],
     paymentTerms: 'Net 30',
     notes: null,

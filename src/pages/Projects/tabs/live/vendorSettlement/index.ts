@@ -47,13 +47,13 @@ export { SettlementSummaryStrip } from './SettlementSummaryStrip'
 export { AddVendorInvoiceDrawer } from './AddVendorInvoiceDrawer'
 export {
   UploadVendorInvoiceDrawer,
-  type EligibleInvoiceUploadEntry,
-  type ProjectVendorOption,
   type UploadVendorInvoiceInitialSelection,
 } from './UploadVendorInvoiceDrawer'
 export {
   buildEligibleVendorInvoiceUploadEntries,
   buildProjectVendorOptionsFromVendorPOs,
+  type EligibleInvoiceUploadEntry,
+  type ProjectVendorOption,
 } from './eligibleInvoiceUpload'
 export { PaymentDetailModal, VendorInvoiceDetailModal } from './SettlementModals'
 export {

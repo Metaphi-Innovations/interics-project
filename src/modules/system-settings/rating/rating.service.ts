@@ -1,5 +1,5 @@
 import client from '@/api/client'
-import { compactQueryParams, toUiStatus, unwrapApiData, unwrapApiList } from '../shared/api'
+import { compactQueryParams, toUiStatus, unwrapApiData, unwrapApiListWithMeta, type ListResult } from '../shared/api'
 import { withInflight } from '../shared/inflight'
 import type { RatingMaster } from '@/slices/settings/reducer'
 import type { ColumnFilterOption } from '@/components/listing'
@@ -26,6 +26,7 @@ export type RatingListParams = {
   isActive?: string
   sortBy?: string
   sortOrder?: 'asc' | 'desc'
+  page?: number
   limit?: number
 }
 
@@ -35,9 +36,10 @@ type RatingFilters = {
 }
 
 export const ratingsService = {
-  async getAll(params: RatingListParams = {}): Promise<RatingMaster[]> {
+  async getAll(params: RatingListParams = {}): Promise<ListResult<RatingMaster>> {
     const query = compactQueryParams({
-      limit: params.limit ?? 100,
+      page: params.page ?? 1,
+      limit: params.limit ?? 10,
       search: params.search,
       name: params.name,
       isActive: params.isActive,
@@ -46,7 +48,8 @@ export const ratingsService = {
     })
     return withInflight(`ratings:list:${JSON.stringify(query)}`, async () => {
       const res = await client.get(BASE, { params: query })
-      return unwrapApiList<RatingApi>(res.data).map(toRating)
+      const { items, meta } = unwrapApiListWithMeta<RatingApi>(res.data)
+      return { items: items.map(toRating), meta }
     })
   },
 

@@ -22,6 +22,8 @@ export type RecordClientInvoicePaymentBody = {
   amountReceived: number
   paymentMode: ClientInvoicePaymentMode
   reference?: string
+  allocationMode?: 'project_live' | 'finance'
+  targetMilestoneId?: string
 }
 
 export type CreateVendorInvoiceBody = Omit<VendorInvoice, 'id' | 'projectId'>
@@ -425,6 +427,11 @@ export const liveApi = {
 
   createExpense: async (projectId: string, data: CreateExpenseBody) => {
     const res = await client.post(`${root(projectId)}/expenses`, data)
+    return unwrapApiData<Expense>(res.data)
+  },
+
+  updateExpense: async (projectId: string, expenseId: string, data: CreateExpenseBody) => {
+    const res = await client.patch(`${root(projectId)}/expenses/${expenseId}`, data)
     return unwrapApiData<Expense>(res.data)
   },
 

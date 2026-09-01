@@ -3,7 +3,11 @@ import type { VendorInvoice } from '@/slices/live/types'
 import type { VendorMilestone } from '@/slices/pitch/reducer'
 import { buildVendorPOMilestoneOverviewRows } from '@/pages/Projects/tabs/live/vendorPOHelpers'
 import {
-  findInvoiceForMilestone,
+  flattenVendorPoMilestones,
+  vendorBilledAmountForMilestone,
+  vendorMilestoneFullyInvoiced,
+} from '@/pages/Finance/utils/vendorBillable'
+import {
   invoiceMatchesRow,
   type VendorServiceRow,
 } from '@/pages/Projects/tabs/live/vendorSettlement/utils'
@@ -93,7 +97,26 @@ export function buildEligibleVendorInvoiceUploadEntries(
         value: row.amount,
       }
       const rowInvoices = scopedInvoices.filter((inv) => invoiceMatchesRow(inv, context))
-      if (findInvoiceForMilestone(rowInvoices, milestone)) continue
+      const flatMilestones = flattenVendorPoMilestones(
+        projectPOs.find((po) => po.id === row.poId) ?? null,
+      )
+      const flatMilestone = flatMilestones.find((m) => m.milestoneId === row.milestoneId) ?? {
+        milestoneId: row.milestoneId,
+        milestoneName: row.name,
+        serviceId,
+        serviceName: row.serviceName || row.service || '—',
+        value: row.amount,
+        isRetention: row.milestoneType === 'retention',
+      }
+      const billed = vendorBilledAmountForMilestone(
+        rowInvoices,
+        project.id,
+        row.poId,
+        row.vendorId,
+        serviceId,
+        flatMilestone,
+      )
+      if (vendorMilestoneFullyInvoiced(row.amount, billed)) continue
 
       out.push({
         projectId: project.id,

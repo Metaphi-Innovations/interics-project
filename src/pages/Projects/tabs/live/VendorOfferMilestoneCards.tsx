@@ -19,39 +19,29 @@ import {
   cardMilestoneRowGrid,
   createEmptyVendorPOMilestoneRow,
   type VendorPOMilestoneRow,
-  type VendorPORetentionRow,
 } from './VendorPOMilestoneEditor'
 import type { MilestonePaymentStatusLabel } from './milestonePaymentStatus'
 import type { VendorPOMilestone } from '@/slices/baseline/reducer'
 import { parseRateInput, rateInputDisplay, selectRateInputOnFocus } from './rateInput'
+import type {
+  CategoryOption,
+  ServiceOption,
+  VendorOfferMilestoneCard,
+  VendorOfferRetentionCard,
+} from './vendorPOCardHydration'
 
-export interface CategoryOption {
-  id: string
-  label: string
-}
-
-export interface ServiceOption {
-  id: string
-  label: string
-  categoryId: string
-}
-
-interface ServiceScopedCard {
-  id: string
-  categoryId: string
-  serviceId: string
-}
-
-export interface VendorOfferMilestoneCard extends ServiceScopedCard {
-  milestones: VendorPOMilestoneRow[]
-  retention?: VendorPORetentionRow | null
-}
-
-export interface VendorOfferRetentionCard extends ServiceScopedCard {
-  name: string
-  percentage: number
-  value: number
-}
+export type {
+  CategoryOption,
+  ServiceOption,
+  VendorOfferMilestoneCard,
+  VendorOfferRetentionCard,
+} from './vendorPOCardHydration'
+export {
+  resolveMasterCategoryServiceIds,
+  vendorPOCardsFromMilestones,
+  flattenVendorPOCardsForEditor,
+  mergeExecutedValueIntoVendorPOCards,
+} from './vendorPOCardHydration'
 
 const CARD_SX = {
   border: '1px solid',
@@ -288,7 +278,7 @@ interface MilestoneCardEditorProps {
   milestoneBaseValue: number
   includeRetention?: boolean
   readOnly?: boolean
-  /** Lock category/service and add/remove; unpaid % / value remain editable. */
+  /** Global structure lock when any milestone on this PO is invoice-covered. */
   structureLocked?: boolean
   milestoneStatuses?: Record<string, MilestonePaymentStatusLabel>
   retentionStatus?: MilestonePaymentStatusLabel
@@ -371,6 +361,7 @@ interface ValueRowCardEditorProps {
   serviceOptions: ServiceOption[]
   milestoneBaseValue: number
   nameLabel: string
+  readOnly?: boolean
   onChange: (patch: Partial<VendorOfferRetentionCard>) => void
   onRemove: () => void
   removeLabel: string
@@ -382,11 +373,13 @@ function ValueRowCardEditor({
   serviceOptions,
   milestoneBaseValue,
   nameLabel,
+  readOnly = false,
   onChange,
   onRemove,
   removeLabel,
 }: ValueRowCardEditorProps) {
   function updateField(field: 'name' | 'percentage' | 'value', val: string | number) {
+    if (readOnly) return
     if (field === 'name') {
       onChange({ name: String(val) })
       return
@@ -406,16 +399,38 @@ function ValueRowCardEditor({
 
   return (
     <Box sx={CARD_SX}>
-      <CardHeader onRemove={onRemove} removeLabel={removeLabel}>
-        <CategoryServiceFields
-          categoryId={card.categoryId}
-          serviceId={card.serviceId}
-          categoryOptions={categoryOptions}
-          serviceOptions={serviceOptions}
-          onCategoryChange={(categoryId, serviceId) => onChange({ categoryId, serviceId })}
-          onServiceChange={(serviceId) => onChange({ serviceId })}
-        />
-      </CardHeader>
+      {readOnly ? (
+        <Box
+          sx={{
+            px: 1.5,
+            py: 1.25,
+            bgcolor: tokens.color.neutral[50],
+            borderBottom: '1px solid',
+            borderColor: 'divider',
+          }}
+        >
+          <CategoryServiceFields
+            categoryId={card.categoryId}
+            serviceId={card.serviceId}
+            categoryOptions={categoryOptions}
+            serviceOptions={serviceOptions}
+            onCategoryChange={() => undefined}
+            onServiceChange={() => undefined}
+            readOnly
+          />
+        </Box>
+      ) : (
+        <CardHeader onRemove={onRemove} removeLabel={removeLabel}>
+          <CategoryServiceFields
+            categoryId={card.categoryId}
+            serviceId={card.serviceId}
+            categoryOptions={categoryOptions}
+            serviceOptions={serviceOptions}
+            onCategoryChange={(categoryId, serviceId) => onChange({ categoryId, serviceId })}
+            onServiceChange={(serviceId) => onChange({ serviceId })}
+          />
+        </CardHeader>
+      )}
       <Box sx={{ p: 1.5 }}>
         <CardValueFieldHeader nameLabel="Milestone Name" />
         <CardAlignedRow>
@@ -433,6 +448,7 @@ function ValueRowCardEditor({
               value={card.name}
               onChange={(e) => updateField('name', e.target.value)}
               placeholder={nameLabel}
+              disabled={readOnly}
               sx={{ '& .MuiInputBase-input': { fontSize: 11 }, '& .MuiInputBase-root': { width: '100%' } }}
             />
             <TextField
@@ -443,6 +459,7 @@ function ValueRowCardEditor({
               onChange={(e) => updateField('percentage', parseRateInput(e.target.value))}
               onFocus={selectRateInputOnFocus}
               placeholder="%"
+              disabled={readOnly}
               sx={{ '& .MuiInputBase-input': { fontSize: 11 }, '& .MuiInputBase-root': { width: '100%' } }}
             />
             <TextField
@@ -453,6 +470,7 @@ function ValueRowCardEditor({
               onChange={(e) => updateField('value', parseRateInput(e.target.value))}
               onFocus={selectRateInputOnFocus}
               placeholder="₹ VALUE"
+              disabled={readOnly}
               sx={{ '& .MuiInputBase-input': { fontSize: 11 }, '& .MuiInputBase-root': { width: '100%' } }}
             />
           </Box>
@@ -562,6 +580,7 @@ export function buildVendorPOMilestonePayloadFromGroup(
       dueDate: null,
       status: 'Pending' as const,
       kind: 'regular' as const,
+      serviceId: group.serviceId,
     }))
 
   for (const retention of group.retentions) {
@@ -574,8 +593,74 @@ export function buildVendorPOMilestonePayloadFromGroup(
       dueDate: null,
       status: 'Pending',
       kind: 'retention',
+      serviceId: group.serviceId,
     })
   }
 
+  return rows
+}
+
+/** Map milestone/retention row ids → service id from card editor state (for GST persistence). */
+export function milestoneServiceIdsFromCards(
+  milestoneCards: VendorOfferMilestoneCard[],
+  retentionCards: VendorOfferRetentionCard[],
+): Map<string, string> {
+  const map = new Map<string, string>()
+  for (const card of milestoneCards) {
+    const serviceId = card.serviceId?.trim()
+    if (!serviceId) continue
+    for (const m of card.milestones) {
+      if (m.id?.trim()) map.set(m.id.trim(), serviceId)
+    }
+  }
+  for (const retention of retentionCards) {
+    const serviceId = retention.serviceId?.trim()
+    if (!serviceId) continue
+    const id = retention.id?.trim()
+    if (id) {
+      map.set(id, serviceId)
+      map.set(`vpo-ret-${id}`, serviceId)
+    }
+  }
+  return map
+}
+
+/**
+ * Build a single Vendor PO milestone payload for the whole offer:
+ * all service milestones + each retention card exactly once.
+ */
+export function buildVendorOfferGlobalMilestonePayload(
+  milestoneCards: VendorOfferMilestoneCard[],
+  retentionCards: VendorOfferRetentionCard[],
+): VendorPOMilestone[] {
+  const rows: VendorPOMilestone[] = []
+  for (const card of milestoneCards) {
+    for (const m of card.milestones) {
+      if (!m.name.trim()) continue
+      rows.push({
+        id: m.id,
+        name: m.name,
+        percentage: m.percentage,
+        value: m.value,
+        dueDate: null,
+        status: 'Pending',
+        kind: 'regular',
+        serviceId: card.serviceId,
+      })
+    }
+  }
+  for (const retention of retentionCards) {
+    if (!retention.name.trim() || (retention.percentage <= 0 && retention.value <= 0)) continue
+    rows.push({
+      id: `vpo-ret-${retention.id}`,
+      name: retention.name.trim(),
+      percentage: retention.percentage,
+      value: retention.value,
+      dueDate: null,
+      status: 'Pending',
+      kind: 'retention',
+      serviceId: retention.serviceId,
+    })
+  }
   return rows
 }

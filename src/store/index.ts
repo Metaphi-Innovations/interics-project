@@ -1,6 +1,7 @@
 import { configureStore } from '@reduxjs/toolkit'
-import authReducer from '../slices/auth/reducer'
+import authReducer, { syncTokensFromRefresh } from '../slices/auth/reducer'
 import type { AuthUser } from '../slices/auth/reducer'
+import { bootstrapAuthThunk, fetchMeThunk } from '../slices/auth/thunk'
 import customersReducer from '../slices/customers/reducer'
 import vendorsReducer from '../slices/vendors/reducer'
 import projectsReducer from '../slices/projects/reducer'
@@ -16,6 +17,7 @@ import complianceReducer from '../slices/compliance/reducer'
 import financeReducer from '../slices/finance/reducer'
 import transitionReducer from '../slices/transition/reducer'
 import { getStoredToken, getStoredUserJson } from '@/utils/authStorage'
+import { setOnTokensRefreshed } from '@/api/authRefresh'
 
 const savedToken = getStoredToken()
 const savedUserRaw = getStoredUserJson()
@@ -27,12 +29,13 @@ try {
 }
 
 const usePersistedSession = Boolean(savedToken && savedUser)
+const needsBootstrap = !usePersistedSession
 
 const preloadedState = {
   auth: {
     user: usePersistedSession ? savedUser! : null,
     token: usePersistedSession ? savedToken! : null,
-    loading: false,
+    loading: needsBootstrap,
     error: null,
   },
 }
@@ -57,6 +60,16 @@ export const store = configureStore({
   },
   preloadedState,
 })
+
+// After access/refresh rotation: sync Redux token and reload UI permission tree once.
+setOnTokensRefreshed((tokens) => {
+  store.dispatch(syncTokensFromRefresh({ token: tokens.accessToken }))
+  void store.dispatch(fetchMeThunk())
+})
+
+if (needsBootstrap && typeof window !== 'undefined') {
+  void store.dispatch(bootstrapAuthThunk())
+}
 
 export type RootState = ReturnType<typeof store.getState>
 export type AppDispatch = typeof store.dispatch

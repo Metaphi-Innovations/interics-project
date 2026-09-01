@@ -4,6 +4,7 @@ import {
   Table, TableHead, TableRow, TableCell, TableBody, TableContainer,
   TextField, MenuItem,
   Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions,
+  Skeleton,
 } from '@mui/material'
 import { Plus } from 'lucide-react'
 import { Button, Modal, useToast } from '@/design-system/components'
@@ -34,12 +35,15 @@ import { SettingsEditAction, SettingsTableActionsCell } from '../components/Sett
 import {
   requiredText,
   optionalMaxLength,
+  requiredGstRateInput,
   requiredRateInput,
   collectErrors,
   hasErrors,
   firstErrorMessage,
 } from '@/modules/system-settings/shared/settings-validation'
 import { parseSettingsApiError, clearFieldError } from '@/modules/system-settings/shared/api-errors'
+import { LISTING_DEFAULT_PAGE_SIZE } from '@/components/listing/listingStandards'
+import { SettingsListingPagination } from '../components/SettingsListingPagination'
 
 type GSTForm = Omit<GSTRate, 'id'>
 type TDSForm = Omit<TDSSection, 'id'>
@@ -53,7 +57,6 @@ const tdsDataColWidth = settingsDataColWidth(TDS_DATA_COL_COUNT)
 type GSTFilterOptions = {
   slabName: ColumnFilterOption[]
   ratePercent: ColumnFilterOption[]
-  description: ColumnFilterOption[]
   status: ColumnFilterOption[]
 }
 type TDSFilterOptions = {
@@ -77,7 +80,7 @@ export default function TaxConfigSection() {
   const dispatch = useAppDispatch()
   const success = useToast((s) => s.success)
   const error = useToast((s) => s.error)
-  const { gstRates, tdsSections, saving } = useAppSelector(s => s.settings)
+  const { gstRates, gstRatesTotal, tdsSections, tdsSectionsTotal, saving, loading } = useAppSelector(s => s.settings)
   const [tab, setTab] = useState(0)
 
   const [gstDrawerOpen, setGstDrawerOpen] = useState(false)
@@ -94,8 +97,8 @@ export default function TaxConfigSection() {
 
   const [toggleTarget, setToggleTarget] = useState<ToggleTarget | null>(null)
   const [toggling, setToggling] = useState(false)
-  const gstListing = useListingQuery({ pageSize: 100 })
-  const tdsListing = useListingQuery({ pageSize: 100 })
+  const gstListing = useListingQuery({ pageSize: LISTING_DEFAULT_PAGE_SIZE })
+  const tdsListing = useListingQuery({ pageSize: LISTING_DEFAULT_PAGE_SIZE })
   const [gstSortField, setGstSortField] = useState<string>()
   const [gstSortDirection, setGstSortDirection] = useState<'asc' | 'desc'>('asc')
   const [tdsSortField, setTdsSortField] = useState<string>()
@@ -103,7 +106,6 @@ export default function TaxConfigSection() {
   const [gstFilterOptions, setGstFilterOptions] = useState<GSTFilterOptions>({
     slabName: [],
     ratePercent: [],
-    description: [],
     status: [],
   })
   const [tdsFilterOptions, setTdsFilterOptions] = useState<TDSFilterOptions>({
@@ -117,17 +119,19 @@ export default function TaxConfigSection() {
   const isGstSearchPending = gstSearch.length > 0 && gstSearch !== gstListing.debouncedSearch
   const isTdsSearchPending = tdsSearch.length > 0 && tdsSearch !== tdsListing.debouncedSearch
 
-  useEffect(() => {
+  const loadGstFilterOptions = () => {
     void taxConfigurationService.getGstFilters()
       .then((data) => {
         setGstFilterOptions({
           slabName: data.slabName ?? [],
           ratePercent: data.ratePercent ?? [],
-          description: data.description ?? [],
           status: data.status ?? [],
         })
       })
       .catch(() => undefined)
+  }
+
+  const loadTdsFilterOptions = () => {
     void taxConfigurationService.getTdsFilters()
       .then((data) => {
         setTdsFilterOptions({
@@ -138,35 +142,52 @@ export default function TaxConfigSection() {
         })
       })
       .catch(() => undefined)
+  }
+
+  useEffect(() => {
+    loadGstFilterOptions()
+    loadTdsFilterOptions()
   }, [dispatch])
 
   useEffect(() => {
+    if (tab === 0) loadGstFilterOptions()
+    else loadTdsFilterOptions()
+  }, [tab])
+
+  const buildGstListParams = () => ({
+    force: true as const,
+    page: gstListing.apiPage,
+    limit: gstListing.pageSize,
+    search: gstListing.debouncedSearch || undefined,
+    slabName: gstListing.filters.slabName,
+    ratePercent: gstListing.filters.ratePercent,
+    status: gstListing.filters.status,
+    sortBy: gstSortField,
+    sortOrder: gstSortField ? gstSortDirection : undefined,
+  })
+
+  const buildTdsListParams = () => ({
+    force: true as const,
+    page: tdsListing.apiPage,
+    limit: tdsListing.pageSize,
+    search: tdsListing.debouncedSearch || undefined,
+    sectionCode: tdsListing.filters.sectionCode,
+    description: tdsListing.filters.description,
+    defaultRatePercent: tdsListing.filters.defaultRatePercent,
+    status: tdsListing.filters.status,
+    sortBy: tdsSortField,
+    sortOrder: tdsSortField ? tdsSortDirection : undefined,
+  })
+
+  useEffect(() => {
     if (isGstSearchPending) return
-    void dispatch(fetchGSTRates({
-      force: true,
-      search: gstListing.debouncedSearch || undefined,
-      slabName: gstListing.filters.slabName,
-      ratePercent: gstListing.filters.ratePercent,
-      description: gstListing.filters.description,
-      status: gstListing.filters.status,
-      sortBy: gstSortField,
-      sortOrder: gstSortField ? gstSortDirection : undefined,
-    }))
-  }, [dispatch, gstListing.debouncedSearch, gstListing.filters, gstSearch, gstSortDirection, gstSortField, isGstSearchPending])
+    void dispatch(fetchGSTRates(buildGstListParams()))
+  }, [dispatch, gstListing.debouncedSearch, gstListing.filters, gstListing.page, gstListing.pageSize, gstSearch, gstSortDirection, gstSortField, isGstSearchPending])
 
   useEffect(() => {
     if (isTdsSearchPending) return
-    void dispatch(fetchTDSSections({
-      force: true,
-      search: tdsListing.debouncedSearch || undefined,
-      sectionCode: tdsListing.filters.sectionCode,
-      description: tdsListing.filters.description,
-      defaultRatePercent: tdsListing.filters.defaultRatePercent,
-      status: tdsListing.filters.status,
-      sortBy: tdsSortField,
-      sortOrder: tdsSortField ? tdsSortDirection : undefined,
-    }))
-  }, [dispatch, isTdsSearchPending, tdsListing.debouncedSearch, tdsListing.filters, tdsSearch, tdsSortDirection, tdsSortField])
+    void dispatch(fetchTDSSections(buildTdsListParams()))
+  }, [dispatch, isTdsSearchPending, tdsListing.debouncedSearch, tdsListing.filters, tdsListing.page, tdsListing.pageSize, tdsSearch, tdsSortDirection, tdsSortField])
 
   const applyGstFilter = (key: string) => (value: string) => {
     gstListing.setFilter(key, value)
@@ -184,6 +205,22 @@ export default function TaxConfigSection() {
   const handleTdsSort = (field: string, direction: 'asc' | 'desc') => {
     setTdsSortField(field)
     setTdsSortDirection(direction)
+  }
+
+  const closeGstDrawer = () => {
+    setGstDrawerOpen(false)
+    setEditingGST(null)
+    setGstForm(defaultGSTForm)
+    setGstRateInput('')
+    setGstFieldErrors({})
+  }
+
+  const closeTdsDrawer = () => {
+    setTdsDrawerOpen(false)
+    setEditingTDS(null)
+    setTdsForm(defaultTDSForm)
+    setTdsRateInput('')
+    setTdsFieldErrors({})
   }
 
   const resetGstListing = () => {
@@ -215,9 +252,12 @@ export default function TaxConfigSection() {
     setGstDrawerOpen(true)
   }
   const handleSaveGST = () => {
+    const rateValidator = editingGST
+      ? (raw: string) => requiredRateInput(raw, 'Rate')
+      : requiredGstRateInput
     const next = collectErrors([
       ['slabName', requiredText(gstForm.slabName, 'Slab Name', 100)],
-      ['rate', requiredRateInput(gstRateInput, 'Rate')],
+      ['rate', rateValidator(gstRateInput)],
       ['description', optionalMaxLength(gstForm.description, 'Description', 500)],
     ])
     setGstFieldErrors(next)
@@ -235,7 +275,9 @@ export default function TaxConfigSection() {
       : dispatch(createGSTRate(payload))
     action.unwrap()
       .then(() => {
-        setGstDrawerOpen(false)
+        closeGstDrawer()
+        loadGstFilterOptions()
+        void dispatch(fetchGSTRates(buildGstListParams()))
         success(editingGST ? 'GST rate updated' : 'GST rate added')
       })
       .catch((err) => {
@@ -286,7 +328,9 @@ export default function TaxConfigSection() {
       : dispatch(createTDSSection(payload))
     action.unwrap()
       .then(() => {
-        setTdsDrawerOpen(false)
+        closeTdsDrawer()
+        loadTdsFilterOptions()
+        void dispatch(fetchTDSSections(buildTdsListParams()))
         success(editingTDS ? 'TDS section updated' : 'TDS section added')
       })
       .catch((err) => {
@@ -302,16 +346,8 @@ export default function TaxConfigSection() {
     try {
       if (toggleTarget.kind === 'gst') {
         await dispatch(toggleGSTRateStatus(toggleTarget.row.id)).unwrap()
-        void dispatch(fetchGSTRates({
-          force: true,
-          search: gstListing.debouncedSearch || undefined,
-          slabName: gstListing.filters.slabName,
-          ratePercent: gstListing.filters.ratePercent,
-          description: gstListing.filters.description,
-          status: gstListing.filters.status,
-          sortBy: gstSortField,
-          sortOrder: gstSortField ? gstSortDirection : undefined,
-        }))
+        void dispatch(fetchGSTRates(buildGstListParams()))
+        loadGstFilterOptions()
         success(
           toggleTarget.row.status === 'active'
             ? 'GST rate deactivated'
@@ -319,16 +355,8 @@ export default function TaxConfigSection() {
         )
       } else {
         await dispatch(toggleTDSSectionStatus(toggleTarget.row.id)).unwrap()
-        void dispatch(fetchTDSSections({
-          force: true,
-          search: tdsListing.debouncedSearch || undefined,
-          sectionCode: tdsListing.filters.sectionCode,
-          description: tdsListing.filters.description,
-          defaultRatePercent: tdsListing.filters.defaultRatePercent,
-          status: tdsListing.filters.status,
-          sortBy: tdsSortField,
-          sortOrder: tdsSortField ? tdsSortDirection : undefined,
-        }))
+        void dispatch(fetchTDSSections(buildTdsListParams()))
+        loadTdsFilterOptions()
         success(
           toggleTarget.row.status === 'active'
             ? 'TDS section deactivated'
@@ -416,9 +444,10 @@ export default function TaxConfigSection() {
                   sortField={gstSortField}
                   sortDirection={gstSortDirection}
                   onSort={handleGstSort}
-                  filterValue={gstListing.filters.description ?? ''}
-                  filterOptions={gstFilterOptions.description}
-                  onFilter={applyGstFilter('description')}
+                  filterable={false}
+                  filterValue=""
+                  filterOptions={[]}
+                  onFilter={() => {}}
                   sx={SETTINGS_TABLE_HEADER_CELL_SX}
                 />
                 <FilterableSortHeader
@@ -436,25 +465,51 @@ export default function TaxConfigSection() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {gstRates.map(row => (
-                <TableRow key={row.id} sx={{ height: 44 }}>
-                  <TableCell sx={SETTINGS_TABLE_CELL_SX}>{row.slabName}</TableCell>
-                  <TableCell sx={SETTINGS_TABLE_CELL_SX}>{row.rate}%</TableCell>
-                  <SettingsDescriptionCell value={row.description} />
-                  <TableCell sx={SETTINGS_TABLE_CELL_SX}>
-                    <StatusColumnToggle
-                      active={row.status === 'active'}
-                      onToggle={() => setToggleTarget({ kind: 'gst', row })}
-                    />
-                  </TableCell>
-                  <SettingsTableActionsCell>
-                    <SettingsEditAction onClick={() => openEditGST(row)} />
-                  </SettingsTableActionsCell>
-                </TableRow>
-              ))}
+              {loading && gstRates.length === 0
+                ? [...Array(6)].map((_, i) => (
+                    <TableRow key={i} sx={{ height: 44 }}>
+                      {[...Array(GST_DATA_COL_COUNT + 1)].map((__, j) => (
+                        <TableCell key={j} sx={SETTINGS_TABLE_CELL_SX}>
+                          <Skeleton height={20} />
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  ))
+                : gstRates.length === 0
+                  ? (
+                    <TableRow>
+                      <TableCell colSpan={GST_DATA_COL_COUNT + 1} sx={{ ...SETTINGS_TABLE_CELL_SX, py: 4, textAlign: 'center' }}>
+                        No records found
+                      </TableCell>
+                    </TableRow>
+                  )
+                  : gstRates.map(row => (
+                    <TableRow key={row.id} sx={{ height: 44 }}>
+                      <TableCell sx={SETTINGS_TABLE_CELL_SX}>{row.slabName}</TableCell>
+                      <TableCell sx={SETTINGS_TABLE_CELL_SX}>{row.rate}%</TableCell>
+                      <SettingsDescriptionCell value={row.description} />
+                      <TableCell sx={SETTINGS_TABLE_CELL_SX}>
+                        <StatusColumnToggle
+                          active={row.status === 'active'}
+                          onToggle={() => setToggleTarget({ kind: 'gst', row })}
+                        />
+                      </TableCell>
+                      <SettingsTableActionsCell>
+                        <SettingsEditAction onClick={() => openEditGST(row)} />
+                      </SettingsTableActionsCell>
+                    </TableRow>
+                  ))}
             </TableBody>
           </Table>
           </TableContainer>
+
+          <SettingsListingPagination
+            page={gstListing.page}
+            pageSize={gstListing.pageSize}
+            totalCount={gstRatesTotal}
+            onPageChange={gstListing.setPage}
+            onPageSizeChange={gstListing.setPageSize}
+          />
         </Box>
       )}
 
@@ -531,36 +586,62 @@ export default function TaxConfigSection() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {tdsSections.map(row => (
-                <TableRow key={row.id} sx={{ height: 44 }}>
-                  <TableCell sx={{ ...SETTINGS_TABLE_CELL_SX, fontWeight: 600 }}>{row.section}</TableCell>
-                  <SettingsDescriptionCell value={row.description} />
-                  <TableCell sx={SETTINGS_TABLE_CELL_SX}>{row.defaultRate}%</TableCell>
-                  <TableCell sx={SETTINGS_TABLE_CELL_SX}>
-                    <StatusColumnToggle
-                      active={row.status === 'active'}
-                      onToggle={() => setToggleTarget({ kind: 'tds', row })}
-                    />
-                  </TableCell>
-                  <SettingsTableActionsCell>
-                    <SettingsEditAction onClick={() => openEditTDS(row)} />
-                  </SettingsTableActionsCell>
-                </TableRow>
-              ))}
+              {loading && tdsSections.length === 0
+                ? [...Array(6)].map((_, i) => (
+                    <TableRow key={i} sx={{ height: 44 }}>
+                      {[...Array(TDS_DATA_COL_COUNT + 1)].map((__, j) => (
+                        <TableCell key={j} sx={SETTINGS_TABLE_CELL_SX}>
+                          <Skeleton height={20} />
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  ))
+                : tdsSections.length === 0
+                  ? (
+                    <TableRow>
+                      <TableCell colSpan={TDS_DATA_COL_COUNT + 1} sx={{ ...SETTINGS_TABLE_CELL_SX, py: 4, textAlign: 'center' }}>
+                        No records found
+                      </TableCell>
+                    </TableRow>
+                  )
+                  : tdsSections.map(row => (
+                    <TableRow key={row.id} sx={{ height: 44 }}>
+                      <TableCell sx={{ ...SETTINGS_TABLE_CELL_SX, fontWeight: 600 }}>{row.section}</TableCell>
+                      <SettingsDescriptionCell value={row.description} />
+                      <TableCell sx={SETTINGS_TABLE_CELL_SX}>{row.defaultRate}%</TableCell>
+                      <TableCell sx={SETTINGS_TABLE_CELL_SX}>
+                        <StatusColumnToggle
+                          active={row.status === 'active'}
+                          onToggle={() => setToggleTarget({ kind: 'tds', row })}
+                        />
+                      </TableCell>
+                      <SettingsTableActionsCell>
+                        <SettingsEditAction onClick={() => openEditTDS(row)} />
+                      </SettingsTableActionsCell>
+                    </TableRow>
+                  ))}
             </TableBody>
           </Table>
           </TableContainer>
+
+          <SettingsListingPagination
+            page={tdsListing.page}
+            pageSize={tdsListing.pageSize}
+            totalCount={tdsSectionsTotal}
+            onPageChange={tdsListing.setPage}
+            onPageSizeChange={tdsListing.setPageSize}
+          />
         </Box>
       )}
 
       <Modal
         open={gstDrawerOpen}
-        onClose={() => setGstDrawerOpen(false)}
+        onClose={closeGstDrawer}
         title={editingGST ? 'Edit GST Rate' : 'Add GST Rate'}
         size="xs"
         footer={
           <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
-            <Button size="sm" variant="outlined" color="secondary" onClick={() => setGstDrawerOpen(false)}>
+            <Button size="sm" variant="outlined" color="secondary" onClick={closeGstDrawer}>
               Cancel
             </Button>
             <Button size="sm" variant="contained" color="primary" onClick={handleSaveGST} disabled={saving}>
@@ -597,7 +678,7 @@ export default function TaxConfigSection() {
                 setGstRateInput(e.target.value)
                 setGstFieldErrors(errors => clearFieldError(errors, 'rate'))
               }}
-              inputProps={{ min: 0, max: 100, step: 'any' }}
+              inputProps={{ min: 0, max: 100, step: 1 }}
               sx={{ flex: 1, minWidth: 0 }}
               error={!!gstFieldErrors.rate}
               helperText={gstFieldErrors.rate}
@@ -633,12 +714,12 @@ export default function TaxConfigSection() {
 
       <Modal
         open={tdsDrawerOpen}
-        onClose={() => setTdsDrawerOpen(false)}
+        onClose={closeTdsDrawer}
         title={editingTDS ? 'Edit TDS Section' : 'Add TDS Section'}
         size="xs"
         footer={
           <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
-            <Button size="sm" variant="outlined" color="secondary" onClick={() => setTdsDrawerOpen(false)}>
+            <Button size="sm" variant="outlined" color="secondary" onClick={closeTdsDrawer}>
               Cancel
             </Button>
             <Button size="sm" variant="contained" color="primary" onClick={handleSaveTDS} disabled={saving}>
@@ -662,23 +743,24 @@ export default function TaxConfigSection() {
             error={!!tdsFieldErrors.section}
             helperText={tdsFieldErrors.section}
           />
-          <TextField
-            size="small"
-            label="Default Rate (%)"
-            type="number"
-            required
-            fullWidth
-            placeholder="e.g. 10"
-            value={tdsRateInput}
-            onChange={e => {
-              setTdsRateInput(e.target.value)
-              setTdsFieldErrors(errors => clearFieldError(errors, 'defaultRate'))
-            }}
-            inputProps={{ min: 0, max: 100, step: 'any' }}
-            error={!!tdsFieldErrors.defaultRate}
-            helperText={tdsFieldErrors.defaultRate}
-          />
           <Box sx={{ display: 'flex', gap: 2 }}>
+            <TextField
+              size="small"
+              label="Default Rate (%)"
+              type="number"
+              required
+              fullWidth
+              placeholder="e.g. 10"
+              value={tdsRateInput}
+              onChange={e => {
+                setTdsRateInput(e.target.value)
+                setTdsFieldErrors(errors => clearFieldError(errors, 'defaultRate'))
+              }}
+              inputProps={{ min: 0, max: 100, step: 1 }}
+              sx={{ flex: 1, minWidth: 0 }}
+              error={!!tdsFieldErrors.defaultRate}
+              helperText={tdsFieldErrors.defaultRate}
+            />
             <TextField
               select
               size="small"
@@ -696,6 +778,7 @@ export default function TaxConfigSection() {
             size="small"
             label="Description"
             fullWidth
+            placeholder="Optional description"
             value={tdsForm.description}
             onChange={e => {
               setTdsForm(f => ({ ...f, description: e.target.value }))

@@ -1,5 +1,5 @@
 import client from '@/api/client'
-import { compactQueryParams, toUiStatus, unwrapApiData, unwrapApiList } from '../shared/api'
+import { compactQueryParams, toUiStatus, unwrapApiData, unwrapApiListWithMeta, type ListResult } from '../shared/api'
 import { withInflight } from '../shared/inflight'
 import type { Category, SACCode, Service } from '@/slices/settings/reducer'
 import type { ColumnFilterOption } from '@/components/listing'
@@ -62,6 +62,7 @@ export type ServiceListParams = {
   isActive?: string
   sortBy?: string
   sortOrder?: 'asc' | 'desc'
+  page?: number
   limit?: number
 }
 
@@ -78,9 +79,10 @@ export const servicesService = {
     categories: Category[],
     sacCodes: SACCode[],
     params: ServiceListParams = {},
-  ): Promise<Service[]> {
+  ): Promise<ListResult<Service>> {
     const query = compactQueryParams({
-      limit: params.limit ?? 100,
+      page: params.page ?? 1,
+      limit: params.limit ?? 10,
       search: params.search,
       name: params.name,
       categoryId: params.categoryId,
@@ -92,9 +94,11 @@ export const servicesService = {
     })
     return withInflight(`services:list:${JSON.stringify(query)}`, async () => {
       const res = await client.get(BASE, { params: query })
-      return unwrapApiList<ServiceApi>(res.data).map((item) =>
-        toService(item, categories, sacCodes),
-      )
+      const { items, meta } = unwrapApiListWithMeta<ServiceApi>(res.data)
+      return {
+        items: items.map((item) => toService(item, categories, sacCodes)),
+        meta,
+      }
     })
   },
 

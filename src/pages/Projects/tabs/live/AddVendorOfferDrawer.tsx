@@ -18,13 +18,13 @@ import { useAppDispatch, useAppSelector } from '../../../../store/hooks'
 import { fetchVendors } from '../../../../slices/vendors/thunk'
 import { createVendorPO, fetchBaseline, fetchVendorPOs } from '../../../../slices/baseline/thunk'
 import { fetchVersions } from '../../../../slices/pitch/thunk'
-import { fetchCategories, fetchServices } from '../../../../slices/settings/thunk'
+import { dropdownsApi } from '@/api/dropdownsApi'
 import type { PitchService } from '../../../../slices/pitch/reducer'
 import {
   resolveOfferVersionForProject,
   resolvePitchServiceForMasterSelection,
 } from './vendorPOHelpers'
-import { masterCategoryOptions, masterServiceOptions } from './clientPOServiceOptions'
+import { dropdownCategoryOptions, dropdownServiceOptions } from './clientPOServiceOptions'
 import {
   VendorOfferMilestoneCardEditor,
   VendorOfferRetentionCardEditor,
@@ -33,12 +33,12 @@ import {
   groupAllCardsByService,
   isMilestoneCardConfigured,
   isRetentionCardConfigured,
-  buildVendorPOMilestonePayloadFromGroup,
+  buildVendorOfferGlobalMilestonePayload,
   type VendorOfferMilestoneCard,
   type VendorOfferRetentionCard,
   type GroupedServiceMilestones,
 } from './VendorOfferMilestoneCards'
-import { validateVendorMilestonePercents } from '@/utils/vendorMilestones'
+import { validateVendorOfferGlobalPercents } from '@/utils/vendorMilestones'
 
 const PO_SECTION_TITLE_SX = {
   fontSize: '10px',
@@ -150,8 +150,12 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
   const vendorItems = useAppSelector((s) => s.vendors.items ?? [])
   const { activeVersion, versions } = useAppSelector((s) => s.pitch)
   const { baseline } = useAppSelector((s) => s.baseline)
-  const categories = useAppSelector((s) => s.settings.categories)
-  const services = useAppSelector((s) => s.settings.services)
+  const [masterCategories, setMasterCategories] = useState<
+    Array<{ value: string; label: string }>
+  >([])
+  const [masterServices, setMasterServices] = useState<
+    Array<{ value: string; label: string; categoryId: string }>
+  >([])
 
   const [form, setForm] = useState({
     poNumber: '',
@@ -194,8 +198,11 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
 
   const serviceTargets = useMemo(() => listServiceTargets(serviceCatalog), [serviceCatalog])
 
-  const categoryOptions = useMemo(() => masterCategoryOptions(categories), [categories])
-  const serviceOptions = useMemo(() => masterServiceOptions(services), [services])
+  const categoryOptions = useMemo(
+    () => dropdownCategoryOptions(masterCategories),
+    [masterCategories],
+  )
+  const serviceOptions = useMemo(() => dropdownServiceOptions(masterServices), [masterServices])
 
   const vendorOptions = useMemo(
     () =>
@@ -231,9 +238,30 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
       void dispatch(fetchVendors({ pageSize: 100, status: 'Active' }))
       void dispatch(fetchBaseline(projectId))
       void dispatch(fetchVersions(projectId))
-      void dispatch(fetchCategories())
-      void dispatch(fetchServices())
+      let cancelled = false
+      void (async () => {
+        try {
+          const [cats, svcs] = await Promise.all([
+            dropdownsApi.getCategories(),
+            dropdownsApi.getServices(),
+          ])
+          if (cancelled) return
+          setMasterCategories(cats)
+          setMasterServices(svcs)
+        } catch {
+          if (!cancelled) {
+            setMasterCategories([])
+            setMasterServices([])
+          }
+        }
+      })()
+      return () => {
+        cancelled = true
+      }
     }
+    setMasterCategories([])
+    setMasterServices([])
+    return undefined
   }, [open, dispatch, projectId])
 
   useEffect(() => {
@@ -373,38 +401,36 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
     if (!hasConfiguredEntries || groupedForSave.length === 0) {
       next.milestones = 'Add at least one milestone or retention entry'
     }
-    for (const group of groupedForSave) {
-      const retentionCard = group.retentions[0]
-      const pctValidation = validateVendorMilestonePercents({
-        id: group.serviceId,
-        vendorId: form.vendorId,
-        vendorName: '',
-        value: Number(form.poValue) || 0,
-        percentage: 0,
-        isMeasurable: false,
-        milestones: group.milestones.filter((m) => m.name.trim()).map((m) => ({
-          id: m.id,
-          name: m.name,
-          percentage: m.percentage,
-          value: m.value,
-        })),
-        retention: retentionCard
-          ? { percentage: retentionCard.percentage, amount: retentionCard.value }
-          : group.retentions.length > 1
-            ? {
-                percentage: group.retentions.reduce((s, r) => s + r.percentage, 0),
-                amount: group.retentions.reduce((s, r) => s + r.value, 0),
-              }
-            : undefined,
-      })
-      if (!pctValidation.valid) {
-        next.milestones =
-          pctValidation.pctMessage ??
-          pctValidation.structureMessage ??
-          'Milestone percentages must not exceed 100%'
-        break
-      }
+
+    // Collect ALL milestone rows across services (do not drop empty names with %).
+    const allMilestoneRows = milestoneCards.flatMap((card) => card.milestones)
+    const configuredRetentions = retentionCards.filter(isRetentionCardConfigured)
+    const retentionPctOnce = configuredRetentions.reduce((s, r) => s + (Number(r.percentage) || 0), 0)
+    const retentionName =
+      configuredRetentions.length === 1
+        ? configuredRetentions[0]?.name
+        : configuredRetentions.length > 1
+          ? configuredRetentions.map((r) => r.name).join(', ')
+          : undefined
+
+    const pctValidation = validateVendorOfferGlobalPercents({
+      milestones: allMilestoneRows.map((m) => ({
+        name: m.name,
+        percentage: m.percentage,
+      })),
+      retention:
+        configuredRetentions.length > 0
+          ? { name: retentionName, percentage: retentionPctOnce }
+          : null,
+    })
+    if (!pctValidation.valid) {
+      next.milestones =
+        pctValidation.nameMessage ??
+        pctValidation.pctMessage ??
+        pctValidation.structureMessage ??
+        'Milestone percentages must equal 100%'
     }
+
     setFieldErrors(next)
     const keys = Object.keys(next)
     if (keys.length > 0) {
@@ -438,7 +464,8 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
     }
 
     try {
-      for (const [index, group] of groupedForSave.entries()) {
+      const linkedServiceIds: string[] = []
+      for (const group of groupedForSave) {
         const target = resolveServiceTarget(group)
         if (!target) {
           toast({
@@ -447,41 +474,51 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
           })
           return
         }
-
-        const milestonePayload = buildVendorPOMilestonePayloadFromGroup(group)
-        // Prefer master service id so receivable/payable overview rows share one identity.
         const linkedServiceId =
           target.service.subcategoryId?.trim() ||
           group.serviceId.trim() ||
           target.service.id
-
-        await dispatch(
-          createVendorPO({
-            projectId,
-            data: {
-              vendorId: form.vendorId,
-              vendorName: vendor?.name ?? '',
-              poNumber: groupedForSave.length > 1 ? `${form.poNumber}-${index + 1}` : form.poNumber,
-              poDate: form.poDate,
-              poValue: offerValue,
-              executedValue,
-              milestones: milestonePayload,
-              linkedBaselineServiceIds: [linkedServiceId],
-              status: 'Draft',
-              documentUrl,
-              fileName,
-            },
-          }),
-        ).unwrap()
+        if (linkedServiceId && !linkedServiceIds.includes(linkedServiceId)) {
+          linkedServiceIds.push(linkedServiceId)
+        }
       }
+
+      if (linkedServiceIds.length === 0) {
+        toast({
+          title: 'Select a category and service on each milestone or retention entry',
+          variant: 'error',
+        })
+        return
+      }
+
+      const milestonePayload = buildVendorOfferGlobalMilestonePayload(
+        milestoneCards.filter(isMilestoneCardConfigured),
+        retentionCards.filter(isRetentionCardConfigured),
+      )
+
+      await dispatch(
+        createVendorPO({
+          projectId,
+          data: {
+            vendorId: form.vendorId,
+            vendorName: vendor?.name ?? '',
+            poNumber: form.poNumber,
+            poDate: form.poDate,
+            poValue: offerValue,
+            executedValue,
+            milestones: milestonePayload,
+            linkedBaselineServiceIds: linkedServiceIds,
+            status: 'Draft',
+            documentUrl,
+            fileName,
+          },
+        }),
+      ).unwrap()
 
       await dispatch(fetchBaseline(projectId)).unwrap()
       await dispatch(fetchVendorPOs(projectId)).unwrap()
       toast({
-        title:
-          groupedForSave.length === 1
-            ? 'Vendor offer saved successfully'
-            : `Vendor offers saved for ${groupedForSave.length} services`,
+        title: 'Vendor offer saved successfully',
         variant: 'success',
       })
       onClose()

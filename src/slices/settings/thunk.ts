@@ -30,11 +30,13 @@ function rejectSettings(err: unknown, fallback: string) {
   return toSettingsRejectPayload(err, fallback)
 }
 
-type FetchOpts = { force?: boolean } | undefined
+type FetchOpts = { force?: boolean; page?: number; limit?: number } | undefined
 
 type GSTFetchOpts =
   | {
       force?: boolean
+      page?: number
+      limit?: number
       search?: string
       slabName?: string
       ratePercent?: string
@@ -48,6 +50,8 @@ type GSTFetchOpts =
 type TDSFetchOpts =
   | {
       force?: boolean
+      page?: number
+      limit?: number
       search?: string
       sectionCode?: string
       description?: string
@@ -61,6 +65,8 @@ type TDSFetchOpts =
 type SacFetchOpts =
   | {
       force?: boolean
+      page?: number
+      limit?: number
       search?: string
       sacCode?: string
       description?: string
@@ -74,6 +80,8 @@ type SacFetchOpts =
 type CategoryFetchOpts =
   | {
       force?: boolean
+      page?: number
+      limit?: number
       search?: string
       name?: string
       description?: string
@@ -86,6 +94,8 @@ type CategoryFetchOpts =
 type ServiceFetchOpts =
   | {
       force?: boolean
+      page?: number
+      limit?: number
       search?: string
       name?: string
       categoryId?: string
@@ -100,6 +110,8 @@ type ServiceFetchOpts =
 type MasterFetchOpts =
   | {
       force?: boolean
+      page?: number
+      limit?: number
       search?: string
       name?: string
       isActive?: string
@@ -111,6 +123,8 @@ type MasterFetchOpts =
 type ProjectManagementFetchOpts =
   | {
       force?: boolean
+      page?: number
+      limit?: number
       search?: string
       category?: string
       totalCheckpoints?: string
@@ -134,7 +148,7 @@ function shouldFetchFilteredList(
 
 function hasActiveQueryParams(
   params: Record<string, unknown> | undefined,
-  ignoredKeys: string[] = ['force'],
+  ignoredKeys: string[] = ['force', 'page', 'limit'],
 ): boolean {
   if (!params) return false
 
@@ -172,7 +186,8 @@ export const fetchGSTRates = createAsyncThunk(
   'settings/fetchGSTRates',
   async (opts: GSTFetchOpts, { rejectWithValue }) => {
     try {
-      return await taxConfigurationService.getGstRates(opts)
+      const result = await taxConfigurationService.getGstRates(opts)
+      return { items: result.items, total: result.meta.total }
     } catch (err: unknown) {
       return rejectWithValue(rejectSettings(err, 'Failed to fetch GST rates'))
     }
@@ -225,7 +240,8 @@ export const fetchTDSSections = createAsyncThunk(
   'settings/fetchTDSSections',
   async (opts: TDSFetchOpts, { rejectWithValue }) => {
     try {
-      return await taxConfigurationService.getTdsSections(opts)
+      const result = await taxConfigurationService.getTdsSections(opts)
+      return { items: result.items, total: result.meta.total }
     } catch (err: unknown) {
       return rejectWithValue(rejectSettings(err, 'Failed to fetch TDS sections'))
     }
@@ -278,7 +294,8 @@ export const fetchSACCodes = createAsyncThunk(
   'settings/fetchSACCodes',
   async (opts: SacFetchOpts, { rejectWithValue }) => {
     try {
-      return await sacCodesService.getAll(opts)
+      const result = await sacCodesService.getAll(opts)
+      return { items: result.items, total: result.meta.total }
     } catch (err: unknown) {
       return rejectWithValue(rejectSettings(err, 'Failed to fetch SAC codes'))
     }
@@ -332,7 +349,8 @@ export const fetchCategories = createAsyncThunk(
   'settings/fetchCategories',
   async (opts: CategoryFetchOpts, { rejectWithValue }) => {
     try {
-      return await categoriesService.getAll(opts)
+      const result = await categoriesService.getAll(opts)
+      return { items: result.items, total: result.meta.total }
     } catch (err: unknown) {
       return rejectWithValue(rejectSettings(err, 'Failed to fetch categories'))
     }
@@ -388,11 +406,12 @@ export const fetchServices = createAsyncThunk(
       const { categories, sacCodes } = (getState() as RootState).settings
       let cats = categories
       let sacs = sacCodes
-      if (!cats.length) cats = await categoriesService.getAll()
-      if (!sacs.length) sacs = await sacCodesService.getAll()
-      return await servicesService.getAll(cats, sacs, {
+      if (!cats.length) cats = (await categoriesService.getAll({ page: 1, limit: 100 })).items
+      if (!sacs.length) sacs = (await sacCodesService.getAll({ page: 1, limit: 100 })).items
+      const result = await servicesService.getAll(cats, sacs, {
         ...opts,
       })
+      return { items: result.items, total: result.meta.total }
     } catch (err: unknown) {
       return rejectWithValue(rejectSettings(err, 'Failed to fetch services'))
     }
@@ -505,7 +524,8 @@ export const fetchSectors = createAsyncThunk(
   'settings/fetchSectors',
   async (opts: MasterFetchOpts, { rejectWithValue }) => {
     try {
-      return await sectorsService.getAll(opts)
+      const result = await sectorsService.getAll(opts)
+      return { items: result.items, total: result.meta.total }
     } catch (err: unknown) {
       return rejectWithValue(rejectSettings(err, 'Failed to fetch sectors'))
     }
@@ -558,7 +578,8 @@ export const fetchRatings = createAsyncThunk(
   'settings/fetchRatings',
   async (opts: MasterFetchOpts, { rejectWithValue }) => {
     try {
-      return await ratingsService.getAll(opts)
+      const result = await ratingsService.getAll(opts)
+      return { items: result.items, total: result.meta.total }
     } catch (err: unknown) {
       return rejectWithValue(rejectSettings(err, 'Failed to fetch ratings'))
     }
@@ -611,7 +632,8 @@ export const fetchProjectManagementCategories = createAsyncThunk(
   'settings/fetchProjectManagementCategories',
   async (opts: ProjectManagementFetchOpts, { rejectWithValue }) => {
     try {
-      return await projectManagementService.getAll(opts)
+      const result = await projectManagementService.getAll(opts)
+      return { items: result.items, total: result.meta.total }
     } catch (err: unknown) {
       return rejectWithValue(rejectSettings(err, 'Failed to fetch project management categories'))
     }

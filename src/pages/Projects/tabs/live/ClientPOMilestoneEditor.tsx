@@ -4,14 +4,13 @@ import {
   Button as MuiButton,
   Chip as MuiChip,
   IconButton as MuiIconButton,
-  MenuItem,
-  Select,
   Stack,
   TextField,
   Typography,
 } from '@mui/material'
 import { Add, Delete } from '@mui/icons-material'
 import { useTheme, alpha } from '@mui/material/styles'
+import { AutocompleteField } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import type { ClientPOMilestone, ClientPORetention } from '@/slices/baseline/reducer'
 import type { ClientInvoice } from '@/slices/live/types'
@@ -335,36 +334,36 @@ export function ClientPOMilestoneEditor({
                 >
                   {!hideServiceColumn ? (
                     <>
-                      <Select
-                        size="small"
-                        displayEmpty
-                        value={rowCategoryId}
-                        onChange={(e) => {
-                          const nextCategoryId = String(e.target.value)
-                          const nextService = serviceOptions.find((o) => o.categoryId === nextCategoryId)
+                      <AutocompleteField
+                        options={categoryOptions}
+                        value={categoryOptions.find((c) => c.id === rowCategoryId) ?? null}
+                        onChange={(next) => {
+                          const nextCategoryId = next?.id ?? ''
+                          const nextService = serviceOptions.find(
+                            (o) => o.categoryId === nextCategoryId,
+                          )
                           updateMilestone(idx, { serviceId: nextService?.id ?? '' })
                         }}
+                        getOptionLabel={(opt) => opt.label}
+                        isOptionEqualToValue={(a, b) => a.id === b.id}
+                        placeholder="Category"
                         disabled={rowDisabled}
-                        sx={{ fontSize: 12, flex: 1, minWidth: 0 }}
-                      >
-                        <MenuItem value="" sx={{ fontSize: 12 }}>Category</MenuItem>
-                        {categoryOptions.map((c) => (
-                          <MenuItem key={c.id} value={c.id} sx={{ fontSize: 12 }}>{c.label}</MenuItem>
-                        ))}
-                      </Select>
-                      <Select
-                        size="small"
-                        displayEmpty
-                        value={m.serviceId}
-                        onChange={(e) => updateMilestone(idx, { serviceId: String(e.target.value) })}
-                        disabled={rowDisabled}
-                        sx={{ fontSize: 12, flex: 1, minWidth: 0 }}
-                      >
-                        <MenuItem value="" sx={{ fontSize: 12 }}>Service</MenuItem>
-                        {rowServiceOptions.map((opt) => (
-                          <MenuItem key={opt.id} value={opt.id} sx={{ fontSize: 12 }}>{opt.label}</MenuItem>
-                        ))}
-                      </Select>
+                        size="sm"
+                        sx={{ flex: 1, minWidth: 0 }}
+                      />
+                      <AutocompleteField
+                        options={rowServiceOptions}
+                        value={rowServiceOptions.find((o) => o.id === m.serviceId) ?? null}
+                        onChange={(next) =>
+                          updateMilestone(idx, { serviceId: next?.id ?? '' })
+                        }
+                        getOptionLabel={(opt) => opt.label}
+                        isOptionEqualToValue={(a, b) => a.id === b.id}
+                        placeholder="Service"
+                        disabled={rowDisabled || !rowCategoryId}
+                        size="sm"
+                        sx={{ flex: 1, minWidth: 0 }}
+                      />
                     </>
                   ) : null}
                   {mileLocked ? (

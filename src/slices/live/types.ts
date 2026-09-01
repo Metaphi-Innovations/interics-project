@@ -12,6 +12,8 @@ export interface ClientInvoiceLineItem {
   taxableAmount?: number
   gstRate: number
   gstAmount: number
+  tdsAmount?: number
+  netAmount?: number
   milestoneId?: string
   /** Pitch/baseline service row id when it differs from settings `serviceId`. */
   baselineServiceId?: string
@@ -34,6 +36,10 @@ export interface ClientInvoicePayment {
   paymentMode: ClientInvoicePaymentMode
   reference?: string
   recordedAt: string
+  allocations?: Array<{
+    milestoneId: string
+    allocatedAmount: number
+  }>
 }
 
 /** Persisted status; UI may show Overdue when past due with balance > 0 */
@@ -82,6 +88,7 @@ export interface VendorInvoice {
   projectId: string
   projectName?: string
   vendorId: string
+  vendorPoId?: string
   vendorName: string
   serviceId: string
   serviceName: string
@@ -118,6 +125,10 @@ export interface VendorInvoice {
     serviceId?: string
     amount?: number
     milestoneName?: string
+    gstRate?: number
+    gstAmount?: number
+    tdsAmount?: number
+    netAmount?: number
   }>
 }
 
@@ -159,6 +170,14 @@ export interface VendorPayment {
   /** completed = full settle; partial = partial payment; not_paid = recorded as unpaid */
   status: 'completed' | 'partial' | 'not_paid'
   referenceNumber?: string
+  /** Persisted milestone-level payment splits. */
+  allocations?: Array<{
+    invoiceId: string
+    milestoneId: string
+    allocatedAmount: number
+  }>
+  allocationMode?: 'project_live' | 'finance'
+  targetMilestoneId?: string
 }
 
 export type ExpenseType =

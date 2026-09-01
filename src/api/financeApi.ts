@@ -109,8 +109,13 @@ export const financeApi = {
 
   getProjectDropdown: () => client.get('/dropdowns/projects'),
 
-  getReceivablesSummary: (params?: Record<string, string | undefined>) =>
-    client.get('/finance/receivables/summary', { params }),
+  getReceivablesSummary: (params?: {
+    dateFrom?: string
+    dateTo?: string
+    clientId?: string
+    projectId?: string
+    search?: string
+  }) => client.get('/finance/receivables/summary', { params }),
 
   getProjectsSummary: () => client.get('/projects/summary'),
 

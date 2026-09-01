@@ -101,7 +101,7 @@ export function QuickAddVendorModal({ open, onClose, onCreated }: QuickAddVendor
           tags: [],
           paymentTerms: null,
           notes: null,
-          status: 'Inactive',
+          status: 'Active',
           profileStatus: 'pending',
           rating: null,
           activeProjects: 0,

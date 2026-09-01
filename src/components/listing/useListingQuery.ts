@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
 export const LISTING_PAGE_SIZES = [10, 25, 50, 100] as const
-export const DEFAULT_LISTING_PAGE_SIZE = 20
+export const DEFAULT_LISTING_PAGE_SIZE = 10
 export const LISTING_SEARCH_DEBOUNCE_MS = 300
 
 export type ListingQueryState = {

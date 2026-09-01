@@ -10,6 +10,7 @@ import {
   TableCell,
   TableFooter,
   Alert,
+  Skeleton,
 } from '@mui/material'
 import dayjs from 'dayjs'
 import {
@@ -38,7 +39,7 @@ import type {
   GlobalTdsVendorEntry,
 } from '@/slices/finance/types'
 import type { ClientInvoice } from '@/slices/live/types'
-import { formatCurrency, formatDate, formatInr } from '@/utils/formatters'
+import { formatDate, formatInr } from '@/utils/formatters'
 import { invoiceStatusToBadgeType } from '@/pages/Finance/invoiceStatus'
 
 const CHART_GST = '#1D9E75'
@@ -129,7 +130,7 @@ function filenameFromDisposition(header: unknown, fallback: string) {
 }
 
 function axisTickInr(v: number) {
-  return `₹${formatCurrency(v)}`
+  return `₹${formatInr(v)}`
 }
 
 export default function FilingSummaryPage() {
@@ -352,7 +353,7 @@ export default function FilingSummaryPage() {
     const stamp = dayjs().format('YYYY-MM-DD')
     if (tableTab === 'all') {
       downloadCsv(`filing-all-entries-${stamp}.csv`, [
-        ['Date', 'Invoice/Ref', 'Project', 'Party', 'Type', 'Base amount', 'Tax amount', 'Status'],
+        ['Date', 'Invoice/Ref', 'Project', 'Party', 'Type', 'Base amount', 'GST / TDS amount', 'Status'],
         ...allMergedRows.map((r) => [
           r.date,
           r.ref,
@@ -436,16 +437,31 @@ export default function FilingSummaryPage() {
           mb: 3,
         }}
       >
-        {[
-          { label: 'GST Collected', value: gstCollected, valueColor: undefined as string | undefined },
-          { label: 'Client TDS Deducted', value: clientTds, valueColor: undefined },
-          { label: 'Vendor TDS Deducted', value: vendorTds, valueColor: undefined },
-          {
-            label: 'Net Tax Position',
-            value: netTax,
-            valueColor: netPositive ? 'success.main' : 'error.main',
-          },
-        ].map((m) => (
+        {loading
+          ? [0, 1, 2, 3].map((i) => (
+              <Box
+                key={i}
+                sx={{
+                  p: 2,
+                  border: `1px solid ${tokens.color.neutral[100]}`,
+                  borderRadius: 2,
+                  bgcolor: 'background.paper',
+                }}
+              >
+                <Skeleton width="60%" height={14} />
+                <Skeleton width="80%" height={28} sx={{ mt: 1 }} />
+              </Box>
+            ))
+          : [
+              { label: 'GST Collected', value: gstCollected, valueColor: undefined as string | undefined },
+              { label: 'Client TDS Deducted', value: clientTds, valueColor: undefined },
+              { label: 'Vendor TDS Deducted', value: vendorTds, valueColor: undefined },
+              {
+                label: 'Net Tax Position',
+                value: netTax,
+                valueColor: netPositive ? 'success.main' : 'error.main',
+              },
+            ].map((m) => (
           <Box
             key={m.label}
             sx={{
@@ -512,9 +528,7 @@ export default function FilingSummaryPage() {
           </Stack>
           <Box sx={{ width: 1, height: 360 }}>
             {loading ? (
-              <Typography variant="body2" color="text.secondary">
-                Loading chart…
-              </Typography>
+              <Skeleton variant="rounded" width="100%" height="100%" />
             ) : (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
@@ -732,19 +746,22 @@ export default function FilingSummaryPage() {
                     Base amount
                   </TableCell>
                   <TableCell sx={TABLE_HEADER_SX} align="right">
-                    Tax amount
+                    GST / TDS amount
                   </TableCell>
                   <TableCell sx={TABLE_HEADER_SX}>Status</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
-                {loading && (
-                  <TableRow>
-                    <TableCell colSpan={8} sx={{ ...TABLE_CELL_SX, py: 4 }}>
-                      Loading…
-                    </TableCell>
-                  </TableRow>
-                )}
+                {loading &&
+                  [...Array(6)].map((_, i) => (
+                    <TableRow key={i}>
+                      {[...Array(8)].map((__, j) => (
+                        <TableCell key={j} sx={TABLE_CELL_SX}>
+                          <Skeleton height={20} />
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  ))}
                 {!loading &&
                   allMergedRows.map((r) => (
                     <TableRow key={r.id} hover>
@@ -810,7 +827,17 @@ export default function FilingSummaryPage() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {(gstEntries).map((e) => (
+                {loading
+                  ? [...Array(6)].map((_, i) => (
+                      <TableRow key={i}>
+                        {[...Array(8)].map((__, j) => (
+                          <TableCell key={j} sx={TABLE_CELL_SX}>
+                            <Skeleton height={20} />
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    ))
+                  : (gstEntries).map((e) => (
                   <TableRow key={e.invoiceId} hover>
                     <TableCell sx={TABLE_CELL_SX}>
                       <Typography
@@ -893,7 +920,17 @@ export default function FilingSummaryPage() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {(clientTdsEntries).map((e) => (
+                {loading
+                  ? [...Array(6)].map((_, i) => (
+                      <TableRow key={i}>
+                        {[...Array(8)].map((__, j) => (
+                          <TableCell key={j} sx={TABLE_CELL_SX}>
+                            <Skeleton height={20} />
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    ))
+                  : (clientTdsEntries).map((e) => (
                   <TableRow key={e.invoiceId} hover>
                     <TableCell sx={TABLE_CELL_SX}>
                       <Typography
@@ -972,7 +1009,17 @@ export default function FilingSummaryPage() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {(vendorTdsEntries).map((e) => (
+                {loading
+                  ? [...Array(6)].map((_, i) => (
+                      <TableRow key={i}>
+                        {[...Array(8)].map((__, j) => (
+                          <TableCell key={j} sx={TABLE_CELL_SX}>
+                            <Skeleton height={20} />
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    ))
+                  : (vendorTdsEntries).map((e) => (
                   <TableRow key={e.paymentId} hover>
                     <TableCell sx={TABLE_CELL_SX}>
                       {e.invoiceNumber?.trim() || e.referenceNumber?.trim() || '—'}

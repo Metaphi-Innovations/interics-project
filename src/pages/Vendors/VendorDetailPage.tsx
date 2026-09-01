@@ -26,7 +26,7 @@ import {
 import { FileUp, History } from 'lucide-react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
-import { fetchVendorById, updateVendor, createVendorContact, updateVendorContact, deleteVendorContact } from '../../slices/vendors/thunk'
+import { fetchVendorById, updateVendor, setVendorActive, createVendorContact, updateVendorContact, deleteVendorContact } from '../../slices/vendors/thunk'
 import { applyVendorPatch, clearSelected } from '../../slices/vendors/reducer'
 import type {
   Vendor,
@@ -370,10 +370,11 @@ export default function VendorDetailPage() {
 
   async function handleToggleStatus() {
     if (!vendor) return
-    const newStatus = vendor.status === 'Active' ? 'Inactive' : 'Active'
+    const nextActive = vendor.status !== 'Active'
     try {
-      await dispatch(updateVendor({ id: vendor.id, data: { status: newStatus } })).unwrap()
-      showToast({ title: `Vendor ${newStatus === 'Inactive' ? 'deactivated' : 'activated'}`, variant: 'success' })
+      await dispatch(setVendorActive({ id: vendor.id, isActive: nextActive })).unwrap()
+      showToast({ title: `Vendor ${nextActive ? 'activated' : 'deactivated'}`, variant: 'success' })
+      void dispatch(fetchVendorById(vendor.id))
     } catch {
       showToast({ title: 'Failed to update status', variant: 'error' })
     }
@@ -597,12 +598,6 @@ export default function VendorDetailPage() {
       vendor!.state,
       vendor!.pincode,
     ).trim()
-    const shippingAddressStr = formatFullAddress(
-      vendor!.shippingAddress ?? null,
-      vendor!.shippingCity ?? '',
-      vendor!.shippingState ?? '',
-      vendor!.shippingPincode,
-    ).trim()
 
     return (
       <Stack gap={0}>
@@ -700,22 +695,6 @@ export default function VendorDetailPage() {
             ) : (
               <Typography variant="body2" color="text.disabled">
                 No billing address added
-              </Typography>
-            )}
-          </Box>
-
-          <Box sx={getRecordDetailFlatSectionSx(theme, { isLast: false })}>
-            <RecordDetailSectionTitle>Shipping address</RecordDetailSectionTitle>
-            {shippingAddressStr ? (
-              <Typography
-                variant="body2"
-                sx={{ color: 'text.primary', fontWeight: 500, fontSize: theme.typography.body2.fontSize, whiteSpace: 'pre-line' }}
-              >
-                {shippingAddressStr}
-              </Typography>
-            ) : (
-              <Typography variant="body2" color="text.disabled">
-                No shipping address added
               </Typography>
             )}
           </Box>

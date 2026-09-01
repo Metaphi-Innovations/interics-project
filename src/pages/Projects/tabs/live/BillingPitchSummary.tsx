@@ -6,6 +6,7 @@ import { fetchClientPO } from '../../../../slices/baseline/thunk'
 import { fetchInvoices } from '../../../../slices/live/thunk'
 import type { ClientPO } from '../../../../slices/baseline/reducer'
 import { ClientPOSection } from '../../components/ClientPOSection'
+import { usePermission } from '@/hooks/usePermission'
 import {
   AddClientPODrawer,
   canDeleteClientPO,
@@ -22,6 +23,9 @@ export function BillingPitchSummary({ projectId }: BillingPitchSummaryProps) {
   const dispatch = useAppDispatch()
   const { clientPOs } = useAppSelector((s) => s.baseline)
   const { invoices } = useAppSelector((s) => s.live)
+  /** Same gate as POST /projects/:id/live/po (PROJECTS / PROJECT_LIVE / CREATE). */
+  const canCreateClientPo = usePermission('projectLive', 'create')
+  const canEditClientPo = usePermission('projectLive', 'edit')
 
   const [addPOOpen, setAddPOOpen] = useState(false)
   const [viewPoId, setViewPoId] = useState<string | null>(null)
@@ -81,11 +85,17 @@ export function BillingPitchSummary({ projectId }: BillingPitchSummaryProps) {
             onEditPO={(po) => setEditPoId(po.id)}
             onDeletePO={(po) => setDeletePo(po)}
             canDeletePO={(po) => canDeleteClientPO(po.milestones ?? [], projectInvoices)}
+            canCreatePo={canCreateClientPo}
+            canEditPo={canEditClientPo}
           />
         </Stack>
       </Box>
 
-      <AddClientPODrawer open={addPOOpen} onClose={() => setAddPOOpen(false)} projectId={projectId} />
+      <AddClientPODrawer
+        open={addPOOpen && canCreateClientPo}
+        onClose={() => setAddPOOpen(false)}
+        projectId={projectId}
+      />
       <ViewClientPODrawer
         open={!!viewPoId}
         onClose={() => setViewPoId(null)}
@@ -94,14 +104,14 @@ export function BillingPitchSummary({ projectId }: BillingPitchSummaryProps) {
         poSeed={viewPoSeed}
       />
       <EditClientPODrawer
-        open={!!editPoId}
+        open={!!editPoId && canEditClientPo}
         onClose={() => setEditPoId(null)}
         projectId={projectId}
         poId={editPoId}
         poSeed={editPoSeed}
       />
       <DeleteClientPODialog
-        open={!!deletePo}
+        open={!!deletePo && canEditClientPo}
         po={deletePo}
         projectId={projectId}
         onClose={() => setDeletePo(null)}

@@ -49,7 +49,7 @@ const initialState: UsersState = {
   selectedItem: null,
   loading: false,
   saving: false,
-  pagination: { page: 1, pageSize: 20, total: 0 },
+  pagination: { page: 1, pageSize: 10, total: 0 },
   filters: {
     search: '',
     role: '',

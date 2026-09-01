@@ -31,8 +31,7 @@ import {
   UserPlus,
 } from 'lucide-react'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
-import { logout } from '@/slices/auth/reducer'
-import { fetchMeThunk } from '@/slices/auth/thunk'
+import { fetchMeThunk, logoutThunk } from '@/slices/auth/thunk'
 import type { AuthUser } from '@/slices/auth/reducer'
 import type { UserPermissionModuleKey } from '@/types/permissions'
 import { resolveAccess } from '@/utils/resolveAccess'
@@ -345,13 +344,16 @@ function AppShellLayout({ user, onLogout }: AppShellLayoutProps) {
 
 function ProtectedRoute() {
   const dispatch = useAppDispatch()
-  const { user, token } = useAppSelector(s => s.auth)
+  const { user, token, loading } = useAppSelector(s => s.auth)
   const location = useLocation()
   useEffect(() => {
     if (token) {
       void dispatch(fetchMeThunk())
     }
   }, [dispatch, token])
+  if (loading) {
+    return null
+  }
   if (!user || !token) {
     return <Navigate to="/login" replace state={{ from: location }} />
   }
@@ -403,8 +405,10 @@ function AppInner() {
     : { name: 'Guest', email: '', role: '' }
 
   function handleLogout() {
-    dispatch(logout())
-    navigate('/login', { replace: true })
+    void dispatch(logoutThunk())
+      .finally(() => {
+        navigate('/login', { replace: true })
+      })
   }
 
   return (
@@ -554,7 +558,8 @@ function AppInner() {
               </UserManagementPermissionRoute>
             }
           />
-          <Route path="settings" element={<SettingsPage />} />
+          <Route path="settings" element={<Navigate to="/settings/general" replace />} />
+          <Route path="settings/:section" element={<SettingsPage />} />
           <Route path="*" element={<DefaultAppRedirect />} />
         </Route>
       </Route>

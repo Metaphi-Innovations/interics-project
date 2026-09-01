@@ -1,5 +1,6 @@
 import { createAsyncThunk } from '@reduxjs/toolkit'
 import { authApi } from '../../api/authApi'
+import { refreshAuthSessionSingleFlight } from '@/api/authRefresh'
 import {
   mapBackendLoginResponse,
   mapBackendUserToAuthUser,
@@ -42,10 +43,31 @@ export const loginThunk = createAsyncThunk(
 export const logoutThunk = createAsyncThunk('auth/logout', async () => {
   try {
     await authApi.logout(getStoredRefreshToken())
+  } catch {
+    // Session may already be invalid — still clear local auth.
   } finally {
     clearStoredAuth()
   }
 })
+
+/**
+ * Cold-start session restoration: reuse sessionStorage when present, otherwise
+ * attempt cookie-backed refresh before ProtectedRoute decides auth state.
+ */
+export const bootstrapAuthThunk = createAsyncThunk(
+  'auth/bootstrap',
+  async (_, { dispatch, rejectWithValue }) => {
+    try {
+      if (!getStoredToken()) {
+        await refreshAuthSessionSingleFlight()
+      }
+      await dispatch(fetchMeThunk()).unwrap()
+    } catch {
+      clearStoredAuth()
+      return rejectWithValue('unauthenticated')
+    }
+  },
+)
 
 export const fetchMeThunk = createAsyncThunk(
   'auth/me',
@@ -60,11 +82,23 @@ export const fetchMeThunk = createAsyncThunk(
       }
       return mappedUser
     } catch (err: unknown) {
-      const error = err as { response?: { status?: number } }
-      if (error.response?.status === 401) {
-        clearStoredAuth()
+      const error = err as { response?: { status?: number; data?: { code?: string } } }
+      const status = error.response?.status
+      const code = error.response?.data?.code
+
+      // Stale permissions after refresh: keep tokens; next API can refresh again.
+      if (status === 401 && code === 'PERMISSIONS_CHANGED') {
+        return rejectWithValue({ kind: 'stale' as const })
       }
-      return rejectWithValue('Unauthorized')
+
+      // Definitive auth failure — clear local session.
+      if (status === 401 || status === 403) {
+        clearStoredAuth()
+        return rejectWithValue({ kind: 'unauthorized' as const })
+      }
+
+      // Network / 5xx — preserve valid authentication.
+      return rejectWithValue({ kind: 'transient' as const })
     }
   },
 )

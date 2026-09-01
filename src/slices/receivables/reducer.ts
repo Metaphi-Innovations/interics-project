@@ -34,6 +34,8 @@ export interface LineItem {
   taxableAmount?: number
   gstRate: number
   gstAmount: number
+  tdsAmount?: number
+  netAmount?: number
   milestoneId?: string
   /** Baseline service row id when lineSource is service */
   baselineServiceId?: string
@@ -49,6 +51,7 @@ export interface Payment {
   paymentMode: 'bank_transfer' | 'cheque' | 'upi' | 'other'
   reference?: string
   recordedAt: string
+  allocations?: Array<{ milestoneId: string; allocatedAmount: number }>
 }
 
 export interface Invoice {
@@ -117,6 +120,7 @@ interface ReceivablesState {
   filters: ReceivablesFilters
   sortConfig: SortConfig
   pagination: Pagination
+  listRequestId: string | null
 }
 
 const initialState: ReceivablesState = {
@@ -137,7 +141,8 @@ const initialState: ReceivablesState = {
     amountMax: '',
   },
   sortConfig: { field: 'invoiceDate', direction: 'desc' },
-  pagination: { page: 1, pageSize: 20, total: 0 },
+  pagination: { page: 1, pageSize: 10, total: 0 },
+  listRequestId: null,
 }
 
 const receivablesSlice = createSlice({
@@ -170,22 +175,37 @@ const receivablesSlice = createSlice({
     setSelectedItem(state, action: PayloadAction<Invoice | null>) {
       state.selectedItem = action.payload
     },
+    /** Empty list without an API call (e.g. global ∩ toolbar date range is empty). */
+    clearListResults(state) {
+      state.items = []
+      state.pagination.total = 0
+      state.loading = false
+      state.error = null
+      state.listRequestId = null
+    },
     reset() {
       return initialState
     },
   },
   extraReducers: (builder) => {
     builder
-      .addCase(fetchInvoices.pending, (state) => {
+      .addCase(fetchInvoices.pending, (state, action) => {
+        state.listRequestId = action.meta.requestId
         state.loading = true
         state.error = null
       })
       .addCase(fetchInvoices.fulfilled, (state, action) => {
+        if (state.listRequestId !== action.meta.requestId) return
         state.loading = false
         state.items = action.payload.items ?? []
-        state.pagination.total = action.payload.total ?? 0
+        const total = action.payload.total ?? 0
+        state.pagination.total = total
+        const size = state.pagination.pageSize || 10
+        const maxPage = total <= 0 ? 1 : Math.max(1, Math.ceil(total / size))
+        if (state.pagination.page > maxPage) state.pagination.page = maxPage
       })
       .addCase(fetchInvoices.rejected, (state, action) => {
+        if (state.listRequestId !== action.meta.requestId) return
         state.loading = false
         state.error = action.payload as string
       })
@@ -298,6 +318,7 @@ export const {
   setSortConfig,
   clearSelected,
   setSelectedItem,
+  clearListResults,
   reset,
 } = receivablesSlice.actions
 export default receivablesSlice.reducer

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Box,
   Stack,
@@ -14,15 +14,21 @@ import {
   MenuItem,
   IconButton,
   Menu,
-  CircularProgress,
+  Skeleton,
+  Alert,
 } from '@mui/material'
 import { useTheme, alpha } from '@mui/material/styles'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
-import { Banknote, ChevronLeft, ChevronRight, Upload } from 'lucide-react'
+import { Banknote, Upload } from 'lucide-react'
 import { ListingTemplate } from '@/components/templates'
 import type { ColumnItem, FilterField, TabItem } from '@/components/templates/ListingTemplate'
-import { FilterableSortHeader, type ColumnFilterOption } from '@/components/listing'
-import { Avatar, Badge, useToast } from '@/design-system/components'
+import {
+  FilterableSortHeader,
+  isInvalidDateRange,
+  clampListingPage0Based,
+  type ColumnFilterOption,
+} from '@/components/listing'
+import { Avatar, Badge, Button, Modal, useToast, DatePicker, Select as DsSelect } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { formatDate, formatInr } from '@/utils/formatters'
@@ -35,6 +41,12 @@ import {
   type PayablesListItem,
 } from '@/modules/finance/payables.service'
 import type { PayableSummaryKpis } from '@/pages/Finance/utils/payableSummary'
+import {
+  mergeReceivableListDateParams,
+  resolveReceivableKpiDateRange,
+  type ReceivableKpiPeriod,
+} from '@/pages/Finance/utils/receivableKpiDateRange'
+import { isDraftEquivalentVendorInvoiceStatus } from '@/pages/Finance/utils/invoiceLifecycle'
 import {
   fetchExpenses,
   fetchPayments,
@@ -51,15 +63,11 @@ import {
   mergeMilestoneEntriesWithVendorPO,
   vendorInvoiceMilestoneEntries,
   vendorPOVendorMilestoneEntries,
-  computeMilestonePayableStatus,
-  findInvoiceForMilestone,
   globalVendorContextKey,
-  invoiceMatchesRow,
   payableStatusBadgeColor,
   payableStatusLabel,
   SettlementSummaryStrip,
   UploadVendorInvoiceDrawer,
-  buildEligibleVendorInvoiceUploadEntries,
   buildProjectVendorOptionsFromVendorPOs,
   VendorPayableWorkflowDrawer,
   type PayablePaymentStatus,
@@ -81,6 +89,7 @@ interface PaymentTableRow {
   vendorKey: string
   entry: VendorMilestoneEntry
   payableSt: PayablePaymentStatus
+  invoiceStatus: string
   invoiceId: string
   invoiceNumber: string
   invoiceDate: string
@@ -255,6 +264,14 @@ const PAY_TEXT_BODY_SX = {
 
 const PAY_PAGE_SIZE = 10
 
+const KPI_PERIOD_OPTIONS: { label: string; value: ReceivableKpiPeriod }[] = [
+  { label: 'Today', value: 'Today' },
+  { label: 'This Week', value: 'This Week' },
+  { label: 'This Month', value: 'This Month' },
+  { label: 'This Year', value: 'This Year' },
+  { label: 'Custom Date Range', value: 'Custom Date Range' },
+]
+
 const menuItemSx = { fontSize: 12, minHeight: 32, py: 0.5 }
 
 type PayableStatusTab = 'pending' | 'completed'
@@ -268,52 +285,17 @@ type PayablesSortField =
   | 'tdsAmount'
   | 'paymentStatus'
 
-function isPayableCompleted(status: PayablePaymentStatus): boolean {
-  return status === 'settled'
-}
-
-function isDraftEquivalentPayable(status: PayablePaymentStatus): boolean {
-  // Uploaded / unpaid vendor invoices (not yet partial or settled).
-  return status === 'not_paid'
-}
-
-function actionMenuItemsForStatus(status: PayablePaymentStatus): readonly string[] {
-  if (status === 'settled') return ['View Details']
-  if (isDraftEquivalentPayable(status)) return ['View Details', 'Release Payment', 'Delete']
-  return ['View Details', 'Release Payment']
-}
-
-interface SimplePaginationProps {
-  page: number
-  pageSize: number
-  total: number
-  onPage: (p: number) => void
-}
-
-function SimplePagination({ page, pageSize, total, onPage }: SimplePaginationProps) {
-  const totalPages = Math.max(1, Math.ceil(total / pageSize))
-  const from = total === 0 ? 0 : Math.min((page - 1) * pageSize + 1, total)
-  const to = Math.min(page * pageSize, total)
-
-  return (
-    <Stack
-      direction="row"
-      alignItems="center"
-      justifyContent="flex-end"
-      gap={1}
-      sx={{ p: '10px 14px', borderTop: `1px solid ${tokens.color.neutral[100]}` }}
-    >
-      <Typography variant="caption" color="text.secondary">
-        {total === 0 ? '0' : `${from}–${to}`} of {total}
-      </Typography>
-      <IconButton size="small" disabled={page <= 1} onClick={() => onPage(page - 1)} sx={{ p: '4px' }}>
-        <ChevronLeft size={16} />
-      </IconButton>
-      <IconButton size="small" disabled={page >= totalPages} onClick={() => onPage(page + 1)} sx={{ p: '4px' }}>
-        <ChevronRight size={16} />
-      </IconButton>
-    </Stack>
-  )
+function actionMenuItemsForStatus(
+  status: PayablePaymentStatus,
+  invoiceStatus: string,
+  canDelete: boolean,
+): readonly string[] {
+  const items: string[] = ['View Details']
+  if (status !== 'settled') items.push('Release Payment')
+  if (canDelete && isDraftEquivalentVendorInvoiceStatus(invoiceStatus)) {
+    items.push('Delete')
+  }
+  return items
 }
 
 export default function PaymentsPage() {
@@ -322,6 +304,7 @@ export default function PaymentsPage() {
   const { showToast } = useToast()
   const canCreatePayable = usePermission('payables', 'create')
   const canEditPayable = usePermission('payables', 'edit')
+  const canDeletePayable = usePermission('projectLive', 'delete')
   const { items: rawProjects, loading: projectsLoading } = useAppSelector((s) => s.projects)
   const [liveProjectIds, setLiveProjectIds] = useState<string[] | null>(null)
   const liveProjectIdSet = useMemo(() => new Set(liveProjectIds ?? []), [liveProjectIds])
@@ -335,6 +318,20 @@ export default function PaymentsPage() {
   const [vendorPOsByProject, setVendorPOsByProject] = useState<Record<string, VendorPO[]>>({})
   const [financeLoaded, setFinanceLoaded] = useState(false)
   const [summaryKpis, setSummaryKpis] = useState<PayableSummaryKpis | null>(null)
+  const [kpiPeriod, setKpiPeriod] = useState<ReceivableKpiPeriod>('This Month')
+  const [kpiCustomFrom, setKpiCustomFrom] = useState<Date | null>(null)
+  const [kpiCustomTo, setKpiCustomTo] = useState<Date | null>(null)
+
+  const kpiDateBounds = useMemo(
+    () => resolveReceivableKpiDateRange(kpiPeriod, kpiCustomFrom, kpiCustomTo),
+    [kpiPeriod, kpiCustomFrom, kpiCustomTo],
+  )
+  const kpiCustomIncomplete =
+    kpiPeriod === 'Custom Date Range' && (!kpiCustomFrom || !kpiCustomTo)
+  const kpiCustomInvalid =
+    kpiPeriod === 'Custom Date Range' &&
+    Boolean(kpiCustomFrom && kpiCustomTo) &&
+    kpiDateBounds === null
 
   const [filterProjectId, setFilterProjectId] = useState('')
   const [filterVendorId, setFilterVendorId] = useState('')
@@ -345,7 +342,18 @@ export default function PaymentsPage() {
     dateTo: '',
   })
 
-  const [page, setPage] = useState(1)
+  const effectiveKpiDates = useMemo(
+    () =>
+      mergeReceivableListDateParams(
+        kpiDateBounds,
+        String(activeFilters.dateFrom ?? ''),
+        String(activeFilters.dateTo ?? ''),
+      ),
+    [kpiDateBounds, activeFilters.dateFrom, activeFilters.dateTo],
+  )
+
+  const [page, setPage] = useState(0)
+  const [pageSize, setPageSize] = useState(PAY_PAGE_SIZE)
   const [colFilters, setColFilters] = useState<Record<string, string>>({})
   const [sortConfig, setSortConfig] = useState<{
     field: PayablesSortField | null
@@ -354,7 +362,10 @@ export default function PaymentsPage() {
   const [payableFilterOptions, setPayableFilterOptions] = useState<Record<string, ColumnFilterOption[]>>({})
   const [listItems, setListItems] = useState<PayablesListItem[]>([])
   const [listTotal, setListTotal] = useState(0)
+  const [tabCounts, setTabCounts] = useState({ pending: 0, completed: 0 })
   const [listLoading, setListLoading] = useState(false)
+  const [listError, setListError] = useState<string | null>(null)
+  const listRequestIdRef = useRef(0)
   const [visibleColumns, setVisibleColumns] = useState<PayablesVisibleColumns>(DEFAULT_PAYABLES_VISIBLE)
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null)
   const [menuContext, setMenuContext] = useState<PaymentTableRow | null>(null)
@@ -368,6 +379,8 @@ export default function PaymentsPage() {
   const [uploadOpen, setUploadOpen] = useState(false)
   const [uploadInitialSelection, setUploadInitialSelection] =
     useState<UploadVendorInvoiceInitialSelection | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<PaymentTableRow | null>(null)
+  const [deleteLoading, setDeleteLoading] = useState(false)
 
   useEffect(() => {
     void dispatch(fetchProjects({ pageSize: 100 }))
@@ -426,14 +439,32 @@ export default function PaymentsPage() {
     }
   }, [dispatch, showToast])
 
-  // Summary KPIs from dedicated API (refetch when project/vendor filters change)
+  // Summary KPIs: Live Overview vendor metrics (poDate) with merged global + toolbar dates
   useEffect(() => {
+    if (kpiCustomInvalid) {
+      setSummaryKpis(null)
+      return
+    }
+    if (kpiCustomIncomplete && !effectiveKpiDates.dateFrom && !effectiveKpiDates.dateTo) {
+      setSummaryKpis(null)
+      return
+    }
+    if (effectiveKpiDates.emptyIntersection) {
+      setSummaryKpis(toPayableSummaryKpis({
+        totalVendorOfferValue: 0,
+        paidTillDate: 0,
+        remainingPayment: 0,
+      }))
+      return
+    }
     let cancelled = false
     void (async () => {
       try {
         const summary = await payablesService.getSummary({
           projectId: filterProjectId || undefined,
           vendorId: filterVendorId || undefined,
+          dateFrom: effectiveKpiDates.dateFrom,
+          dateTo: effectiveKpiDates.dateTo,
         })
         if (!cancelled) setSummaryKpis(toPayableSummaryKpis(summary))
       } catch {
@@ -443,7 +474,12 @@ export default function PaymentsPage() {
     return () => {
       cancelled = true
     }
-  }, [filterProjectId, filterVendorId])
+  }, [filterProjectId, filterVendorId, effectiveKpiDates, kpiCustomInvalid, kpiCustomIncomplete])
+
+  /** Global Date Range change restarts listing at page 0. */
+  useEffect(() => {
+    setPage(0)
+  }, [effectiveKpiDates])
 
   // Lazy-load drawer-only finance for the selected project
   useEffect(() => {
@@ -480,98 +516,42 @@ export default function PaymentsPage() {
     return out
   }, [projects, baselinesByProject, vendorPOsByProject, vendorInvoices])
 
-  const milestonesAfterProjectVendor = useMemo(() => {
-    return allMilestones.filter((m) => {
-      if (filterProjectId && m.projectId !== filterProjectId) return false
-      if (filterVendorId && m.row.vendorId !== filterVendorId) return false
-      return true
-    })
-  }, [allMilestones, filterProjectId, filterVendorId])
-
-  const invoicesByProject = useMemo(() => {
-    const map = new Map<string, typeof vendorInvoices>()
-    for (const inv of vendorInvoices) {
-      const list = map.get(inv.projectId)
-      if (list) list.push(inv)
-      else map.set(inv.projectId, [inv])
-    }
-    return map
-  }, [vendorInvoices])
-
-  const enrichMilestone = useCallback(
-    (m: VendorMilestoneEntry): PaymentTableRow | null => {
-      const scopedInv = invoicesByProject.get(m.projectId) ?? []
-      const rowInvoices = scopedInv.filter((v) => invoiceMatchesRow(v, m.row))
-      const milestoneInv = findInvoiceForMilestone(rowInvoices, m.milestone)
-      if (!milestoneInv) return null
-      const payableSt = computeMilestonePayableStatus(milestoneInv)
-      return {
-        key: `${globalVendorContextKey(m.projectId, m.row)}::${m.milestone.id}`,
-        vendorKey: globalVendorContextKey(m.projectId, m.row),
-        entry: m,
-        payableSt,
-        invoiceId: milestoneInv.id,
-        invoiceNumber: milestoneInv.invoiceNumber,
-        invoiceDate: milestoneInv.invoiceDate,
-        invoiceAmount: milestoneInv.baseAmount,
-        tdsAmount: milestoneInv.tdsAmount ?? 0,
-      }
-    },
-    [invoicesByProject],
-  )
-
-  const enrichedMilestones = useMemo(
-    () =>
-      milestonesAfterProjectVendor
-        .map(enrichMilestone)
-        .filter((row): row is PaymentTableRow => row != null),
-    [milestonesAfterProjectVendor, enrichMilestone],
-  )
-
-  const searchedRows = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    if (!q) return enrichedMilestones
-    return enrichedMilestones.filter((row) => {
-      const haystack = [
-        row.entry.row.vendorName,
-        row.entry.projectName,
-        row.entry.milestone.name,
-        row.invoiceNumber,
-        String(row.tdsAmount),
-        payableStatusLabel(row.payableSt),
-      ]
-        .join(' ')
-        .toLowerCase()
-      return haystack.includes(q)
-    })
-  }, [enrichedMilestones, search])
-
-  const tabCounts = useMemo(() => {
-    let pending = 0
-    let completed = 0
-    for (const row of searchedRows) {
-      if (isPayableCompleted(row.payableSt)) completed += 1
-      else pending += 1
-    }
-    return { pending, completed }
-  }, [searchedRows])
-
   const fetchPayablesList = useCallback(
     async (
       overrides: {
         page?: number
+        pageSize?: number
         colFilters?: Record<string, string>
         visibleColumns?: PayablesVisibleColumns
+        activeFilters?: Record<string, unknown>
       } = {},
     ) => {
       const nextPage = overrides.page ?? page
+      const nextPageSize = overrides.pageSize ?? pageSize
       const nextCols = { ...colFilters, ...overrides.colFilters }
+      const nextActive = overrides.activeFilters ?? activeFilters
+      const toolbarFrom = String(nextActive.dateFrom ?? '')
+      const toolbarTo = String(nextActive.dateTo ?? '')
+      if (isInvalidDateRange(toolbarFrom, toolbarTo)) return
+
+      const listDates = mergeReceivableListDateParams(kpiDateBounds, toolbarFrom, toolbarTo)
+      if (listDates.emptyIntersection) {
+        setListItems([])
+        setListTotal(0)
+        setTabCounts({ pending: 0, completed: 0 })
+        setListLoading(false)
+        setListError(null)
+        return
+      }
+
+      const requestId = ++listRequestIdRef.current
       const visibility = overrides.visibleColumns ?? visibleColumns
       setListLoading(true)
+      setListError(null)
       try {
         const result = await payablesService.getList({
-          page: nextPage,
-          limit: PAY_PAGE_SIZE,
+          page: nextPage + 1,
+          limit: nextPageSize,
           search: search.trim() || undefined,
           vendorId: nextCols.vendorId || filterVendorId || undefined,
           projectId: nextCols.projectId || filterProjectId || undefined,
@@ -581,29 +561,47 @@ export default function PaymentsPage() {
           invoiceAmount: nextCols.invoiceAmount ? Number(nextCols.invoiceAmount) : undefined,
           tdsAmount: nextCols.tdsAmount ? Number(nextCols.tdsAmount) : undefined,
           paymentStatus: nextCols.paymentStatus || statusTab,
+          dateFrom: listDates.dateFrom,
+          dateTo: listDates.dateTo,
           columns: buildPayablesListColumns(visibility),
           sortBy: sortConfig.field || undefined,
           sortOrder: sortConfig.field ? sortConfig.direction : undefined,
         })
+        if (requestId !== listRequestIdRef.current) return
         setListItems(result.items)
         setListTotal(result.total)
+        setTabCounts({
+          pending: result.pendingCount,
+          completed: result.completedCount,
+        })
+        const clamped = clampListingPage0Based(nextPage, result.total, nextPageSize)
+        if (clamped !== nextPage) {
+          setPage(clamped)
+          return
+        }
       } catch {
+        if (requestId !== listRequestIdRef.current) return
         setListItems([])
         setListTotal(0)
+        setTabCounts({ pending: 0, completed: 0 })
+        setListError('Failed to load payables')
       } finally {
-        setListLoading(false)
+        if (requestId === listRequestIdRef.current) setListLoading(false)
       }
     },
     [
       page,
+      pageSize,
       search,
       colFilters,
+      activeFilters,
       filterVendorId,
       filterProjectId,
       statusTab,
       sortConfig.field,
       sortConfig.direction,
       visibleColumns,
+      kpiDateBounds,
     ],
   )
 
@@ -613,15 +611,15 @@ export default function PaymentsPage() {
 
   function handleColumnFilter(field: string, value: string) {
     setColFilters((prev) => ({ ...prev, [field]: value }))
-    setPage(1)
-    void fetchPayablesList({ page: 1, colFilters: { [field]: value } })
+    setPage(0)
+    void fetchPayablesList({ page: 0, colFilters: { [field]: value } })
   }
 
   function handleColumnVisibilityChange(field: string, visible: boolean) {
     const key = field as keyof PayablesVisibleColumns
     if (!(key in visibleColumns)) return
     setVisibleColumns((prev) => ({ ...prev, [key]: visible }))
-    setPage(1)
+    setPage(0)
   }
 
   const columnsConfig: ColumnItem[] = useMemo(
@@ -662,6 +660,7 @@ export default function PaymentsPage() {
           vendorKey: globalVendorContextKey(item.projectId, match.row),
           entry: match,
           payableSt,
+          invoiceStatus: item.invoiceStatus,
           invoiceId: item.id,
           invoiceNumber: item.invoiceNo,
           invoiceDate: item.invoiceDate,
@@ -689,6 +688,7 @@ export default function PaymentsPage() {
           },
         },
         payableSt,
+        invoiceStatus: item.invoiceStatus,
         invoiceId: item.id,
         invoiceNumber: item.invoiceNo,
         invoiceDate: item.invoiceDate,
@@ -711,7 +711,7 @@ export default function PaymentsPage() {
   const paginatedRows = listingRows
 
   useEffect(() => {
-    setPage(1)
+    setPage(0)
   }, [filterProjectId, filterVendorId, search, statusTab, colFilters, sortConfig.field, sortConfig.direction])
 
   const vendorOptions = useMemo(() => {
@@ -740,8 +740,8 @@ export default function PaymentsPage() {
 
   const filterConfig: FilterField[] = useMemo(
     () => [
-      { field: 'dateFrom', label: 'Date from (YYYY-MM-DD)', type: 'text' },
-      { field: 'dateTo', label: 'Date to (YYYY-MM-DD)', type: 'text' },
+      { field: 'dateFrom', label: 'Date from', type: 'date' },
+      { field: 'dateTo', label: 'Date to', type: 'date' },
     ],
     [],
   )
@@ -757,15 +757,9 @@ export default function PaymentsPage() {
     setMenuContext(null)
   }
 
-  const eligibleUploadEntries = useMemo(
-    () =>
-      buildEligibleVendorInvoiceUploadEntries(
-        projects.map((p) => ({ id: p.id, name: p.name })),
-        vendorPOsByProject,
-        baselinesByProject,
-        vendorInvoices,
-      ),
-    [projects, vendorPOsByProject, baselinesByProject, vendorInvoices],
+  const allVendorPOs = useMemo(
+    () => Object.values(vendorPOsByProject).flat(),
+    [vendorPOsByProject],
   )
 
   const projectVendorOptions = useMemo(
@@ -788,17 +782,42 @@ export default function PaymentsPage() {
     setUploadInitialSelection(null)
   }
 
-  async function handleInvoiceUploaded(projectId: string) {
+  async function refreshPayablesSummaryAndList(options?: { projectId?: string; pageOverride?: number }) {
+    const nextPage = options?.pageOverride ?? page
     try {
-      await dispatch(fetchVendorInvoices(projectId)).unwrap()
+      if (options?.projectId) {
+        await dispatch(fetchVendorInvoices(options.projectId)).unwrap()
+      }
+      const listDates = effectiveKpiDates
+      if (listDates.emptyIntersection) {
+        setListItems([])
+        setListTotal(0)
+        setTabCounts({ pending: 0, completed: 0 })
+        if (!kpiCustomInvalid && !(kpiCustomIncomplete && !listDates.dateFrom && !listDates.dateTo)) {
+          setSummaryKpis(toPayableSummaryKpis({
+            totalVendorOfferValue: 0,
+            paidTillDate: 0,
+            remainingPayment: 0,
+          }))
+        }
+        return
+      }
+      const canFetchSummary =
+        !kpiCustomInvalid &&
+        !(kpiCustomIncomplete && !listDates.dateFrom && !listDates.dateTo)
+      const summaryPromise = canFetchSummary
+        ? payablesService.getSummary({
+            projectId: filterProjectId || undefined,
+            vendorId: filterVendorId || undefined,
+            dateFrom: listDates.dateFrom,
+            dateTo: listDates.dateTo,
+          })
+        : Promise.resolve(null)
       const [summary, list] = await Promise.all([
-        payablesService.getSummary({
-          projectId: filterProjectId || undefined,
-          vendorId: filterVendorId || undefined,
-        }),
+        summaryPromise,
         payablesService.getList({
-          page,
-          limit: PAY_PAGE_SIZE,
+          page: nextPage + 1,
+          limit: pageSize,
           search: search.trim() || undefined,
           vendorId: colFilters.vendorId || filterVendorId || undefined,
           projectId: colFilters.projectId || filterProjectId || undefined,
@@ -808,16 +827,30 @@ export default function PaymentsPage() {
           invoiceAmount: colFilters.invoiceAmount ? Number(colFilters.invoiceAmount) : undefined,
           tdsAmount: colFilters.tdsAmount ? Number(colFilters.tdsAmount) : undefined,
           paymentStatus: colFilters.paymentStatus || statusTab,
+          dateFrom: listDates.dateFrom,
+          dateTo: listDates.dateTo,
           sortBy: sortConfig.field || undefined,
           sortOrder: sortConfig.field ? sortConfig.direction : undefined,
         }),
       ])
-      setSummaryKpis(toPayableSummaryKpis(summary))
+      if (summary) setSummaryKpis(toPayableSummaryKpis(summary))
       setListItems(list.items)
       setListTotal(list.total)
+      setTabCounts({
+        pending: list.pendingCount,
+        completed: list.completedCount,
+      })
+      const clamped = clampListingPage0Based(nextPage, list.total, pageSize)
+      if (clamped !== page) {
+        setPage(clamped)
+      }
     } catch {
-      // list already refreshed by drawer; summary can stay stale until next filter change
+      // listing or summary may remain stale until next filter change
     }
+  }
+
+  async function handleInvoiceUploaded(projectId: string) {
+    await refreshPayablesSummaryAndList({ projectId })
   }
 
   function handleActionMenuItem(label: string) {
@@ -838,24 +871,12 @@ export default function PaymentsPage() {
         })
         break
       case 'Delete':
-        void (async () => {
-          if (!isDraftEquivalentPayable(menuContext.payableSt)) {
-            showToast({ title: 'Only draft/uploaded invoices can be deleted', variant: 'error' })
-            return
-          }
-          try {
-            await dispatch(
-              deleteVendorInvoice({
-                projectId: entry.projectId,
-                invoiceId: menuContext.invoiceId,
-              }),
-            ).unwrap()
-            showToast({ title: 'Vendor invoice deleted', variant: 'success' })
-            await handleInvoiceUploaded(entry.projectId)
-          } catch (e) {
-            showToast({ title: String(e), variant: 'error' })
-          }
-        })()
+        if (!canDeletePayable) return
+        if (!isDraftEquivalentVendorInvoiceStatus(menuContext.invoiceStatus)) {
+          showToast({ title: 'Only draft or uploaded invoices can be deleted', variant: 'error' })
+          return
+        }
+        setDeleteTarget(menuContext)
         break
       case 'View Details':
       default:
@@ -870,6 +891,48 @@ export default function PaymentsPage() {
     }
   }
 
+  async function confirmDeletePayableInvoice() {
+    if (!deleteTarget || !canDeletePayable) return
+    if (!isDraftEquivalentVendorInvoiceStatus(deleteTarget.invoiceStatus)) {
+      showToast({ title: 'Only draft or uploaded invoices can be deleted', variant: 'error' })
+      return
+    }
+    setDeleteLoading(true)
+    try {
+      await dispatch(
+        deleteVendorInvoice({
+          projectId: deleteTarget.entry.projectId,
+          invoiceId: deleteTarget.invoiceId,
+        }),
+      ).unwrap()
+      showToast({ title: 'Vendor invoice deleted', variant: 'success' })
+      const nextPage = clampListingPage0Based(page, Math.max(0, listTotal - 1), pageSize)
+      await refreshPayablesSummaryAndList({
+        projectId: deleteTarget.entry.projectId,
+        pageOverride: nextPage,
+      })
+    } catch (e) {
+      showToast({ title: String(e), variant: 'error' })
+    } finally {
+      setDeleteLoading(false)
+      setDeleteTarget(null)
+    }
+  }
+
+  function resolveVendorPoIdForMilestone(
+    projectId: string,
+    vendorId: string,
+    serviceId: string,
+    milestoneId: string,
+  ): string | undefined {
+    for (const po of vendorPOsByProject[projectId] ?? []) {
+      if (po.vendorId !== vendorId) continue
+      if (!po.linkedBaselineServiceIds?.includes(serviceId)) continue
+      if (po.milestones.some((m) => m.id === milestoneId)) return po.id
+    }
+    return undefined
+  }
+
   function openUploadInvoiceFromWorkflow(milestoneId: string) {
     if (!workflowDrawer) return
     const { entry } = workflowDrawer
@@ -877,6 +940,12 @@ export default function PaymentsPage() {
     openUploadInvoice({
       projectId: entry.projectId,
       vendorId: entry.row.vendorId,
+      vendorPoId: resolveVendorPoIdForMilestone(
+        entry.projectId,
+        entry.row.vendorId,
+        entry.row.serviceId,
+        milestoneId,
+      ),
       serviceId: entry.row.serviceId,
       milestoneId,
     })
@@ -923,11 +992,17 @@ export default function PaymentsPage() {
 
   const handleSearchChange = useCallback((v: string) => {
     setSearch(v)
+    setPage(0)
   }, [])
 
   function handleSort(field: string, direction: 'asc' | 'desc') {
     setSortConfig({ field: field as PayablesSortField, direction })
-    setPage(1)
+    setPage(0)
+  }
+
+  function handleFilterChange(next: Record<string, unknown>) {
+    setActiveFilters(next)
+    setPage(0)
   }
 
   function handleResetAll() {
@@ -937,12 +1012,17 @@ export default function PaymentsPage() {
     setFilterVendorId('')
     setColFilters({})
     setSortConfig({ field: null, direction: 'asc' })
-    setPage(1)
+    setVisibleColumns(DEFAULT_PAYABLES_VISIBLE)
+    setKpiPeriod('This Month')
+    setKpiCustomFrom(null)
+    setKpiCustomTo(null)
+    setPage(0)
   }
 
   const hoverBg = alpha(theme.palette.primary.main, 0.04)
 
   async function handleExport() {
+    const listDates = effectiveKpiDates
     try {
       await downloadCsv(
         '/finance/payables/export',
@@ -956,6 +1036,8 @@ export default function PaymentsPage() {
           invoiceAmount: colFilters.invoiceAmount ? Number(colFilters.invoiceAmount) : undefined,
           tdsAmount: colFilters.tdsAmount ? Number(colFilters.tdsAmount) : undefined,
           paymentStatus: colFilters.paymentStatus || statusTab,
+          dateFrom: listDates.dateFrom,
+          dateTo: listDates.dateTo,
           sortBy: sortConfig.field || undefined,
           sortOrder: sortConfig.field ? sortConfig.direction : undefined,
         },
@@ -969,6 +1051,11 @@ export default function PaymentsPage() {
 
   return (
     <>
+        {listError ? (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {listError}
+          </Alert>
+        ) : null}
         <ListingTemplate
           icon={<Banknote size={20} strokeWidth={1.75} />}
           title="Payable"
@@ -982,23 +1069,126 @@ export default function PaymentsPage() {
                 }
               : undefined
           }
-          customSummary={<SettlementSummaryStrip kpis={summaryKpis} />}
+          customSummary={
+            <Box
+              sx={{
+                border: '1px solid',
+                borderColor: 'divider',
+                borderRadius: 2,
+                bgcolor: 'background.paper',
+                overflow: 'hidden',
+              }}
+            >
+              <Stack
+                direction={{ xs: 'column', sm: 'row' }}
+                alignItems={{ xs: 'stretch', sm: 'center' }}
+                justifyContent="flex-end"
+                gap={1.5}
+                sx={{
+                  px: 2,
+                  py: 1.5,
+                  borderBottom: '1px solid',
+                  borderColor: 'divider',
+                  bgcolor: alpha(theme.palette.text.primary, 0.02),
+                }}
+              >
+                <Stack
+                  direction={{ xs: 'column', sm: 'row' }}
+                  alignItems={{ xs: 'stretch', sm: 'center' }}
+                  gap={1}
+                  flexWrap="wrap"
+                  justifyContent="flex-end"
+                >
+                  <Typography
+                    variant="body2"
+                    color="text.secondary"
+                    sx={{ fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap' }}
+                  >
+                    Date Range
+                  </Typography>
+                  <Box sx={{ minWidth: { xs: '100%', sm: 180 } }}>
+                    <DsSelect
+                      size="sm"
+                      value={kpiPeriod}
+                      onChange={(v) => {
+                        const next = String(v) as ReceivableKpiPeriod
+                        setKpiPeriod(next)
+                        if (next !== 'Custom Date Range') {
+                          setKpiCustomFrom(null)
+                          setKpiCustomTo(null)
+                        }
+                      }}
+                      options={KPI_PERIOD_OPTIONS}
+                      fullWidth
+                    />
+                  </Box>
+                  {kpiPeriod === 'Custom Date Range' ? (
+                    <>
+                      <DatePicker
+                        label="From"
+                        value={kpiCustomFrom}
+                        onChange={setKpiCustomFrom}
+                        size="sm"
+                      />
+                      <DatePicker
+                        label="To"
+                        value={kpiCustomTo}
+                        onChange={setKpiCustomTo}
+                        size="sm"
+                      />
+                    </>
+                  ) : null}
+                </Stack>
+              </Stack>
+              <Box sx={{ p: 2 }}>
+                {kpiCustomIncomplete ? (
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ display: 'block', mb: 1.5 }}
+                  >
+                    Select a start and end date to update KPI values.
+                  </Typography>
+                ) : null}
+                {kpiCustomInvalid ? (
+                  <Typography variant="caption" color="error" sx={{ display: 'block', mb: 1.5 }}>
+                    End date must be on or after the start date.
+                  </Typography>
+                ) : null}
+                <SettlementSummaryStrip kpis={summaryKpis} />
+              </Box>
+            </Box>
+          }
           tabs={statusTabs}
           activeTab={statusTab}
-          onTabChange={(v) => setStatusTab(v as PayableStatusTab)}
+          onTabChange={(v) => {
+            setStatusTab(v as PayableStatusTab)
+            setPage(0)
+          }}
           searchValue={search}
           onSearchChange={handleSearchChange}
           toolbarAfterSearch={toolbarAfterSearch}
           filterConfig={filterConfig}
           activeFilters={activeFilters}
-          onFilterChange={setActiveFilters}
-          onFilterReset={() => setActiveFilters({ dateFrom: '', dateTo: '' })}
+          onFilterChange={handleFilterChange}
+          onFilterReset={() => {
+            setActiveFilters({ dateFrom: '', dateTo: '' })
+            setPage(0)
+          }}
           onResetAll={handleResetAll}
           columns={columnsConfig}
           onColumnVisibilityChange={handleColumnVisibilityChange}
           showExport
           onExport={handleExport}
           clipCardContent={false}
+          pageSize={pageSize}
+          totalCount={listTotal}
+          page={page}
+          onPageChange={setPage}
+          onPageSizeChange={(s) => {
+            setPageSize(s)
+            setPage(0)
+          }}
         >
           <>
               <TableContainer sx={{ overflowX: 'auto', width: '100%' }}>
@@ -1024,7 +1214,7 @@ export default function PaymentsPage() {
                         <FilterableSortHeader label="Invoice No." field="invoiceNo" sortField={sortConfig.field ?? undefined} sortDirection={sortConfig.direction} onSort={handleSort} filterValue={colFilters.invoiceNo ?? ''} filterOptions={payableFilterOptions.invoiceNo ?? []} onFilter={(v) => handleColumnFilter('invoiceNo', v)} sx={PAY_HEADER_SX} />
                       )}
                       {visibleColumns.invoiceDate && (
-                        <FilterableSortHeader label="Invoice date" field="invoiceDate" sortField={sortConfig.field ?? undefined} sortDirection={sortConfig.direction} onSort={handleSort} filterValue={colFilters.invoiceDate ?? ''} filterOptions={payableFilterOptions.invoiceDate ?? []} onFilter={(v) => handleColumnFilter('invoiceDate', v)} sx={PAY_HEADER_SX} />
+                        <FilterableSortHeader label="Invoice date" field="invoiceDate" sortField={sortConfig.field ?? undefined} sortDirection={sortConfig.direction} onSort={handleSort} filterMode="date" filterValue={colFilters.invoiceDate ?? ''} filterOptions={payableFilterOptions.invoiceDate ?? []} onFilter={(v) => handleColumnFilter('invoiceDate', v)} sx={PAY_HEADER_SX} />
                       )}
                       {visibleColumns.invoiceAmount && (
                         <FilterableSortHeader label="Invoice Amount" field="invoiceAmount" sortField={sortConfig.field ?? undefined} sortDirection={sortConfig.direction} onSort={handleSort} filterValue={colFilters.invoiceAmount ?? ''} filterOptions={payableFilterOptions.invoiceAmount ?? []} onFilter={(v) => handleColumnFilter('invoiceAmount', v)} sx={PAY_HEADER_SX} />
@@ -1040,16 +1230,15 @@ export default function PaymentsPage() {
                   </TableHead>
                   <TableBody>
                     {isDataLoading ? (
-                      <TableRow>
-                        <TableCell colSpan={tableColSpan} sx={{ ...PAY_CELL_SX, color: 'text.secondary', py: 4 }}>
-                          <Stack direction="row" alignItems="center" justifyContent="center" gap={1}>
-                            <CircularProgress size={20} />
-                            <Typography variant="body2" sx={{ fontSize: 12 }}>
-                              Loading payments…
-                            </Typography>
-                          </Stack>
-                        </TableCell>
-                      </TableRow>
+                      [...Array(6)].map((_, i) => (
+                        <TableRow key={i}>
+                          {[...Array(tableColSpan)].map((__, j) => (
+                            <TableCell key={j} sx={PAY_CELL_SX}>
+                              <Skeleton height={24} />
+                            </TableCell>
+                          ))}
+                        </TableRow>
+                      ))
                     ) : listingRows.length === 0 ? (
                       <TableRow>
                         <TableCell colSpan={tableColSpan} sx={{ ...PAY_CELL_SX, color: 'text.secondary', py: 4 }}>
@@ -1158,14 +1347,6 @@ export default function PaymentsPage() {
                   </TableBody>
                 </Table>
               </TableContainer>
-              {listTotal > 0 && (
-                <SimplePagination
-                  page={page}
-                  pageSize={PAY_PAGE_SIZE}
-                  total={listTotal}
-                  onPage={setPage}
-                />
-              )}
           </>
         </ListingTemplate>
 
@@ -1176,7 +1357,14 @@ export default function PaymentsPage() {
           onClick={(e) => e.stopPropagation()}
           slotProps={{ paper: { elevation: 2 } }}
         >
-          {(menuContext ? actionMenuItemsForStatus(menuContext.payableSt) : [])
+          {(menuContext
+            ? actionMenuItemsForStatus(
+                menuContext.payableSt,
+                menuContext.invoiceStatus,
+                canDeletePayable,
+              )
+            : []
+          )
             .filter((label) => label !== 'Release Payment' || canEditPayable)
             .map((label) => (
               <MenuItem key={label} sx={menuItemSx} onClick={() => handleActionMenuItem(label)}>
@@ -1194,13 +1382,7 @@ export default function PaymentsPage() {
           open={workflowDrawer != null}
           onClose={() => {
             setWorkflowDrawer(null)
-            void payablesService
-              .getSummary({
-                projectId: filterProjectId || undefined,
-                vendorId: filterVendorId || undefined,
-              })
-              .then((summary) => setSummaryKpis(toPayableSummaryKpis(summary)))
-              .catch(() => undefined)
+            void refreshPayablesSummaryAndList()
           }}
           entry={workflowDrawer?.entry ?? null}
           baseline={
@@ -1210,17 +1392,53 @@ export default function PaymentsPage() {
           readOnly={workflowDrawer?.readOnly}
           invoiceId={workflowDrawer?.invoiceId}
           paymentStatus={workflowDrawer?.paymentStatus}
+          paymentEntryMode="finance"
           onUploadInvoice={openUploadInvoiceFromWorkflow}
         />
 
         <UploadVendorInvoiceDrawer
           open={uploadOpen}
           onClose={closeUploadInvoice}
-          eligibleEntries={eligibleUploadEntries}
+          vendorInvoices={vendorInvoices}
+          allVendorPOs={allVendorPOs}
+          projects={projects.map((p) => ({ id: p.id, name: p.name }))}
           projectVendors={projectVendorOptions}
           initialSelection={uploadInitialSelection}
           onUploaded={(projectId) => void handleInvoiceUploaded(projectId)}
         />
+
+        <Modal
+          open={!!deleteTarget}
+          onClose={() => setDeleteTarget(null)}
+          title="Delete draft invoice?"
+          size="xs"
+          footer={
+            <Stack direction="row" justifyContent="flex-end" gap={1}>
+              <Button
+                variant="outlined"
+                size="sm"
+                onClick={() => setDeleteTarget(null)}
+                disabled={deleteLoading}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="contained"
+                size="sm"
+                color="error"
+                onClick={() => void confirmDeletePayableInvoice()}
+                loading={deleteLoading}
+              >
+                Delete
+              </Button>
+            </Stack>
+          }
+        >
+          <Typography variant="body2">
+            Delete draft invoice <strong>{deleteTarget?.invoiceNumber}</strong>? This cannot be
+            undone.
+          </Typography>
+        </Modal>
     </>
   )
 }
