@@ -3,7 +3,6 @@ import type { ClientInvoice, ClientInvoiceLineItem, ClientInvoicePayment } from 
 import type { PitchService, VendorMapping } from '@/slices/pitch/reducer'
 import type { Service } from '@/slices/settings/reducer'
 import {
-  resolveClientPoMilestoneGstRate,
   resolveClientServiceGstRate,
 } from './clientPoGstResolution'
 import { resolvePitchServiceGstRate } from './pitchGstDisplay'
@@ -237,19 +236,6 @@ export function effectiveLabourCessPercent(inv: ClientInvoice): string {
   const roll = rollupsFromLineItems(inv.lineItems)
   if (roll.labourCessRatePercent == null) return '—'
   return `${roll.labourCessRatePercent}%`
-}
-
-function findBaselineService(
-  baseline: Baseline | null,
-  serviceId: string,
-): PitchService | null {
-  if (!baseline || !serviceId.trim()) return null
-  for (const cat of baseline.categories ?? []) {
-    for (const svc of cat.services ?? []) {
-      if (svc.id === serviceId || svc.subcategoryId === serviceId) return svc
-    }
-  }
-  return null
 }
 
 function findVendorMappingInBaseline(

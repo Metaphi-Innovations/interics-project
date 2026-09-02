@@ -47,7 +47,9 @@ const BASELINE: Baseline = {
   categories: [
     {
       id: 'cat-1',
+      categoryId: 'cat-1',
       categoryName: 'Build',
+      totalValue: 1_000_000,
       services: [
         {
           id: 'pitch-1',
@@ -108,6 +110,7 @@ describe('clientPoGstResolution', () => {
       poNumber: 'PO-1',
       poValue: 5000,
       executedValue: 5000,
+      documentUrl: null,
       startDate: '2026-01-01',
       endDate: '2026-12-31',
       milestones: [
@@ -142,6 +145,7 @@ describe('clientPoGstResolution', () => {
       poNumber: 'PO-1',
       poValue: 5000,
       executedValue: 5000,
+      documentUrl: null,
       startDate: '2026-01-01',
       endDate: '2026-12-31',
       milestones: [

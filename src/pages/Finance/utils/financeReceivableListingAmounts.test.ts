@@ -9,7 +9,6 @@ import {
   balancePending,
   calcClientInvoiceTdsAmount,
   clientInvoiceAmountBreakdownNet,
-  rollupsFromLineItems,
   totalReceivedBank,
 } from '@/pages/Projects/tabs/live/clientInvoiceUtils'
 import { invoiceToClientInvoice } from '@/pages/Projects/tabs/live/invoiceAdapters'

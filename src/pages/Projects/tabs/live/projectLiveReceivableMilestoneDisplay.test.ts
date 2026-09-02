@@ -133,6 +133,7 @@ function clientInvoice(partial: Partial<ClientInvoice> = {}): ClientInvoice {
         id: 'li-1',
         serviceId: 'svc-1',
         serviceName: 'Interior Design',
+        sacCode: 'TEST-SAC',
         amount: 300_000,
         gstRate: 18,
         gstAmount: 54_540,
@@ -145,6 +146,7 @@ function clientInvoice(partial: Partial<ClientInvoice> = {}): ClientInvoice {
     ],
     payments: [],
     ...partial,
+    netReceivable: partial.netReceivable ?? 351_540,
   }
 }
 

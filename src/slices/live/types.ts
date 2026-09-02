@@ -123,6 +123,7 @@ export interface VendorInvoice {
   lineItems?: Array<{
     milestoneId?: string
     serviceId?: string
+    serviceName?: string
     amount?: number
     milestoneName?: string
     gstRate?: number

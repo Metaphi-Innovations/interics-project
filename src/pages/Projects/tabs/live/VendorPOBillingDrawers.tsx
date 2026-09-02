@@ -417,8 +417,7 @@ export function AddVendorPODrawer({
   const [milestones, setMilestones] = useState<VendorPOMilestoneRow[]>([])
   const [retention, setRetention] = useState<VendorPORetentionRow | null>(null)
   const [gstRate, setGstRate] = useState<number | null>(null)
-  const { options: gstRateOptions, loading: gstRatesLoading, error: gstRatesError } =
-    useActiveGstRates(open)
+  const { options: gstRateOptions } = useActiveGstRates(open)
 
   useEffect(() => {
     if (open) {
@@ -1062,8 +1061,7 @@ export function EditVendorPODrawer({
   const [retentionCards, setRetentionCards] = useState<VendorOfferRetentionCard[]>([])
   const [newFile, setNewFile] = useState<File | null>(null)
   const [gstRate, setGstRate] = useState<number | null>(null)
-  const { options: gstRateOptions, loading: gstRatesLoading, error: gstRatesError } =
-    useActiveGstRates(open)
+  const { options: gstRateOptions } = useActiveGstRates(open)
 
   const categoryOptions = useMemo(
     () => dropdownCategoryOptions(masterCatalog.categories),

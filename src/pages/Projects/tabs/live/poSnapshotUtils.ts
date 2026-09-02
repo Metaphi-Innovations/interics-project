@@ -1,4 +1,4 @@
-import type { ClientPO, ClientPOMilestone, ClientPORetention, VendorPO, VendorPOMilestone } from '@/slices/baseline/reducer'
+import type { ClientPO, ClientPOMilestone, ClientPORetention, VendorPO } from '@/slices/baseline/reducer'
 
 export type ClientPoTaxSnapshot = {
   base: number

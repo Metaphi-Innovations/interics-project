@@ -132,8 +132,6 @@ export function UploadVendorInvoiceDrawer({
 }) {
   const dispatch = useAppDispatch()
   const { saving } = useAppSelector((s) => s.live)
-  const baseline = useAppSelector((s) => s.baseline.baseline)
-  const { services } = useAppSelector((s) => s.settings)
   const toast = useToast()
 
   const isProjectScoped = Boolean(lockedProjectId)

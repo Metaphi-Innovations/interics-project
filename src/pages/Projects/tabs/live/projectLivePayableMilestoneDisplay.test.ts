@@ -144,7 +144,6 @@ function vendorInv(
     status: 'approved',
     lineItems: [
       {
-        id: 'vli-1',
         serviceId: 'svc-1',
         serviceName: 'Service',
         amount: baseAmount,
@@ -397,6 +396,7 @@ describe('projectLivePayableMilestoneDisplay', () => {
       serviceName: 'Service',
       value: 40000,
       kind: 'regular' as const,
+      isRetention: false,
     }
     const payments: VendorPayment[] = [
       {

@@ -22,7 +22,6 @@ import { fetchServices, fetchSACCodes } from '@/slices/settings/thunk'
 import type { Invoice } from '@/slices/receivables/reducer'
 import type { Project } from '@/slices/projects/reducer'
 import type { ClientPO } from '@/slices/baseline/reducer'
-import type { Baseline } from '@/slices/baseline/reducer'
 import { InvoiceLineItems, type DraftLineItem } from './InvoiceLineItems'
 import {
   computeLineItemTaxBreakdown,
@@ -39,7 +38,6 @@ import {
 import { buildAutoDraftLines } from '@/pages/Finance/utils/financeReceivableDraftLines'
 import { tokens } from '@/design-system/tokens'
 import { formatInr } from '@/utils/formatters'
-import type { Service, SACCode } from '@/slices/settings/reducer'
 
 function toIsoDate(d: Date | null): string {
   if (!d) return ''
