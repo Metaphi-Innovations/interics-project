@@ -29,6 +29,47 @@ function serviceCompatible(requested: string, ...candidates: Array<string | unde
   return present.includes(requested)
 }
 
+/** Canonical vendor invoice lines — prefers data.lineItems[], falls back to legacy header. */
+export function resolveVendorInvoiceLineItems(
+  invoice: Pick<
+    VendorInvoice,
+    'milestoneId' | 'milestoneName' | 'serviceId' | 'serviceName' | 'baseAmount' | 'lineItems'
+  >,
+): Array<{
+  milestoneId: string
+  milestoneName: string
+  serviceId: string
+  serviceName: string
+  amount: number
+  netAmount?: number
+  tdsAmount?: number
+}> {
+  const lines = invoice.lineItems ?? []
+  if (lines.length > 0) {
+    return lines
+      .filter((li) => li.milestoneId)
+      .map((li) => ({
+        milestoneId: li.milestoneId!,
+        milestoneName: li.milestoneName ?? li.milestoneId!,
+        serviceId: li.serviceId ?? invoice.serviceId,
+        serviceName: li.serviceName ?? invoice.serviceName,
+        amount: Number(li.amount ?? 0) || 0,
+        netAmount: li.netAmount,
+        tdsAmount: li.tdsAmount,
+      }))
+  }
+  if (!invoice.milestoneId) return []
+  return [
+    {
+      milestoneId: invoice.milestoneId,
+      milestoneName: invoice.milestoneName ?? invoice.milestoneId,
+      serviceId: invoice.serviceId,
+      serviceName: invoice.serviceName,
+      amount: Number(invoice.baseAmount ?? 0) || 0,
+    },
+  ]
+}
+
 export function flattenVendorPoMilestones(po: VendorPO | null | undefined): FlatVendorMilestone[] {
   if (!po) return []
   const defaultServiceId = po.linkedBaselineServiceIds?.[0]?.trim() || ''

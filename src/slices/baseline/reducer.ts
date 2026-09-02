@@ -22,6 +22,16 @@ import {
 export interface ClientPORetention {
   percentage: number
   value: number
+  gstRate?: number
+  gstAmount?: number
+  tdsRate?: number
+  tdsAmount?: number
+  labourCessRate?: number
+  labourCessAmount?: number
+  net?: number
+  status?: 'Paid' | 'Unpaid'
+  amountReceived?: number
+  remaining?: number
 }
 
 export interface ClientPOMilestone {
@@ -36,7 +46,17 @@ export interface ClientPOMilestone {
   /** Payment status from GET /po/:poId (invoice-derived). */
   status?: 'Paid' | 'Unpaid'
   /** Optional retention slice linked to this milestone (legacy). */
-  retention?: ClientPORetention & { status?: 'Paid' | 'Unpaid' }
+  retention?: ClientPORetention
+  /** Tax snapshots (server-computed on create/update). */
+  gstRate?: number
+  gstAmount?: number
+  tdsRate?: number
+  tdsAmount?: number
+  labourCessRate?: number
+  labourCessAmount?: number
+  net?: number
+  amountReceived?: number
+  remaining?: number
 }
 
 export interface ClientPO {
@@ -70,6 +90,14 @@ export interface VendorPOMilestone {
   kind?: 'regular' | 'retention'
   /** Baseline/master service id for GST resolution (multi-service PO cards). */
   serviceId?: string
+  /** Tax snapshots (server-computed when PO gstRate is set). */
+  gstRate?: number
+  gstAmount?: number
+  tdsRate?: number
+  tdsAmount?: number
+  net?: number
+  amountPaid?: number
+  remaining?: number
 }
 
 export type VendorPOExecutionStatus = 'Draft' | 'Issued' | 'Accepted'
@@ -90,6 +118,8 @@ export interface VendorPO {
   paymentTerms?: string
   status: VendorPOExecutionStatus
   linkedBaselineServiceIds?: string[]
+  /** PO-level GST rate (%) applied to all milestones/retentions. */
+  gstRate?: number | null
   /** TDS rate (%) applied to vendor invoices on this PO. */
   tdsRate?: number | null
   /** Vendor mapping row id from the pitch/baseline offer (Live Contract → Add PO). */

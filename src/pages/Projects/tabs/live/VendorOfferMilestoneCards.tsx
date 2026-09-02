@@ -23,6 +23,8 @@ import {
 import type { MilestonePaymentStatusLabel } from './milestonePaymentStatus'
 import type { VendorPOMilestone } from '@/slices/baseline/reducer'
 import { parseRateInput, rateInputDisplay, selectRateInputOnFocus } from './rateInput'
+import { vendorMilestoneTaxDisplay } from './poTaxDisplay'
+import { PoMilestoneTaxLines } from './PoMilestoneTaxLines'
 import type {
   CategoryOption,
   ServiceOption,
@@ -282,6 +284,7 @@ interface MilestoneCardEditorProps {
   structureLocked?: boolean
   milestoneStatuses?: Record<string, MilestonePaymentStatusLabel>
   retentionStatus?: MilestonePaymentStatusLabel
+  poGstRate?: number | null
   onChange: (patch: Partial<VendorOfferMilestoneCard>) => void
   onRemove: () => void
 }
@@ -296,6 +299,7 @@ export function VendorOfferMilestoneCardEditor({
   structureLocked = false,
   milestoneStatuses,
   retentionStatus,
+  poGstRate = null,
   onChange,
   onRemove,
 }: MilestoneCardEditorProps) {
@@ -347,6 +351,7 @@ export function VendorOfferMilestoneCardEditor({
           retention={card.retention ?? null}
           milestoneStatuses={milestoneStatuses}
           retentionStatus={retentionStatus}
+          poGstRate={poGstRate}
           onMilestonesChange={(milestones) => onChange({ milestones })}
           onRetentionChange={(retention) => onChange({ retention })}
         />
@@ -362,6 +367,7 @@ interface ValueRowCardEditorProps {
   milestoneBaseValue: number
   nameLabel: string
   readOnly?: boolean
+  poGstRate?: number | null
   onChange: (patch: Partial<VendorOfferRetentionCard>) => void
   onRemove: () => void
   removeLabel: string
@@ -374,6 +380,7 @@ function ValueRowCardEditor({
   milestoneBaseValue,
   nameLabel,
   readOnly = false,
+  poGstRate = null,
   onChange,
   onRemove,
   removeLabel,
@@ -475,6 +482,13 @@ function ValueRowCardEditor({
             />
           </Box>
         </CardAlignedRow>
+        {(() => {
+          const tax = vendorMilestoneTaxDisplay(
+            { value: card.value, gstRate: undefined, gstAmount: undefined, net: undefined },
+            poGstRate,
+          )
+          return tax ? <PoMilestoneTaxLines tax={tax} variant="vendor" /> : null
+        })()}
       </Box>
     </Box>
   )

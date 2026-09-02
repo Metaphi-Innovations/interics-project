@@ -3,6 +3,7 @@ import type { VendorInvoice } from '@/slices/live/types'
 import {
   getVendorInvoiceMilestoneAmount,
   remainingVendorMilestoneValue,
+  resolveVendorInvoiceLineItems,
   sumBilledPerVendorMilestone,
   vendorMilestoneFullyInvoiced,
   vendorMilestoneIsSelectable,
@@ -160,5 +161,21 @@ describe('vendorBillable monetary billing', () => {
   it('Finance upload eligibility: fully invoiced milestone excluded', () => {
     expect(vendorMilestoneFullyInvoiced(M1.value, 100_000)).toBe(true)
     expect(vendorMilestoneIsSelectable(100_000, M1.value)).toBe(false)
+  })
+
+  it('resolveVendorInvoiceLineItems returns all multi-line entries', () => {
+    const lines = resolveVendorInvoiceLineItems(
+      inv({
+        id: 'inv-multi',
+        milestoneId: 'm1',
+        milestoneName: 'Milestone 1',
+        lineItems: [
+          { milestoneId: 'm1', milestoneName: 'Milestone 1', amount: 9_000 },
+          { milestoneId: 'ret-1', milestoneName: 'Retention', amount: 1_000 },
+        ],
+      }),
+    )
+    expect(lines).toHaveLength(2)
+    expect(lines.map((l) => l.milestoneId)).toEqual(['m1', 'ret-1'])
   })
 })

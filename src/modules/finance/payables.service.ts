@@ -18,11 +18,13 @@ export type PayablesWorkspaceApi = {
 
 export type PayablesListItem = {
   id: string
+  invoiceId: string
   projectId: string
   projectName: string
   vendorId: string
   vendorName: string
   milestone: string
+  milestoneNames: string[]
   milestoneId?: string
   invoiceNo: string
   invoiceDate: string
@@ -31,6 +33,8 @@ export type PayablesListItem = {
   paymentStatus: 'settled' | 'partial_payment' | 'not_paid'
   invoiceStatus: string
   service?: string
+  serviceNames: string[]
+  lineCount: number
 }
 
 export type PayablesListResult = {

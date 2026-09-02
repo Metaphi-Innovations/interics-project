@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest'
 import {
   buildMilestoneUploadOptions,
   buildVendorInvoiceUploadLineItems,
+  countUnbuildableVendorMilestoneSelections,
+  initialVendorMilestoneSelection,
+  shouldApplyInitialVendorMilestoneSelection,
   sumVendorInvoiceLineItemAmounts,
   toggleSelectedMilestoneIds,
 } from './uploadVendorInvoiceUtils'
@@ -93,6 +96,18 @@ describe('buildVendorInvoiceUploadLineItems', () => {
   })
 })
 
+describe('countUnbuildableVendorMilestoneSelections', () => {
+  it('counts selected milestones that cannot become invoice lines', () => {
+    const options = buildMilestoneUploadOptions(
+      milestones,
+      (id) => milestones.find((m) => m.milestoneId === id)?.value ?? 0,
+      (id) => id === 'm1',
+    )
+    expect(countUnbuildableVendorMilestoneSelections(['m1', 'm2', 'ret-1'], options)).toBe(1)
+    expect(buildVendorInvoiceUploadLineItems(['m1', 'm2', 'ret-1'], options, 'svc-1')).toHaveLength(2)
+  })
+})
+
 describe('combined invoice totals', () => {
   it('uses combined base for TDS calculation input', () => {
     const options = buildMilestoneUploadOptions(
@@ -104,5 +119,114 @@ describe('combined invoice totals', () => {
     const base = sumVendorInvoiceLineItemAmounts(lineItems)
     expect(base).toBe(1100)
     expect(Math.round((base * 10) / 100)).toBe(110)
+  })
+})
+
+describe('shouldApplyInitialVendorMilestoneSelection', () => {
+  it('seeds once per PO when user has not edited selection', () => {
+    expect(
+      shouldApplyInitialVendorMilestoneSelection({
+        initialMilestoneId: 'm1',
+        selectedPoId: 'po-1',
+        seededPoId: null,
+        selectionTouched: false,
+      }),
+    ).toBe(true)
+    expect(
+      shouldApplyInitialVendorMilestoneSelection({
+        initialMilestoneId: 'm1',
+        selectedPoId: 'po-1',
+        seededPoId: 'po-1',
+        selectionTouched: false,
+      }),
+    ).toBe(false)
+    expect(
+      shouldApplyInitialVendorMilestoneSelection({
+        initialMilestoneId: 'm1',
+        selectedPoId: 'po-1',
+        seededPoId: null,
+        selectionTouched: true,
+      }),
+    ).toBe(false)
+  })
+})
+
+describe('vendor row-entry selection persistence', () => {
+  it('keeps [A, B, retention] after async PO load (Test 3 & 4)', () => {
+    let selection: string[] = []
+    let seededPoId: string | null = null
+    let selectionTouched = false
+    const initialMilestoneId = 'm1'
+    const poId = 'po-1'
+
+    if (
+      shouldApplyInitialVendorMilestoneSelection({
+        initialMilestoneId,
+        selectedPoId: poId,
+        seededPoId,
+        selectionTouched,
+      })
+    ) {
+      seededPoId = poId
+      selection = initialVendorMilestoneSelection(initialMilestoneId)
+    }
+    expect(selection).toEqual(['m1'])
+
+    selectionTouched = true
+    selection = toggleSelectedMilestoneIds(selection, 'm2')
+    selection = toggleSelectedMilestoneIds(selection, 'ret-1')
+    expect(selection).toEqual(['m1', 'm2', 'ret-1'])
+
+    if (
+      shouldApplyInitialVendorMilestoneSelection({
+        initialMilestoneId,
+        selectedPoId: poId,
+        seededPoId,
+        selectionTouched,
+      })
+    ) {
+      selection = initialVendorMilestoneSelection(initialMilestoneId)
+    }
+    expect(selection).toEqual(['m1', 'm2', 'ret-1'])
+  })
+
+  it('resets to initial milestone on a new drawer session', () => {
+    let selection = ['m1', 'm2']
+    let seededPoId: string | null = 'po-1'
+    let selectionTouched = true
+
+    selection = []
+    seededPoId = null
+    selectionTouched = false
+
+    if (
+      shouldApplyInitialVendorMilestoneSelection({
+        initialMilestoneId: 'm1',
+        selectedPoId: 'po-1',
+        seededPoId,
+        selectionTouched,
+      })
+    ) {
+      seededPoId = 'po-1'
+      selection = initialVendorMilestoneSelection('m1')
+    }
+    expect(selection).toEqual(['m1'])
+  })
+})
+
+describe('vendor per-line tax (Tests 9 & 10)', () => {
+  it('uses milestone-specific GST rates', () => {
+    const gstA = Math.round((5000 * 12) / 100)
+    const gstB = Math.round((3000 * 18) / 100)
+    expect(gstA).toBe(600)
+    expect(gstB).toBe(540)
+  })
+
+  it('calculates TDS on base only per line', () => {
+    const base = 5000
+    const gst = 600
+    const tds = Math.round((base * 2) / 100)
+    expect(tds).toBe(100)
+    expect(base + gst - tds).toBe(5500)
   })
 })

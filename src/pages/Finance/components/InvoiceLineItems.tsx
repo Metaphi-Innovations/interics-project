@@ -17,6 +17,7 @@ import type { Service, SACCode } from '@/slices/settings/reducer'
 import { tokens } from '@/design-system/tokens'
 import { formatInr } from '@/utils/formatters'
 import { computeLineItemTaxBreakdown } from '@/pages/Projects/tabs/live/clientInvoiceUtils'
+import { DEFAULT_GST_RATE } from '@/config/billingRates'
 
 export interface DraftLineItem {
   id: string
@@ -97,7 +98,7 @@ export function emptyDraftLine(): DraftLineItem {
     labourCessRate: 0,
     labourCessAmount: 0,
     taxableAmount: 0,
-    gstRate: 18,
+    gstRate: DEFAULT_GST_RATE,
     gstAmount: 0,
     lineSource: 'manual',
   }
@@ -130,7 +131,7 @@ export function InvoiceLineItems({
     if (patch.serviceId !== undefined) {
       const svc = activeServices.find((s) => s.id === patch.serviceId)
       cur.serviceName = svc?.name ?? ''
-      cur.gstRate = svc?.gstRate ?? 18
+      cur.gstRate = svc?.gstRate ?? DEFAULT_GST_RATE
       cur.sacCode = resolveSac(sacCodes, svc)
     }
     if (

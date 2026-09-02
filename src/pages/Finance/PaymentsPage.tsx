@@ -642,14 +642,18 @@ export default function PaymentsPage() {
 
   const listingRows = useMemo((): PaymentTableRow[] => {
     return listItems.map((item) => {
+      const milestoneLabels = item.milestoneNames?.length ? item.milestoneNames : [item.milestone]
+      const serviceLabels = item.serviceNames?.length ? item.serviceNames : item.service ? [item.service] : []
       const match = allMilestones.find((m) => {
         if (m.projectId !== item.projectId || m.row.vendorId !== item.vendorId) return false
         const milestoneOk =
           (item.milestoneId != null && m.milestone.id === item.milestoneId) ||
-          m.milestone.name === item.milestone
+          milestoneLabels.some((name) => m.milestone.name === name)
         if (!milestoneOk) return false
-        if (!item.service) return true
-        return m.row.serviceId === item.service || m.row.serviceName === item.service
+        if (serviceLabels.length === 0) return true
+        return serviceLabels.some(
+          (svc) => m.row.serviceId === svc || m.row.serviceName === svc,
+        )
       })
       const payableSt = (item.paymentStatus === 'settled' || item.paymentStatus === 'partial_payment' || item.paymentStatus === 'not_paid'
         ? item.paymentStatus
@@ -661,7 +665,7 @@ export default function PaymentsPage() {
           entry: match,
           payableSt,
           invoiceStatus: item.invoiceStatus,
-          invoiceId: item.id,
+          invoiceId: item.invoiceId ?? item.id,
           invoiceNumber: item.invoiceNo,
           invoiceDate: item.invoiceDate,
           invoiceAmount: item.invoiceAmount,
@@ -689,7 +693,7 @@ export default function PaymentsPage() {
         },
         payableSt,
         invoiceStatus: item.invoiceStatus,
-        invoiceId: item.id,
+        invoiceId: item.invoiceId ?? item.id,
         invoiceNumber: item.invoiceNo,
         invoiceDate: item.invoiceDate,
         invoiceAmount: item.invoiceAmount,

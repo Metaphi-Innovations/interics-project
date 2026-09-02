@@ -23,6 +23,23 @@ export function toggleSelectedMilestoneIds(current: string[], milestoneId: strin
     : [...current, milestoneId]
 }
 
+/** Whether to apply row-entry initial milestone once PO is available (never after user edits). */
+export function shouldApplyInitialVendorMilestoneSelection(args: {
+  initialMilestoneId?: string
+  selectedPoId: string
+  seededPoId: string | null
+  selectionTouched: boolean
+}): boolean {
+  if (!args.initialMilestoneId || !args.selectedPoId) return false
+  if (args.selectionTouched) return false
+  if (args.seededPoId === args.selectedPoId) return false
+  return true
+}
+
+export function initialVendorMilestoneSelection(initialMilestoneId: string): string[] {
+  return [initialMilestoneId]
+}
+
 export function buildVendorInvoiceUploadLineItems(
   selectedMilestoneIds: string[],
   options: VendorInvoiceUploadMilestoneOption[],
@@ -47,6 +64,21 @@ export function buildVendorInvoiceUploadLineItems(
   }
 
   return out
+}
+
+/** Selected milestone IDs that cannot become invoice lines (disabled / zero billable). */
+export function countUnbuildableVendorMilestoneSelections(
+  selectedMilestoneIds: string[],
+  options: VendorInvoiceUploadMilestoneOption[],
+): number {
+  const uniqueIds = [...new Set(selectedMilestoneIds.filter(Boolean))]
+  const byId = new Map(options.map((m) => [m.milestoneId, m]))
+  let skipped = 0
+  for (const milestoneId of uniqueIds) {
+    const milestone = byId.get(milestoneId)
+    if (!milestone || milestone.disabled || milestone.billableAmount <= 0) skipped++
+  }
+  return skipped
 }
 
 export function sumVendorInvoiceLineItemAmounts(

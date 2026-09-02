@@ -11,6 +11,8 @@ import {
   scopeVendorInvoicesForPo,
   VENDOR_MONEY_EPS,
 } from '@/pages/Finance/utils/vendorBillable'
+import { resolveVendorLineAmountsFromInvoice } from '@/pages/Projects/tabs/live/paymentAllocation'
+import { resolveVendorPoMilestoneSnapshot } from '@/pages/Projects/tabs/live/poSnapshotUtils'
 import { resolvePitchVersionForProject } from '@/store/selectors/pitchSelectors'
 import {
   normalizeVendorMapping,
@@ -83,6 +85,12 @@ export function vendorPoExecutableAmount(
     let invoicedNet = 0
     let billedBase = 0
     for (const inv of scoped) {
+      const lineAmounts = resolveVendorLineAmountsFromInvoice(inv, m.milestoneId)
+      if (lineAmounts && lineAmounts.net > VENDOR_MONEY_EPS) {
+        billedBase += lineAmounts.base
+        invoicedNet += lineAmounts.net
+        continue
+      }
       const lineBase = getVendorInvoiceMilestoneAmount(inv, m, po.id)
       if (lineBase <= VENDOR_MONEY_EPS) continue
       billedBase += lineBase
@@ -90,7 +98,13 @@ export function vendorPoExecutableAmount(
       const share = invBase > VENDOR_MONEY_EPS ? lineBase / invBase : 1
       invoicedNet += (Number(inv.netPayable) || 0) * share
     }
-    sum += invoicedNet + remainingVendorMilestoneValue(billedBase, m.value)
+    const remainingBase = remainingVendorMilestoneValue(billedBase, m.value)
+    const poSnapshot = resolveVendorPoMilestoneSnapshot(po as VendorPO, m.milestoneId)
+    const uninvoicedNet =
+      poSnapshot && m.value > VENDOR_MONEY_EPS
+        ? (poSnapshot.net * remainingBase) / m.value
+        : remainingBase
+    sum += invoicedNet + uninvoicedNet
   }
   return sum
 }

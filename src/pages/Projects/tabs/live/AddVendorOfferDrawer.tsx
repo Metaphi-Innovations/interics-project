@@ -39,6 +39,8 @@ import {
   type GroupedServiceMilestones,
 } from './VendorOfferMilestoneCards'
 import { validateVendorOfferGlobalPercents } from '@/utils/vendorMilestones'
+import { useActiveGstRates } from './useActiveGstRates'
+import { PoGstRateSelect, isActiveGstRate } from './PoGstRateSelect'
 
 const PO_SECTION_TITLE_SX = {
   fontSize: '10px',
@@ -167,11 +169,15 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
   })
   const [milestoneCards, setMilestoneCards] = useState<VendorOfferMilestoneCard[]>([])
   const [retentionCards, setRetentionCards] = useState<VendorOfferRetentionCard[]>([])
+  const [gstRate, setGstRate] = useState<number | null>(null)
+  const { options: gstRateOptions, loading: gstRatesLoading, error: gstRatesError } =
+    useActiveGstRates(open)
   const [fieldErrors, setFieldErrors] = useState<{
     poNumber?: string
     poDate?: string
     poValue?: string
     vendorId?: string
+    gstRate?: string
     milestones?: string
   }>({})
 
@@ -276,6 +282,7 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
       })
       setMilestoneCards([])
       setRetentionCards([])
+      setGstRate(null)
       setFieldErrors({})
     }
   }, [open])
@@ -398,6 +405,13 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
       next.poValue = 'Enter a valid PO value greater than 0'
     }
     if (!form.vendorId) next.vendorId = 'Vendor is required'
+    if (gstRatesError) {
+      next.gstRate = 'Failed to load GST rates. Please try again.'
+    } else if (gstRatesLoading) {
+      next.gstRate = 'GST rates are still loading'
+    } else if (!isActiveGstRate(gstRate, gstRateOptions)) {
+      next.gstRate = 'Select a GST rate'
+    }
     if (!hasConfiguredEntries || groupedForSave.length === 0) {
       next.milestones = 'Add at least one milestone or retention entry'
     }
@@ -435,7 +449,14 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
     const keys = Object.keys(next)
     if (keys.length > 0) {
       toast({
-        title: next.milestones ?? 'Please fill in all required fields',
+        title:
+          next.gstRate ??
+          next.milestones ??
+          next.poNumber ??
+          next.poDate ??
+          next.poValue ??
+          next.vendorId ??
+          'Please fill in all required fields',
         variant: 'error',
       })
       return false
@@ -508,6 +529,7 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
             executedValue,
             milestones: milestonePayload,
             linkedBaselineServiceIds: linkedServiceIds,
+            gstRate,
             status: 'Draft',
             documentUrl,
             fileName,
@@ -530,6 +552,7 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
         poDate: parsed.fieldErrors.poDate ?? prev.poDate,
         poValue: parsed.fieldErrors.poValue ?? prev.poValue,
         vendorId: parsed.fieldErrors.vendorId ?? prev.vendorId,
+        gstRate: parsed.fieldErrors.gstRate ?? prev.gstRate,
         milestones: parsed.fieldErrors.milestones ?? prev.milestones,
       }))
       toast({ title: parsed.message, variant: 'error' })
@@ -651,6 +674,34 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
               />
             </FormField>
           </Box>
+          <Box sx={{ gridColumn: '1 / -1' }}>
+            <FormField label="GST Rate" required error={fieldErrors.gstRate}>
+              {gstRatesLoading ? (
+                <Typography variant="caption" color="text.secondary" sx={{ fontSize: 12 }}>
+                  Loading GST rates…
+                </Typography>
+              ) : gstRatesError ? (
+                <Typography variant="caption" color="error.main" sx={{ fontSize: 12 }}>
+                  Failed to load GST rates. Close and reopen the drawer to retry.
+                </Typography>
+              ) : gstRateOptions.length === 0 ? (
+                <Typography variant="caption" color="text.secondary" sx={{ fontSize: 12 }}>
+                  No active GST rates configured in Settings.
+                </Typography>
+              ) : (
+                <PoGstRateSelect
+                  value={gstRate}
+                  options={gstRateOptions}
+                  onChange={(rate) => {
+                    setGstRate(rate)
+                    setFieldErrors((prev) => ({ ...prev, gstRate: undefined }))
+                  }}
+                  allowEmpty
+                  required
+                />
+              )}
+            </FormField>
+          </Box>
         </Box>
       </Box>
 
@@ -682,6 +733,7 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
             categoryOptions={categoryOptions}
             serviceOptions={serviceOptions}
             milestoneBaseValue={milestoneBaseValue}
+            poGstRate={gstRate}
             onChange={(patch) =>
               setMilestoneCards((prev) =>
                 prev.map((c) => (c.id === card.id ? { ...c, ...patch } : c)),
@@ -712,6 +764,7 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
             categoryOptions={categoryOptions}
             serviceOptions={serviceOptions}
             milestoneBaseValue={milestoneBaseValue}
+            poGstRate={gstRate}
             onChange={(patch) =>
               setRetentionCards((prev) =>
                 prev.map((c) => (c.id === card.id ? { ...c, ...patch } : c)),

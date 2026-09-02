@@ -7,11 +7,15 @@ export function resolvePitchServiceGstRate(
   service: Pick<PitchService, 'gstRate' | 'subcategoryId'>,
   settingsServices: Service[],
 ): number {
+  const master = service.subcategoryId
+    ? settingsServices.find((s) => s.id === service.subcategoryId)
+    : undefined
+  if (master?.gstRate != null && !Number.isNaN(master.gstRate)) {
+    return master.gstRate
+  }
   if (service.gstRate != null && !Number.isNaN(service.gstRate)) {
     return service.gstRate
   }
-  const master = settingsServices.find((s) => s.id === service.subcategoryId)
-  if (master?.gstRate != null) return master.gstRate
   return DEFAULT_GST_RATE
 }
 

@@ -63,6 +63,16 @@ import {
   clientMilestoneIsLocked,
   type MilestonePaymentStatusLabel,
 } from './milestonePaymentStatus'
+import { fetchBaseline } from '../../../../slices/baseline/thunk'
+import { fetchServices } from '@/slices/settings/thunk'
+import type { Baseline } from '../../../../slices/baseline/reducer'
+import type { Service } from '@/slices/settings/reducer'
+import {
+  clientMilestoneTaxDisplay,
+  clientRetentionTaxDisplay,
+  formatGstRateLabel,
+} from './poTaxDisplay'
+import { PoMilestoneTaxLines } from './PoMilestoneTaxLines'
 
 const PO_SECTION_TITLE_SX = {
   fontSize: '10px',
@@ -143,6 +153,29 @@ function useTdsOptions(open: boolean): TdsDropdownOption[] {
   return options
 }
 
+function useClientPoTaxPreviewContext(
+  open: boolean,
+  projectId: string,
+): { baseline: Baseline | null; settingsServices: Service[] } {
+  const dispatch = useAppDispatch()
+  const baseline = useAppSelector((s) => s.baseline.baseline)
+  const settingsServices = useAppSelector((s) => s.settings.services)
+
+  useEffect(() => {
+    if (!open) return
+    void dispatch(fetchBaseline(projectId))
+    void dispatch(fetchServices({ limit: 1000, force: true }))
+  }, [open, projectId, dispatch])
+
+  return useMemo(
+    () => ({
+      baseline,
+      settingsServices,
+    }),
+    [baseline, settingsServices],
+  )
+}
+
 function isRetentionRow(milestone: ClientPOMilestone): boolean {
   return milestone.kind === 'retention' || milestone.id.startsWith('cli-ret-')
 }
@@ -171,9 +204,16 @@ function MilestoneStatusCell({ status }: { status: MilestonePaymentStatusLabel }
 function ClientPOMilestonesTable({
   milestones,
   projectInvoices,
+  globalTdsRate = null,
+  taxPreviewContext,
 }: {
   milestones: ClientPOMilestone[]
   projectInvoices: ClientInvoice[]
+  globalTdsRate?: number | null
+  taxPreviewContext?: {
+    baseline: Baseline | null
+    settingsServices: Service[]
+  }
 }) {
   if (milestones.length === 0) {
     return (
@@ -216,6 +256,11 @@ function ClientPOMilestonesTable({
             const status =
               m.status ??
               clientMilestonePaymentStatus(projectInvoices, m.id, m.serviceId, m.name)
+            const milestoneTax = clientMilestoneTaxDisplay(m, globalTdsRate, taxPreviewContext)
+            const retentionTax =
+              m.retention && m.serviceId
+                ? clientRetentionTaxDisplay(m.retention, m.serviceId, globalTdsRate, taxPreviewContext)
+                : null
             return (
             <Fragment key={m.id}>
               <TableRow hover>
@@ -239,7 +284,15 @@ function ClientPOMilestonesTable({
                   ₹{formatCurrency(m.value)}
                 </TableCell>
               </TableRow>
+              {milestoneTax ? (
+                <TableRow>
+                  <TableCell colSpan={CLIENT_PO_MILESTONE_COL_COUNT} sx={{ py: 0.5, px: 1.5, borderBottom: 'none' }}>
+                    <PoMilestoneTaxLines tax={milestoneTax} variant="client" />
+                  </TableCell>
+                </TableRow>
+              ) : null}
               {m.retention && !isRetentionRow(m) ? (
+                <>
                 <TableRow key={`${m.id}-retention`} sx={{ bgcolor: tokens.color.neutral[50] }}>
                   <TableCell sx={TABLE_CELL_SX}>
                     <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary' }}>
@@ -266,6 +319,14 @@ function ClientPOMilestonesTable({
                     ₹{formatCurrency(m.retention.value)}
                   </TableCell>
                 </TableRow>
+                {retentionTax ? (
+                  <TableRow>
+                    <TableCell colSpan={CLIENT_PO_MILESTONE_COL_COUNT} sx={{ py: 0.5, px: 1.5, borderBottom: 'none' }}>
+                      <PoMilestoneTaxLines tax={retentionTax} variant="client" />
+                    </TableCell>
+                  </TableRow>
+                ) : null}
+                </>
               ) : null}
             </Fragment>
             )
@@ -288,6 +349,7 @@ export function AddClientPODrawer({ open, onClose, projectId }: AddClientPODrawe
   const toast = useToast((s) => s.showToast)
   const { serviceOptions } = useClientPOServiceOptions(open)
   const tdsOptions = useTdsOptions(open)
+  const taxPreviewContext = useClientPoTaxPreviewContext(open, projectId)
   const [poFormData, setPoFormData] = useState({
     poNumber: '',
     startDate: '',
@@ -546,6 +608,8 @@ export function AddClientPODrawer({ open, onClose, projectId }: AddClientPODrawe
         onChange={setMilestones}
         serviceOptions={serviceOptions}
         disabled={serviceOptions.length === 0}
+        globalTdsRate={poFormData.tdsRate}
+        taxPreviewContext={taxPreviewContext}
       />
     </DrawerForm>
   )
@@ -668,6 +732,10 @@ export function ViewClientPODrawer({
               />
               <ReadOnlyField label="PO Value" value={`₹${formatCurrency(po.poValue)}`} />
               <ReadOnlyField label="Executed Value" value={`₹${formatCurrency(effectiveExecutedValue(po))}`} />
+              <ReadOnlyField
+                label="TDS Rate"
+                value={po.tdsRate != null ? formatGstRateLabel(po.tdsRate) : '—'}
+              />
               <PODocumentLinkField
                 fileName={po.fileName}
                 documentUrl={po.documentUrl}
@@ -681,7 +749,11 @@ export function ViewClientPODrawer({
             <Typography component="span" variant="overline" sx={{ ...PO_SECTION_TITLE_SX, display: 'block', mb: 1.5 }}>
               Milestones
             </Typography>
-            <ClientPOMilestonesTable milestones={po.milestones ?? []} projectInvoices={projectInvoices} />
+            <ClientPOMilestonesTable
+              milestones={po.milestones ?? []}
+              projectInvoices={projectInvoices}
+              globalTdsRate={po.tdsRate}
+            />
           </Box>
         </Stack>
       ) : null}
@@ -702,7 +774,7 @@ export function EditClientPODrawer({
   const { po, loadingPo, projectInvoices } = useClientPODetail(open, projectId, poId, poSeed)
   const { serviceOptions } = useClientPOServiceOptions(open)
   const tdsOptions = useTdsOptions(open)
-
+  const taxPreviewContext = useClientPoTaxPreviewContext(open, projectId)
   const [poNumber, setPoNumber] = useState('')
   const [startDate, setStartDate] = useState('')
   const [poValue, setPoValue] = useState('')
@@ -960,6 +1032,8 @@ export function EditClientPODrawer({
             lockedRetentionIds={lockedRetentionIds}
             allowAddMilestone={false}
             disabled={hasBilled || serviceOptions.length === 0}
+            globalTdsRate={tdsRate}
+            taxPreviewContext={taxPreviewContext}
           />
         </Stack>
       ) : null}

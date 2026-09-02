@@ -96,7 +96,7 @@ export function buildEligibleVendorInvoiceUploadEntries(
         percentage: row.pct,
         value: row.amount,
       }
-      const rowInvoices = scopedInvoices.filter((inv) => invoiceMatchesRow(inv, context))
+      const rowInvoices = scopedInvoices.filter((inv) => invoiceMatchesRow(inv, context, row.poId))
       const flatMilestones = flattenVendorPoMilestones(
         projectPOs.find((po) => po.id === row.poId) ?? null,
       )
