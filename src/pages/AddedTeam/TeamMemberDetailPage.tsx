@@ -74,7 +74,7 @@ const ASSIGNED_PROJECT_COLUMNS: Array<{ key: SortField; label: string }> = [
 ]
 
 const PAGE_SIZE = 5
-const ACTION_WIDTH_PX = 72
+const ACTION_WIDTH_PX = 88
 const CELL_PAD_X = 1.5 // 12px — matches Projects listing cell padding
 const DATA_COL_COUNT = ASSIGNED_PROJECT_COLUMNS.length
 const DATA_COL_WIDTH = `calc((100% - ${ACTION_WIDTH_PX}px) / ${DATA_COL_COUNT})`

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import {
   Box,
   Card,
@@ -33,7 +33,11 @@ import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import { useTheme, alpha } from '@mui/material/styles'
 import { tokens } from '@/design-system/tokens'
 import { DatePicker, dateFromIso, isoFromDate } from '@/design-system/components'
-import { isInvalidDateRange, formatListingShowingLabel } from '@/components/listing/listingStandards'
+import {
+  isInvalidDateRange,
+  formatListingShowingLabel,
+  LISTING_PAGE_SIZE_OPTIONS,
+} from '@/components/listing/listingStandards'
 import { KpiStatCard, type StatCardVariant } from '../KpiStatCard'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -171,6 +175,14 @@ export interface ListingTemplateProps {
   clipCardContent?: boolean
 }
 
+export interface ListingPaginationFooterProps {
+  pageSize?: number
+  onPageSizeChange?: (size: number) => void
+  page?: number
+  totalCount?: number
+  onPageChange?: (page: number) => void
+}
+
 // ─── Filters Popover ──────────────────────────────────────────────────────────
 
 export interface FiltersPopoverProps {
@@ -192,11 +204,6 @@ export function FiltersPopover({
 }: FiltersPopoverProps) {
   const [local, setLocal] = useState<Record<string, unknown>>(activeFilters)
   const [rangeError, setRangeError] = useState('')
-
-  useEffect(() => {
-    setLocal(activeFilters)
-    setRangeError('')
-  }, [activeFilters])
 
   function handleApply() {
     const from = String(local.dateFrom ?? '')
@@ -363,6 +370,84 @@ function ColumnsPopover({ anchor, onClose, columns, onColumnVisibilityChange }: 
         </Button>
       </Box>
     </Popover>
+  )
+}
+
+export function ListingPaginationFooter({
+  pageSize = 10,
+  onPageSizeChange,
+  page = 0,
+  totalCount,
+  onPageChange,
+}: ListingPaginationFooterProps) {
+  const totalPages = totalCount !== undefined ? Math.max(1, Math.ceil(totalCount / pageSize)) : 1
+
+  return (
+    <Box
+      sx={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        p: '10px 16px',
+        borderTop: `1px solid ${tokens.color.neutral[100]}`,
+      }}
+    >
+      <Typography variant="caption" color="text.secondary">
+        {totalCount !== undefined
+          ? formatListingShowingLabel(page, pageSize, totalCount)
+          : ''}
+      </Typography>
+
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+        {onPageSizeChange && (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Typography variant="caption" color="text.secondary">
+              Rows per page:
+            </Typography>
+            <Select
+              size="small"
+              value={pageSize}
+              onChange={(e) => onPageSizeChange(Number(e.target.value))}
+              sx={{
+                fontSize: 12,
+                height: 28,
+                bgcolor: tokens.color.neutral[50],
+                borderRadius: '4px',
+                '& .MuiOutlinedInput-notchedOutline': { border: 'none' },
+              }}
+            >
+              {LISTING_PAGE_SIZE_OPTIONS.map((size) => (
+                <MenuItem key={size} value={size}>
+                  {size}
+                </MenuItem>
+              ))}
+            </Select>
+          </Box>
+        )}
+
+        {onPageChange && totalCount !== undefined && (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            <IconButton
+              size="small"
+              disabled={page === 0}
+              onClick={() => onPageChange(page - 1)}
+            >
+              <ChevronLeftIcon fontSize="small" />
+            </IconButton>
+            <Typography variant="caption" color="text.secondary">
+              {Math.min(page + 1, totalPages)} / {totalPages}
+            </Typography>
+            <IconButton
+              size="small"
+              disabled={(page + 1) * pageSize >= totalCount}
+              onClick={() => onPageChange(page + 1)}
+            >
+              <ChevronRightIcon fontSize="small" />
+            </IconButton>
+          </Box>
+        )}
+      </Box>
+    </Box>
   )
 }
 
@@ -755,78 +840,20 @@ export function ListingTemplate({
 
         {/* Pagination row */}
         {(totalCount !== undefined || onPageSizeChange) && (
-          <Box
-            sx={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              p: '10px 16px',
-              borderTop: `1px solid ${tokens.color.neutral[100]}`,
-            }}
-          >
-            {/* Left: showing text */}
-            <Typography variant="caption" color="text.secondary">
-              {totalCount !== undefined
-                ? formatListingShowingLabel(page, pageSize, totalCount)
-                : ''}
-            </Typography>
-
-            {/* Right: rows per page + pagination */}
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              {onPageSizeChange && (
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <Typography variant="caption" color="text.secondary">
-                    Rows per page:
-                  </Typography>
-                  <Select
-                    size="small"
-                    value={pageSize}
-                    onChange={(e) => onPageSizeChange(Number(e.target.value))}
-                    sx={{
-                      fontSize: 12,
-                      height: 28,
-                      bgcolor: tokens.color.neutral[50],
-                      borderRadius: '4px',
-                      '& .MuiOutlinedInput-notchedOutline': { border: 'none' },
-                    }}
-                  >
-                    <MenuItem value={10}>10</MenuItem>
-                    <MenuItem value={25}>25</MenuItem>
-                    <MenuItem value={50}>50</MenuItem>
-                    <MenuItem value={100}>100</MenuItem>
-                  </Select>
-                </Box>
-              )}
-
-              {onPageChange && totalCount !== undefined && (
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                  <IconButton
-                    size="small"
-                    disabled={page === 0}
-                    onClick={() => onPageChange(page - 1)}
-                  >
-                    <ChevronLeftIcon fontSize="small" />
-                  </IconButton>
-                  <Typography variant="caption" color="text.secondary">
-                    {page + 1} / {Math.max(1, Math.ceil(totalCount / pageSize))}
-                  </Typography>
-                  <IconButton
-                    size="small"
-                    disabled={(page + 1) * pageSize >= totalCount}
-                    onClick={() => onPageChange(page + 1)}
-                  >
-                    <ChevronRightIcon fontSize="small" />
-                  </IconButton>
-                </Box>
-              )}
-            </Box>
-          </Box>
+          <ListingPaginationFooter
+            pageSize={pageSize}
+            onPageSizeChange={onPageSizeChange}
+            page={page}
+            totalCount={totalCount}
+            onPageChange={onPageChange}
+          />
         )}
       </Card>
 
       {/* Filters Popover */}
       {filterConfig && onFilterChange && onFilterReset && (
         <FiltersPopover
+          key={`${filterAnchor ? 'open' : 'closed'}:${JSON.stringify(activeFilters)}`}
           anchor={filterAnchor}
           onClose={() => setFilterAnchor(null)}
           filterConfig={filterConfig}

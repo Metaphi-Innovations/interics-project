@@ -1,6 +1,7 @@
-export { ListingTemplate, FiltersPopover } from './ListingTemplate'
+export { ListingTemplate, FiltersPopover, ListingPaginationFooter } from './ListingTemplate'
 export type {
   ListingTemplateProps,
+  ListingPaginationFooterProps,
   StatCardItem,
   StatCardVariant,
   TabItem,

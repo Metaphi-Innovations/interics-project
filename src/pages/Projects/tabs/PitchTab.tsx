@@ -75,7 +75,7 @@ const SECTION_NAMES = ['Design & Diligence', 'Build Services', 'Consultancy'] as
 const CLIENT_OFFER_DRAFT_SERVICE_ID = '__client-offer-draft-service__'
 const FINANCIAL_SIDEBAR_WIDTH = 280
 const TABLE_CELL_PAD = { py: 1, px: 1.5 } as const
-const CLIENT_OFFER_ACTIONS_COL_PX = 56
+const CLIENT_OFFER_ACTIONS_COL_PX = 84
 const CLIENT_OFFER_ACTIONS_CELL_PAD = { py: 1, px: 0.75 } as const
 const CLIENT_OFFER_TABLE_SX = {
   width: '100%',
@@ -83,7 +83,7 @@ const CLIENT_OFFER_TABLE_SX = {
   '& .MuiTableCell-root': { boxSizing: 'border-box' },
 } as const
 const VENDOR_COL_COUNT = 7
-const VENDOR_ACTIONS_COL_PX = 56
+const VENDOR_ACTIONS_COL_PX = 84
 const VENDOR_COL_WIDTHS = ['16%', '14%', '16%', '12%', '18%', '16%', `${VENDOR_ACTIONS_COL_PX}px`] as const
 const VENDOR_TABLE_SX = {
   width: '100%',

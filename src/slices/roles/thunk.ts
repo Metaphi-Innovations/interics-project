@@ -19,10 +19,16 @@ export interface FetchRolesParams {
   limit?: number
   search?: string
   name?: string
+  level?: string
   type?: string
   status?: string
   sortBy?: string
   sortOrder?: 'asc' | 'desc'
+}
+
+export interface FetchRolesResult {
+  items: Role[]
+  total: number
 }
 
 const SYSTEM_ROLE_LEVEL: Record<string, 0 | 1 | 2 | 3> = {
@@ -57,8 +63,16 @@ export const fetchRoles = createAsyncThunk(
   async (params: FetchRolesParams | void | undefined, { rejectWithValue }) => {
     try {
       const response = await rolesApi.getAll((params ?? { limit: 100 }) as Record<string, unknown>)
-      const raw = normalizeArrayResponse<ApiRole>(unwrapApiData(response.data) ?? response.data)
-      return raw.map(toUiRole)
+      const envelope = response.data as { data?: unknown; meta?: { total?: number } }
+      const raw = normalizeArrayResponse<ApiRole>(unwrapApiData(envelope) ?? envelope)
+      const mapped = raw.map(toUiRole)
+      const filtered = params?.level
+        ? mapped.filter((role) => String(role.level) === String(params.level))
+        : mapped
+      return {
+        items: filtered,
+        total: params?.level ? filtered.length : envelope.meta?.total ?? raw.length,
+      }
     } catch (err: unknown) {
       const error = err as { response?: { data?: { message?: string } } }
       return rejectWithValue(error.response?.data?.message ?? 'Failed to fetch roles')
@@ -85,6 +99,7 @@ export const createRole = createAsyncThunk(
     try {
       const response = await rolesApi.create({
         name: data.name,
+        level: data.level,
         description: data.description,
         status: data.status === 'inactive' ? 'INACTIVE' : 'ACTIVE',
       })

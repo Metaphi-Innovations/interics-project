@@ -173,7 +173,7 @@ function buildReceivablesListColumns(visible: ReceivablesVisibleColumns): string
 
 const menuItemSx = { fontSize: 12, minHeight: 32, py: 0.5 }
 const LISTING_EDGE_PAD = '14px'
-const ACTION_WIDTH_PX = 44
+const ACTION_WIDTH_PX = 72
 
 const CENTER_CELL_CONTENT_SX = {
   display: 'flex',

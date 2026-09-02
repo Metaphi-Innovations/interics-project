@@ -383,7 +383,8 @@ function CustomerTable({
             <TableCell sx={CUSTOMER_STATUS_HEADER_SX}>Status</TableCell>
             <TableCell
               sx={{
-                width: 48,
+                width: 72,
+                minWidth: 72,
                 py: '8px',
                 px: '8px',
                 fontSize: 11,
@@ -510,7 +511,7 @@ function CustomerTable({
               </TableCell>
 
               <TableCell
-                sx={{ py: '6px', px: '8px', verticalAlign: 'middle', textAlign: 'center' }}
+                sx={{ width: 72, minWidth: 72, py: '6px', px: '12px', verticalAlign: 'middle', textAlign: 'center' }}
                 onClick={(e) => e.stopPropagation()}
               >
                 <Box sx={ROW_ICON_ACTIONS_GROUP_SX}>

@@ -54,7 +54,7 @@ import { getSpecializationTagSx } from '../../utils/specializationTagStyles'
 import { tokens } from '@/design-system/tokens'
 import { getRatingMasterChipColors } from '../../utils/masterChipStyles'
 
-const VENDOR_ACTION_WIDTH_PX = 72
+const VENDOR_ACTION_WIDTH_PX = 88
 const VENDOR_STATUS_WIDTH_PX = 80
 const VENDOR_FIXED_RIGHT_PX = VENDOR_ACTION_WIDTH_PX + VENDOR_STATUS_WIDTH_PX
 const VENDOR_CELL_PAD_X = '14px'

@@ -7,6 +7,7 @@ interface RolesState {
   selectedItem: Role | null
   loading: boolean
   saving: boolean
+  pagination: { page: number; pageSize: number; total: number }
 }
 
 const initialState: RolesState = {
@@ -14,6 +15,7 @@ const initialState: RolesState = {
   selectedItem: null,
   loading: false,
   saving: false,
+  pagination: { page: 1, pageSize: 10, total: 0 },
 }
 
 const rolesSlice = createSlice({
@@ -32,7 +34,8 @@ const rolesSlice = createSlice({
       .addCase(fetchRoles.pending, (state) => { state.loading = true })
       .addCase(fetchRoles.fulfilled, (state, action) => {
         state.loading = false
-        state.items = action.payload ?? []
+        state.items = action.payload.items ?? []
+        state.pagination.total = action.payload.total ?? action.payload.items?.length ?? 0
       })
       .addCase(fetchRoles.rejected, (state) => { state.loading = false })
 
@@ -40,6 +43,7 @@ const rolesSlice = createSlice({
       .addCase(createRole.fulfilled, (state, action) => {
         state.saving = false
         state.items.push(action.payload)
+        state.pagination.total += 1
       })
       .addCase(createRole.rejected, (state) => { state.saving = false })
 
@@ -61,6 +65,7 @@ const rolesSlice = createSlice({
 
       .addCase(deleteRole.fulfilled, (state, action) => {
         state.items = state.items.filter((r) => r.id !== action.payload)
+        state.pagination.total = Math.max(0, state.pagination.total - 1)
       })
   },
 })

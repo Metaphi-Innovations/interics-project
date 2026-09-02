@@ -176,8 +176,8 @@ export default function TemplateFormPage() {
           p: { xs: 2, md: 3 },
         }}
       >
-        <Stack direction={{ xs: 'column', md: 'row' }} gap={3} alignItems="flex-start">
-          <Box sx={{ width: { xs: 1, md: 400 }, flexShrink: 0 }}>
+        <Stack direction={{ xs: 'column', lg: 'row' }} gap={3} alignItems="flex-start">
+          <Box sx={{ width: { xs: 1, lg: 400 }, flexShrink: 0, minWidth: 0 }}>
             <FormSection title="Basic Info" columns={1} divider={false}>
               <FormField label="Template Name" required error={nameError}>
                 <TextField

@@ -20,6 +20,7 @@ export interface User {
   permissions: UserPermissions
   projectAccess: 'all' | 'selected'
   assignedProjects: string[]
+  assignedProjectCount?: number
   status: 'active' | 'inactive'
   lastLogin: string | null
   createdAt: string
@@ -133,7 +134,15 @@ const usersSlice = createSlice({
       })
       .addCase(toggleUserStatus.fulfilled, (state, action) => {
         const idx = state.items.findIndex((u) => u.id === action.payload.id)
-        if (idx !== -1) state.items[idx] = action.payload
+        if (idx !== -1) {
+          const activeStatusFilter = state.filters.status
+          if (activeStatusFilter && action.payload.status !== activeStatusFilter) {
+            state.items.splice(idx, 1)
+            state.pagination.total = Math.max(0, state.pagination.total - 1)
+          } else {
+            state.items[idx] = action.payload
+          }
+        }
       })
       .addCase(deleteUser.fulfilled, (state, action) => {
         state.items = state.items.filter((u) => u.id !== action.payload)

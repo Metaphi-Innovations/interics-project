@@ -238,6 +238,12 @@ export function generateTheme(config: ThemeConfig): Theme {
             padding: '10px 12px',
             borderColor: theme.palette.divider,
             verticalAlign: 'middle',
+            '&:last-child': {
+              paddingRight: '24px !important',
+            },
+            '&.MuiTableCell-sizeSmall:last-child': {
+              paddingRight: '24px !important',
+            },
           }),
           head: ({ theme }) => ({
             fontWeight: 600,
@@ -247,6 +253,9 @@ export function generateTheme(config: ThemeConfig): Theme {
             letterSpacing: '0.5px',
             backgroundColor: theme.palette.background.default,
             padding: '10px 12px',
+            '&:last-child': {
+              paddingRight: '24px !important',
+            },
           }),
         },
       },

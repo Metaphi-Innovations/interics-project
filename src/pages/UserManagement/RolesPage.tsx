@@ -35,6 +35,7 @@ import {
   useListingQuery,
   type ColumnFilterOption,
 } from '@/components/listing'
+import { ListingPaginationFooter } from '@/components/templates'
 import { tokens } from '@/design-system/tokens'
 import { Button, useToast } from '@/design-system/components'
 import { usePermission } from '@/hooks/usePermission'
@@ -47,6 +48,11 @@ const LEVEL_LABELS: Record<0 | 1 | 2 | 3, string> = {
   2: 'Project User',
   3: 'Viewer',
 }
+
+const LEVEL_FILTER_OPTIONS: ColumnFilterOption[] = ([0, 1, 2, 3] as const).map((level) => ({
+  value: String(level),
+  label: `${level} - ${LEVEL_LABELS[level]}`,
+}))
 
 const LEVEL_CHIP_SX: Record<0 | 1 | 2 | 3, { bgcolor: string; color: string }> = {
   0: { bgcolor: '#CCFBF1', color: '#0D9488' },
@@ -165,7 +171,7 @@ const STATIC_CELL_SX = {
   borderBottom: `2px solid ${tokens.color.neutral[100]}`,
 }
 
-const ROLE_ACTION_WIDTH_PX = 60
+const ROLE_ACTION_WIDTH_PX = 84
 
 const TABLE_HEADER_ACTION_SX = {
   ...STATIC_CELL_SX,
@@ -263,19 +269,24 @@ export default function RolesPage() {
   const dispatch = useAppDispatch()
   const navigate = useNavigate()
   const { pathname } = useLocation()
-  const { items: rawRoles, loading, saving } = useAppSelector((s) => s.roles)
+  const { items: rawRoles, loading, saving, pagination } = useAppSelector((s) => s.roles)
   const roles = rawRoles ?? []
   const { showToast } = useToast()
   const theme = useTheme()
   const hoverBg = alpha(theme.palette.primary.main, 0.04)
   const listing = useListingQuery({
-    pageSize: 100,
     filters: { name: '', level: '', type: '', status: '' },
   })
 
-  const canEdit = usePermission('userManagementRoles', 'edit') || usePermission('userManagement', 'edit')
-  const canCreate = usePermission('userManagementRoles', 'create') || usePermission('userManagement', 'create')
-  const canDelete = usePermission('userManagementRoles', 'delete') || usePermission('userManagement', 'delete')
+  const canEditRole = usePermission('userManagementRoles', 'edit')
+  const canEditUserManagement = usePermission('userManagement', 'edit')
+  const canCreateRole = usePermission('userManagementRoles', 'create')
+  const canCreateUserManagement = usePermission('userManagement', 'create')
+  const canDeleteRole = usePermission('userManagementRoles', 'delete')
+  const canDeleteUserManagement = usePermission('userManagement', 'delete')
+  const canEdit = canEditRole || canEditUserManagement
+  const canCreate = canCreateRole || canCreateUserManagement
+  const canDelete = canDeleteRole || canDeleteUserManagement
 
   const [deleteTarget, setDeleteTarget] = useState<Role | null>(null)
   const [toggleTarget, setToggleTarget] = useState<Role | null>(null)
@@ -301,9 +312,11 @@ export default function RolesPage() {
   useEffect(() => {
     void dispatch(
       fetchRoles({
+        page: listing.apiPage,
         limit: listing.pageSize,
         search: listing.debouncedSearch || undefined,
         name: listing.filters.name || undefined,
+        level: listing.filters.level || undefined,
         type: listing.filters.type || undefined,
         status: listing.filters.status || undefined,
         sortBy: sortField,
@@ -312,9 +325,11 @@ export default function RolesPage() {
     )
   }, [
     dispatch,
+    listing.apiPage,
     listing.pageSize,
     listing.debouncedSearch,
     listing.filters.name,
+    listing.filters.level,
     listing.filters.type,
     listing.filters.status,
     sortField,
@@ -326,7 +341,7 @@ export default function RolesPage() {
       if (!data) return
       setFilterOptions({
         name: data.name ?? [],
-        level: data.level ?? [],
+        level: LEVEL_FILTER_OPTIONS,
         type: data.type ?? [],
         status: data.statuses ?? [],
       })
@@ -388,6 +403,7 @@ export default function RolesPage() {
   }
 
   function handleColumnFilterChange(next: Partial<RoleColumnFilters>) {
+    listing.setPage(0)
     listing.setFilters({ ...listing.filters, ...next })
   }
 
@@ -627,6 +643,13 @@ export default function RolesPage() {
               </TableBody>
             </Table>
           </TableContainer>
+          <ListingPaginationFooter
+            pageSize={listing.pageSize}
+            onPageSizeChange={listing.setPageSize}
+            page={listing.page}
+            totalCount={pagination.total}
+            onPageChange={listing.setPage}
+          />
         </Box>
       </UserManagementLayout>
 

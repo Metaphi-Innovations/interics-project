@@ -21,6 +21,7 @@ type ApiUser = {
   access?: BackendAccessResponse
   projectAccess?: User['projectAccess']
   assignedProjects?: string[]
+  assignedProjectCount?: number
   status?: string
   isActive?: boolean
   lastLogin?: string | null
@@ -58,6 +59,9 @@ export function toUiUser(api: ApiUser): User {
     api.status === 'INACTIVE' ||
     api.status === 'inactive'
 
+  const assignedProjects = api.assignedProjects ?? []
+  const assignedProjectCount = api.assignedProjectCount ?? assignedProjects.length
+
   return {
     id: api.id,
     name,
@@ -67,8 +71,9 @@ export function toUiUser(api: ApiUser): User {
     role: roleId,
     permissionTemplateId: api.permissionTemplateId ?? null,
     permissions: api.access ? backendAccessToUserPermissions(api.access) : api.permissions ?? makeEmptyUserPermissions(),
-    projectAccess: api.projectAccess ?? 'all',
-    assignedProjects: api.assignedProjects ?? [],
+    projectAccess: assignedProjectCount > 0 ? 'selected' : api.projectAccess ?? 'all',
+    assignedProjects,
+    assignedProjectCount,
     status: inactive ? 'inactive' : 'active',
     lastLogin: api.lastLoginAt ?? api.lastLogin ?? null,
     createdAt: api.createdAt ?? new Date().toISOString(),
