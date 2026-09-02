@@ -178,6 +178,21 @@ export function remainingMilestoneValue(billed: number, value: number): number {
   return Math.max(0, Math.round((value - billed) * 100) / 100)
 }
 
+/** Count selected milestones that have no remaining billable amount (for invoice draft UX). */
+export function countSelectedMilestonesWithZeroRemaining(
+  selectedMilestoneIds: string[],
+  flatMilestones: FlatMilestone[],
+  billedByMilestone: Map<string, number>,
+): number {
+  let count = 0
+  for (const id of selectedMilestoneIds) {
+    const m = flatMilestones.find((x) => x.milestoneId === id)
+    if (!m) continue
+    if (remainingMilestoneValue(billedByMilestone.get(id) ?? 0, m.value) <= 0) count++
+  }
+  return count
+}
+
 export function remainingServiceValue(billed: number, adjustedValue: number): number {
   return Math.max(0, Math.round((adjustedValue - billed) * 100) / 100)
 }

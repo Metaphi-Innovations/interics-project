@@ -106,6 +106,13 @@ function toTdsPayload(data: Omit<TDSSection, 'id'> | Partial<TDSSection>) {
   }
 }
 
+function normalizeListStatus(status: string | undefined): string | undefined {
+  if (!status) return undefined
+  if (status === 'active') return 'ACTIVE'
+  if (status === 'inactive') return 'INACTIVE'
+  return status
+}
+
 export const taxConfigurationService = {
   async getGstRates(params: GstListParams = {}): Promise<ListResult<GSTRate>> {
     const query = compactQueryParams({
@@ -114,7 +121,7 @@ export const taxConfigurationService = {
       search: params.search,
       slabName: params.slabName,
       ratePercent: params.ratePercent,
-      status: params.status,
+      status: normalizeListStatus(params.status),
       sortBy: params.sortBy,
       sortOrder: params.sortOrder,
     })
@@ -153,7 +160,7 @@ export const taxConfigurationService = {
       sectionCode: params.sectionCode,
       description: params.description,
       defaultRatePercent: params.defaultRatePercent,
-      status: params.status,
+      status: normalizeListStatus(params.status),
       sortBy: params.sortBy,
       sortOrder: params.sortOrder,
     })

@@ -27,19 +27,17 @@ import {
   computeLineItemTaxBreakdown,
   rollupsFromLineItems,
 } from '@/pages/Projects/tabs/live/clientInvoiceUtils'
-import { tokens } from '@/design-system/tokens'
-import { formatInr } from '@/utils/formatters'
-import { DEFAULT_GST_RATE } from '@/config/billingRates'
 import {
+  countSelectedMilestonesWithZeroRemaining,
   flattenBaselineMilestones,
   flattenClientPoMilestones,
   milestoneBillStatus,
   remainingMilestoneValue,
-  resolveServiceForLine,
-  sacCodeForService,
   sumBilledPerMilestone,
 } from '@/pages/Finance/utils/projectBillable'
-import type { Service, SACCode } from '@/slices/settings/reducer'
+import { buildAutoDraftLines } from '@/pages/Finance/utils/financeReceivableDraftLines'
+import { tokens } from '@/design-system/tokens'
+import { formatInr } from '@/utils/formatters'
 
 function toIsoDate(d: Date | null): string {
   if (!d) return ''
@@ -56,48 +54,6 @@ function parsePaymentTermDays(value: string): number | null {
 
 function addDaysToDate(base: Date, days: number): Date {
   return dayjs(base).add(days, 'day').toDate()
-}
-
-function buildAutoDraftLines(
-  selectedMilestoneIds: string[],
-  sourceMilestones: ReturnType<typeof flattenClientPoMilestones>,
-  projectInvoices: Invoice[],
-  projectId: string,
-  services: Service[],
-  sacCodes: SACCode[],
-): DraftLineItem[] {
-  if (selectedMilestoneIds.length === 0) return []
-  const mSet = new Set(selectedMilestoneIds)
-  const billedM = sumBilledPerMilestone(projectInvoices, projectId)
-  const out: DraftLineItem[] = []
-
-  for (const m of sourceMilestones) {
-    if (!mSet.has(m.milestoneId)) continue
-    const billed = billedM.get(m.milestoneId) ?? 0
-    const remaining = remainingMilestoneValue(billed, m.value)
-    if (remaining <= 0) continue
-    const settingsSvc = resolveServiceForLine(m.baselineServiceId, m.baselineServiceName, services)
-    const sac = sacCodeForService(sacCodes, settingsSvc)
-    const gstRate = settingsSvc?.gstRate ?? DEFAULT_GST_RATE
-    const taxed = computeLineItemTaxBreakdown(remaining, 0, gstRate)
-    out.push({
-      id: `tmp-ms-${m.milestoneId}`,
-      serviceId: settingsSvc?.id ?? m.baselineServiceId,
-      serviceName: `${m.milestoneName} — ${m.baselineServiceName}`,
-      sacCode: sac,
-      amount: remaining,
-      labourCessRate: 0,
-      labourCessAmount: taxed.labourCessAmount,
-      taxableAmount: taxed.taxableAmount,
-      gstRate,
-      gstAmount: taxed.gstAmount,
-      milestoneId: m.milestoneId,
-      baselineServiceId: m.baselineServiceId,
-      lineSource: 'milestone',
-      maxAmount: remaining,
-    })
-  }
-  return out
 }
 
 function invoiceLinesToDraft(items: Invoice['lineItems']): DraftLineItem[] {
@@ -210,6 +166,8 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved, pre
   const [lineError, setLineError] = useState('')
   const projectSearchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const projectFetchIdRef = useRef(0)
+  const milestoneSelectionTouchedRef = useRef(false)
+  const presetMilestoneSeededRef = useRef(false)
 
   function applyDueDateFromTerms(nextInvoiceDate: Date | null, nextDays: string) {
     if (!nextInvoiceDate) return
@@ -281,7 +239,7 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved, pre
 
   useEffect(() => {
     if (!open) return
-    dispatch(fetchServices())
+    dispatch(fetchServices({ limit: 1000, force: true }))
     dispatch(fetchSACCodes())
   }, [open, dispatch])
 
@@ -363,6 +321,8 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved, pre
 
   useEffect(() => {
     if (!open || mode !== 'create') return
+    milestoneSelectionTouchedRef.current = false
+    presetMilestoneSeededRef.current = false
     setProject(null)
     setSelectedPoId('')
     setSelectedMilestoneIds([])
@@ -382,7 +342,12 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved, pre
     if (!p) return
     setProject(p)
     setSelectedPoId(preset.clientPoId ?? '')
-    if (preset.milestoneId) {
+    if (
+      preset.milestoneId &&
+      !milestoneSelectionTouchedRef.current &&
+      !presetMilestoneSeededRef.current
+    ) {
+      presetMilestoneSeededRef.current = true
       setSelectedMilestoneIds([preset.milestoneId])
     }
   }, [open, mode, preset, presetProject])
@@ -431,6 +396,9 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved, pre
         project.id,
         services,
         sacCodes,
+        selectedPo,
+        selectedPo?.tdsRate ?? null,
+        baseline,
       )
       if (selectedMilestoneIds.length === 0) return manual
       return [...auto, ...manual]
@@ -455,6 +423,8 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved, pre
   }, [])
 
   const onPoChange = useCallback((value: string) => {
+    milestoneSelectionTouchedRef.current = false
+    presetMilestoneSeededRef.current = false
     setSelectedPoId(value)
     setSelectedMilestoneIds([])
     setLines((prev) => prev.filter((l) => l.lineSource === 'manual'))
@@ -462,6 +432,7 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved, pre
 
   const toggleMilestone = (id: string) => {
     if (mode === 'edit') return
+    milestoneSelectionTouchedRef.current = true
     setSelectedMilestoneIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
   }
 
@@ -473,6 +444,11 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved, pre
   const billedByMilestone = useMemo(
     () => (project ? sumBilledPerMilestone(projectInvoices, project.id) : new Map()),
     [project, projectInvoices],
+  )
+  const skippedZeroRemainingCount = useMemo(
+    () =>
+      countSelectedMilestonesWithZeroRemaining(selectedMilestoneIds, flatMilestones, billedByMilestone),
+    [selectedMilestoneIds, flatMilestones, billedByMilestone],
   )
 
   function validate(): boolean {
@@ -781,6 +757,14 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved, pre
                     </Stack>
                   </Box>
                 )}
+                {skippedZeroRemainingCount > 0 ? (
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1, fontSize: 12 }}>
+                    {skippedZeroRemainingCount} selected milestone
+                    {skippedZeroRemainingCount === 1 ? '' : 's'} ha
+                    {skippedZeroRemainingCount === 1 ? 's' : 've'} no remaining billable amount and will not
+                    be added to the invoice.
+                  </Typography>
+                ) : null}
               </Stack>
             )}
           </FormSection>

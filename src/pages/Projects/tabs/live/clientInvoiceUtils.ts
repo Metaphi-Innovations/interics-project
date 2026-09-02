@@ -1,9 +1,14 @@
-import { DEFAULT_GST_RATE } from '@/config/billingRates'
 import type { Baseline, ClientPOMilestone, VendorPO } from '@/slices/baseline/reducer'
 import type { ClientInvoice, ClientInvoiceLineItem, ClientInvoicePayment } from '@/slices/live/types'
 import type { PitchService, VendorMapping } from '@/slices/pitch/reducer'
 import type { Service } from '@/slices/settings/reducer'
+import {
+  resolveClientServiceGstRate,
+} from './clientPoGstResolution'
 import { resolvePitchServiceGstRate } from './pitchGstDisplay'
+
+export { resolveClientPoMilestoneGstRate, resolveClientServiceGstRate } from './clientPoGstResolution'
+export type { ClientPoMilestoneGstContext } from './clientPoGstResolution'
 
 export const MONEY_EPS = 0.01
 
@@ -181,6 +186,25 @@ export function clientInvoiceAmountBreakdownNet(
   inv: ClientInvoice,
   poTdsRate?: number | null,
 ): number {
+  const lines = inv.lineItems ?? []
+  if (lines.length > 0) {
+    let total = 0
+    let hasLine = false
+    for (const li of lines) {
+      hasLine = true
+      if (li.netAmount != null && Number.isFinite(li.netAmount)) {
+        total += li.netAmount
+        continue
+      }
+      const base = li.amount ?? 0
+      const labour = li.labourCessAmount ?? 0
+      const gst = li.gstAmount ?? 0
+      const tds = li.tdsAmount ?? 0
+      total += roundMoney(base + labour + gst - tds)
+    }
+    if (hasLine) return roundMoney(total)
+  }
+
   const roll = rollupsFromLineItems(inv.lineItems);
   const effectiveTdsRate = inv.tdsRate ?? poTdsRate ?? null;
   const tdsAmount = calcClientInvoiceTdsAmount(roll.baseAmount, effectiveTdsRate);
@@ -212,39 +236,6 @@ export function effectiveLabourCessPercent(inv: ClientInvoice): string {
   const roll = rollupsFromLineItems(inv.lineItems)
   if (roll.labourCessRatePercent == null) return '—'
   return `${roll.labourCessRatePercent}%`
-}
-
-function findBaselineService(
-  baseline: Baseline | null,
-  serviceId: string,
-): PitchService | null {
-  if (!baseline || !serviceId.trim()) return null
-  for (const cat of baseline.categories ?? []) {
-    for (const svc of cat.services ?? []) {
-      if (svc.id === serviceId || svc.subcategoryId === serviceId) return svc
-    }
-  }
-  return null
-}
-
-/** GST % for a client PO milestone service (baseline → settings master → default). */
-export function resolveClientServiceGstRate(
-  serviceId: string,
-  baseline: Baseline | null,
-  settingsServices: Service[] = [],
-): number {
-  const trimmed = serviceId.trim()
-  if (!trimmed) return 0
-
-  const pitchSvc = findBaselineService(baseline, trimmed)
-  if (pitchSvc) return resolvePitchServiceGstRate(pitchSvc, settingsServices)
-
-  const master = settingsServices.find((s) => s.id === trimmed)
-  if (master?.gstRate != null && !Number.isNaN(master.gstRate)) {
-    return master.gstRate
-  }
-
-  return DEFAULT_GST_RATE
 }
 
 function findVendorMappingInBaseline(
@@ -350,4 +341,53 @@ export function invoiceLabourCessAmount(inv: {
       0,
     ),
   )
+}
+
+/** Preview client invoice line tax using PO gstRate (server recomputes on save). */
+export function previewClientInvoiceLineTax(
+  baseAmount: number,
+  labourCessRate: number,
+  gstRate: number,
+  tdsRate: number | null | undefined,
+): {
+  labourCessAmount: number
+  taxableAmount: number
+  gstAmount: number
+  tdsAmount: number
+  netAmount: number
+} {
+  const labourCessAmount = roundMoney((baseAmount * labourCessRate) / 100)
+  const taxableAmount = roundMoney(baseAmount + labourCessAmount)
+  const gstAmount = roundMoney((taxableAmount * gstRate) / 100)
+  const tdsAmount = calcClientInvoiceTdsAmount(baseAmount, tdsRate)
+  const netAmount = roundMoney(baseAmount + labourCessAmount + gstAmount - tdsAmount)
+  return { labourCessAmount, taxableAmount, gstAmount, tdsAmount, netAmount }
+}
+
+/** Preview vendor invoice line tax from PO milestone GST snapshot. */
+export function previewVendorInvoiceLineTax(
+  baseAmount: number,
+  poMilestone: Pick<import('@/slices/baseline/reducer').VendorPOMilestone, 'value' | 'gstRate' | 'gstAmount'> | null,
+  poGstRate: number | null | undefined,
+  invoiceTdsRate: number,
+): { gstRate: number; gstAmount: number; tdsAmount: number; netAmount: number } {
+  const poBase = Number(poMilestone?.value) || 0
+  const gstRate =
+    poMilestone?.gstRate != null
+      ? poMilestone.gstRate
+      : poGstRate != null
+        ? poGstRate
+        : 0
+  let gstAmount: number
+  if (poMilestone?.gstAmount != null && poBase > 0) {
+    gstAmount =
+      Math.abs(baseAmount - poBase) <= 0.01
+        ? roundMoney(poMilestone.gstAmount)
+        : roundMoney((poMilestone.gstAmount * baseAmount) / poBase)
+  } else {
+    gstAmount = roundMoney((baseAmount * gstRate) / 100)
+  }
+  const tdsAmount = calcClientInvoiceTdsAmount(baseAmount, invoiceTdsRate)
+  const netAmount = roundMoney(baseAmount + gstAmount - tdsAmount)
+  return { gstRate, gstAmount, tdsAmount, netAmount }
 }

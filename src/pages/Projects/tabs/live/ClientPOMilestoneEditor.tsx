@@ -12,7 +12,8 @@ import { Add, Delete } from '@mui/icons-material'
 import { useTheme, alpha } from '@mui/material/styles'
 import { AutocompleteField } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
-import type { ClientPOMilestone, ClientPORetention } from '@/slices/baseline/reducer'
+import type { ClientPOMilestone, ClientPORetention, Baseline } from '@/slices/baseline/reducer'
+import type { Service } from '@/slices/settings/reducer'
 import type { ClientInvoice } from '@/slices/live/types'
 import {
   CLIENT_PO_MILESTONE_PCT_EPS,
@@ -25,6 +26,8 @@ import {
 } from './clientPOServiceOptions'
 import { recalculateClientPOMilestonesForExecutedValue } from './poExecutedValueRules'
 import { parseRateInput, rateInputDisplay, selectRateInputOnFocus } from './rateInput'
+import { clientMilestoneTaxDisplay, clientRetentionTaxDisplay } from './poTaxDisplay'
+import { PoMilestoneTaxLines } from './PoMilestoneTaxLines'
 
 // Simple 3-column grid: Name | % | Value(₹)  +  optional delete column
 const INPUT_ROW_COLS = 'minmax(0,1fr) 80px 96px'
@@ -80,15 +83,24 @@ function emptyMilestoneRow(): ClientPOMilestone {
 export function milestonePayloadFromEditor(milestones: ClientPOMilestone[]): ClientPOMilestone[] {
   return milestones
     .filter((m) => m.name.trim())
-    .map((m) => ({
-      id: m.id,
-      serviceId: m.serviceId,
-      serviceName: m.serviceName,
-      name: m.name,
-      percentage: m.percentage,
-      value: m.value,
-      ...(m.retention ? { retention: { ...m.retention } } : {}),
-    }))
+    .map((m) => {
+      const row: ClientPOMilestone = {
+        id: m.id,
+        serviceId: m.serviceId,
+        serviceName: m.serviceName,
+        name: m.name,
+        percentage: m.percentage,
+        value: m.value,
+      }
+      if (m.kind) row.kind = m.kind
+      if (m.retention) {
+        row.retention = {
+          percentage: m.retention.percentage,
+          value: m.retention.value,
+        }
+      }
+      return row
+    })
 }
 
 export function validateNamedMilestones(
@@ -120,6 +132,12 @@ interface ClientPOMilestoneEditorProps {
   allowAddMilestone?: boolean
   lockedMilestoneIds?: Set<string>
   lockedRetentionIds?: Set<string>
+  /** Global PO TDS rate (%) for estimate preview before save. */
+  globalTdsRate?: number | null
+  taxPreviewContext?: {
+    baseline: Baseline | null
+    settingsServices: Service[]
+  }
 }
 
 // RetentionRow: simple 3-col row matching the milestone input row, with delete icon
@@ -209,6 +227,8 @@ export function ClientPOMilestoneEditor({
   allowAddMilestone = true,
   lockedMilestoneIds,
   lockedRetentionIds,
+  globalTdsRate = null,
+  taxPreviewContext,
 }: ClientPOMilestoneEditorProps) {
   const theme = useTheme()
   const validation = validateClientPOMilestonePercents(milestones)
@@ -314,6 +334,11 @@ export function ClientPOMilestoneEditor({
             const rowServiceOpt = serviceOptions.find((o) => o.id === m.serviceId)
             const rowCategoryId = rowServiceOpt?.categoryId ?? ''
             const rowServiceOptions = serviceOptions.filter((o) => o.categoryId === rowCategoryId)
+            const milestoneTax = clientMilestoneTaxDisplay(m, globalTdsRate, taxPreviewContext)
+            const retentionTax =
+              m.retention && m.serviceId
+                ? clientRetentionTaxDisplay(m.retention, m.serviceId, globalTdsRate, taxPreviewContext)
+                : null
 
             return (
               <Box
@@ -425,6 +450,11 @@ export function ClientPOMilestoneEditor({
                     placeholder="₹"
                   />
                 </Box>
+                {milestoneTax ? (
+                  <Box sx={{ px: 1.5, pb: 0.5 }}>
+                    <PoMilestoneTaxLines tax={milestoneTax} variant="client" />
+                  </Box>
+                ) : null}
 
                 {/* Retention section */}
                 {m.retention ? (
@@ -437,6 +467,11 @@ export function ClientPOMilestoneEditor({
                       onRemove={() => removeRetention(idx)}
                       disabled={disabled || retLocked}
                     />
+                    {retentionTax ? (
+                      <Box sx={{ px: 1.5, pb: 0.5 }}>
+                        <PoMilestoneTaxLines tax={retentionTax} variant="client" />
+                      </Box>
+                    ) : null}
                   </>
                 ) : (
                   <Box sx={{ px: 1.5, pb: 1 }}>

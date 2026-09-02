@@ -22,7 +22,7 @@ import type { VendorInvoice } from '@/slices/live/types'
 import { baselineService } from '@/modules/projects/baseline.service'
 import { payablesService } from '@/modules/finance/payables.service'
 import { formatInr } from '@/utils/formatters'
-import { vendorMilestonePayableTaxBreakdown } from '@/pages/Projects/tabs/live/clientInvoiceUtils'
+import { previewVendorInvoiceLineTax } from '@/pages/Projects/tabs/live/clientInvoiceUtils'
 import {
   flattenVendorPoMilestones,
   remainingVendorMilestoneValue,
@@ -39,6 +39,9 @@ import type { ProjectVendorOption } from './eligibleInvoiceUpload'
 import {
   buildMilestoneUploadOptions,
   buildVendorInvoiceUploadLineItems,
+  countUnbuildableVendorMilestoneSelections,
+  initialVendorMilestoneSelection,
+  shouldApplyInitialVendorMilestoneSelection,
   sumVendorInvoiceLineItemAmounts,
   toggleSelectedMilestoneIds,
 } from './uploadVendorInvoiceUtils'
@@ -129,8 +132,6 @@ export function UploadVendorInvoiceDrawer({
 }) {
   const dispatch = useAppDispatch()
   const { saving } = useAppSelector((s) => s.live)
-  const baseline = useAppSelector((s) => s.baseline.baseline)
-  const { services } = useAppSelector((s) => s.settings)
   const toast = useToast()
 
   const isProjectScoped = Boolean(lockedProjectId)
@@ -147,6 +148,9 @@ export function UploadVendorInvoiceDrawer({
   const [documentFileName, setDocumentFileName] = useState<string | undefined>(undefined)
   const [errors, setErrors] = useState<FormErrors>({})
   const initializedRef = useRef(false)
+  const selectionTouchedRef = useRef(false)
+  const poSelectionTouchedRef = useRef(false)
+  const initialMilestoneSeededPoRef = useRef<string | null>(null)
 
   const vendorOptions = useMemo((): VendorOption[] => {
     if (isProjectScoped && lockedProjectId) {
@@ -244,17 +248,38 @@ export function UploadVendorInvoiceDrawer({
 
   const combinedBaseAmount = useMemo(() => sumVendorInvoiceLineItemAmounts(lineItems), [lineItems])
 
-  const payableTax = useMemo(
-    () =>
-      vendorMilestonePayableTaxBreakdown(
-        combinedBaseAmount,
-        serviceId,
-        tdsRate,
-        baseline,
-        services,
-      ),
-    [combinedBaseAmount, serviceId, tdsRate, baseline, services],
-  )
+  const payableTax = useMemo(() => {
+    if (!selectedPo) {
+      return { gstRate: 0, gstAmount: 0, tdsAmount: 0, net: 0 }
+    }
+    const poGstRate = selectedPo.gstRate ?? null
+    let gstAmount = 0
+    let tdsAmount = 0
+    let net = 0
+    let headerGstRate: number | null = poGstRate
+
+    for (const li of lineItems) {
+      const poMilestone =
+        selectedPo.milestones.find((m) => m.id === li.milestoneId) ?? null
+      const lineTax = previewVendorInvoiceLineTax(
+        li.amount,
+        poMilestone,
+        poGstRate,
+        Number(tdsRate) || 0,
+      )
+      gstAmount += lineTax.gstAmount
+      tdsAmount += lineTax.tdsAmount
+      net += lineTax.netAmount
+      if (headerGstRate == null && lineTax.gstRate > 0) headerGstRate = lineTax.gstRate
+    }
+
+    return {
+      gstRate: headerGstRate ?? 0,
+      gstAmount,
+      tdsAmount,
+      net,
+    }
+  }, [lineItems, selectedPo, tdsRate])
 
   const tdsAmount = payableTax.tdsAmount
   const netPayable = payableTax.net
@@ -290,6 +315,9 @@ export function UploadVendorInvoiceDrawer({
   useEffect(() => {
     if (!open) {
       initializedRef.current = false
+      selectionTouchedRef.current = false
+      poSelectionTouchedRef.current = false
+      initialMilestoneSeededPoRef.current = null
       resetForm()
       return
     }
@@ -305,9 +333,6 @@ export function UploadVendorInvoiceDrawer({
     const vendorOpt = vendorOptions.find((v) => v.vendorId === initialSelection.vendorId)
     if (vendorOpt) setVendor(vendorOpt)
     if (initialSelection.vendorPoId) setSelectedPoId(initialSelection.vendorPoId)
-    if (initialSelection.milestoneId) {
-      setSelectedMilestoneIds([initialSelection.milestoneId])
-    }
   }, [open, initialSelection, vendorOptions, resetForm])
 
   const vendorChangeRef = useRef(false)
@@ -356,17 +381,41 @@ export function UploadVendorInvoiceDrawer({
 
   useEffect(() => {
     if (!open || !initialSelection?.vendorPoId || billablePos.length === 0) return
+    if (poSelectionTouchedRef.current) return
     const po = billablePos.find((p) => p.id === initialSelection.vendorPoId)
-    if (po) setSelectedPoId(po.id)
-  }, [open, initialSelection?.vendorPoId, billablePos])
+    if (po && po.id !== selectedPoId) setSelectedPoId(po.id)
+  }, [open, initialSelection?.vendorPoId, billablePos, selectedPoId])
 
   useEffect(() => {
-    if (!open || !initialSelection?.milestoneId || !selectedPo) return
-    setSelectedMilestoneIds([initialSelection.milestoneId])
+    if (!open || !selectedPo?.id || !initialSelection?.milestoneId) return
+    if (
+      !shouldApplyInitialVendorMilestoneSelection({
+        initialMilestoneId: initialSelection.milestoneId,
+        selectedPoId: selectedPo.id,
+        seededPoId: initialMilestoneSeededPoRef.current,
+        selectionTouched: selectionTouchedRef.current,
+      })
+    ) {
+      return
+    }
+    initialMilestoneSeededPoRef.current = selectedPo.id
+    setSelectedMilestoneIds(initialVendorMilestoneSelection(initialSelection.milestoneId))
   }, [open, initialSelection?.milestoneId, selectedPo?.id])
+
+  useEffect(() => {
+    if (!open || !selectedPo || milestoneUploadOptions.length === 0) return
+    const validIds = new Set(milestoneUploadOptions.map((m) => m.milestoneId))
+    setSelectedMilestoneIds((prev) => {
+      const pruned = prev.filter((id) => validIds.has(id))
+      return pruned.length === prev.length ? prev : pruned
+    })
+  }, [open, selectedPo?.id, milestoneUploadOptions])
 
   const onVendorChange = useCallback((next: VendorOption | null) => {
     vendorChangeRef.current = true
+    selectionTouchedRef.current = false
+    poSelectionTouchedRef.current = false
+    initialMilestoneSeededPoRef.current = null
     setVendor(next)
     setSelectedPoId('')
     setBillablePos([])
@@ -375,6 +424,9 @@ export function UploadVendorInvoiceDrawer({
   }, [])
 
   const onPoChange = useCallback((value: string) => {
+    poSelectionTouchedRef.current = true
+    selectionTouchedRef.current = false
+    initialMilestoneSeededPoRef.current = null
     setSelectedPoId(value)
     setSelectedMilestoneIds([])
     setErrors((prev) => ({ ...prev, milestone: undefined }))
@@ -385,31 +437,85 @@ export function UploadVendorInvoiceDrawer({
   }, [])
 
   const toggleMilestone = useCallback((milestoneId: string) => {
+    selectionTouchedRef.current = true
     setSelectedMilestoneIds((prev) => toggleSelectedMilestoneIds(prev, milestoneId))
     clearError('milestone')
   }, [clearError])
 
   const removeMilestone = useCallback((milestoneId: string) => {
+    selectionTouchedRef.current = true
     setSelectedMilestoneIds((prev) => prev.filter((id) => id !== milestoneId))
   }, [])
 
-  function validate(): boolean {
+  function validate(submitLineItems: ReturnType<typeof buildVendorInvoiceUploadLineItems>): boolean {
     const next: FormErrors = {}
     if (!vendor) next.vendor = 'Vendor is required'
     if (!selectedPoId) next.vendorPo = 'Vendor PO is required'
     if (selectedMilestoneIds.length === 0) next.milestone = 'Select at least one milestone or retention'
-    if (lineItems.length === 0) next.milestone = 'Select at least one billable milestone or retention'
+    if (submitLineItems.length === 0) {
+      next.milestone = 'Select at least one billable milestone or retention'
+    } else {
+      const uniqueSelected = [...new Set(selectedMilestoneIds.filter(Boolean))].length
+      const skipped = countUnbuildableVendorMilestoneSelections(
+        selectedMilestoneIds,
+        milestoneUploadOptions,
+      )
+      if (submitLineItems.length < uniqueSelected) {
+        next.milestone =
+          skipped > 0
+            ? `${skipped} selected item${skipped === 1 ? '' : 's'} cannot be invoiced (already billed or unavailable). Remove ${skipped === 1 ? 'it' : 'them'} or refresh the list.`
+            : 'Some selected milestones could not be included. Refresh and try again.'
+      }
+    }
     if (!invoiceNumber.trim()) next.invoiceNumber = 'Invoice number is required'
-    if (!(combinedBaseAmount > 0)) next.baseAmount = 'Invoice amount is required'
+    const submitBase = sumVendorInvoiceLineItemAmounts(submitLineItems)
+    if (!(submitBase > 0)) next.baseAmount = 'Invoice amount is required'
     setErrors(next)
     return Object.keys(next).length === 0
   }
 
   async function handleSubmit() {
-    if (!validate() || !vendor || !selectedPo || lineItems.length === 0) return
+    if (!vendor || !selectedPo) return
 
-    const base = combinedBaseAmount
-    const headerMilestone = firstSelectedMilestone ?? poMilestones.find((m) => m.milestoneId === lineItems[0]?.milestoneId)
+    const submitLineItems = buildVendorInvoiceUploadLineItems(
+      selectedMilestoneIds,
+      milestoneUploadOptions,
+      serviceId,
+    )
+    if (!validate(submitLineItems)) return
+
+    const submitLineItemsWithTax = submitLineItems.map((li) => {
+      const poMilestone = selectedPo.milestones.find((m) => m.id === li.milestoneId) ?? null
+      const lineTax = previewVendorInvoiceLineTax(
+        li.amount,
+        poMilestone,
+        selectedPo.gstRate ?? null,
+        Number(tdsRate) || 0,
+      )
+      return {
+        ...li,
+        gstRate: lineTax.gstRate,
+        gstAmount: lineTax.gstAmount,
+        tdsAmount: lineTax.tdsAmount,
+        netAmount: lineTax.netAmount,
+      }
+    })
+
+    const base = sumVendorInvoiceLineItemAmounts(submitLineItemsWithTax)
+    let submitGstAmount = 0
+    let submitTdsAmount = 0
+    let submitNetPayable = 0
+    let submitGstRate = selectedPo.gstRate ?? 0
+    for (const li of submitLineItemsWithTax) {
+      submitGstAmount += li.gstAmount ?? 0
+      submitTdsAmount += li.tdsAmount ?? 0
+      submitNetPayable += li.netAmount ?? 0
+      if (submitGstRate === 0 && (li.gstRate ?? 0) > 0) submitGstRate = li.gstRate ?? 0
+    }
+
+    const headerMilestone =
+      firstSelectedMilestone ??
+      poMilestones.find((m) => m.milestoneId === submitLineItemsWithTax[0]?.milestoneId)
 
     try {
       await dispatch(
@@ -421,21 +527,22 @@ export function UploadVendorInvoiceDrawer({
             vendorPoId: selectedPo.id,
             serviceId,
             serviceName: serviceId,
-            milestoneId: headerMilestone?.milestoneId ?? lineItems[0]!.milestoneId,
-            milestoneName: headerMilestone?.milestoneName ?? lineItems[0]!.milestoneName,
-            lineItems,
+            milestoneId: headerMilestone?.milestoneId ?? submitLineItemsWithTax[0]!.milestoneId,
+            milestoneName:
+              headerMilestone?.milestoneName ?? submitLineItemsWithTax[0]!.milestoneName,
+            lineItems: submitLineItemsWithTax,
             invoiceNumber: invoiceNumber.trim(),
             invoiceDate,
             baseAmount: base,
-            gstRate,
-            gstAmount,
+            gstRate: submitGstRate,
+            gstAmount: submitGstAmount,
             tdsRate,
-            tdsAmount,
+            tdsAmount: submitTdsAmount,
             linkedExpenseIds: [],
             expenseDeductions: 0,
             linkedAdditionExpenseIds: [],
             expenseAdditions: 0,
-            netPayable,
+            netPayable: submitNetPayable,
             status: 'not_paid',
             documentUrl,
             fileName: documentFileName,

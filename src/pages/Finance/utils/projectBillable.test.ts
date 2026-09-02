@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ClientPO } from '@/slices/baseline/reducer'
 import type { Invoice } from '@/slices/receivables/reducer'
-import { flattenClientPoMilestones, sumBilledPerBaselineService } from './projectBillable'
+import { flattenClientPoMilestones, sumBilledPerBaselineService, countSelectedMilestonesWithZeroRemaining, remainingMilestoneValue } from './projectBillable'
 
 const po: ClientPO = {
   id: 'po-1',
@@ -87,5 +87,14 @@ describe('sumBilledPerBaselineService', () => {
     ]
 
     expect(sumBilledPerBaselineService(invoices, 'p-1').get('svc-1')).toBe(40000)
+  })
+})
+
+describe('countSelectedMilestonesWithZeroRemaining', () => {
+  it('returns count of selected milestones with no remaining billable amount', () => {
+    const rows = flattenClientPoMilestones(po)
+    const billed = new Map([['ms-1', 40000]])
+    expect(countSelectedMilestonesWithZeroRemaining(['ms-1', 'cli-ret-2'], rows, billed)).toBe(1)
+    expect(remainingMilestoneValue(40000, 40000)).toBe(0)
   })
 })

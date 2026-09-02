@@ -120,28 +120,77 @@ function vendorPo(partial: Partial<VendorPO> = {}): VendorPO {
 function vendorInv(
   partial: Partial<VendorInvoice> & Pick<VendorInvoice, 'id'>,
 ): VendorInvoice {
+  const baseAmount = partial.baseAmount ?? 40000
+  const tdsRate = partial.tdsRate ?? 10
+  const tdsAmount = partial.tdsAmount ?? Math.round(baseAmount * tdsRate) / 100
+  const gstAmount = partial.lineItems?.[0]?.gstAmount ?? Math.round(baseAmount * 18) / 100
+  const netPayable = partial.netPayable ?? baseAmount + gstAmount - tdsAmount
+  const milestoneId = partial.milestoneId ?? 'm1'
   return {
     projectId: 'proj-1',
     vendorId: 'vendor-1',
     vendorName: 'Vendor',
     serviceId: 'svc-1',
     serviceName: 'Service',
-    milestoneId: 'm1',
+    milestoneId,
     milestoneName: 'Advance',
     invoiceNumber: 'V-INV-1',
     invoiceDate: '2026-02-01',
     dueDate: '2026-03-15',
-    baseAmount: 40000,
-    tdsRate: 10,
-    tdsAmount: 4000,
-    netPayable: 36000,
+    baseAmount,
+    tdsRate,
+    tdsAmount,
+    netPayable,
     status: 'approved',
+    lineItems: [
+      {
+        serviceId: 'svc-1',
+        serviceName: 'Service',
+        amount: baseAmount,
+        gstRate: 18,
+        gstAmount,
+        tdsAmount,
+        netAmount: netPayable,
+        milestoneId,
+      },
+    ],
     ...partial,
   }
 }
 
 describe('projectLivePayableMilestoneDisplay', () => {
-  it('Base ₹10,000 + GST ₹1,800 + TDS ₹1,000 → Net ₹10,800', () => {
+  it('uninvoiced vendor PO uses base + GST only (no TDS)', () => {
+    const row = overviewRow({ milestoneId: 'm1', amount: 10000 })
+    const po = vendorPo({
+      tdsRate: 10,
+      milestones: [
+        {
+          id: 'm1',
+          name: 'Advance',
+          percentage: 40,
+          value: 10000,
+          dueDate: '2026-03-01',
+          status: 'Pending',
+          gstRate: 18,
+          gstAmount: 1800,
+          net: 11800,
+        },
+      ],
+    })
+
+    expect(
+      resolvePayableMilestoneAmounts(row, undefined, po, baselineWithGst, GST_18_SERVICES),
+    ).toEqual({
+      base: 10000,
+      gstRate: 18,
+      gstAmount: 1800,
+      tdsRate: null,
+      tdsAmount: 0,
+      net: 11800,
+    })
+  })
+
+  it('legacy uninvoiced without snapshot uses base + GST (no invoice TDS)', () => {
     const row = overviewRow({ milestoneId: 'm1', amount: 10000 })
     const po = vendorPo({ tdsRate: 10 })
 
@@ -151,13 +200,13 @@ describe('projectLivePayableMilestoneDisplay', () => {
       base: 10000,
       gstRate: 18,
       gstAmount: 1800,
-      tdsRate: 10,
-      tdsAmount: 1000,
-      net: 10800,
+      tdsRate: null,
+      tdsAmount: 0,
+      net: 11800,
     })
   })
 
-  it('Base ₹10,000 + GST ₹0 + TDS ₹1,000 → Net ₹9,000', () => {
+  it('zero GST uninvoiced milestone has no TDS', () => {
     const zeroGstBaseline: Baseline = {
       ...baselineWithGst,
       categories: [
@@ -192,9 +241,9 @@ describe('projectLivePayableMilestoneDisplay', () => {
       base: 10000,
       gstRate: 0,
       gstAmount: 0,
-      tdsRate: 10,
-      tdsAmount: 1000,
-      net: 9000,
+      tdsRate: null,
+      tdsAmount: 0,
+      net: 10000,
     })
   })
 
@@ -208,26 +257,26 @@ describe('projectLivePayableMilestoneDisplay', () => {
       base: 10000,
       gstRate: 18,
       gstAmount: 1800,
-      tdsRate: 0,
+      tdsRate: null,
       tdsAmount: 0,
       net: 11800,
     })
   })
 
-  it('uninvoiced milestone uses PO vendor TDS and service GST', () => {
+  it('uninvoiced milestone does not apply vendor PO TDS rate', () => {
     const row = overviewRow({ milestoneId: 'm1', amount: 10000 })
     const po = vendorPo({ tdsRate: 10 })
 
     expect(
       resolvePayableMilestoneAmounts(row, undefined, po, baselineWithGst, GST_18_SERVICES),
     ).toMatchObject({
-      tdsRate: 10,
-      tdsAmount: 1000,
-      net: 10800,
+      tdsRate: null,
+      tdsAmount: 0,
+      net: 11800,
     })
   })
 
-  it('invoiced milestone uses same PO-based net (invoice status does not affect breakdown)', () => {
+  it('invoiced milestone uses invoice line base + GST - TDS', () => {
     const row = overviewRow({ milestoneId: 'm1', amount: 10000 })
     const po = vendorPo({ tdsRate: 10 })
     const invoice = vendorInv({
@@ -235,7 +284,7 @@ describe('projectLivePayableMilestoneDisplay', () => {
       baseAmount: 10000,
       tdsRate: 10,
       tdsAmount: 1000,
-      netPayable: 9000,
+      netPayable: 10800,
     })
 
     expect(
@@ -256,7 +305,7 @@ describe('projectLivePayableMilestoneDisplay', () => {
       id: 'inv-paid',
       baseAmount: 10000,
       tdsAmount: 1000,
-      netPayable: 9000,
+      netPayable: 10800,
       status: 'paid',
     })
 
@@ -265,7 +314,7 @@ describe('projectLivePayableMilestoneDisplay', () => {
     ).toMatchObject({ net: 10800 })
   })
 
-  it('retention row uses the same GST + vendor TDS net formula', () => {
+  it('retention uninvoiced uses base + GST only', () => {
     const row = overviewRow({
       milestoneId: 'ret-1',
       amount: 5000,
@@ -280,13 +329,13 @@ describe('projectLivePayableMilestoneDisplay', () => {
       base: 5000,
       gstRate: 18,
       gstAmount: 900,
-      tdsRate: 10,
-      tdsAmount: 500,
-      net: 5400,
+      tdsRate: null,
+      tdsAmount: 0,
+      net: 5900,
     })
   })
 
-  it('retention invoiced still shows PO-based net with GST', () => {
+  it('retention invoiced shows invoice line net with TDS', () => {
     const row = overviewRow({
       milestoneId: 'ret-1',
       amount: 5000,
@@ -301,15 +350,15 @@ describe('projectLivePayableMilestoneDisplay', () => {
       baseAmount: 5000,
       tdsRate: 10,
       tdsAmount: 500,
-      netPayable: 4500,
+      netPayable: 5400,
     })
 
     expect(
       resolvePayableMilestoneAmounts(row, invoice, vendorPo(), baselineWithGst, GST_18_SERVICES),
-    ).toMatchObject({ net: 5400, gstAmount: 900 })
+    ).toMatchObject({ net: 5400, gstAmount: 900, tdsAmount: 500 })
   })
 
-  it('uses PO vendor TDS rate even when invoice TDS rate differs', () => {
+  it('invoiced milestone uses invoice line TDS rate from covering invoice', () => {
     const row = overviewRow({ milestoneId: 'm1', amount: 10000 })
     const po = vendorPo({ tdsRate: 5 })
     const invoice = vendorInv({
@@ -317,15 +366,15 @@ describe('projectLivePayableMilestoneDisplay', () => {
       baseAmount: 10000,
       tdsRate: 10,
       tdsAmount: 1000,
-      netPayable: 9000,
+      netPayable: 10800,
     })
 
     expect(
       resolvePayableMilestoneAmounts(row, invoice, po, baselineWithGst, GST_18_SERVICES),
     ).toMatchObject({
-      tdsRate: 5,
-      tdsAmount: 500,
-      net: 11300,
+      tdsRate: 10,
+      tdsAmount: 1000,
+      net: 10800,
     })
   })
 
@@ -339,7 +388,16 @@ describe('projectLivePayableMilestoneDisplay', () => {
   })
 
   it('builds payment summary from existing invoice and payment records', () => {
-    const invoice = vendorInv({ id: 'inv-1', netPayable: 36000, tdsAmount: 4000 })
+    const invoice = vendorInv({ id: 'inv-1', baseAmount: 40000, netPayable: 43200, tdsAmount: 4000 })
+    const flatMilestone = {
+      milestoneId: 'm1',
+      milestoneName: 'Advance',
+      serviceId: 'svc-1',
+      serviceName: 'Service',
+      value: 40000,
+      kind: 'regular' as const,
+      isRetention: false,
+    }
     const payments: VendorPayment[] = [
       {
         id: 'pay-1',
@@ -360,10 +418,17 @@ describe('projectLivePayableMilestoneDisplay', () => {
       },
     ]
 
-    expect(resolvePayableMilestonePaymentSummary(invoice, payments)).toEqual({
+    const rowAmounts = resolvePayableMilestoneAmounts(
+      overviewRow({ milestoneId: 'm1', amount: 40000 }),
+      invoice,
+      vendorPo(),
+      baselineWithGst,
+      GST_18_SERVICES,
+    )
+    expect(resolvePayableMilestonePaymentSummary(invoice, payments, flatMilestone, undefined, rowAmounts)).toEqual({
       tds: 4000,
       paid: 20000,
-      outstanding: 16000,
+      outstanding: 23200,
     })
     expect(resolvePayableMilestonePaymentSummary(undefined, payments)).toBeNull()
   })

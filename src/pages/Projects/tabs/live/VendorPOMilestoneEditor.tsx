@@ -22,6 +22,8 @@ import {
   ROW_ICON_ACTION_BUTTON_DANGER_SX,
 } from '@/components/listing/rowIconActionStyles'
 import { parseRateInput, rateInputDisplay, selectRateInputOnFocus } from './rateInput'
+import { vendorMilestoneTaxDisplay } from './poTaxDisplay'
+import { PoMilestoneTaxLines } from './PoMilestoneTaxLines'
 
 export interface VendorPOMilestoneRow {
   id: string
@@ -69,6 +71,8 @@ interface VendorPOMilestoneEditorProps {
   /** Milestone ids with invoice/payment activity — per-row delete blocked. */
   milestoneDeleteLockedIds?: ReadonlySet<string>
   retentionStatus?: MilestonePaymentStatusLabel
+  /** PO-level GST rate (%) applied to every milestone/retention preview. */
+  poGstRate?: number | null
 }
 
 const GRID_COLUMNS = 'repeat(3, minmax(0, 1fr)) 28px'
@@ -288,6 +292,7 @@ export function VendorPOMilestoneEditor({
   milestoneStatuses,
   milestoneDeleteLockedIds,
   retentionStatus,
+  poGstRate = null,
 }: VendorPOMilestoneEditorProps) {
   const theme = useTheme()
   const isCardMilestoneList = embedded && (regularOnly || cardWithRetention)
@@ -410,6 +415,7 @@ export function VendorPOMilestoneEditor({
           {milestones.map((m, idx) => {
             const isLast = idx === milestones.length - 1
             const rowDisabled = isMilestoneFieldDisabled(m.id)
+            const milestoneTax = vendorMilestoneTaxDisplay(m, poGstRate)
 
             return (
               <CardAlignedRow key={m.id}>
@@ -486,6 +492,9 @@ export function VendorPOMilestoneEditor({
                     </Box>
                   ) : null}
                 </Box>
+                {milestoneTax ? (
+                  <PoMilestoneTaxLines tax={milestoneTax} variant="vendor" />
+                ) : null}
               </CardAlignedRow>
             )
           })}
@@ -579,6 +588,15 @@ export function VendorPOMilestoneEditor({
                       </Box>
                     ) : null}
                   </Box>
+                  {(() => {
+                    const retentionTax = vendorMilestoneTaxDisplay(
+                      { value: retention.amount, gstRate: undefined, gstAmount: undefined, net: undefined },
+                      poGstRate,
+                    )
+                    return retentionTax ? (
+                      <PoMilestoneTaxLines tax={retentionTax} variant="vendor" />
+                    ) : null
+                  })()}
                 </CardAlignedRow>
               ) : null}
             </>
@@ -596,6 +614,7 @@ export function VendorPOMilestoneEditor({
         >
           {milestones.map((m, idx) => {
             const rowDisabled = isMilestoneFieldDisabled(m.id)
+            const milestoneTax = vendorMilestoneTaxDisplay(m, poGstRate)
             return (
               <Fragment key={m.id}>
                 <TextField
@@ -649,6 +668,11 @@ export function VendorPOMilestoneEditor({
                     )}
                   </Box>
                 ) : null}
+                {milestoneTax ? (
+                  <Box sx={{ gridColumn: '1 / -1' }}>
+                    <PoMilestoneTaxLines tax={milestoneTax} variant="vendor" />
+                  </Box>
+                ) : null}
               </Fragment>
             )
           })}
@@ -690,6 +714,7 @@ export function VendorPOMilestoneEditor({
             </MuiButton>
           </Stack>
         ) : retention ? (
+          <>
           <Box
             sx={{
               display: 'grid',
@@ -740,6 +765,14 @@ export function VendorPOMilestoneEditor({
               )
             ) : null}
           </Box>
+          {(() => {
+            const retentionTax = vendorMilestoneTaxDisplay(
+              { value: retention.amount, gstRate: undefined, gstAmount: undefined, net: undefined },
+              poGstRate,
+            )
+            return retentionTax ? <PoMilestoneTaxLines tax={retentionTax} variant="vendor" /> : null
+          })()}
+          </>
         ) : null}
       </Box>
 

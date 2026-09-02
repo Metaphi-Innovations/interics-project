@@ -104,8 +104,15 @@ export function baselineVendorServiceRows(baseline: Baseline | null): VendorServ
   })
 }
 
-export function invoiceMatchesRow(inv: VendorInvoice, row: VendorServiceRow): boolean {
-  return inv.vendorId === row.vendorId && inv.serviceId === row.serviceId
+export function invoiceMatchesRow(
+  inv: VendorInvoice,
+  row: VendorServiceRow,
+  vendorPoId?: string,
+): boolean {
+  if (inv.vendorId !== row.vendorId) return false
+  if (vendorPoId?.trim() && inv.vendorPoId?.trim() === vendorPoId.trim()) return true
+  if (inv.serviceId === row.serviceId) return true
+  return (inv.lineItems ?? []).some((li) => li.serviceId === row.serviceId)
 }
 
 export function findPitchService(baseline: Baseline | null, serviceId: string): PitchService | undefined {
@@ -569,24 +576,38 @@ export function vendorInvoiceMilestoneEntries(
   const seen = new Set<string>()
   for (const inv of invoices) {
     if (inv.projectId !== projectId) continue
-    const milestoneId = inv.milestoneId || inv.id
-    const row: VendorServiceRow = {
-      vendorId: inv.vendorId,
-      vendorName: inv.vendorName,
-      serviceId: inv.serviceId,
-      serviceName: inv.serviceName,
+    const lines =
+      inv.lineItems && inv.lineItems.length > 0
+        ? inv.lineItems
+        : [
+            {
+              milestoneId: inv.milestoneId,
+              milestoneName: inv.milestoneName,
+              serviceId: inv.serviceId,
+              serviceName: inv.serviceName,
+              amount: inv.baseAmount,
+            },
+          ]
+    for (const li of lines) {
+      const milestoneId = li.milestoneId || inv.milestoneId || inv.id
+      const row: VendorServiceRow = {
+        vendorId: inv.vendorId,
+        vendorName: inv.vendorName,
+        serviceId: li.serviceId || inv.serviceId,
+        serviceName: li.serviceName || inv.serviceName,
+      }
+      const milestone: VendorMilestone = {
+        id: milestoneId,
+        name: li.milestoneName || inv.milestoneName || 'Milestone',
+        percentage: 0,
+        value: Number(li.amount ?? inv.baseAmount ?? 0) || 0,
+      }
+      const entry: VendorMilestoneEntry = { projectId, projectName, row, milestone }
+      const key = milestoneEntryKey(entry)
+      if (seen.has(key)) continue
+      seen.add(key)
+      out.push(entry)
     }
-    const milestone: VendorMilestone = {
-      id: milestoneId,
-      name: inv.milestoneName || 'Milestone',
-      percentage: 0,
-      value: inv.baseAmount,
-    }
-    const entry: VendorMilestoneEntry = { projectId, projectName, row, milestone }
-    const key = milestoneEntryKey(entry)
-    if (seen.has(key)) continue
-    seen.add(key)
-    out.push(entry)
   }
   return sortMilestoneEntries(out)
 }

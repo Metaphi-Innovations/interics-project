@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Box,
   Dialog,
@@ -88,6 +88,10 @@ import {
   type VendorPORetentionRow,
 } from './VendorPOMilestoneEditor'
 import { applyVendorEditorExecutedValue } from './applyVendorEditorExecutedValue'
+import { useActiveGstRates } from './useActiveGstRates'
+import { PoGstRateSelect, isActiveGstRate } from './PoGstRateSelect'
+import { formatGstRateLabel, vendorMilestoneTaxDisplay } from './poTaxDisplay'
+import { PoMilestoneTaxLines } from './PoMilestoneTaxLines'
 
 const PO_VENDOR_SUMMARY_SX = {
   border: '1px solid',
@@ -172,11 +176,13 @@ function VendorPOMilestoneDetailTable({
   serviceLabel,
   projectVendorInvoices,
   serviceId,
+  poGstRate = null,
 }: {
   milestones: VendorPO['milestones']
   serviceLabel: string
   projectVendorInvoices: VendorInvoice[]
   serviceId: string
+  poGstRate?: number | null
 }) {
   if (milestones.length === 0) {
     return (
@@ -215,8 +221,11 @@ function VendorPOMilestoneDetailTable({
           </TableRow>
         </TableHead>
         <TableBody>
-          {milestones.map((m) => (
-            <TableRow key={m.id} hover>
+          {milestones.map((m) => {
+            const tax = vendorMilestoneTaxDisplay(m, poGstRate ?? m.gstRate)
+            return (
+            <Fragment key={m.id}>
+              <TableRow hover>
               <TableCell sx={MILESTONE_TABLE_CELL_SX}>
                 <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary' }}>
                   {serviceLabel}
@@ -242,7 +251,16 @@ function VendorPOMilestoneDetailTable({
                 ₹{formatCurrency(m.value)}
               </TableCell>
             </TableRow>
-          ))}
+            {tax ? (
+              <TableRow>
+                <TableCell colSpan={VENDOR_PO_MILESTONE_COL_COUNT} sx={{ py: 0.5, px: 1.5, borderBottom: 'none' }}>
+                  <PoMilestoneTaxLines tax={tax} variant="vendor" />
+                </TableCell>
+              </TableRow>
+            ) : null}
+            </Fragment>
+            )
+          })}
         </TableBody>
       </Table>
     </Box>
@@ -254,11 +272,13 @@ function VendorPOMilestonesReadOnlySections({
   serviceLabel,
   projectVendorInvoices,
   serviceId,
+  poGstRate = null,
 }: {
   milestones: VendorPO['milestones']
   serviceLabel: string
   projectVendorInvoices: VendorInvoice[]
   serviceId: string
+  poGstRate?: number | null
 }) {
   const regularMilestones = milestones.filter(
     (m) => resolveVendorPOMilestoneKind(m) === 'regular',
@@ -290,6 +310,7 @@ function VendorPOMilestonesReadOnlySections({
           serviceLabel={serviceLabel}
           projectVendorInvoices={projectVendorInvoices}
           serviceId={serviceId}
+          poGstRate={poGstRate}
         />
       </Box>
       {retentionMilestones.length > 0 ? (
@@ -306,6 +327,7 @@ function VendorPOMilestonesReadOnlySections({
             serviceLabel={serviceLabel}
             projectVendorInvoices={projectVendorInvoices}
             serviceId={serviceId}
+            poGstRate={poGstRate}
           />
         </Box>
       ) : null}
@@ -394,6 +416,8 @@ export function AddVendorPODrawer({
   })
   const [milestones, setMilestones] = useState<VendorPOMilestoneRow[]>([])
   const [retention, setRetention] = useState<VendorPORetentionRow | null>(null)
+  const [gstRate, setGstRate] = useState<number | null>(null)
+  const { options: gstRateOptions } = useActiveGstRates(open)
 
   useEffect(() => {
     if (open) {
@@ -415,6 +439,7 @@ export function AddVendorPODrawer({
       })
       setMilestones([])
       setRetention(null)
+      setGstRate(null)
       offerLinkRef.current = null
       return
     }
@@ -518,6 +543,10 @@ export function AddVendorPODrawer({
       toast({ title: 'Please fill in all required fields', variant: 'error' })
       return
     }
+    if (!isActiveGstRate(gstRate, gstRateOptions)) {
+      toast({ title: 'Select a valid GST rate from the list', variant: 'error' })
+      return
+    }
     const vendor = vendors.find((v) => v.vendorId === form.vendorId)
     let documentUrl: string | null = null
     let fileName: string | null = null
@@ -570,6 +599,7 @@ export function AddVendorPODrawer({
             poDate: form.poDate,
             poValue: poValueNumber,
             executedValue: executedValueNumber,
+            gstRate,
             milestones: milestonePayload,
             linkedBaselineServiceIds: linkedIds,
             linkedVendorMappingId: link?.vendorMappingId,
@@ -754,6 +784,15 @@ export function AddVendorPODrawer({
               />
             </FormField>
           </Box>
+          <FormField label="GST Rate" required>
+            <PoGstRateSelect
+              value={gstRate}
+              options={gstRateOptions}
+              onChange={setGstRate}
+              allowEmpty
+              required
+            />
+          </FormField>
         </Box>
       </Box>
 
@@ -765,6 +804,7 @@ export function AddVendorPODrawer({
         retention={retention}
         onMilestonesChange={setMilestones}
         onRetentionChange={setRetention}
+        poGstRate={gstRate}
       />
     </DrawerForm>
   )
@@ -937,6 +977,14 @@ export function ViewVendorPODrawer({
                 label="Executed Value"
                 value={`₹${formatCurrency(effectiveExecutedValue(resolvedPo))}`}
               />
+              <ReadOnlyField
+                label="GST Rate"
+                value={
+                  resolvedPo.gstRate != null
+                    ? formatGstRateLabel(resolvedPo.gstRate)
+                    : '—'
+                }
+              />
               <PODocumentLinkField
                 fileName={resolvedPo.fileName}
                 documentUrl={resolvedPo.documentUrl}
@@ -978,6 +1026,7 @@ export function ViewVendorPODrawer({
             serviceLabel={serviceLabel}
             projectVendorInvoices={projectVendorInvoices}
             serviceId={resolvedPo.linkedBaselineServiceIds?.[0]?.trim() || ''}
+            poGstRate={resolvedPo.gstRate}
           />
         </Stack>
       ) : null}
@@ -1011,6 +1060,8 @@ export function EditVendorPODrawer({
   const [milestoneCards, setMilestoneCards] = useState<VendorOfferMilestoneCard[]>([])
   const [retentionCards, setRetentionCards] = useState<VendorOfferRetentionCard[]>([])
   const [newFile, setNewFile] = useState<File | null>(null)
+  const [gstRate, setGstRate] = useState<number | null>(null)
+  const { options: gstRateOptions } = useActiveGstRates(open)
 
   const categoryOptions = useMemo(
     () => dropdownCategoryOptions(masterCatalog.categories),
@@ -1040,6 +1091,7 @@ export function EditVendorPODrawer({
     setPoDate(resolvedPo.poDate)
     setPoValue(String(resolvedPo.poValue))
     setExecutedValue(String(effectiveExecutedValue(resolvedPo)))
+    setGstRate(resolvedPo.gstRate ?? null)
     setNewFile(null)
   }, [open, resolvedPo?.id, resolvedPo])
 
@@ -1134,6 +1186,10 @@ export function EditVendorPODrawer({
       toast({ title: 'Enter a valid executed value', variant: 'error' })
       return
     }
+    if (gstRate != null && !isActiveGstRate(gstRate, gstRateOptions)) {
+      toast({ title: 'Select a valid GST rate from the list', variant: 'error' })
+      return
+    }
 
     const flat = flattenVendorPOCardsForEditor(milestoneCards, retentionCards)
     const pctValidation = validateVendorMilestonePercents({
@@ -1197,6 +1253,7 @@ export function EditVendorPODrawer({
       poValue: hasBilled ? resolvedPo.poValue : poValueNum,
       executedValue: executedValueNum,
       milestones: nextMilestones,
+      gstRate,
       documentUrl,
       fileName,
     }
@@ -1302,6 +1359,14 @@ export function EditVendorPODrawer({
                 onChange={(e) => handleExecutedValueChange(e.target.value)}
               />
             </FormField>
+            <FormField label="GST Rate">
+              <PoGstRateSelect
+                value={gstRate}
+                options={gstRateOptions}
+                onChange={setGstRate}
+                allowEmpty
+              />
+            </FormField>
             <FormField label="PO Document">
               <MuiButton variant="outlined" component="label" size="small" startIcon={<Upload />} sx={{ fontSize: 12 }}>
                 {newFile ? newFile.name : resolvedPo.fileName ? 'Replace document' : 'Upload document'}
@@ -1332,6 +1397,7 @@ export function EditVendorPODrawer({
                 structureLocked={hasBilled}
                 milestoneStatuses={milestoneStatuses}
                 retentionStatus={retentionStatus}
+                poGstRate={gstRate}
                 onChange={(patch) =>
                   setMilestoneCards((prev) =>
                     prev.map((c) => (c.id === card.id ? { ...c, ...patch } : c)),
@@ -1368,6 +1434,7 @@ export function EditVendorPODrawer({
                     serviceOptions={serviceOptions}
                     milestoneBaseValue={milestoneBaseValue}
                     readOnly={hasBilled}
+                    poGstRate={gstRate}
                     onChange={(patch) =>
                       setRetentionCards((prev) =>
                         prev.map((c) => (c.id === card.id ? { ...c, ...patch } : c)),

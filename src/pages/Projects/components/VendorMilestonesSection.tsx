@@ -207,7 +207,7 @@ function buildPoGroups(
       const isBilled =
         context != null &&
         vendorMilestoneIsBilled(
-          projectScopedInvoices.filter((inv) => invoiceMatchesRow(inv, context)),
+          projectScopedInvoices.filter((inv) => invoiceMatchesRow(inv, context, m.poId)),
           m.milestoneId,
           m.serviceId,
           m.name,
@@ -215,7 +215,7 @@ function buildPoGroups(
       if (isBilled) {
         uploadedCount += 1
         const covering = findVendorInvoicesForMilestone(
-          projectScopedInvoices.filter((inv) => invoiceMatchesRow(inv, context!)),
+          projectScopedInvoices.filter((inv) => invoiceMatchesRow(inv, context!, m.poId)),
           m.milestoneId,
           m.serviceId,
           m.name,
@@ -670,7 +670,7 @@ export function VendorMilestonesSection({
                                   const context = rowToVendorContext(row)
                                   const scopedInvoices = context
                                     ? projectScopedInvoices.filter((inv) =>
-                                        invoiceMatchesRow(inv, context),
+                                        invoiceMatchesRow(inv, context, row.poId),
                                       )
                                     : []
                                   const milestoneInvoices = context

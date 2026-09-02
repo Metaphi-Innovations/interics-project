@@ -1,4 +1,4 @@
-import type { Baseline } from '@/slices/baseline/reducer'
+import type { Baseline, ClientPO } from '@/slices/baseline/reducer'
 import type { ClientInvoice } from '@/slices/live/types'
 import type { Service } from '@/slices/settings/reducer'
 import type { BillableMilestone } from '@/pages/Projects/tabs/live/billableMilestones'
@@ -6,13 +6,14 @@ import {
   calcClientInvoiceTdsAmount,
   clientMilestoneNetPayable,
   computeLineItemTaxBreakdown,
-  resolveClientServiceGstRate,
+  resolveClientPoMilestoneGstRate,
 } from '@/pages/Projects/tabs/live/clientInvoiceUtils'
 import {
   resolveClientLineAmountsFromInvoice,
   resolveClientLineNetFromInvoice,
   sumClientLinePaidFromPayments,
 } from '@/pages/Projects/tabs/live/paymentAllocation'
+import { resolveClientPoMilestoneSnapshot } from '@/pages/Projects/tabs/live/poSnapshotUtils'
 
 const MONEY_EPS = 0.01
 
@@ -39,6 +40,7 @@ export function resolveReceivableMilestoneAmounts(
   poTdsRate: number | null | undefined,
   baseline: Baseline | null = null,
   settingsServices: Service[] = [],
+  clientPo: ClientPO | null = null,
 ): ReceivableMilestoneDisplayAmounts {
   if (invoice) {
     const lineAmounts = resolveClientLineAmountsFromInvoice(invoice, row.milestoneId)
@@ -66,7 +68,24 @@ export function resolveReceivableMilestoneAmounts(
     }
   }
 
-  const gstRate = resolveClientServiceGstRate(row.serviceId, baseline, settingsServices)
+  const poSnapshot = resolveClientPoMilestoneSnapshot(clientPo, row.milestoneId)
+  if (poSnapshot) {
+    return {
+      base: poSnapshot.base,
+      gstRate: poSnapshot.gstRate,
+      gstAmount: poSnapshot.gstAmount,
+      labourCess: poSnapshot.labourCessAmount,
+      tdsRate: poSnapshot.tdsRate ?? poTdsRate ?? null,
+      tdsAmount: poSnapshot.tdsAmount,
+      net: poSnapshot.net,
+    }
+  }
+
+  const gstRate = resolveClientPoMilestoneGstRate(clientPo, row.milestoneId, {
+    serviceId: row.serviceId,
+    baseline,
+    settingsServices,
+  })
   const taxed = computeLineItemTaxBreakdown(row.baseAmount, 0, gstRate)
   const tdsAmount = calcClientInvoiceTdsAmount(row.baseAmount, poTdsRate)
   const net = clientMilestoneNetPayable({

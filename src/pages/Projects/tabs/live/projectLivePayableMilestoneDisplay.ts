@@ -7,6 +7,7 @@ import {
   vendorMilestonePayableTaxBreakdown,
   resolveVendorMilestoneServiceId,
 } from '@/pages/Projects/tabs/live/clientInvoiceUtils'
+import { resolveVendorPoMilestoneSnapshot } from '@/pages/Projects/tabs/live/poSnapshotUtils'
 import {
   getVendorInvoiceMilestoneNet,
   type FlatVendorMilestone,
@@ -89,6 +90,18 @@ export function resolvePayableMilestoneAmounts(
         tdsAmount: lineAmounts.tdsAmount,
         net: lineAmounts.net,
       }
+    }
+  }
+
+  const poSnapshot = resolveVendorPoMilestoneSnapshot(vendorPo, row.milestoneId)
+  if (poSnapshot) {
+    return {
+      base: poSnapshot.base,
+      gstRate: poSnapshot.gstRate,
+      gstAmount: poSnapshot.gstAmount,
+      tdsRate: null,
+      tdsAmount: 0,
+      net: poSnapshot.net,
     }
   }
 

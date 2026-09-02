@@ -34,7 +34,7 @@ import { createInvoice, fetchInvoices } from '../../../../slices/live/thunk'
 import type { ClientInvoice, ClientInvoiceLineItem } from '../../../../slices/live/types'
 import { formatDate, formatInr } from '../../../../utils/formatters'
 import { buildBillableFromClientPOs, type BillableMilestone } from './billableMilestones'
-import { fetchClientPO } from '../../../../slices/baseline/thunk'
+import { fetchClientPO, fetchBaseline } from '../../../../slices/baseline/thunk'
 import {
   InvoiceLineItems,
   type DraftLineItem,
@@ -49,7 +49,7 @@ import {
   computeLineItemTaxBreakdown,
   isDueDateOverdue,
   MONEY_EPS,
-  resolveClientServiceGstRate,
+  resolveClientPoMilestoneGstRate,
   rollupsFromLineItems,
   totalReceivedBank,
   type InvoiceLineRollups,
@@ -83,7 +83,7 @@ import {
   buildClientPoReceivableGroups,
   clientPOReceivablePaymentStatusColor,
 } from './clientPOReceivableGroups'
-import type { Baseline } from '@/slices/baseline/reducer'
+import type { Baseline, ClientPO } from '@/slices/baseline/reducer'
 import type { Service } from '@/slices/settings/reducer'
 
 function milestoneRowKey(m: Pick<BillableMilestone, 'milestoneId' | 'serviceId'>): string {
@@ -203,11 +203,6 @@ function AmountBreakdownColumn({
       <Typography variant="caption" sx={{ color: 'text.secondary' }}>
         Base: ₹{formatInr(base)}
       </Typography>
-      {labourCess > MONEY_EPS ? (
-        <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-          Labour cess: ₹{formatInr(labourCess)}
-        </Typography>
-      ) : null}
       <Typography variant="caption" sx={{ color: 'text.secondary' }}>
         GST ({gstRate}%): ₹{formatInr(gstAmount)}
       </Typography>
@@ -216,6 +211,9 @@ function AmountBreakdownColumn({
           TDS ({tdsRate ?? 0}%): −₹{formatInr(tdsAmount)}
         </Typography>
       ) : null}
+      <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+        Labour cess: ₹{formatInr(labourCess)}
+      </Typography>
       <Typography variant="body2" sx={{ fontWeight: 600 }}>
         Net: ₹{formatInr(net)}
       </Typography>
@@ -403,6 +401,7 @@ function GenerateInvoiceDrawer({
   const { saving } = useAppSelector((s) => s.live)
   const { services, sacCodes } = useAppSelector((s) => s.settings)
   const baseline = useAppSelector((s) => s.baseline.baseline)
+  const clientPOs = useAppSelector((s) => s.baseline.clientPOs)
   const showToast = useToast((s) => s.showToast)
 
   const [invoiceNumber, setInvoiceNumber] = useState('')
@@ -446,8 +445,13 @@ function GenerateInvoiceDrawer({
     setDueDate(null)
     setNotes('')
     const svc = services.find((s) => s.id === preset.serviceId)
+    const clientPo = clientPOs.find((po) => po.id === preset.clientPoId) ?? null
     const sac = sacCodeForService(sacCodes, svc)
-    const gstRate = resolveClientServiceGstRate(preset.serviceId, baseline, services)
+    const gstRate = resolveClientPoMilestoneGstRate(clientPo, preset.milestoneId, {
+      serviceId: preset.serviceId,
+      baseline,
+      settingsServices: services,
+    })
     const amount = preset.baseAmount
     const taxed = computeLineItemTaxBreakdown(amount, 0, gstRate)
     setLines([
@@ -466,7 +470,7 @@ function GenerateInvoiceDrawer({
         lineSource: 'milestone',
       },
     ])
-  }, [open, preset, editingInvoice, services, sacCodes, baseline])
+  }, [open, preset, editingInvoice, services, sacCodes, baseline, clientPOs])
 
   const roll = useMemo(() => rollupsFromLineItems(lineItemsToPayload(lines)), [lines])
   const tdsAmount = calcClientInvoiceTdsAmount(roll.baseAmount, preset?.tdsRate)
@@ -968,7 +972,7 @@ interface ReceivableMilestoneTableRowProps {
   projectInvoices: ClientInvoice[]
   baseline: Baseline | null
   services: Service[]
-  clientPoById: Map<string, { tdsRate: number | null | undefined }>
+  clientPoById: Map<string, ClientPO>
   onGenerate: (row: BillableMilestone) => void
   onEditDraft: (invoice: ClientInvoice, row: BillableMilestone) => void
   onView: (invoice: ClientInvoice) => void
@@ -1009,7 +1013,8 @@ function ReceivableMilestoneTableRow({
     m.serviceId,
     m.milestoneName,
   )
-  const poTdsRate = clientPoById.get(m.clientPoId)?.tdsRate ?? null
+  const clientPo = clientPoById.get(m.clientPoId) ?? null
+  const poTdsRate = clientPo?.tdsRate ?? null
   const billingPhase = milestoneBillingPhase(milestoneInvoices)
   const paymentPhase = milestonePaymentPhase(milestoneInvoices, m.milestoneId)
   const billingBadge = milestoneBillingStatusBadge(billingPhase)
@@ -1017,7 +1022,7 @@ function ReceivableMilestoneTableRow({
   const dueOverdue =
     inv != null && balancePending(inv) > MONEY_EPS && isDueDateOverdue(inv.dueDate)
 
-  const rowAmounts = resolveReceivableMilestoneAmounts(m, inv, poTdsRate, baseline, services)
+  const rowAmounts = resolveReceivableMilestoneAmounts(m, inv, poTdsRate, baseline, services, clientPo)
   const paymentSummary = resolveReceivableMilestonePaymentSummary(inv, m.milestoneId, rowAmounts)
   const { base, gstRate, gstAmount, labourCess, tdsAmount, net } = rowAmounts
   const tds = paymentSummary?.tds ?? 0
@@ -1162,9 +1167,10 @@ export default function BillingTab({ projectId, projectName, clientId, clientNam
   const showToast = useToast((s) => s.showToast)
 
   useEffect(() => {
-    dispatch(fetchServices())
+    dispatch(fetchServices({ limit: 1000, force: true }))
     dispatch(fetchSACCodes())
     void dispatch(fetchClientPO(projectId))
+    void dispatch(fetchBaseline(projectId))
   }, [dispatch, projectId])
 
   const projectInvoices = useMemo(
@@ -1183,9 +1189,9 @@ export default function BillingTab({ projectId, projectName, clientId, clientNam
   )
 
   const clientPoById = useMemo(() => {
-    const map = new Map<string, { tdsRate: number | null | undefined }>()
+    const map = new Map<string, ClientPO>()
     for (const po of clientPOs) {
-      map.set(po.id, { tdsRate: po.tdsRate })
+      map.set(po.id, po)
     }
     return map
   }, [clientPOs])

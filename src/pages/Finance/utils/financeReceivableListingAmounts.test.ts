@@ -1,10 +1,14 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+
+vi.mock('@/pages/Finance/components/InvoiceLineItems', () => ({
+  computeGst: (base: number, rate: number) => Math.round((base * rate) / 100),
+}))
+
 import type { Invoice } from '@/slices/receivables/reducer'
 import {
   balancePending,
   calcClientInvoiceTdsAmount,
   clientInvoiceAmountBreakdownNet,
-  rollupsFromLineItems,
   totalReceivedBank,
 } from '@/pages/Projects/tabs/live/clientInvoiceUtils'
 import { invoiceToClientInvoice } from '@/pages/Projects/tabs/live/invoiceAdapters'
@@ -20,6 +24,10 @@ function buildInvoice(overrides: Partial<Invoice> & Pick<Invoice, 'id'>): Invoic
   const totalAmount = overrides.totalAmount ?? baseAmount + gstAmount
   const tdsRate = overrides.tdsRate ?? 10
   const tdsDeducted = overrides.tdsDeducted ?? calcClientInvoiceTdsAmount(baseAmount, tdsRate)
+  const labourCessAmount = overrides.lineItems?.[0]?.labourCessAmount ?? overrides.labourCessAmount ?? 0
+  const lineNetAmount =
+    overrides.lineItems?.[0]?.netAmount ??
+    baseAmount + labourCessAmount + gstAmount - tdsDeducted
   const payments = overrides.payments ?? []
   const totalReceived =
     overrides.totalReceived ??
@@ -42,6 +50,9 @@ function buildInvoice(overrides: Partial<Invoice> & Pick<Invoice, 'id'>): Invoic
         amount: baseAmount,
         gstRate,
         gstAmount,
+        labourCessAmount,
+        tdsAmount: tdsDeducted,
+        netAmount: lineNetAmount,
         milestoneId: 'm1',
       },
     ],
@@ -134,6 +145,35 @@ describe('financeReceivableListingAmounts', () => {
     expect(financeReceivableOutstanding(inv)).toBe(0)
   })
 
+  it('labour cess invoice net uses line netAmount (351540)', () => {
+    const inv = buildInvoice({
+      id: 'inv-cess',
+      baseAmount: 300_000,
+      gstAmount: 54_540,
+      totalAmount: 357_540,
+      tdsRate: 2,
+      tdsDeducted: 6_000,
+      lineItems: [
+        {
+          id: 'li-1',
+          serviceId: 's1',
+          serviceName: 'Service',
+          sacCode: '998314',
+          amount: 300_000,
+          gstRate: 18,
+          gstAmount: 54_540,
+          labourCessRate: 1,
+          labourCessAmount: 3_000,
+          tdsAmount: 6_000,
+          netAmount: 351_540,
+          milestoneId: 'm1',
+        },
+      ],
+    })
+    expect(financeReceivableNetAmount(inv)).toBe(351_540)
+    expect(financeReceivableNetAmount(inv)).not.toBe(354_540)
+  })
+
   it('GST + TDS: uses persisted line items and invoice amounts', () => {
     const inv = buildInvoice({
       id: 'inv-7',
@@ -143,12 +183,23 @@ describe('financeReceivableListingAmounts', () => {
       totalAmount: 11918,
       tdsRate: 10,
       tdsDeducted: 1000,
+      lineItems: [
+        {
+          id: 'li-1',
+          serviceId: 's1',
+          serviceName: 'Service',
+          sacCode: '998314',
+          amount: 10000,
+          gstRate: 18,
+          gstAmount: 1818,
+          labourCessAmount: 100,
+          tdsAmount: 1000,
+          netAmount: 10918,
+          milestoneId: 'm1',
+        },
+      ],
     })
-    const clientInv = invoiceToClientInvoice(inv)
-    const roll = rollupsFromLineItems(clientInv.lineItems)
-    const expectedNet =
-      roll.baseAmount + roll.labourCessAmount + inv.gstAmount - calcClientInvoiceTdsAmount(roll.baseAmount, 10)
-    expect(financeReceivableNetAmount(inv)).toBe(expectedNet)
+    expect(financeReceivableNetAmount(inv)).toBe(10918)
   })
 
   it('Net Amount != Pending Amount when payments exist', () => {
