@@ -31,18 +31,8 @@ export interface FetchRolesResult {
   total: number
 }
 
-const SYSTEM_ROLE_LEVEL: Record<string, 0 | 1 | 2 | 3> = {
-  SUPER_ADMIN: 0,
-  ADMIN: 0,
-  MANAGER: 1,
-  OPERATIONS: 1,
-  SALES: 2,
-  ACCOUNTANT: 2,
-  VIEWER: 3,
-  Admin: 0,
-  'Power User': 1,
-  'Project User': 2,
-  Viewer: 3,
+function normalizeRoleLevel(level: ApiRole['level']): 0 | 1 | 2 | 3 {
+  return level === 0 || level === 1 || level === 2 || level === 3 ? level : 2
 }
 
 function toUiRole(api: ApiRole): Role {
@@ -50,10 +40,10 @@ function toUiRole(api: ApiRole): Role {
   return {
     id: api.id,
     name: api.name,
-    level: api.level ?? SYSTEM_ROLE_LEVEL[api.name] ?? 2,
+    level: normalizeRoleLevel(api.level),
     description: api.description ?? undefined,
     userCount: api.userCount ?? 0,
-    isSystem: api.isSystem ?? ['SUPER_ADMIN', 'ADMIN'].includes(api.name),
+    isSystem: Boolean(api.isSystem),
     status: inactive ? 'inactive' : 'active',
   }
 }
@@ -65,13 +55,9 @@ export const fetchRoles = createAsyncThunk(
       const response = await rolesApi.getAll((params ?? { limit: 100 }) as Record<string, unknown>)
       const envelope = response.data as { data?: unknown; meta?: { total?: number } }
       const raw = normalizeArrayResponse<ApiRole>(unwrapApiData(envelope) ?? envelope)
-      const mapped = raw.map(toUiRole)
-      const filtered = params?.level
-        ? mapped.filter((role) => String(role.level) === String(params.level))
-        : mapped
       return {
-        items: filtered,
-        total: params?.level ? filtered.length : envelope.meta?.total ?? raw.length,
+        items: raw.map(toUiRole),
+        total: envelope.meta?.total ?? raw.length,
       }
     } catch (err: unknown) {
       const error = err as { response?: { data?: { message?: string } } }

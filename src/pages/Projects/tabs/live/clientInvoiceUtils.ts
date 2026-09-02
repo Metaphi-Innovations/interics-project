@@ -364,29 +364,15 @@ export function previewClientInvoiceLineTax(
   return { labourCessAmount, taxableAmount, gstAmount, tdsAmount, netAmount }
 }
 
-/** Preview vendor invoice line tax from PO milestone GST snapshot. */
+/** Preview vendor invoice line tax from invoice-level GST rate. */
 export function previewVendorInvoiceLineTax(
   baseAmount: number,
-  poMilestone: Pick<import('@/slices/baseline/reducer').VendorPOMilestone, 'value' | 'gstRate' | 'gstAmount'> | null,
-  poGstRate: number | null | undefined,
+  invoiceGstRate: number | null | undefined,
   invoiceTdsRate: number,
 ): { gstRate: number; gstAmount: number; tdsAmount: number; netAmount: number } {
-  const poBase = Number(poMilestone?.value) || 0
   const gstRate =
-    poMilestone?.gstRate != null
-      ? poMilestone.gstRate
-      : poGstRate != null
-        ? poGstRate
-        : 0
-  let gstAmount: number
-  if (poMilestone?.gstAmount != null && poBase > 0) {
-    gstAmount =
-      Math.abs(baseAmount - poBase) <= 0.01
-        ? roundMoney(poMilestone.gstAmount)
-        : roundMoney((poMilestone.gstAmount * baseAmount) / poBase)
-  } else {
-    gstAmount = roundMoney((baseAmount * gstRate) / 100)
-  }
+    invoiceGstRate != null && Number.isFinite(invoiceGstRate) ? invoiceGstRate : 0
+  const gstAmount = roundMoney((baseAmount * gstRate) / 100)
   const tdsAmount = calcClientInvoiceTdsAmount(baseAmount, invoiceTdsRate)
   const netAmount = roundMoney(baseAmount + gstAmount - tdsAmount)
   return { gstRate, gstAmount, tdsAmount, netAmount }

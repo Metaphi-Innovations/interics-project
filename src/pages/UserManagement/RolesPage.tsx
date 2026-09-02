@@ -49,11 +49,6 @@ const LEVEL_LABELS: Record<0 | 1 | 2 | 3, string> = {
   3: 'Viewer',
 }
 
-const LEVEL_FILTER_OPTIONS: ColumnFilterOption[] = ([0, 1, 2, 3] as const).map((level) => ({
-  value: String(level),
-  label: `${level} - ${LEVEL_LABELS[level]}`,
-}))
-
 const LEVEL_CHIP_SX: Record<0 | 1 | 2 | 3, { bgcolor: string; color: string }> = {
   0: { bgcolor: '#CCFBF1', color: '#0D9488' },
   1: { bgcolor: '#DBEAFE', color: '#1D4ED8' },
@@ -341,7 +336,7 @@ export default function RolesPage() {
       if (!data) return
       setFilterOptions({
         name: data.name ?? [],
-        level: LEVEL_FILTER_OPTIONS,
+        level: data.level ?? [],
         type: data.type ?? [],
         status: data.statuses ?? [],
       })
