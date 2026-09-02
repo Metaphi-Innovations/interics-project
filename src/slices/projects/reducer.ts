@@ -92,6 +92,11 @@ export interface Project {
   totalVendorPOValue: number
   invoicedAmount: number
   paidVendorAmount: number
+  totalDesignServiceValue?: number
+  feePerSqftCategories?: Array<{
+    category: string
+    clientPOAmount: number
+  }>
   createdAt: string
   wentLiveAt?: string | null
   completedAt?: string | null

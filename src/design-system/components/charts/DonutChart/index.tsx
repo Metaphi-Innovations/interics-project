@@ -46,6 +46,11 @@ export default function DonutChart({
         {showTooltip && (
           <Tooltip
             contentStyle={ct.tooltipStyle}
+            isAnimationActive={false}
+            animationDuration={0}
+            allowEscapeViewBox={{ x: true, y: true }}
+            offset={12}
+            wrapperStyle={ct.tooltipWrapperStyle}
             labelStyle={{ color: ct.theme.palette.text.secondary, fontSize: 11, marginBottom: 4 }}
             itemStyle={{ color: ct.theme.palette.text.primary, fontSize: 12 }}
             formatter={formatTooltip as any}

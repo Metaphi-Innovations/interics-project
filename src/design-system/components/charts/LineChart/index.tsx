@@ -93,6 +93,11 @@ export default function LineChart({
             content={tooltipContent}
             shared={tooltipShared}
             contentStyle={tooltipContent ? undefined : ct.tooltipStyle}
+            isAnimationActive={false}
+            animationDuration={0}
+            allowEscapeViewBox={{ x: true, y: true }}
+            offset={12}
+            wrapperStyle={ct.tooltipWrapperStyle}
             labelStyle={
               tooltipContent
                 ? undefined

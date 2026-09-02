@@ -22,6 +22,8 @@ import {
 import { alpha, useTheme } from '@mui/material/styles'
 import {
   Banknote,
+  ChevronLeft,
+  ChevronRight,
   CircleDollarSign,
   HandCoins,
   IndianRupee,
@@ -34,16 +36,24 @@ import {
 import {
   BarChart,
   ChartCard,
-  DateRangePicker,
   SearchInput,
   Select,
   StatusBadge,
 } from '@/design-system/components'
 import type { StatusType } from '@/design-system/components'
 import { CHART_COLORS, tokens } from '@/design-system/tokens'
+import {
+  clampListingPage0Based,
+  formatListingShowingLabel,
+} from '@/components/listing/listingStandards'
 import client from '@/api/client'
 import { unwrapApiData } from '@/modules/system-settings/shared/api'
 import { formatCurrency } from '@/utils/formatters'
+import { DashboardDateRangeFilter } from '../DashboardDateRangeFilter'
+import {
+  dashboardDateParams,
+  type DashboardDateRange,
+} from '../dashboardDateRange'
 
 interface ChartSeriesLegendItem {
   label: string
@@ -137,9 +147,29 @@ export interface RevenueAnalyticsBundle {
   granularity: RevenueChartGranularity
 }
 
+type RevenueDrawerRow = Record<string, string | number>
+type RevenueKpiBreakdowns = Record<string, RevenueDrawerRow[]>
+
+export interface RevenueProjectListingRow {
+  id: string
+  projectName: string
+  projectValue: number
+  projectSize: number
+  teamLead: string
+  clientPOAmount: number
+  vendorPOAmount: number
+  clientReceived: number
+  vendorPaid: number
+  status: string
+}
+
 interface RevenueDashboardResponse {
   kpis: RevenueKpi[]
   charts?: RevenueDashboardChart[]
+  data?: {
+    kpiBreakdowns?: RevenueKpiBreakdowns
+    revenueProjects?: RevenueProjectListingRow[]
+  }
 }
 
 interface RevenueDashboardChart {
@@ -147,15 +177,12 @@ interface RevenueDashboardChart {
   data?: Array<Record<string, unknown>>
 }
 
-/** Profit = Amount Received - Amount Paid to Vendors - Amount in Hand. */
+/** Profit = Amount Received - Amount Paid to Vendors. */
 export function computeRevenueProfit(params: {
   amountReceived: number
   amountPaidToVendors: number
-  amountInHand: number
 }): number {
-  return Math.round(
-    params.amountReceived - params.amountPaidToVendors - params.amountInHand,
-  )
+  return Math.round(params.amountReceived - params.amountPaidToVendors)
 }
 
 const BASE_REVENUE_KPI_VALUES = {
@@ -163,26 +190,37 @@ const BASE_REVENUE_KPI_VALUES = {
   livePo: 0,
   received: 0,
   pendingClaim: 0,
+  clientPending: 0,
   paidVendors: 0,
   payable: 0,
+  vendorPending: 0,
   inHand: 0,
 } as const
 
 function buildBaseRevenueKpis(factor: number): RevenueKpi[] {
+  const totalPo = scale(BASE_REVENUE_KPI_VALUES.totalPo, factor)
   const received = scale(BASE_REVENUE_KPI_VALUES.received, factor)
+  const clientPending = Math.max(
+    0,
+    scale(BASE_REVENUE_KPI_VALUES.clientPending, factor) || totalPo - received,
+  )
   const paidVendors = scale(BASE_REVENUE_KPI_VALUES.paidVendors, factor)
+  const payable = scale(BASE_REVENUE_KPI_VALUES.payable, factor)
+  const vendorPending = Math.max(
+    0,
+    scale(BASE_REVENUE_KPI_VALUES.vendorPending, factor) || payable - paidVendors,
+  )
   const inHand = scale(BASE_REVENUE_KPI_VALUES.inHand, factor)
   const profit = computeRevenueProfit({
     amountReceived: received,
     amountPaidToVendors: paidVendors,
-    amountInHand: inHand,
   })
 
   return [
     {
       id: 'total-po',
       title: 'Total PO Value',
-      value: scale(BASE_REVENUE_KPI_VALUES.totalPo, factor),
+      value: totalPo,
       subtitle: 'Total business received.',
       icon: 'po',
     },
@@ -202,9 +240,16 @@ function buildBaseRevenueKpis(factor: number): RevenueKpi[] {
     },
     {
       id: 'pending-claim',
-      title: 'Amount Pending to be Claimed',
+      title: 'Invoice Receivable',
       value: scale(BASE_REVENUE_KPI_VALUES.pendingClaim, factor),
       subtitle: 'Awaiting client payment.',
+      icon: 'pending',
+    },
+    {
+      id: 'client-pending',
+      title: 'Client Pending',
+      value: clientPending,
+      subtitle: 'Client PO value pending after received payments.',
       icon: 'pending',
     },
     {
@@ -217,8 +262,15 @@ function buildBaseRevenueKpis(factor: number): RevenueKpi[] {
     {
       id: 'payable',
       title: 'Amount Payable',
-      value: scale(BASE_REVENUE_KPI_VALUES.payable, factor),
+      value: payable,
       subtitle: 'Outstanding vendor dues.',
+      icon: 'payable',
+    },
+    {
+      id: 'vendor-pending',
+      title: 'Vendor Pending',
+      value: vendorPending,
+      subtitle: 'Vendor PO value pending after vendor payments.',
       icon: 'payable',
     },
     {
@@ -537,11 +589,7 @@ export interface FinancialRevenueYearAnalytics {
     invoiceValue: number
     amountReceived: number
   }
-  infoText: string
 }
-
-export const FINANCIAL_REVENUE_YEAR_INFO_TEXT =
-  'PO Value is grouped by PO date. Invoice Value follows invoice dates and typically lags PO bookings. Amount Received reflects cash collections and may lag invoicing.'
 
 function financialRevenueYearAnalyticsFromData(
   chartData: FinancialRevenueYearPoint[],
@@ -553,7 +601,6 @@ function financialRevenueYearAnalyticsFromData(
       invoiceValue: chartData.reduce((sum, row) => sum + row.invoiceValue, 0),
       amountReceived: chartData.reduce((sum, row) => sum + row.amountReceived, 0),
     },
-    infoText: FINANCIAL_REVENUE_YEAR_INFO_TEXT,
   }
 }
 
@@ -605,6 +652,52 @@ function asFinancialRevenueYearData(value: unknown): FinancialRevenueYearPoint[]
       }
     })
     .filter((row) => row.month)
+}
+
+function asRevenueKpiBreakdowns(value: unknown): RevenueKpiBreakdowns {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+
+  const output: RevenueKpiBreakdowns = {}
+  for (const [key, rows] of Object.entries(value as Record<string, unknown>)) {
+    if (!Array.isArray(rows)) continue
+    output[key] = rows
+      .filter(
+        (row): row is Record<string, unknown> =>
+          Boolean(row) && typeof row === 'object' && !Array.isArray(row),
+      )
+      .map((row) => {
+        const cleanRow: RevenueDrawerRow = {}
+        for (const [cellKey, cellValue] of Object.entries(row)) {
+          if (typeof cellValue === 'string' || typeof cellValue === 'number') {
+            cleanRow[cellKey] = cellValue
+          }
+        }
+        return cleanRow
+      })
+  }
+  return output
+}
+
+function asRevenueProjectListingRows(value: unknown): RevenueProjectListingRow[] {
+  if (!Array.isArray(value)) return []
+
+  return value
+    .map((row) => {
+      const record = row && typeof row === 'object' ? (row as Record<string, unknown>) : {}
+      return {
+        id: String(record.id ?? ''),
+        projectName: String(record.projectName ?? 'Untitled Project'),
+        projectValue: Number(record.projectValue ?? 0),
+        projectSize: Number(record.projectSize ?? 0),
+        teamLead: String(record.teamLead ?? 'Unassigned'),
+        clientPOAmount: Number(record.clientPOAmount ?? 0),
+        vendorPOAmount: Number(record.vendorPOAmount ?? 0),
+        clientReceived: Number(record.clientReceived ?? 0),
+        vendorPaid: Number(record.vendorPaid ?? 0),
+        status: String(record.status ?? ''),
+      }
+    })
+    .filter((row) => row.id)
 }
 
 
@@ -751,16 +844,20 @@ export type ClickableKpiId =
   | 'live-po'
   | 'received'
   | 'pending-claim'
+  | 'client-pending'
   | 'paid-vendors'
   | 'payable'
+  | 'vendor-pending'
 
 export const CLICKABLE_KPI_IDS: Set<string> = new Set<string>([
   'total-po',
   'live-po',
   'received',
   'pending-claim',
+  'client-pending',
   'paid-vendors',
   'payable',
+  'vendor-pending',
 ])
 
 interface DrawerColumn {
@@ -777,91 +874,169 @@ interface DrawerColumn {
 
 interface DrawerConfig {
   columns: DrawerColumn[]
-  rows: Record<string, string | number>[]
+  rows: RevenueDrawerRow[]
   totalKey: string
 }
 
-const TOTAL_PO_ROWS: Record<string, string | number>[] = []
+const TOTAL_PO_ROWS: RevenueDrawerRow[] = []
 
-const LIVE_PO_ROWS: Record<string, string | number>[] = []
+const LIVE_PO_ROWS: RevenueDrawerRow[] = []
 
-const RECEIVED_ROWS: Record<string, string | number>[] = []
+const RECEIVED_ROWS: RevenueDrawerRow[] = []
 
-const PENDING_CLAIM_ROWS: Record<string, string | number>[] = []
+const PENDING_CLAIM_ROWS: RevenueDrawerRow[] = []
 
-const PAID_VENDORS_ROWS: Record<string, string | number>[] = []
+const CLIENT_PENDING_ROWS: RevenueDrawerRow[] = []
 
-const PAYABLE_ROWS: Record<string, string | number>[] = []
+const PAID_VENDORS_ROWS: RevenueDrawerRow[] = []
 
-function getDrawerConfig(kpiId: ClickableKpiId): DrawerConfig {
-  switch (kpiId) {
+const PAYABLE_ROWS: RevenueDrawerRow[] = []
+
+const VENDOR_PENDING_ROWS: RevenueDrawerRow[] = []
+
+function getDrawerRows(
+  rowsByKpi: RevenueKpiBreakdowns | null,
+  kpiId: ClickableKpiId,
+  fallbackRows: RevenueDrawerRow[],
+): RevenueDrawerRow[] {
+  const rows = rowsByKpi?.[kpiId]
+  return Array.isArray(rows) ? rows : fallbackRows
+}
+
+function getDrawerConfig(
+  kpiId: ClickableKpiId,
+  rowsByKpi: RevenueKpiBreakdowns | null = null,
+): DrawerConfig {
+  if (kpiId === 'received') {
+    return {
+      columns: [
+        { key: 'client', label: 'Client', width: '28%' },
+        { key: 'project', label: 'Project', width: '34%' },
+        { key: 'amount', label: 'Amount', align: 'right', format: 'currency', width: '20%' },
+        { key: 'status', label: 'Status', format: 'status', width: '18%' },
+      ],
+      rows: getDrawerRows(rowsByKpi, kpiId, RECEIVED_ROWS),
+      totalKey: 'amount',
+    }
+  }
+
+  if (kpiId === 'paid-vendors') {
+    return {
+      columns: [
+        { key: 'vendor', label: 'Vendor', width: '38%' },
+        { key: 'project', label: 'Project', width: '38%' },
+        { key: 'paid', label: 'Payable Amount', align: 'right', format: 'currency', width: '24%' },
+      ],
+      rows: getDrawerRows(rowsByKpi, kpiId, PAID_VENDORS_ROWS),
+      totalKey: 'paid',
+    }
+  }
+
+  if (kpiId === 'payable') {
+    return {
+      columns: [
+        { key: 'vendor', label: 'Vendor', width: '28%' },
+        { key: 'project', label: 'Project', width: '28%' },
+        { key: 'payable', label: 'Payable Amount', align: 'right', format: 'currency', width: '18%' },
+        { key: 'dueDate', label: 'Due Date', format: 'date', width: '13%' },
+        { key: 'status', label: 'Status', format: 'status', width: '13%' },
+      ],
+      rows: getDrawerRows(rowsByKpi, kpiId, PAYABLE_ROWS),
+      totalKey: 'payable',
+    }
+  }
+
+  switch (String(kpiId) as ClickableKpiId) {
     case 'total-po':
       return {
         columns: [
-          { key: 'project', label: 'Project Name', width: '34%' },
-          { key: 'status', label: 'Project Status', format: 'status', width: '16%' },
-          { key: 'poNumber', label: 'PO Number', width: '16%' },
-          { key: 'poDate', label: 'PO Date', format: 'date', width: '16%' },
-          { key: 'poValue', label: 'PO Value', align: 'right', format: 'currency', width: '18%' },
+          { key: 'project', label: 'Project Name', width: '48%' },
+          { key: 'status', label: 'Project Status', format: 'status', width: '22%' },
+          { key: 'poValue', label: 'Total PO Value', align: 'right', format: 'currency', width: '30%' },
         ],
-        rows: TOTAL_PO_ROWS,
+        rows: getDrawerRows(rowsByKpi, kpiId, TOTAL_PO_ROWS),
         totalKey: 'poValue',
       }
     case 'live-po':
       return {
         columns: [
-          { key: 'project', label: 'Project Name', width: '42%' },
-          { key: 'poNumber', label: 'PO Number', width: '18%' },
-          { key: 'poDate', label: 'PO Date', format: 'date', width: '18%' },
-          { key: 'poValue', label: 'PO Value', align: 'right', format: 'currency', width: '22%' },
+          { key: 'project', label: 'Project Name', width: '48%' },
+          { key: 'status', label: 'Project Status', format: 'status', width: '22%' },
+          { key: 'poValue', label: 'Live PO Value', align: 'right', format: 'currency', width: '30%' },
         ],
-        rows: LIVE_PO_ROWS,
+        rows: getDrawerRows(rowsByKpi, kpiId, LIVE_PO_ROWS),
         totalKey: 'poValue',
       }
     case 'received':
       return {
         columns: [
-          { key: 'client', label: 'Client', width: '28%' },
-          { key: 'project', label: 'Project', width: '30%' },
+          { key: 'client', label: 'Client', width: '58%' },
+          { key: 'projectCount', label: 'Projects', align: 'right', width: '18%' },
           // Extra pr/pl so Amount↔Status has the same breathing room as Client↔Project
-          { key: 'amount', label: 'Amount', align: 'right', format: 'currency', width: '22%', pr: 4 },
-          { key: 'status', label: 'Status', format: 'status', width: '20%', pl: 4 },
+          { key: 'status', label: 'Project Status', format: 'status', width: '18%' },
+          { key: 'amount', label: 'Amount Received', align: 'right', format: 'currency', width: '22%' },
         ],
-        rows: RECEIVED_ROWS,
+        rows: getDrawerRows(rowsByKpi, kpiId, RECEIVED_ROWS),
         totalKey: 'amount',
       }
     case 'pending-claim':
       return {
         columns: [
-          { key: 'project', label: 'Project', width: '25%' },
-          { key: 'pending', label: 'Pending Amount', align: 'right', format: 'currency', width: '25%' },
-          { key: 'dueDate', label: 'Due Date', format: 'date', width: '25%' },
-          { key: 'status', label: 'Status', format: 'status', width: '25%' },
+          { key: 'project', label: 'Project Name', width: '34%' },
+          { key: 'client', label: 'Client', width: '26%' },
+          { key: 'status', label: 'Project Status', format: 'status', width: '18%' },
+          { key: 'pending', label: 'Pending Amount', align: 'right', format: 'currency', width: '22%' },
         ],
-        rows: PENDING_CLAIM_ROWS,
+        rows: getDrawerRows(rowsByKpi, kpiId, PENDING_CLAIM_ROWS),
+        totalKey: 'pending',
+      }
+    case 'client-pending':
+      return {
+        columns: [
+          { key: 'project', label: 'Project Name', width: '26%' },
+          { key: 'client', label: 'Client', width: '20%' },
+          { key: 'status', label: 'Project Status', format: 'status', width: '15%' },
+          { key: 'poValue', label: 'PO Value', align: 'right', format: 'currency', width: '13%' },
+          { key: 'received', label: 'Received', align: 'right', format: 'currency', width: '13%' },
+          { key: 'pending', label: 'Client Pending', align: 'right', format: 'currency', width: '13%' },
+        ],
+        rows: getDrawerRows(rowsByKpi, kpiId, CLIENT_PENDING_ROWS),
         totalKey: 'pending',
       }
     case 'paid-vendors':
       return {
         columns: [
-          { key: 'vendor', label: 'Vendor', width: '38%' },
-          { key: 'project', label: 'Project', width: '38%' },
-          { key: 'payable', label: 'Payable Amount', format: 'currency', width: '24%' },
+          { key: 'project', label: 'Project Name', width: '34%' },
+          { key: 'client', label: 'Client', width: '26%' },
+          { key: 'status', label: 'Project Status', format: 'status', width: '18%' },
+          { key: 'paid', label: 'Amount Paid', align: 'right', format: 'currency', width: '22%' },
         ],
-        rows: PAID_VENDORS_ROWS,
+        rows: getDrawerRows(rowsByKpi, kpiId, PAID_VENDORS_ROWS),
         totalKey: 'paid',
       }
     case 'payable':
       return {
         columns: [
-          { key: 'vendor', label: 'Vendor', width: '28%' },
-          { key: 'project', label: 'Project', width: '28%' },
-          { key: 'payable', label: 'Payable Amount', align: 'right', format: 'currency', width: '18%' },
-          { key: 'dueDate', label: 'Due Date', format: 'date', width: '13%' },
-          { key: 'status', label: 'Status', format: 'status', width: '13%' },
+          { key: 'project', label: 'Project Name', width: '34%' },
+          { key: 'client', label: 'Client', width: '26%' },
+          { key: 'status', label: 'Project Status', format: 'status', width: '18%' },
+          { key: 'payable', label: 'Payable Amount', align: 'right', format: 'currency', width: '22%' },
         ],
-        rows: PAYABLE_ROWS,
+        rows: getDrawerRows(rowsByKpi, kpiId, PAYABLE_ROWS),
         totalKey: 'payable',
+      }
+    case 'vendor-pending':
+      return {
+        columns: [
+          { key: 'project', label: 'Project Name', width: '26%' },
+          { key: 'client', label: 'Client', width: '20%' },
+          { key: 'status', label: 'Project Status', format: 'status', width: '15%' },
+          { key: 'payable', label: 'Vendor PO Amount', align: 'right', format: 'currency', width: '13%' },
+          { key: 'paid', label: 'Vendor Paid', align: 'right', format: 'currency', width: '13%' },
+          { key: 'pending', label: 'Vendor Pending', align: 'right', format: 'currency', width: '13%' },
+        ],
+        rows: getDrawerRows(rowsByKpi, kpiId, VENDOR_PENDING_ROWS),
+        totalKey: 'pending',
       }
   }
 }
@@ -870,6 +1045,7 @@ const STATUS_TYPE_BY_LABEL: Record<string, StatusType> = {
   Live: 'live',
   Completed: 'completed',
   Archived: 'archived',
+  Cancelled: 'cancelled',
   Overdue: 'overdue',
   Pending: 'pending',
   Paid: 'paid',
@@ -877,33 +1053,18 @@ const STATUS_TYPE_BY_LABEL: Record<string, StatusType> = {
   Upcoming: 'issued',
 }
 
-function scaleCurrencyRows(
-  rows: Record<string, string | number>[],
-  amountKey: string,
-  targetTotal: number,
-): Record<string, string | number>[] {
-  if (rows.length === 0) return rows
-  const baseTotal = rows.reduce((sum, row) => sum + Number(row[amountKey] ?? 0), 0)
-  if (baseTotal <= 0 || targetTotal === baseTotal) return rows
-  const factor = targetTotal / baseTotal
-  const scaled = rows.map((row) => ({
-    ...row,
-    [amountKey]: Math.round(Number(row[amountKey] ?? 0) * factor),
-  }))
-  const drift =
-    targetTotal - scaled.reduce((sum, row) => sum + Number(row[amountKey] ?? 0), 0)
-  if (drift !== 0) {
-    const last = scaled[scaled.length - 1]
-    scaled[scaled.length - 1] = {
-      ...last,
-      [amountKey]: Math.max(0, Number(last[amountKey] ?? 0) + drift),
-    }
-  }
-  return scaled
-}
-
 function formatCell(value: string | number, format?: DrawerColumn['format']): string {
   if (format === 'currency' && typeof value === 'number') return `₹${formatCurrency(value)}`
+  if (format === 'date') {
+    const date = new Date(value)
+    if (!Number.isNaN(date.getTime())) {
+      return date.toLocaleDateString('en-GB', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+      })
+    }
+  }
   return String(value)
 }
 
@@ -935,9 +1096,15 @@ export interface RevenueKpiDrawerProps {
   open: boolean
   onClose: () => void
   kpi: RevenueKpi | null
+  rowsByKpi?: RevenueKpiBreakdowns | null
 }
 
-export function RevenueKpiDrawer({ open, onClose, kpi }: RevenueKpiDrawerProps) {
+export function RevenueKpiDrawer({
+  open,
+  onClose,
+  kpi,
+  rowsByKpi = null,
+}: RevenueKpiDrawerProps) {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<string | number>('all')
 
@@ -948,13 +1115,8 @@ export function RevenueKpiDrawer({ open, onClose, kpi }: RevenueKpiDrawerProps) 
 
   const config = useMemo(() => {
     if (!kpi || !CLICKABLE_KPI_IDS.has(kpi.id)) return null
-    const base = getDrawerConfig(kpi.id as ClickableKpiId)
-    if (kpi.id !== 'received') return base
-    return {
-      ...base,
-      rows: scaleCurrencyRows(base.rows, base.totalKey, kpi.value),
-    }
-  }, [kpi])
+    return getDrawerConfig(kpi.id as ClickableKpiId, rowsByKpi)
+  }, [kpi, rowsByKpi])
 
   const statusColumn = config?.columns.find((col) => col.format === 'status')
   const showStatusFilter = Boolean(statusColumn) && kpi?.id !== 'received'
@@ -1003,9 +1165,9 @@ export function RevenueKpiDrawer({ open, onClose, kpi }: RevenueKpiDrawerProps) 
       }}
       PaperProps={{
         sx: {
-          width: { xs: '100%', sm: '78%', md: 880 },
-          maxWidth: 960,
-          minWidth: { sm: 640 },
+          width: { xs: '100%', sm: '88%', md: 1120 },
+          maxWidth: '96vw',
+          minWidth: { sm: 720 },
           boxShadow: '-4px 0 24px rgba(0,0,0,0.10)',
           display: 'flex',
           flexDirection: 'column',
@@ -1164,6 +1326,250 @@ export function RevenueKpiDrawer({ open, onClose, kpi }: RevenueKpiDrawerProps) 
   )
 }
 
+const REVENUE_PROJECT_COLUMNS: Array<{
+  key: keyof RevenueProjectListingRow
+  label: string
+  align?: 'left' | 'right'
+  format?: 'currency' | 'area' | 'status'
+  width?: string
+}> = [
+  { key: 'projectName', label: 'Project Name', width: '18%' },
+  {
+    key: 'projectValue',
+    label: 'Project Value (Total PO Value)',
+    format: 'currency',
+    width: '14%',
+  },
+  {
+    key: 'projectSize',
+    label: 'Project Size (Area)',
+    format: 'area',
+    width: '12%',
+  },
+  { key: 'teamLead', label: 'Team Lead', width: '13%' },
+  {
+    key: 'clientPOAmount',
+    label: 'Client PO Amount',
+    format: 'currency',
+    width: '12%',
+  },
+  {
+    key: 'vendorPOAmount',
+    label: 'Vendor PO Amount',
+    format: 'currency',
+    width: '12%',
+  },
+  {
+    key: 'clientReceived',
+    label: 'Client Received',
+    format: 'currency',
+    width: '11%',
+  },
+  {
+    key: 'vendorPaid',
+    label: 'Vendor Paid',
+    format: 'currency',
+    width: '10%',
+  },
+  { key: 'status', label: 'Status', format: 'status', width: '8%' },
+]
+
+function formatArea(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return '0 sq.ft'
+  return `${Math.round(value).toLocaleString('en-IN')} sq.ft`
+}
+
+function renderRevenueProjectCell(
+  row: RevenueProjectListingRow,
+  column: (typeof REVENUE_PROJECT_COLUMNS)[number],
+) {
+  const value = row[column.key]
+
+  if (column.format === 'currency') return `₹${formatCurrency(Number(value ?? 0))}`
+  if (column.format === 'area') return formatArea(Number(value ?? 0))
+  if (column.format === 'status') {
+    const label = String(value || 'Draft')
+    const status = STATUS_TYPE_BY_LABEL[label] ?? 'draft'
+    return <StatusBadge status={status} label={label} size="small" />
+  }
+
+  return String(value ?? '')
+}
+
+const REVENUE_PROJECT_PAGE_SIZE_OPTIONS = [25, 50, 75, 100] as const
+
+function RevenueProjectListingTable({ rows }: { rows: RevenueProjectListingRow[] }) {
+  const [page, setPage] = useState(0)
+  const [rowsPerPage, setRowsPerPage] = useState(10)
+  const safePage = clampListingPage0Based(page, rows.length, rowsPerPage)
+  const visibleRows = useMemo(
+    () => rows.slice(safePage * rowsPerPage, safePage * rowsPerPage + rowsPerPage),
+    [rows, rowsPerPage, safePage],
+  )
+  const pageCount = Math.max(1, Math.ceil(rows.length / rowsPerPage))
+
+  useEffect(() => {
+    const nextPage = clampListingPage0Based(page, rows.length, rowsPerPage)
+    if (nextPage !== page) setPage(nextPage)
+  }, [page, rows.length, rowsPerPage])
+
+  return (
+    <ChartCard
+      title="Revenue Project Listing"
+      subtitle="Project-wise PO, area, collections, and vendor payment details"
+    >
+      <Box
+        sx={{
+          overflow: 'hidden',
+          border: `1px solid ${tokens.color.neutral[200]}`,
+          borderRadius: 1,
+        }}
+      >
+        <TableContainer sx={{ overflowX: 'auto' }}>
+          <Table
+            size="small"
+            sx={{
+              minWidth: 1280,
+              '& .MuiTableCell-head': {
+                fontSize: 12,
+                fontWeight: 600,
+                color: 'text.secondary',
+                bgcolor: tokens.color.neutral[50],
+                borderBottom: `1px solid ${tokens.color.neutral[200]}`,
+                py: 1.1,
+                px: 1.5,
+                whiteSpace: 'nowrap',
+                lineHeight: 1.35,
+                textAlign: 'left',
+              },
+              '& .MuiTableCell-body': {
+                fontSize: 13,
+                py: 1.15,
+                px: 1.5,
+                borderBottom: `1px solid ${tokens.color.neutral[100]}`,
+                whiteSpace: 'nowrap',
+                color: 'text.primary',
+                textAlign: 'left',
+              },
+            }}
+          >
+            <TableHead>
+              <TableRow>
+                {REVENUE_PROJECT_COLUMNS.map((column) => (
+                  <TableCell
+                    key={column.key}
+                    align="left"
+                    sx={{ width: column.width }}
+                  >
+                    {column.label}
+                  </TableCell>
+                ))}
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {visibleRows.map((row) => (
+                <TableRow key={row.id} hover={false}>
+                  {REVENUE_PROJECT_COLUMNS.map((column) => (
+                    <TableCell key={column.key} align="left">
+                      {renderRevenueProjectCell(row, column)}
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))}
+              {rows.length === 0 ? (
+                <TableRow>
+                  <TableCell
+                    colSpan={REVENUE_PROJECT_COLUMNS.length}
+                    sx={{ py: 4, textAlign: 'center' }}
+                  >
+                    <Typography variant="body2" color="text.secondary">
+                      No revenue projects found.
+                    </Typography>
+                  </TableCell>
+                </TableRow>
+              ) : null}
+            </TableBody>
+          </Table>
+        </TableContainer>
+
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: 1.5,
+            p: '10px 16px',
+            borderTop: `1px solid ${tokens.color.neutral[100]}`,
+          }}
+        >
+          <Typography variant="caption" color="text.secondary">
+            {formatListingShowingLabel(safePage, rowsPerPage, rows.length)}
+          </Typography>
+
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Typography variant="caption" color="text.secondary">
+                Rows per page:
+              </Typography>
+              <MuiSelect
+                size="small"
+                value={rowsPerPage}
+                onChange={(event) => {
+                  setRowsPerPage(Number(event.target.value))
+                  setPage(0)
+                }}
+                sx={{
+                  fontSize: 12,
+                  height: 28,
+                  bgcolor: tokens.color.neutral[50],
+                  borderRadius: '4px',
+                  '& .MuiOutlinedInput-notchedOutline': { border: 'none' },
+                }}
+              >
+                {rowsPerPage === 10 ? (
+                  <MenuItem value={10} sx={{ display: 'none' }}>
+                    10
+                  </MenuItem>
+                ) : null}
+                {REVENUE_PROJECT_PAGE_SIZE_OPTIONS.map((size) => (
+                  <MenuItem key={size} value={size} sx={MENU_ITEM_SX}>
+                    {size}
+                  </MenuItem>
+                ))}
+              </MuiSelect>
+            </Box>
+
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              <IconButton
+                size="small"
+                disabled={safePage === 0}
+                onClick={() => setPage((current) => Math.max(0, current - 1))}
+              >
+                <ChevronLeft size={16} />
+              </IconButton>
+              <Typography variant="caption" color="text.secondary">
+                {safePage + 1} / {pageCount}
+              </Typography>
+              <IconButton
+                size="small"
+                disabled={(safePage + 1) * rowsPerPage >= rows.length}
+                onClick={() =>
+                  setPage((current) =>
+                    clampListingPage0Based(current + 1, rows.length, rowsPerPage),
+                  )
+                }
+              >
+                <ChevronRight size={16} />
+              </IconButton>
+            </Box>
+          </Box>
+        </Box>
+      </Box>
+    </ChartCard>
+  )
+}
+
 
 function SummaryStat({
   label,
@@ -1256,25 +1662,20 @@ export function FinancialRevenueYearSection({
           <SummaryStat label="Total Amount Received" value={analytics.totals.amountReceived} />
         </Grid>
       </Grid>
-
-      <Typography
-        variant="caption"
-        color="text.secondary"
-        sx={{ fontSize: 11, lineHeight: 1.5, display: 'block', mt: 2 }}
-      >
-        {analytics.infoText}
-      </Typography>
     </ChartCard>
   )
 }
 
 
 const MENU_ITEM_SX = { fontSize: 12 } as const
-const REVENUE_PERIOD_SELECT_SX = { minWidth: 180, fontSize: 12, height: 32 } as const
 
-export function RevenueTab() {
-  const [revenuePeriod, setRevenuePeriod] = useState<RevenueTimePeriod>('This Financial Year')
-  const [customRange, setCustomRange] = useState<[Date | null, Date | null]>([null, null])
+export function RevenueTab({
+  dateRange,
+  onDateRangeChange,
+}: {
+  dateRange: DashboardDateRange
+  onDateRangeChange: (range: DashboardDateRange) => void
+}) {
   const [drawerKpi, setDrawerKpi] = useState<RevenueKpi | null>(null)
   const [serverKpis, setServerKpis] = useState<RevenueKpi[] | null>(null)
   const [serverClientVsVendorData, setServerClientVsVendorData] = useState<
@@ -1283,10 +1684,16 @@ export function RevenueTab() {
   const [serverFinancialRevenueYearData, setServerFinancialRevenueYearData] = useState<
     FinancialRevenueYearPoint[] | null
   >(null)
+  const [serverKpiBreakdowns, setServerKpiBreakdowns] =
+    useState<RevenueKpiBreakdowns | null>(null)
+  const [serverRevenueProjects, setServerRevenueProjects] = useState<
+    RevenueProjectListingRow[] | null
+  >(null)
+  const requestParams = useMemo(() => dashboardDateParams(dateRange), [dateRange])
 
   const localRevenueAnalytics = useMemo(
-    () => getRevenueAnalytics(revenuePeriod, customRange),
-    [revenuePeriod, customRange],
+    () => getRevenueAnalytics('Custom Range', dateRange),
+    [dateRange],
   )
   const revenueAnalytics = useMemo(
     () => ({
@@ -1303,7 +1710,7 @@ export function RevenueTab() {
 
     async function loadRevenueKpis() {
       try {
-        const response = await client.get('/dashboard/revenue')
+        const response = await client.get('/dashboard/revenue', { params: requestParams })
         const data = unwrapApiData<RevenueDashboardResponse>(response.data)
         const clientVsVendorChart = data.charts?.find(
           (chart) => chart.id === 'client-revenue-vs-vendor-payments',
@@ -1317,11 +1724,15 @@ export function RevenueTab() {
         setServerFinancialRevenueYearData(
           asFinancialRevenueYearData(financialRevenueYearChart?.data),
         )
+        setServerKpiBreakdowns(asRevenueKpiBreakdowns(data.data?.kpiBreakdowns))
+        setServerRevenueProjects(asRevenueProjectListingRows(data.data?.revenueProjects))
       } catch {
         if (!isMounted) return
         setServerKpis([])
         setServerClientVsVendorData([])
         setServerFinancialRevenueYearData([])
+        setServerKpiBreakdowns({})
+        setServerRevenueProjects([])
       }
     }
 
@@ -1330,7 +1741,7 @@ export function RevenueTab() {
     return () => {
       isMounted = false
     }
-  }, [])
+  }, [requestParams])
 
   return (
     <Box>
@@ -1357,60 +1768,12 @@ export function RevenueTab() {
           </Typography>
         </Box>
 
-        <Box
-          sx={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            gap: 1.5,
-            alignItems: 'flex-end',
-          }}
-        >
-          <Box>
-            <Typography
-              variant="caption"
-              color="text.secondary"
-              fontWeight={600}
-              sx={{
-                display: 'block',
-                fontSize: 10,
-                letterSpacing: 0.5,
-                textTransform: 'uppercase',
-                mb: 0.5,
-              }}
-            >
-              Time Period
-            </Typography>
-            <MuiSelect
-              size="small"
-              value={revenuePeriod}
-              onChange={(e) =>
-                setRevenuePeriod(e.target.value as RevenueTimePeriod)
-              }
-              sx={REVENUE_PERIOD_SELECT_SX}
-            >
-              {REVENUE_TIME_PERIOD_OPTIONS.map((opt) => (
-                <MenuItem key={opt} value={opt} sx={MENU_ITEM_SX}>
-                  {opt}
-                </MenuItem>
-              ))}
-            </MuiSelect>
-          </Box>
-
-          {revenuePeriod === 'Custom Range' ? (
-            <DateRangePicker
-              size="sm"
-              value={customRange}
-              onChange={setCustomRange}
-              startLabel="From"
-              endLabel="To"
-            />
-          ) : null}
-        </Box>
+        <DashboardDateRangeFilter value={dateRange} onChange={onDateRangeChange} />
       </Box>
 
-      <Grid container spacing={2} sx={{ mb: 3 }}>
+      <Grid container spacing={2} columns={{ xs: 1, sm: 2, md: 5 }} sx={{ mb: 3 }}>
         {revenueAnalytics.kpis.map((kpi) => (
-          <Grid key={kpi.id} size={{ xs: 12, sm: 6, md: 4, lg: 3 }}>
+          <Grid key={kpi.id} size={{ xs: 1, sm: 1, md: 1 }}>
             <RevenueKpiCard
               kpi={kpi}
               onClick={
@@ -1427,7 +1790,12 @@ export function RevenueTab() {
         open={!!drawerKpi}
         onClose={() => setDrawerKpi(null)}
         kpi={drawerKpi}
+        rowsByKpi={serverKpiBreakdowns}
       />
+
+      <Box sx={{ mb: 3 }}>
+        <RevenueProjectListingTable rows={serverRevenueProjects ?? []} />
+      </Box>
 
       <Typography
         variant="overline"
@@ -1485,8 +1853,8 @@ export function RevenueTab() {
 
         <Grid size={{ xs: 12 }}>
           <FinancialRevenueYearSection
-            period={revenuePeriod}
-            customRange={customRange}
+            period="Custom Range"
+            customRange={dateRange}
             data={serverFinancialRevenueYearData}
           />
         </Grid>

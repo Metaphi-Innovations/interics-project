@@ -18,7 +18,6 @@ import {
   MenuItem,
   Paper,
   Select as MuiSelect,
-  Skeleton,
   Stack,
   Table,
   TableBody,
@@ -76,14 +75,24 @@ import client from '@/api/client'
 import { unwrapApiData } from '@/modules/system-settings/shared/api'
 import { formatDate } from '@/utils/formatters'
 import { getSectorTagSx } from '@/utils/sectorTagStyles'
+import { DashboardDateRangeFilter } from '../DashboardDateRangeFilter'
+import {
+  dashboardDateParams,
+  type DashboardDateRange,
+} from '../dashboardDateRange'
 
 /**
  * Project Analytics chart data is derived from the real Projects module state.
  */
 
 interface ProjectsDashboardResponse {
+  charts?: Array<{
+    id: string
+    data?: Array<Record<string, unknown>>
+  }>
   data?: {
     projects?: Project[]
+    sectorPerformance?: Array<Record<string, unknown>>
   }
 }
 
@@ -95,6 +104,26 @@ function asDashboardProjects(value: unknown): Project[] {
       typeof project === 'object' &&
       typeof (project as Project).id === 'string',
   )
+}
+
+function asBackendSectorPerformance(value: unknown): SectorPerformanceRow[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((row) => {
+      const record = row && typeof row === 'object' ? (row as Record<string, unknown>) : {}
+      const sector = String(record.sector ?? '').trim()
+      const completedCount = Number(record.completedCount ?? 0)
+      const avgCompletedSqft = Number(record.avgCompletedSqft ?? 0)
+      const safeCompletedCount = Number.isFinite(completedCount) ? completedCount : 0
+      const safeAvgCompletedSqft = Number.isFinite(avgCompletedSqft) ? avgCompletedSqft : 0
+      if (!sector || safeCompletedCount <= 0) return null
+      return {
+        sector,
+        completedCount: safeCompletedCount,
+        avgCompletedSqft: safeAvgCompletedSqft,
+      }
+    })
+    .filter((row): row is SectorPerformanceRow => Boolean(row))
 }
 
 interface MonthlyPitchesVsLivePoint {
@@ -302,6 +331,14 @@ function projectSqft(project: Project): number | null {
 
 function formatCompactNumber(value: number): string {
   return Math.round(value).toLocaleString('en-IN')
+}
+
+function formatProjectFinancialMoney(value: number): string {
+  const amount = Math.round(value)
+  const symbol = String.fromCharCode(8377)
+  if (amount >= 10_000_000) return formatProjectMoney(value)
+  if (amount >= 100_000) return `${symbol}${(amount / 100_000).toFixed(2)} L`
+  return formatProjectMoney(value)
 }
 
 function formatProjectMoney(value: number): string {
@@ -701,12 +738,33 @@ function buildProjectLifecycleData(projects: Project[]): {
     const sqft = projectSqft(p) ?? 0
     const projEvents: LifecycleEvent[] = []
 
-    const pitchDate = parseDate(p.createdAt)
-    const liveDate =
-      p.status !== 'Pitch' && p.startDate ? parseDate(p.startDate) : null
+    const createdDate = parseDate(p.createdAt)
+    const liveDate = parseDate(p.wentLiveAt) ?? (p.status !== 'Pitch' ? parseDate(p.startDate) : null)
     const isTerminal = (['Completed', 'Cancelled', 'Archived'] as const).includes(
       p.status as 'Completed' | 'Cancelled' | 'Archived',
     )
+    const terminalDate =
+      p.status === 'Completed'
+        ? parseDate(p.completedAt) ?? parseDate(p.expectedEndDate)
+        : p.status === 'Cancelled'
+          ? parseDate(p.cancelledAt) ?? parseDate(p.expectedEndDate)
+          : p.status === 'Archived'
+            ? parseDate(p.archivedAt) ?? parseDate(p.expectedEndDate)
+            : null
+
+    const createEvent = (eventType: LifecycleEventType, date: Date): LifecycleEvent => ({
+      id: `${p.id}-${eventType.toLowerCase()}`,
+      projectId: p.id,
+      projectName: p.name,
+      eventType,
+      date: date.getTime(),
+      dateLabel: date.toLocaleDateString('en-GB', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+      }),
+      sqft,
+    })
 
     /**
      * Pitch only when the project actually had a pitch period:
@@ -715,79 +773,29 @@ function buildProjectLifecycleData(projects: Project[]): {
      * Direct-to-Live / terminal-only projects never get a fabricated Pitch.
      */
     const hasPitchStage =
-      pitchDate != null &&
+      createdDate != null &&
       (p.status === 'Pitch' ||
-        (liveDate != null && pitchDate.getTime() < liveDate.getTime()))
+        (liveDate != null && createdDate.getTime() <= liveDate.getTime()) ||
+        (terminalDate != null && createdDate.getTime() <= terminalDate.getTime()))
 
-    if (hasPitchStage && pitchDate) {
-      projEvents.push({
-        id: `${p.id}-pitch`,
-        projectId: p.id,
-        projectName: p.name,
-        eventType: 'Pitch',
-        date: pitchDate.getTime(),
-        dateLabel: pitchDate.toLocaleDateString('en-GB', {
-          day: 'numeric',
-          month: 'short',
-          year: 'numeric',
-        }),
-        sqft,
-      })
+    if (hasPitchStage && createdDate) {
+      projEvents.push(createEvent('Pitch', createdDate))
     }
 
     if (liveDate) {
-      projEvents.push({
-        id: `${p.id}-live`,
-        projectId: p.id,
-        projectName: p.name,
-        eventType: 'Live',
-        date: liveDate.getTime(),
-        dateLabel: liveDate.toLocaleDateString('en-GB', {
-          day: 'numeric',
-          month: 'short',
-          year: 'numeric',
-        }),
-        sqft,
-      })
+      projEvents.push(createEvent('Live', liveDate))
     }
 
     // End event (Completed, Cancelled, Archived) — only when that status is real
-    if (isTerminal && p.expectedEndDate) {
-      const endDate = parseDate(p.expectedEndDate)
-      if (endDate) {
-        const priorTs = liveDate?.getTime() ?? (hasPitchStage ? pitchDate!.getTime() : null)
+    if (isTerminal) {
+      const stageDate = terminalDate ?? (!liveDate && !hasPitchStage ? createdDate : null)
+      if (stageDate) {
+        const priorTs = liveDate?.getTime() ?? (hasPitchStage ? createdDate!.getTime() : null)
         // Allow terminal-only bars when there is no prior stage in history
-        if (priorTs == null || endDate.getTime() >= priorTs) {
-          projEvents.push({
-            id: `${p.id}-${p.status.toLowerCase()}`,
-            projectId: p.id,
-            projectName: p.name,
-            eventType: p.status as LifecycleEventType,
-            date: endDate.getTime(),
-            dateLabel: endDate.toLocaleDateString('en-GB', {
-              day: 'numeric',
-              month: 'short',
-              year: 'numeric',
-            }),
-            sqft,
-          })
+        if (priorTs == null || stageDate.getTime() >= priorTs) {
+          projEvents.push(createEvent(p.status as LifecycleEventType, stageDate))
         }
       }
-    } else if (isTerminal && !p.expectedEndDate && !liveDate && !hasPitchStage && pitchDate) {
-      // Terminal with no end/live dates: use createdAt as the stage date (no fake Pitch/Live)
-      projEvents.push({
-        id: `${p.id}-${p.status.toLowerCase()}`,
-        projectId: p.id,
-        projectName: p.name,
-        eventType: p.status as LifecycleEventType,
-        date: pitchDate.getTime(),
-        dateLabel: pitchDate.toLocaleDateString('en-GB', {
-          day: 'numeric',
-          month: 'short',
-          year: 'numeric',
-        }),
-        sqft,
-      })
     }
 
     if (projEvents.length > 0) {
@@ -1080,9 +1088,8 @@ function sectorColor(sector: string, index = 0): string {
 }
 
 /**
- * Completed-projects-only sector metrics.
- * `completedCount` and `avgCompletedSqft` must never include Pitch / Live /
- * Cancelled / Archived projects.
+ * Completed-project sector metrics.
+ * `completedCount` and `avgCompletedSqft` include completed projects only.
  */
 interface SectorPerformanceRow {
   sector: string
@@ -1103,14 +1110,16 @@ function buildSectorPerformance(projects: Project[]): SectorPerformanceRow[] {
     grouped.set(sector, row)
   }
 
-  return Array.from(grouped.entries()).map(([sector, row]) => ({
-    sector,
-    completedCount: row.completedCount,
-    avgCompletedSqft:
-      row.sqft.length > 0
-        ? Math.round(row.sqft.reduce((sum, sqft) => sum + sqft, 0) / row.sqft.length)
-        : 0,
-  }))
+  return Array.from(grouped.entries())
+    .map(([sector, row]) => ({
+      sector,
+      completedCount: row.completedCount,
+      avgCompletedSqft:
+        row.sqft.length > 0
+          ? Math.round(row.sqft.reduce((sum, sqft) => sum + sqft, 0) / row.sqft.length)
+          : 0,
+    }))
+    .filter((row) => row.completedCount > 0)
 }
 
 function sectorFilterLimit(filter: SectorFilterValue, total: number): number {
@@ -1150,7 +1159,6 @@ function buildDesignVsBuildData(projects: Project[]): DonutSlice[] {
 interface SectorPerformanceChartRow {
   sector: string
   value: number
-  plotValue: number
   completedCount: number
   avgCompletedSqft: number
   color: string
@@ -1161,20 +1169,20 @@ function buildSectorPerformanceChartData(
   projects: Project[],
   filter: SectorFilterValue,
   metric: SectorPerformanceMetric,
+  backendRows: SectorPerformanceRow[] = [],
 ): SectorPerformanceChartRow[] {
-  const sorted = buildSectorPerformance(projects).sort(
+  const sourceRows = backendRows.length > 0 ? backendRows : buildSectorPerformance(projects)
+  const metricRows = sourceRows.filter((row) => row[metric] > 0)
+  const sorted = [...metricRows].sort(
     (a, b) => b[metric] - a[metric] || a.sector.localeCompare(b.sector),
   )
   const limited = sorted.slice(0, sectorFilterLimit(filter, sorted.length))
-  const maxValue = Math.max(...limited.map((row) => row[metric]), 0)
-  const zeroPlotValue = maxValue > 0 ? maxValue * 0.015 : 1
 
   return limited.map((row, index) => {
     const value = row[metric]
     return {
       sector: row.sector,
       value,
-      plotValue: value > 0 ? value : zeroPlotValue,
       completedCount: row.completedCount,
       avgCompletedSqft: row.avgCompletedSqft,
       color: sectorColor(row.sector, index),
@@ -1187,6 +1195,24 @@ function getSectorPerformanceMetricMeta(metric: SectorPerformanceMetric) {
     SECTOR_PERFORMANCE_METRIC_OPTIONS.find((o) => o.value === metric) ??
     SECTOR_PERFORMANCE_METRIC_OPTIONS[0]
   )
+}
+
+function sectorPerformanceAxisStep(metric: SectorPerformanceMetric): number {
+  return metric === 'avgCompletedSqft' ? 5000 : 5
+}
+
+function buildSectorPerformanceAxis(
+  data: SectorPerformanceChartRow[],
+  metric: SectorPerformanceMetric,
+): { domainMax: number; ticks: number[] } {
+  const step = sectorPerformanceAxisStep(metric)
+  const maxValue = Math.max(...data.map((row) => row.value), 0)
+  const domainMax = Math.max(step, Math.ceil(maxValue / step) * step)
+  const ticks: number[] = []
+  for (let tick = 0; tick <= domainMax; tick += step) {
+    ticks.push(tick)
+  }
+  return { domainMax, ticks }
 }
 
 /**
@@ -1222,7 +1248,8 @@ interface DesignFinancialKpi {
 
 /** One fee category for the Fee per Sq.ft chart (data-driven; extras appear automatically). */
 interface DesignFeePerSqftRow {
-  service: string
+  category: string
+  clientPOAmount: number
   feePerSqft: number
 }
 
@@ -1249,40 +1276,40 @@ function financialSummary(
       id: 'total-value',
       title: 'Total Project Value',
       value: totalValue,
-      subtitle: 'Agreed contract value for this project.',
+      subtitle: 'Total client PO value for this project.',
       icon: 'value',
     },
     {
       id: 'vendors-payable',
       title: 'Vendors Payable',
       value: vendorsPayable,
-      subtitle: 'Outstanding amount due to vendors.',
+      subtitle: 'Total vendor PO amount for this project.',
       icon: 'payable',
     },
     {
       id: 'profit-pct',
       title: 'Profit Percentage',
       value: profitPct,
-      subtitle: 'Estimated profit margin on design scope.',
+      subtitle: 'Client PO minus vendor paid, divided by client PO.',
       icon: 'profit',
     },
     {
       id: 'total-design-fee',
       title: 'Total Design Fee',
       value: designFee,
-      subtitle: 'Sum of design-related fees for this project.',
+      subtitle: 'Total Design Services client PO value.',
       icon: 'fee',
     },
   ]
 }
 
-/** Default fee categories shown for every project (additional rows may be appended). */
-export const DEFAULT_FEE_CATEGORIES = ['Design', 'Build', 'Consultancy'] as const
-
 const FEE_CATEGORY_COLORS: Record<string, string> = {
   Design: CHART_COLORS.teal,
   Build: CHART_COLORS.amber,
   Consultancy: CHART_COLORS.blue,
+  'Build Services': CHART_COLORS.teal,
+  'Design & Diligence': CHART_COLORS.blue,
+  Expenses: CHART_COLORS.orange,
 }
 
 const EXTRA_FEE_CATEGORY_COLORS = [
@@ -1300,24 +1327,6 @@ function feeCategoryColor(category: string, index: number): string {
   )
 }
 
-/**
- * Core fee categories plus any future extras.
- * Additional categories passed in `extras` appear automatically on the chart.
- */
-function feePerSqft(
-  design: number,
-  build: number,
-  consultancy: number,
-  extras: DesignFeePerSqftRow[] = [],
-): DesignFeePerSqftRow[] {
-  return [
-    { service: 'Design', feePerSqft: design },
-    { service: 'Build', feePerSqft: build },
-    { service: 'Consultancy', feePerSqft: consultancy },
-    ...extras,
-  ]
-}
-
 function duration(planned: number, actual: number): DesignDurationRow[] {
   return [
     { label: 'Planned Duration', days: planned },
@@ -1326,19 +1335,31 @@ function duration(planned: number, actual: number): DesignDurationRow[] {
 }
 
 function projectValue(project: Project): number {
-  return project.totalClientPOValue || project.projectValue || 0
+  return project.totalClientPOValue ?? project.projectValue ?? 0
 }
 
 function projectDesignFee(project: Project): number {
+  if (project.totalDesignServiceValue != null) return project.totalDesignServiceValue
   const sqft = projectSqft(project) ?? 0
   return project.designFeePerSqft ? Math.round(project.designFeePerSqft * sqft) : 0
 }
 
 function projectProfitPercent(project: Project): string {
-  const value = projectValue(project)
-  const vendorValue = project.totalVendorPOValue || 0
-  if (value <= 0) return '0%'
-  return `${Math.round(((value - vendorValue) / value) * 1000) / 10}%`
+  const clientPoAmount = projectValue(project)
+  const vendorPaid = project.paidVendorAmount || 0
+  if (clientPoAmount <= 0) return '0%'
+  return `${Math.round(((clientPoAmount - vendorPaid) / clientPoAmount) * 1000) / 10}%`
+}
+
+function projectFeePerSqft(project: Project, area: number): DesignFeePerSqftRow[] {
+  return (project.feePerSqftCategories ?? []).map((row) => {
+    const clientPOAmount = Number(row.clientPOAmount ?? 0)
+    return {
+      category: row.category,
+      clientPOAmount,
+      feePerSqft: area > 0 ? clientPOAmount / area : 0,
+    }
+  })
 }
 
 function buildDesignProjectAnalytics(project: Project): DesignProjectAnalytics {
@@ -1375,25 +1396,19 @@ function buildDesignProjectAnalytics(project: Project): DesignProjectAnalytics {
       projectManager: project.projectManager || '—',
     },
     financialSummary: financialSummary(
-      formatProjectMoney(projectValue(project)),
-      formatProjectMoney(project.totalVendorPOValue || 0),
+      formatProjectFinancialMoney(projectValue(project)),
+      formatProjectFinancialMoney(project.totalVendorPOValue || 0),
       projectProfitPercent(project),
-      formatProjectMoney(projectDesignFee(project)),
+      formatProjectFinancialMoney(projectDesignFee(project)),
     ),
-    feePerSqft: feePerSqft(
-      project.designFeePerSqft ?? 0,
-      project.buildValuePerSqft ?? 0,
-      project.designFeePerSqftLevel2 ?? 0,
-      project.buildValuePerSqftLevel2
-        ? [{ service: 'Build Level 2', feePerSqft: project.buildValuePerSqftLevel2 }]
-        : [],
-    ),
+    feePerSqft: projectFeePerSqft(project, sqft),
     duration: duration(plannedDays, actualDays),
   }
 }
 
 interface FeePerSqftChartRow {
   category: string
+  clientPOAmount: number
   feePerSqft: number
   color: string
 }
@@ -1403,11 +1418,12 @@ function buildFeePerSqftChartData(
   rows: readonly DesignFeePerSqftRow[],
 ): FeePerSqftChartRow[] {
   return rows
-    .filter((r) => r.service.trim().length > 0 && r.feePerSqft > 0)
+    .filter((r) => r.category.trim().length > 0)
     .map((r, index) => ({
-      category: r.service,
+      category: r.category,
+      clientPOAmount: r.clientPOAmount,
       feePerSqft: r.feePerSqft,
-      color: feeCategoryColor(r.service, index),
+      color: feeCategoryColor(r.category, index),
     }))
 }
 
@@ -1947,6 +1963,7 @@ interface ProjectsOverviewSectionProps {
   clientFilter?: string
   statusFilter?: string
   pmFilter?: string
+  action?: ReactNode
 }
 
 function ProjectsOverviewSection({
@@ -1955,6 +1972,7 @@ function ProjectsOverviewSection({
   clientFilter = 'All Clients',
   statusFilter = 'All Status',
   pmFilter = 'All Managers',
+  action,
 }: ProjectsOverviewSectionProps) {
   const dispatch = useAppDispatch()
   const sectors = useAppSelector((s) => s.settings.sectors)
@@ -1996,13 +2014,26 @@ function ProjectsOverviewSection({
 
   return (
     <Box sx={{ mb: 3 }}>
-      <Box sx={{ mb: 1.5 }}>
-        <Typography variant="h6" fontWeight={700} sx={{ fontSize: 16 }}>
-          Projects Overview
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12, mt: 0.25 }}>
-          High-level overview of all projects across the portfolio.
-        </Typography>
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'flex-start',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: 1.5,
+          mb: 1.5,
+        }}
+      >
+        <Box>
+          <Typography variant="h6" fontWeight={700} sx={{ fontSize: 16 }}>
+            Projects Overview
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12, mt: 0.25 }}>
+            High-level overview of all projects across the portfolio.
+          </Typography>
+        </Box>
+
+        {action}
       </Box>
 
       <Grid container spacing={2} sx={{ mb: 2.5 }}>
@@ -2176,9 +2207,8 @@ const LEGEND_ITEMS = [
   { label: 'Archived', color: CHART_COLORS.orange },
 ] as const
 
-/** FY month labels shown on the X-axis (Mar → Apr, no years). */
+/** FY month labels shown on the X-axis (Apr -> Mar, no years). */
 const FY_MONTH_SPECS: { month: number; yearOffset: number }[] = [
-  { month: 2, yearOffset: 0 },  // Mar
   { month: 3, yearOffset: 0 },  // Apr
   { month: 4, yearOffset: 0 },  // May
   { month: 5, yearOffset: 0 },  // Jun
@@ -2191,7 +2221,6 @@ const FY_MONTH_SPECS: { month: number; yearOffset: number }[] = [
   { month: 0, yearOffset: 1 },  // Jan
   { month: 1, yearOffset: 1 },  // Feb
   { month: 2, yearOffset: 1 },  // Mar
-  { month: 3, yearOffset: 1 },  // Apr
 ]
 
 const MONTH_SHORT = [
@@ -2222,8 +2251,8 @@ function resolveFyStartYear(refTs: number): number {
   const ref = new Date(refTs)
   const month = ref.getMonth()
   const year = ref.getFullYear()
-  // Window Mar Y → Apr Y+1. May–Dec belong to Y; Jan–Apr belong to Y-1.
-  return month >= 4 ? year : year - 1
+  // Financial year is Apr Y -> Mar Y+1.
+  return month >= 3 ? year : year - 1
 }
 
 function buildFyAxis(refTs: number): {
@@ -2237,7 +2266,7 @@ function buildFyAxis(refTs: number): {
     return { ts, label: MONTH_SHORT[month]! }
   })
   const domainStart = ticks[0]!.ts
-  // End of final April
+  // End of final financial-year month.
   const last = FY_MONTH_SPECS[FY_MONTH_SPECS.length - 1]!
   const domainEnd = new Date(
     startYear + last.yearOffset,
@@ -2277,38 +2306,6 @@ function buildLifecycleSegments(
     }
     return { event, start, end }
   })
-}
-
-/**
- * Shift each project's timeline so its first real stage begins at the plot
- * left edge (domainStart). Durations between stages are preserved; calendar
- * offsets that would leave empty space before the bar are removed.
- */
-function alignSegmentsToPlotLeft(
-  segments: LifecycleSegment[],
-  domainStart: number,
-  domainEnd: number,
-): LifecycleSegment[] {
-  if (segments.length === 0) return []
-  const origin = segments[0]!.start
-  const aligned: LifecycleSegment[] = []
-
-  for (let i = 0; i < segments.length; i++) {
-    const seg = segments[i]!
-    const start = domainStart + (seg.start - origin)
-    const end = domainStart + (seg.end - origin)
-    if (start >= domainEnd) break
-    aligned.push({
-      event: seg.event,
-      start: i === 0 ? domainStart : Math.max(start, domainStart),
-      end: Math.min(Math.max(end, start + 1), domainEnd),
-    })
-  }
-
-  if (aligned[0]) {
-    aligned[0] = { ...aligned[0], start: domainStart }
-  }
-  return aligned.filter((s) => s.end > s.start)
 }
 
 /** SVG path for a rect with per-corner radii. */
@@ -2516,11 +2513,13 @@ function LifecycleChart({
           const nameLines = wrapProjectName(line.projectName)
           const nameBlockHeight = nameLines.length * 14
           const nameStartY = rowTop + (ROW_HEIGHT - nameBlockHeight) / 2 + 11
-          const segments = alignSegmentsToPlotLeft(
-            buildLifecycleSegments(line.events, now),
-            domainStart,
-            domainEnd,
-          )
+          const segments = buildLifecycleSegments(line.events, now)
+            .map((seg) => ({
+              ...seg,
+              start: Math.max(seg.start, domainStart),
+              end: Math.min(seg.end, domainEnd),
+            }))
+            .filter((seg) => seg.end > seg.start)
 
           return (
             <g key={line.projectId}>
@@ -2541,17 +2540,14 @@ function LifecycleChart({
               {segments.map((seg, segIdx) => {
                 const isFirst = segIdx === 0
                 const isLast = segIdx === segments.length - 1
-                // First segment is locked to the plot left edge — never indented.
-                let x = isFirst ? SVG_LEFT_MARGIN : dateToX(seg.start)
-                let w = dateToX(seg.end) - (isFirst ? SVG_LEFT_MARGIN : dateToX(seg.start))
+                let x = dateToX(seg.start)
+                let w = dateToX(seg.end) - x
                 if (w < MIN_SEGMENT_PX) {
                   w = MIN_SEGMENT_PX
-                  if (!isFirst && x + w > svgWidth - SVG_RIGHT_MARGIN) {
+                  if (x + w > svgWidth - SVG_RIGHT_MARGIN) {
                     x = svgWidth - SVG_RIGHT_MARGIN - w
                   }
                 }
-                // Keep first segment flush left even after min-width bump
-                if (isFirst) x = SVG_LEFT_MARGIN
                 const path = roundedRectPath(x, barY, w, BAR_HEIGHT, {
                   tl: isFirst ? BAR_RADIUS : 0,
                   bl: isFirst ? BAR_RADIUS : 0,
@@ -2911,7 +2907,10 @@ function SectorPerformanceTooltip({
         boxShadow: tokens.shadow.sm,
         px: 1.5,
         py: 1,
+        width: 'max-content',
         minWidth: 160,
+        maxWidth: 360,
+        whiteSpace: 'nowrap',
       }}
     >
       <Typography variant="caption" fontWeight={600} sx={{ fontSize: 12, display: 'block' }}>
@@ -2943,7 +2942,7 @@ function SectorPerformanceChart({
   const pxPerRow = ct.isMobile ? 34 : 38
   const sizedHeight = Math.max(height, data.length * pxPerRow + 56)
   const h = ct.isMobile ? Math.round(sizedHeight * 0.92) : sizedHeight
-  const maxPlotValue = Math.max(...data.map((row) => row.plotValue), 0)
+  const axis = buildSectorPerformanceAxis(data, metric)
   const formatX =
     metric === 'avgCompletedSqft'
       ? (v: number | string) => {
@@ -2977,7 +2976,9 @@ function SectorPerformanceChart({
           />
           <XAxis
             type="number"
-            domain={[0, Math.max(1, Math.ceil(maxPlotValue))]}
+            domain={[0, axis.domainMax]}
+            ticks={axis.ticks}
+            allowDecimals={metric !== 'completedCount'}
             tick={ct.axisStyle}
             tickLine={false}
             axisLine={{ stroke: ct.gridProps.stroke }}
@@ -3019,6 +3020,9 @@ function SectorPerformanceChart({
             isAnimationActive={false}
             animationDuration={0}
             content={(props) => <SectorPerformanceTooltip {...props} metric={metric} />}
+            allowEscapeViewBox={{ x: true, y: true }}
+            offset={12}
+            wrapperStyle={ct.tooltipWrapperStyle}
             cursor={{
               fill: ct.theme.palette.action.hover,
               stroke: 'none',
@@ -3026,11 +3030,10 @@ function SectorPerformanceChart({
             }}
           />
           <Bar
-            dataKey="plotValue"
+            dataKey="value"
             name={xAxisLabel}
             radius={[0, 8, 8, 0]}
             maxBarSize={22}
-            minPointSize={6}
             isAnimationActive={false}
             activeBar={false}
           >
@@ -3055,16 +3058,32 @@ function SectorPerformanceChart({
   )
 }
 
-function SectorAnalyticsSection({ projects }: { projects: Project[] }) {
+function SectorAnalyticsSection({
+  projects,
+  backendSectorPerformance,
+}: {
+  projects: Project[]
+  backendSectorPerformance?: SectorPerformanceRow[]
+}) {
   const [performanceFilter, setPerformanceFilter] = useState<SectorFilterValue>('top5')
   const [performanceMetric, setPerformanceMetric] =
     useState<SectorPerformanceMetric>('completedCount')
 
   const performanceData = useMemo(
-    () => buildSectorPerformanceChartData(projects, performanceFilter, performanceMetric),
-    [projects, performanceFilter, performanceMetric],
+    () =>
+      buildSectorPerformanceChartData(
+        projects,
+        performanceFilter,
+        performanceMetric,
+        backendSectorPerformance,
+      ),
+    [projects, performanceFilter, performanceMetric, backendSectorPerformance],
   )
   const performanceMeta = getSectorPerformanceMetricMeta(performanceMetric)
+  const emptyPerformanceMessage =
+    performanceMetric === 'completedCount'
+      ? 'No completed projects found for sector performance.'
+      : 'No project area data found for sector performance.'
 
   return (
     <Box sx={{ mb: 3 }}>
@@ -3132,20 +3151,32 @@ function SectorAnalyticsSection({ projects }: { projects: Project[] }) {
               </Box>
             }
           >
-            <SectorPerformanceChart
-              data={performanceData}
-              metric={performanceMetric}
-              xAxisLabel={performanceMeta.xAxisLabel}
-              height={300}
-            />
-            <Box sx={{ display: 'flex', justifyContent: 'center', mt: 1.5 }}>
-              <ChartSeriesLegend
-                items={performanceData.map((row) => ({
-                  label: row.sector,
-                  color: row.color,
-                }))}
-              />
-            </Box>
+            {performanceData.length === 0 ? (
+              <Typography
+                variant="body2"
+                color="text.secondary"
+                sx={{ fontSize: 12, py: 8, textAlign: 'center' }}
+              >
+                {emptyPerformanceMessage}
+              </Typography>
+            ) : (
+              <>
+                <SectorPerformanceChart
+                  data={performanceData}
+                  metric={performanceMetric}
+                  xAxisLabel={performanceMeta.xAxisLabel}
+                  height={300}
+                />
+                <Box sx={{ display: 'flex', justifyContent: 'center', mt: 1.5 }}>
+                  <ChartSeriesLegend
+                    items={performanceData.map((row) => ({
+                      label: row.sector,
+                      color: row.color,
+                    }))}
+                  />
+                </Box>
+              </>
+            )}
           </ChartCard>
         </Grid>
       </Grid>
@@ -3176,8 +3207,6 @@ const FINANCIAL_ICON_MAP: Record<DesignFinancialIcon, { node: ReactNode; color: 
     color: CHART_COLORS.blue,
   },
 }
-
-const PROJECT_SWITCH_DELAY_MS = 320
 
 const DESIGN_AUTOCOMPLETE_SX = {
   minWidth: { xs: '100%', sm: 240 },
@@ -3338,30 +3367,6 @@ function DesignKpiCard({
   )
 }
 
-function ProjectDetailsSkeleton() {
-  return (
-    <Box
-      sx={{
-        display: 'grid',
-        gridTemplateColumns: {
-          xs: '1fr',
-          sm: 'repeat(2, 1fr)',
-          md: 'repeat(3, 1fr)',
-        },
-        columnGap: 3,
-        rowGap: 2,
-      }}
-    >
-      {Array.from({ length: 6 }).map((_, i) => (
-        <Box key={i}>
-          <Skeleton width={72} height={12} sx={{ mb: 0.75 }} />
-          <Skeleton width="70%" height={18} />
-        </Box>
-      ))}
-    </Box>
-  )
-}
-
 function FeePerSqftTooltip({
   active,
   payload,
@@ -3384,7 +3389,10 @@ function FeePerSqftTooltip({
         boxShadow: tokens.shadow.sm,
         px: 1.5,
         py: 1,
+        width: 'max-content',
         minWidth: 180,
+        maxWidth: 360,
+        whiteSpace: 'nowrap',
       }}
     >
       <Typography variant="caption" sx={{ fontSize: 12, display: 'block', mb: 0.25 }}>
@@ -3483,6 +3491,9 @@ function FeePerSqftCategoryChart({
             content={(props) => (
               <FeePerSqftTooltip {...props} projectName={projectName} />
             )}
+            allowEscapeViewBox={{ x: true, y: true }}
+            offset={12}
+            wrapperStyle={ct.tooltipWrapperStyle}
             cursor={{
               fill: ct.theme.palette.action.hover,
               stroke: 'none',
@@ -3509,9 +3520,6 @@ function FeePerSqftCategoryChart({
 
 function ProjectDesignAnalyticsSection({ projects }: { projects: Project[] }) {
   const [projectId, setProjectId] = useState<DesignProjectId>('')
-  const [pendingId, setPendingId] = useState<DesignProjectId | null>(null)
-  const [loading, setLoading] = useState(false)
-  const switchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const projectOptions = useMemo<DesignProjectOption[]>(
     () =>
@@ -3524,11 +3532,9 @@ function ProjectDesignAnalyticsSection({ projects }: { projects: Project[] }) {
     [projects],
   )
 
-  const selectorId = pendingId ?? projectId
-
   const selectedOption = useMemo(
-    () => projectOptions.find((o) => o.id === selectorId) ?? projectOptions[0] ?? null,
-    [projectOptions, selectorId],
+    () => projectOptions.find((o) => o.id === projectId) ?? projectOptions[0] ?? null,
+    [projectOptions, projectId],
   )
 
   useEffect(() => {
@@ -3577,32 +3583,12 @@ function ProjectDesignAnalyticsSection({ projects }: { projects: Project[] }) {
     [analytics],
   )
 
-  useEffect(() => {
-    return () => {
-      if (switchTimerRef.current != null) {
-        clearTimeout(switchTimerRef.current)
-      }
-    }
-  }, [])
-
   const handleProjectChange = (
     _event: SyntheticEvent,
     value: DesignProjectOption | null,
   ) => {
-    if (value == null || value.id === selectorId) return
-
-    if (switchTimerRef.current != null) {
-      clearTimeout(switchTimerRef.current)
-    }
-
-    setPendingId(value.id)
-    setLoading(true)
-    switchTimerRef.current = setTimeout(() => {
-      setProjectId(value.id)
-      setPendingId(null)
-      setLoading(false)
-      switchTimerRef.current = null
-    }, PROJECT_SWITCH_DELAY_MS)
+    if (value == null || value.id === projectId) return
+    setProjectId(value.id)
   }
 
   if (!analytics) {
@@ -3703,15 +3689,8 @@ function ProjectDesignAnalyticsSection({ projects }: { projects: Project[] }) {
         </Box>
       </Box>
 
-      <Fade in key={projectId} timeout={280}>
-        <Stack
-          spacing={2}
-          sx={{
-            opacity: loading ? 0.55 : 1,
-            transition: 'opacity 0.2s ease',
-            pointerEvents: loading ? 'none' : 'auto',
-          }}
-        >
+      <Fade in key={selectedProject?.id ?? 'selected-project'} timeout={280}>
+        <Stack spacing={2}>
           {/* Section 1 — Project Details */}
           <Paper
             elevation={0}
@@ -3724,26 +3703,22 @@ function ProjectDesignAnalyticsSection({ projects }: { projects: Project[] }) {
             }}
           >
             <SectionLabel title="Project Details" />
-            {loading ? (
-              <ProjectDetailsSkeleton />
-            ) : (
-              <Box
-                sx={{
-                  display: 'grid',
-                  gridTemplateColumns: {
-                    xs: '1fr',
-                    sm: 'repeat(2, 1fr)',
-                    md: 'repeat(3, 1fr)',
-                  },
-                  columnGap: 3,
-                  rowGap: 2,
-                }}
-              >
-                {detailFields.map((field) => (
-                  <DetailField key={field.label} label={field.label} value={field.value} />
-                ))}
-              </Box>
-            )}
+            <Box
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: {
+                  xs: '1fr',
+                  sm: 'repeat(2, 1fr)',
+                  md: 'repeat(3, 1fr)',
+                },
+                columnGap: 3,
+                rowGap: 2,
+              }}
+            >
+              {detailFields.map((field) => (
+                <DetailField key={field.label} label={field.label} value={field.value} />
+              ))}
+            </Box>
           </Paper>
 
           {/* Section 2 — Financial Summary (4 KPIs) */}
@@ -3754,21 +3729,13 @@ function ProjectDesignAnalyticsSection({ projects }: { projects: Project[] }) {
                 const iconMeta = FINANCIAL_ICON_MAP[kpi.icon]
                 return (
                   <Grid key={kpi.id} size={{ xs: 12, sm: 6, lg: 3 }}>
-                    {loading ? (
-                      <Skeleton
-                        variant="rounded"
-                        height={120}
-                        sx={{ borderRadius: '10px' }}
-                      />
-                    ) : (
-                      <DesignKpiCard
-                        icon={iconMeta.node}
-                        iconColor={iconMeta.color}
-                        title={kpi.title}
-                        value={kpi.value}
-                        subtitle={kpi.subtitle}
-                      />
-                    )}
+                    <DesignKpiCard
+                      icon={iconMeta.node}
+                      iconColor={iconMeta.color}
+                      title={kpi.title}
+                      value={kpi.value}
+                      subtitle={kpi.subtitle}
+                    />
                   </Grid>
                 )
               })}
@@ -3804,31 +3771,36 @@ function ProjectDesignAnalyticsSection({ projects }: { projects: Project[] }) {
   )
 }
 
-export function ProjectsTab() {
+export function ProjectsTab({
+  dateRange,
+  onDateRangeChange,
+}: {
+  dateRange: DashboardDateRange
+  onDateRangeChange: (range: DashboardDateRange) => void
+}) {
   const dispatch = useAppDispatch()
   const fallbackProjects = useAppSelector((s) => s.projects.items ?? [])
   const [dashboardProjects, setDashboardProjects] = useState<Project[] | null>(null)
+  const [backendSectorPerformance, setBackendSectorPerformance] = useState<SectorPerformanceRow[]>([])
+  const requestParams = useMemo(() => dashboardDateParams(dateRange), [dateRange])
 
   const loadProjectsDashboard = useCallback(
     async (isActive: () => boolean) => {
       try {
-        const response = await client.get('/dashboard/projects')
+        const response = await client.get('/dashboard/projects', { params: requestParams })
         const data = unwrapApiData<ProjectsDashboardResponse>(response.data)
         if (!isActive()) return
         const projects = asDashboardProjects(data.data?.projects)
-        if (projects.length === 0) {
-          setDashboardProjects(null)
-          void dispatch(fetchProjects({ page: 1, pageSize: 500 }))
-          return
-        }
+        setBackendSectorPerformance(asBackendSectorPerformance(data.data?.sectorPerformance))
         setDashboardProjects(projects)
       } catch {
         if (!isActive()) return
         setDashboardProjects(null)
+        setBackendSectorPerformance([])
         void dispatch(fetchProjects({ page: 1, pageSize: 500 }))
       }
     },
-    [dispatch],
+    [dispatch, requestParams],
   )
 
   useEffect(() => {
@@ -3861,9 +3833,17 @@ export function ProjectsTab() {
 
   return (
     <Box>
-      <ProjectsOverviewSection projects={projects} />
+      <ProjectsOverviewSection
+        projects={projects}
+        action={
+          <DashboardDateRangeFilter value={dateRange} onChange={onDateRangeChange} />
+        }
+      />
       <ProjectAnalyticsSection projects={projects} />
-      <SectorAnalyticsSection projects={projects} />
+      <SectorAnalyticsSection
+        projects={projects}
+        backendSectorPerformance={backendSectorPerformance}
+      />
       <ProjectDesignAnalyticsSection projects={projects} />
     </Box>
   )

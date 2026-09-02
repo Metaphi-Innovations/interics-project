@@ -45,6 +45,11 @@ export default function SparkLine({
         {showTooltip && (
           <Tooltip
             contentStyle={ct.tooltipStyle}
+            isAnimationActive={false}
+            animationDuration={0}
+            allowEscapeViewBox={{ x: true, y: true }}
+            offset={12}
+            wrapperStyle={ct.tooltipWrapperStyle}
             itemStyle={{ color: ct.theme.palette.text.primary, fontSize: 11 }}
             formatter={(v: any) => [v, '']}
           />

@@ -31,6 +31,15 @@ export function useChartTheme() {
     fontSize:        12,
     fontFamily:      theme.typography.fontFamily as string,
     color:           theme.palette.text.primary,
+    minWidth:         140,
+    maxWidth:         360,
+    whiteSpace:       'nowrap',
+  }
+
+  const tooltipWrapperStyle: React.CSSProperties = {
+    outline:       'none',
+    pointerEvents: 'none',
+    zIndex:        tokens.zIndex.tooltip,
   }
 
   const axisStyle = {
@@ -57,6 +66,7 @@ export function useChartTheme() {
     colors,
     gridProps,
     tooltipStyle,
+    tooltipWrapperStyle,
     axisStyle,
     legendProps,
     fontFamily: theme.typography.fontFamily as string,

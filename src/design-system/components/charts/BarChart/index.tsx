@@ -30,6 +30,8 @@ export interface BarChartProps {
   /** Custom tooltip renderer. When set, replaces the default Recharts tooltip content. */
   tooltipContent?: (props: TooltipContentProps) => ReactNode
   barSize?: number
+  /** Width reserved for the category axis when rendering a horizontal bar chart. */
+  yAxisWidth?: number
 }
 
 export default function BarChart({
@@ -47,10 +49,12 @@ export default function BarChart({
   formatY,
   tooltipContent,
   barSize = 32,
+  yAxisWidth,
 }: BarChartProps) {
   const ct = useChartTheme()
   const h = ct.isMobile ? Math.round(height * 0.75) : height
   const isHorizontal = orientation === 'horizontal'
+  const horizontalYAxisWidth = yAxisWidth ?? (ct.isMobile ? 96 : 120)
 
   if (loading) return <Skeleton variant="rectangular" width="100%" height={h} sx={{ borderRadius: 1 }} />
 
@@ -63,7 +67,7 @@ export default function BarChart({
         margin={{
           top: isHorizontal ? 4 : 16,
           right: ct.isMobile ? 8 : 16,
-          left: isHorizontal ? (ct.isMobile ? -10 : 0) : (ct.isMobile ? 4 : 8),
+          left: isHorizontal ? 0 : (ct.isMobile ? 4 : 8),
           bottom: 4,
         }}
       >
@@ -79,7 +83,16 @@ export default function BarChart({
         {isHorizontal ? (
           <>
             <XAxis type="number" tick={ct.axisStyle} tickLine={false} axisLine={false} tickFormatter={formatX} />
-            <YAxis type="category" dataKey={xKey} tick={ct.axisStyle} tickLine={false} axisLine={{ stroke: ct.gridProps.stroke }} width={ct.isMobile ? 60 : 80} tickFormatter={formatY} />
+            <YAxis
+              type="category"
+              dataKey={xKey}
+              tick={{ ...ct.axisStyle, textAnchor: 'end' }}
+              tickLine={false}
+              axisLine={{ stroke: ct.gridProps.stroke }}
+              width={horizontalYAxisWidth}
+              tickMargin={8}
+              tickFormatter={formatY}
+            />
           </>
         ) : (
           <>
@@ -98,6 +111,11 @@ export default function BarChart({
           <Tooltip
             content={tooltipContent}
             contentStyle={tooltipContent ? undefined : ct.tooltipStyle}
+            isAnimationActive={false}
+            animationDuration={0}
+            allowEscapeViewBox={{ x: true, y: true }}
+            offset={12}
+            wrapperStyle={ct.tooltipWrapperStyle}
             labelStyle={
               tooltipContent
                 ? undefined
@@ -127,6 +145,7 @@ export default function BarChart({
               radius={radius}
               maxBarSize={barSize}
               stackId={stacked ? 'stack' : undefined}
+              activeBar={false}
               animationDuration={800}
             />
           )
