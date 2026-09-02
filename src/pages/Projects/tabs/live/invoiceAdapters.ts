@@ -1,4 +1,4 @@
-import type { Invoice, LineItem, Payment } from '@/slices/receivables/reducer'
+import type { Invoice, InvoiceStatus, LineItem, Payment } from '@/slices/receivables/reducer'
 import type {
   ClientInvoice,
   ClientInvoiceLineItem,
@@ -66,6 +66,86 @@ function mapInvoiceStatusToClient(s: Invoice['status']): ClientInvoice['status']
   if (s === 'paid') return 'paid'
   if (s === 'partially_paid') return 'partially_paid'
   return 'sent'
+}
+
+function mapClientStatusToInvoice(s: ClientInvoice['status']): InvoiceStatus {
+  if (s === 'draft') return 'draft'
+  if (s === 'paid') return 'paid'
+  if (s === 'partially_paid') return 'partially_paid'
+  return 'sent'
+}
+
+function clientPaymentToPayment(p: ClientInvoicePayment): Payment {
+  const paymentMode: Payment['paymentMode'] =
+    p.paymentMode === 'cash' ? 'other' : p.paymentMode
+  return {
+    id: p.id,
+    date: p.date,
+    amountReceived: p.amountReceived,
+    tdsDeducted: p.tdsDeducted,
+    netReceived: p.netReceived,
+    paymentMode,
+    reference: p.reference,
+    recordedAt: p.recordedAt,
+    allocations: p.allocations,
+  }
+}
+
+function clientLineToLineItem(li: ClientInvoiceLineItem): LineItem {
+  return {
+    id: li.id,
+    serviceId: li.serviceId,
+    serviceName: li.serviceName,
+    sacCode: li.sacCode,
+    amount: li.amount,
+    labourCessRate: li.labourCessRate,
+    labourCessAmount: li.labourCessAmount,
+    taxableAmount: li.taxableAmount,
+    gstRate: li.gstRate,
+    gstAmount: li.gstAmount,
+    tdsAmount: li.tdsAmount,
+    netAmount: li.netAmount,
+    milestoneId: li.milestoneId,
+    baselineServiceId: li.baselineServiceId,
+    lineSource: li.lineSource === 'manual' ? 'manual' : 'milestone',
+  }
+}
+
+/** Map Live Billing `ClientInvoice` back to global B1 `Invoice` (for shared Finance edit drawer). */
+export function clientInvoiceToInvoice(ci: ClientInvoice): Invoice {
+  const totalReceived = ci.payments.reduce((sum, p) => sum + p.netReceived, 0)
+  return {
+    id: ci.id,
+    invoiceNo: ci.invoiceNumber,
+    clientId: ci.clientId ?? '',
+    clientName: ci.clientName ?? '',
+    projectId: ci.projectId,
+    projectName: ci.projectName ?? '',
+    invoiceDate: ci.invoiceDate,
+    dueDate: ci.dueDate,
+    lineItems: ci.lineItems.map(clientLineToLineItem),
+    baseAmount: ci.baseAmount,
+    labourCessAmount: ci.labourCessAmount,
+    taxableAmount: ci.taxableAmount,
+    gstAmount: ci.gstAmount,
+    totalAmount: ci.grossAmount,
+    tdsDeducted: ci.tdsAmount,
+    tdsRate: ci.tdsRate,
+    totalReceived,
+    balance: ci.netReceivable,
+    status: mapClientStatusToInvoice(ci.status),
+    payments: ci.payments.map(clientPaymentToPayment),
+    notes: ci.notes,
+    clientPoId: ci.clientPoId,
+    milestoneId: ci.milestoneId,
+    milestoneName: ci.milestoneName,
+    serviceId: ci.serviceId,
+    serviceName: ci.serviceName,
+    documentUrl: ci.documentUrl ?? null,
+    fileName: ci.fileName ?? null,
+    createdAt: ci.uploadedAt ?? '',
+    updatedAt: ci.uploadedAt ?? '',
+  }
 }
 
 /** Map global B1 invoice to Live Billing `ClientInvoice` (single primary milestone from first milestone line). */

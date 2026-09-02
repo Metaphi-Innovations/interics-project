@@ -11,53 +11,44 @@ import {
   TableCell,
   Grid,
   Divider,
-  Chip,
   IconButton,
 } from '@mui/material'
 import { alpha, useTheme } from '@mui/material/styles'
-import { ArrowRight, ChevronDown, ChevronRight } from 'lucide-react'
+import { ChevronDown, ChevronRight } from 'lucide-react'
 import { WorkspaceSection } from '../../../../components/templates'
-import { DrawerForm, FormField } from '../../../../components/templates/DrawerForm'
+import { DrawerForm } from '../../../../components/templates/DrawerForm'
 import {
   Badge,
   Button,
-  DatePicker,
-  Input,
   Modal,
   StatusBadge,
-  Textarea,
   useToast,
 } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { useAppDispatch, useAppSelector } from '../../../../store/hooks'
-import { createInvoice, fetchInvoices } from '../../../../slices/live/thunk'
-import type { ClientInvoice, ClientInvoiceLineItem } from '../../../../slices/live/types'
+import { fetchInvoices } from '../../../../slices/live/thunk'
+import type { ClientInvoice } from '../../../../slices/live/types'
+import type { Invoice } from '@/slices/receivables/reducer'
 import { formatDate, formatInr } from '../../../../utils/formatters'
 import { buildBillableFromClientPOs, type BillableMilestone } from './billableMilestones'
 import { fetchClientPO, fetchBaseline } from '../../../../slices/baseline/thunk'
-import {
-  InvoiceLineItems,
-  type DraftLineItem,
-} from '@/pages/Finance/components/InvoiceLineItems'
-import { sacCodeForService } from '@/pages/Finance/utils/projectBillable'
+import { InvoiceLineItems } from '@/pages/Finance/components/InvoiceLineItems'
+import { CreateInvoiceDrawer } from '@/pages/Finance/components/CreateInvoiceDrawer'
 import { fetchServices, fetchSACCodes } from '@/slices/settings/thunk'
 import { RecordClientInvoicePaymentModal } from './RecordClientInvoicePaymentModal'
 import { BillingPitchSummary } from './BillingPitchSummary'
 import {
   balancePending,
-  calcClientInvoiceTdsAmount,
-  computeLineItemTaxBreakdown,
   isDueDateOverdue,
   MONEY_EPS,
-  resolveClientPoMilestoneGstRate,
   rollupsFromLineItems,
   totalReceivedBank,
   type InvoiceLineRollups,
 } from './clientInvoiceUtils'
+import { clientInvoiceToInvoice } from './invoiceAdapters'
 import { downloadClientInvoiceDocument } from './downloadClientInvoice'
-import { receivablesApi } from '@/api/receivablesApi'
 import { convertDraftToTax } from '@/slices/receivables/thunk'
-import { parseSettingsApiError } from '@/modules/system-settings/shared/api-errors'
+import { usePermission } from '@/hooks/usePermission'
 import {
   clientInvoiceStatusBadges,
   milestoneBillingPhase,
@@ -88,14 +79,6 @@ import type { Service } from '@/slices/settings/reducer'
 
 function milestoneRowKey(m: Pick<BillableMilestone, 'milestoneId' | 'serviceId'>): string {
   return `${m.milestoneId}:${m.serviceId}`
-}
-
-function toIsoDate(d: Date | null): string {
-  if (!d) return ''
-  const y = d.getFullYear()
-  const mo = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${mo}-${day}`
 }
 
 const SECTION_HEADER_SX = {
@@ -352,437 +335,6 @@ function ClientInvoiceTaxSummary({
         </>
       ) : null}
     </>
-  )
-}
-
-function lineItemsToPayload(lines: DraftLineItem[]): ClientInvoiceLineItem[] {
-  return lines.map((li) => ({
-    id: li.id,
-    serviceId: li.serviceId,
-    serviceName: li.serviceName,
-    sacCode: li.sacCode || '—',
-    amount: li.amount,
-    labourCessRate: li.labourCessRate,
-    labourCessAmount: li.labourCessAmount,
-    taxableAmount: li.taxableAmount,
-    gstRate: li.gstRate,
-    gstAmount: li.gstAmount,
-    milestoneId: li.milestoneId,
-    lineSource: li.lineSource === 'manual' ? 'manual' : 'milestone',
-  }))
-}
-
-// ─── Generate Invoice Drawer ─────────────────────────────────────────────────
-
-interface GenerateDrawerProps {
-  open: boolean
-  projectId: string
-  projectName: string
-  clientId: string
-  clientName: string
-  preset: BillableMilestone | null
-  editingInvoice?: ClientInvoice | null
-  onClose: () => void
-  onSaved?: () => void
-}
-
-function GenerateInvoiceDrawer({
-  open,
-  projectId,
-  projectName,
-  clientId,
-  clientName,
-  preset,
-  editingInvoice = null,
-  onClose,
-  onSaved,
-}: GenerateDrawerProps) {
-  const dispatch = useAppDispatch()
-  const { saving } = useAppSelector((s) => s.live)
-  const { services, sacCodes } = useAppSelector((s) => s.settings)
-  const baseline = useAppSelector((s) => s.baseline.baseline)
-  const clientPOs = useAppSelector((s) => s.baseline.clientPOs)
-  const showToast = useToast((s) => s.showToast)
-
-  const [invoiceNumber, setInvoiceNumber] = useState('')
-  const [invoiceDate, setInvoiceDate] = useState<Date | null>(null)
-  const [dueDate, setDueDate] = useState<Date | null>(null)
-  const [notes, setNotes] = useState('')
-  const [lines, setLines] = useState<DraftLineItem[]>([])
-  const [fieldErrors, setFieldErrors] = useState<{
-    invoiceNumber?: string
-    lines?: string
-  }>({})
-
-  useEffect(() => {
-    if (!open || !preset) return
-    setFieldErrors({})
-    if (editingInvoice) {
-      setInvoiceNumber(editingInvoice.invoiceNumber)
-      setInvoiceDate(editingInvoice.invoiceDate ? new Date(editingInvoice.invoiceDate) : new Date())
-      setDueDate(editingInvoice.dueDate ? new Date(editingInvoice.dueDate) : null)
-      setNotes(editingInvoice.notes ?? '')
-      setLines(
-        (editingInvoice.lineItems ?? []).map((li) => ({
-          id: li.id,
-          serviceId: li.serviceId,
-          serviceName: li.serviceName,
-          sacCode: li.sacCode,
-          amount: li.amount,
-          labourCessRate: li.labourCessRate ?? 0,
-          labourCessAmount: li.labourCessAmount ?? 0,
-          taxableAmount: li.taxableAmount ?? li.amount,
-          gstRate: li.gstRate,
-          gstAmount: li.gstAmount,
-          milestoneId: li.milestoneId,
-          lineSource: 'milestone' as const,
-        })),
-      )
-      return
-    }
-    setInvoiceNumber('')
-    setInvoiceDate(new Date())
-    setDueDate(null)
-    setNotes('')
-    const svc = services.find((s) => s.id === preset.serviceId)
-    const clientPo = clientPOs.find((po) => po.id === preset.clientPoId) ?? null
-    const sac = sacCodeForService(sacCodes, svc)
-    const gstRate = resolveClientPoMilestoneGstRate(clientPo, preset.milestoneId, {
-      serviceId: preset.serviceId,
-      baseline,
-      settingsServices: services,
-    })
-    const amount = preset.baseAmount
-    const taxed = computeLineItemTaxBreakdown(amount, 0, gstRate)
-    setLines([
-      {
-        id: `tmp-${preset.milestoneId}-${preset.serviceId}`,
-        serviceId: preset.serviceId,
-        serviceName: preset.serviceName,
-        sacCode: sac || '—',
-        amount,
-        labourCessRate: 0,
-        labourCessAmount: taxed.labourCessAmount,
-        taxableAmount: taxed.taxableAmount,
-        gstRate,
-        gstAmount: taxed.gstAmount,
-        milestoneId: preset.milestoneId,
-        lineSource: 'milestone',
-      },
-    ])
-  }, [open, preset, editingInvoice, services, sacCodes, baseline, clientPOs])
-
-  const roll = useMemo(() => rollupsFromLineItems(lineItemsToPayload(lines)), [lines])
-  const tdsAmount = calcClientInvoiceTdsAmount(roll.baseAmount, preset?.tdsRate)
-  const invoiceNet = roll.grossAmount - tdsAmount
-
-  function validateForm(): boolean {
-    const next: typeof fieldErrors = {}
-    if (!invoiceNumber.trim()) next.invoiceNumber = 'Invoice number is required'
-    if (!lines.length || lines.some((l) => !l.serviceId || l.amount <= 0)) {
-      next.lines = 'Add at least one valid line item'
-    }
-    setFieldErrors(next)
-    const keys = Object.keys(next)
-    if (keys.length > 0) {
-      showToast({
-        title: next.invoiceNumber ?? next.lines ?? 'Please fill in all required fields',
-        variant: 'error',
-      })
-      return false
-    }
-    return true
-  }
-
-  function handleDownloadDraft() {
-    if (!preset) return
-    if (!lines.length) {
-      showToast({ title: 'Add line items before downloading', variant: 'error' })
-      return
-    }
-    downloadClientInvoiceDocument({
-      invoiceNumber: invoiceNumber.trim() || 'Draft Invoice',
-      invoiceDate: toIsoDate(invoiceDate),
-      dueDate: toIsoDate(dueDate),
-      projectName,
-      clientName,
-      notes: notes.trim() || undefined,
-      milestoneName: preset.milestoneName,
-      serviceName: preset.serviceName,
-      lineItems: lines.map((l) => ({
-        serviceName: l.serviceName,
-        amount: l.amount,
-        labourCessRate: l.labourCessRate,
-        gstRate: l.gstRate,
-        labourCessAmount: l.labourCessAmount,
-        taxableAmount: l.taxableAmount,
-        gstAmount: l.gstAmount,
-      })),
-    })
-  }
-
-  async function handleSubmit() {
-    if (!preset) return
-    if (!validateForm()) return
-    const invDate = toIsoDate(invoiceDate)
-    const due = toIsoDate(dueDate)
-    const payload = {
-      milestoneId: preset.milestoneId,
-      milestoneName: preset.milestoneName,
-      serviceId: preset.serviceId,
-      serviceName: preset.serviceName,
-      clientPoId: preset.clientPoId,
-      lineItems: lineItemsToPayload(lines),
-      baseAmount: roll.baseAmount,
-      labourCessAmount: roll.labourCessAmount,
-      taxableAmount: roll.taxableAmount,
-      gstAmount: roll.gstAmount,
-      grossAmount: roll.grossAmount,
-      tdsAmount: calcClientInvoiceTdsAmount(roll.baseAmount, preset.tdsRate),
-      tdsRate: preset.tdsRate ?? null,
-      netReceivable: roll.grossAmount - calcClientInvoiceTdsAmount(roll.baseAmount, preset.tdsRate),
-      invoiceNumber: invoiceNumber.trim(),
-      invoiceDate: invDate,
-      dueDate: due,
-      status: 'draft' as const,
-      payments: [],
-      notes: notes.trim() || undefined,
-    }
-    try {
-      if (editingInvoice) {
-        await receivablesApi.update(editingInvoice.id, {
-          projectId,
-          clientId,
-          clientName,
-          projectName,
-          invoiceNo: invoiceNumber.trim(),
-          invoiceDate: invDate,
-          dueDate: due,
-          lineItems: payload.lineItems,
-          notes: payload.notes,
-          clientPoId: preset.clientPoId,
-          milestoneId: preset.milestoneId,
-          milestoneName: preset.milestoneName,
-          serviceId: preset.serviceId,
-          serviceName: preset.serviceName,
-        })
-        showToast({ title: 'Draft invoice updated', variant: 'success' })
-      } else {
-        await dispatch(
-          createInvoice({
-            projectId,
-            projectName,
-            clientId,
-            clientName,
-            sendNow: false,
-            data: payload,
-          }),
-        ).unwrap()
-        showToast({ title: 'Draft invoice created', variant: 'success' })
-      }
-      void dispatch(fetchInvoices(projectId))
-      onSaved?.()
-      onClose()
-    } catch (err) {
-      const fallback = editingInvoice ? 'Failed to update invoice' : 'Failed to generate invoice'
-      showToast({
-        title: typeof err === 'string' ? err : parseSettingsApiError(err, fallback).message,
-        variant: 'error',
-      })
-    }
-  }
-
-  if (!preset) return null
-
-  const subtitle = (
-    <Stack direction="row" gap={1} flexWrap="wrap" sx={{ mt: 0.5 }}>
-      <Chip
-        label={preset.milestoneName}
-        size="small"
-        variant="outlined"
-        sx={{
-          borderColor: 'primary.main',
-          color: 'primary.main',
-          fontWeight: 500,
-        }}
-      />
-      <Chip
-        label={preset.serviceName}
-        size="small"
-        variant="outlined"
-        sx={{
-          borderColor: 'primary.main',
-          color: 'primary.main',
-          fontWeight: 500,
-        }}
-      />
-    </Stack>
-  )
-
-  return (
-    <DrawerForm
-      open={open}
-      onClose={onClose}
-      title={editingInvoice ? 'Edit Draft Invoice' : 'Generate Invoice'}
-      subtitle={subtitle}
-      width={680}
-      footer={
-        <Stack direction="row" justifyContent="flex-end" gap={1} sx={{ px: 2.5, py: 1.75 }}>
-          <Button
-            size="sm"
-            variant="outlined"
-            color="primary"
-            label="Download Invoice"
-            onClick={handleDownloadDraft}
-            disabled={saving}
-          />
-          <Button
-            variant="contained"
-            color="primary"
-            size="sm"
-            label={editingInvoice ? 'Save Draft' : 'Generate Invoice'}
-            endIcon={<ArrowRight size={16} />}
-            onClick={() => void handleSubmit()}
-            loading={saving}
-          />
-        </Stack>
-      }
-    >
-      <Stack spacing={2}>
-        <Box
-          sx={{
-            p: 2,
-            borderRadius: 1,
-            bgcolor: (t) => alpha(t.palette.primary.main, 0.06),
-            border: '1px solid',
-            borderColor: 'divider',
-          }}
-        >
-          <Typography variant="body2">
-            <Box component="span" color="text.secondary">
-              Milestone:{' '}
-            </Box>
-            <Box component="span" fontWeight={600}>
-              {preset.milestoneName}
-            </Box>
-            <Box component="span" color="text.secondary" sx={{ mx: 1 }}>
-              ·
-            </Box>
-            <Box component="span" color="text.secondary">
-              {preset.serviceName}
-            </Box>
-          </Typography>
-          <Stack direction={{ xs: 'column', sm: 'row' }} gap={2} sx={{ mt: 1.5 }}>
-            <Box sx={{ flex: 1 }}>
-              <Typography variant="caption" color="text.secondary" display="block">
-                Invoice Amount (base)
-              </Typography>
-              <Typography
-                variant="h6"
-                sx={{
-                  fontWeight: 700,
-                  fontSize: '1.125rem',
-                  color: 'primary.main',
-                }}
-              >
-                ₹{formatInr(preset.baseAmount)}
-              </Typography>
-            </Box>
-            <Box sx={{ flex: 1 }}>
-              <Typography variant="caption" color="text.secondary" display="block">
-                Invoice Net
-              </Typography>
-              <Typography variant="h6" sx={{ fontWeight: 700, fontSize: '1.125rem' }}>
-                ₹{formatInr(invoiceNet)}
-              </Typography>
-            </Box>
-          </Stack>
-        </Box>
-
-        <Box>
-          <SectionHeader>Line items</SectionHeader>
-          <Box sx={{ mt: 1 }}>
-            <InvoiceLineItems
-              mode="read"
-              lines={lines}
-              services={services}
-              sacCodes={sacCodes}
-              onChange={setLines}
-              editableLabourCessInReadMode
-              projectSourced
-              allowEmpty={false}
-              manualAddCollapsed
-              allowManualAdd={false}
-              hideSacColumn
-              showLabourCessColumn
-              showTdsColumn
-              tdsRate={preset.tdsRate ?? null}
-              error={fieldErrors.lines}
-            />
-          </Box>
-        </Box>
-
-        <Box>
-          <SectionHeader>Invoice details</SectionHeader>
-          <Stack spacing={2} sx={{ mt: 1 }}>
-            <FormField label="Invoice Number" required error={fieldErrors.invoiceNumber}>
-              <Input
-                value={invoiceNumber}
-                onChange={(v) => {
-                  setInvoiceNumber(v)
-                  setFieldErrors((prev) => ({ ...prev, invoiceNumber: undefined }))
-                }}
-                placeholder="e.g. INV-2026-001"
-                size="sm"
-                error={Boolean(fieldErrors.invoiceNumber)}
-              />
-            </FormField>
-            <Stack direction={{ xs: 'column', sm: 'row' }} gap={2}>
-              <Box sx={{ flex: 1, minWidth: 0 }}>
-                <FormField label="Invoice Date">
-                  <DatePicker value={invoiceDate} onChange={setInvoiceDate} fullWidth size="sm" />
-                </FormField>
-              </Box>
-              <Box sx={{ flex: 1, minWidth: 0 }}>
-                <FormField label="Due Date">
-                  <DatePicker value={dueDate} onChange={setDueDate} fullWidth size="sm" />
-                </FormField>
-              </Box>
-            </Stack>
-            <FormField label="Notes">
-              <Textarea
-                value={notes}
-                onChange={setNotes}
-                placeholder="Optional"
-                minRows={2}
-                fullWidth
-              />
-            </FormField>
-          </Stack>
-        </Box>
-
-        <Box>
-          <SectionHeader>Summary</SectionHeader>
-          <Box
-            sx={{
-              mt: 1,
-              p: 2,
-              borderRadius: 1,
-              bgcolor: (t) => alpha(t.palette.text.primary, 0.04),
-              border: '1px solid',
-              borderColor: 'divider',
-            }}
-          >
-            <ClientInvoiceTaxSummary
-              roll={roll}
-              tdsAmount={tdsAmount}
-              tdsRate={preset.tdsRate}
-              showNetPayable
-            />
-          </Box>
-        </Box>
-      </Stack>
-    </DrawerForm>
   )
 }
 
@@ -1155,9 +707,9 @@ export default function BillingTab({ projectId, projectName, clientId, clientNam
   const baseline = useAppSelector((s) => s.baseline.baseline)
   const { services } = useAppSelector((s) => s.settings)
 
-  const [generateOpen, setGenerateOpen] = useState(false)
-  const [generatePreset, setGeneratePreset] = useState<BillableMilestone | null>(null)
-  const [editingInvoice, setEditingInvoice] = useState<ClientInvoice | null>(null)
+  const [createDrawerOpen, setCreateDrawerOpen] = useState(false)
+  const [createPreset, setCreatePreset] = useState<BillableMilestone | null>(null)
+  const [drawerEditInvoice, setDrawerEditInvoice] = useState<Invoice | null>(null)
   const [paymentInvoice, setPaymentInvoice] = useState<ClientInvoice | null>(null)
   const [paymentMilestoneId, setPaymentMilestoneId] = useState<string | undefined>()
   const [viewInvoice, setViewInvoice] = useState<ClientInvoice | null>(null)
@@ -1165,6 +717,7 @@ export default function BillingTab({ projectId, projectName, clientId, clientNam
   const [convertingTax, setConvertingTax] = useState(false)
   const [expandedPoId, setExpandedPoId] = useState<string | null>(null)
   const showToast = useToast((s) => s.showToast)
+  const canCreateInvoice = usePermission('projectLive', 'create')
 
   useEffect(() => {
     dispatch(fetchServices({ limit: 1000, force: true }))
@@ -1197,21 +750,34 @@ export default function BillingTab({ projectId, projectName, clientId, clientNam
   }, [clientPOs])
 
   function openGenerate(row: BillableMilestone) {
-    setEditingInvoice(null)
-    setGeneratePreset(row)
-    setGenerateOpen(true)
+    setDrawerEditInvoice(null)
+    setCreatePreset(row)
+    setCreateDrawerOpen(true)
   }
 
-  function openEditDraft(invoice: ClientInvoice, row: BillableMilestone) {
-    setEditingInvoice(invoice)
-    setGeneratePreset(row)
-    setGenerateOpen(true)
+  function openCreateInvoice() {
+    setDrawerEditInvoice(null)
+    setCreatePreset(null)
+    setCreateDrawerOpen(true)
   }
 
-  function closeGenerate() {
-    setGenerateOpen(false)
-    setGeneratePreset(null)
-    setEditingInvoice(null)
+  function openEditDraft(invoice: ClientInvoice, _row: BillableMilestone) {
+    setCreateDrawerOpen(false)
+    setCreatePreset(null)
+    setDrawerEditInvoice(clientInvoiceToInvoice(invoice))
+  }
+
+  function closeCreateDrawer() {
+    setCreateDrawerOpen(false)
+    setCreatePreset(null)
+  }
+
+  function closeEditDrawer() {
+    setDrawerEditInvoice(null)
+  }
+
+  function refreshInvoices() {
+    void dispatch(fetchInvoices(projectId))
   }
 
   function openPayment(inv: ClientInvoice, milestoneId: string) {
@@ -1255,7 +821,21 @@ export default function BillingTab({ projectId, projectName, clientId, clientNam
     <>
       <BillingPitchSummary projectId={projectId} />
 
-      <WorkspaceSection title="Receivables" noPadding>
+      <WorkspaceSection
+        title="Receivables"
+        noPadding
+        action={
+          canCreateInvoice ? (
+            <Button
+              size="sm"
+              variant="contained"
+              color="primary"
+              label="Upload Invoice"
+              onClick={openCreateInvoice}
+            />
+          ) : undefined
+        }
+      >
         <Box sx={{ width: '100%', overflow: 'hidden' }}>
           <Table
             size="small"
@@ -1442,18 +1022,32 @@ export default function BillingTab({ projectId, projectName, clientId, clientNam
         </Box>
       </WorkspaceSection>
 
-      <GenerateInvoiceDrawer
-        open={generateOpen}
-        projectId={projectId}
-        projectName={projectName}
-        clientId={clientId}
-        clientName={clientName}
-        preset={generatePreset}
-        editingInvoice={editingInvoice}
-        onClose={closeGenerate}
-        onSaved={() => {
-          void dispatch(fetchInvoices(projectId))
+      <CreateInvoiceDrawer
+        open={createDrawerOpen && canCreateInvoice}
+        onClose={closeCreateDrawer}
+        mode="create"
+        lockProject
+        preset={{
+          projectId,
+          projectName,
+          clientId,
+          clientName,
+          ...(createPreset
+            ? {
+                clientPoId: createPreset.clientPoId,
+                milestoneId: createPreset.milestoneId,
+              }
+            : {}),
         }}
+        onSaved={refreshInvoices}
+      />
+      <CreateInvoiceDrawer
+        open={!!drawerEditInvoice}
+        onClose={closeEditDrawer}
+        mode="edit"
+        lockProject
+        invoice={drawerEditInvoice}
+        onSaved={refreshInvoices}
       />
       <RecordClientInvoicePaymentModal
         open={!!paymentInvoice}

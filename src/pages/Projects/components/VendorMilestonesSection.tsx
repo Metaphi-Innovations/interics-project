@@ -15,7 +15,7 @@ import {
 import { alpha, useTheme } from '@mui/material/styles'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { WorkspaceSection } from '@/components/templates'
-import { Badge, ConfirmDialog, StatusBadge, useToast } from '@/design-system/components'
+import { Badge, Button, ConfirmDialog, StatusBadge, useToast } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import type { Baseline, VendorPO } from '@/slices/baseline/reducer'
 import { deleteVendorPO, fetchVendorPOs } from '@/slices/baseline/thunk'
@@ -268,6 +268,8 @@ export interface VendorMilestonesSectionProps {
   vendorPOs: VendorPO[]
   baseline: Baseline | null
   payableContext?: ParsedPayableContext
+  /** Same PROJECT_LIVE CREATE gate as Add Vendor Offer. */
+  canUploadInvoice?: boolean
 }
 
 export function VendorMilestonesSection({
@@ -276,6 +278,7 @@ export function VendorMilestonesSection({
   vendorPOs,
   baseline,
   payableContext,
+  canUploadInvoice = true,
 }: VendorMilestonesSectionProps) {
   const dispatch = useAppDispatch()
   const theme = useTheme()
@@ -506,7 +509,21 @@ export function VendorMilestonesSection({
   const expandedBg = alpha(theme.palette.primary.main, 0.03)
 
   return (
-    <WorkspaceSection title="Vendor Milestones" noPadding>
+    <WorkspaceSection
+      title="Vendor Milestones"
+      noPadding
+      action={
+        canUploadInvoice ? (
+          <Button
+            size="sm"
+            variant="contained"
+            color="primary"
+            label="Upload Invoice"
+            onClick={() => openUploadInvoice()}
+          />
+        ) : undefined
+      }
+    >
       <Box id="vendor-milestones-section" sx={{ width: '100%', overflow: 'hidden' }}>
         <Table
           size="small"

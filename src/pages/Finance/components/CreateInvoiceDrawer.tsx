@@ -120,7 +120,7 @@ function stubProject(opts: {
   }
 }
 
-type CreateInvoicePreset = {
+export type CreateInvoicePreset = {
   projectId: string
   projectName?: string
   clientId?: string
@@ -136,9 +136,19 @@ export interface CreateInvoiceDrawerProps {
   invoice?: Invoice | null
   onSaved: () => void
   preset?: CreateInvoicePreset | null
+  /** When true, project is fixed (e.g. Project Live context). Finance usage omits this. */
+  lockProject?: boolean
 }
 
-export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved, preset }: CreateInvoiceDrawerProps) {
+export function CreateInvoiceDrawer({
+  open,
+  onClose,
+  mode,
+  invoice,
+  onSaved,
+  preset,
+  lockProject = false,
+}: CreateInvoiceDrawerProps) {
   const dispatch = useAppDispatch()
   const { showToast } = useToast()
   const saving = useAppSelector((s) => s.receivables.saving)
@@ -167,7 +177,9 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved, pre
   const projectSearchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const projectFetchIdRef = useRef(0)
   const milestoneSelectionTouchedRef = useRef(false)
+  const poSelectionTouchedRef = useRef(false)
   const presetMilestoneSeededRef = useRef(false)
+  const presetSessionAppliedRef = useRef(false)
 
   function applyDueDateFromTerms(nextInvoiceDate: Date | null, nextDays: string) {
     if (!nextInvoiceDate) return
@@ -232,10 +244,13 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved, pre
     return clientPOs.filter((p) => p.projectId === project.id)
   }, [billablePos, clientPOs, mode, posLoading, project])
 
-  const selectedPo = useMemo(
-    () => projectPos.find((p) => p.id === selectedPoId) ?? null,
-    [projectPos, selectedPoId],
-  )
+  const selectedPo = useMemo(() => {
+    if (!selectedPoId || !project) return null
+    const fromBillable = projectPos.find((p) => p.id === selectedPoId) ?? null
+    const fromRedux = clientPOs.find((p) => p.id === selectedPoId && p.projectId === project.id) ?? null
+    if (fromRedux?.milestones?.length) return fromRedux
+    return fromBillable ?? fromRedux
+  }, [projectPos, selectedPoId, project, clientPOs])
 
   useEffect(() => {
     if (!open) return
@@ -322,7 +337,9 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved, pre
   useEffect(() => {
     if (!open || mode !== 'create') return
     milestoneSelectionTouchedRef.current = false
+    poSelectionTouchedRef.current = false
     presetMilestoneSeededRef.current = false
+    presetSessionAppliedRef.current = false
     setProject(null)
     setSelectedPoId('')
     setSelectedMilestoneIds([])
@@ -334,14 +351,18 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved, pre
     setNotes('')
     setErrors({})
     setLineError('')
-  }, [open, mode, preset?.projectId, preset?.clientPoId, preset?.milestoneId])
+  }, [open, mode])
 
   useEffect(() => {
     if (!open || mode !== 'create' || !preset?.projectId) return
+    if (presetSessionAppliedRef.current) return
     const p = presetProject
     if (!p) return
+    presetSessionAppliedRef.current = true
     setProject(p)
-    setSelectedPoId(preset.clientPoId ?? '')
+    if (!poSelectionTouchedRef.current) {
+      setSelectedPoId(preset.clientPoId ?? '')
+    }
     if (
       preset.milestoneId &&
       !milestoneSelectionTouchedRef.current &&
@@ -350,7 +371,14 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved, pre
       presetMilestoneSeededRef.current = true
       setSelectedMilestoneIds([preset.milestoneId])
     }
-  }, [open, mode, preset, presetProject])
+  }, [
+    open,
+    mode,
+    preset?.projectId,
+    preset?.clientPoId,
+    preset?.milestoneId,
+    presetProject,
+  ])
 
   useEffect(() => {
     if (!open || mode !== 'edit' || !invoice) return
@@ -423,6 +451,7 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved, pre
   }, [])
 
   const onPoChange = useCallback((value: string) => {
+    poSelectionTouchedRef.current = true
     milestoneSelectionTouchedRef.current = false
     presetMilestoneSeededRef.current = false
     setSelectedPoId(value)
@@ -654,11 +683,11 @@ export function CreateInvoiceDrawer({ open, onClose, mode, invoice, onSaved, pre
                 isOptionEqualToValue={(a, b) => a.id === b.id}
                 value={project}
                 onChange={onProjectChange}
-                disabled={mode === 'edit'}
+                disabled={mode === 'edit' || lockProject}
                 loading={projectsLoading}
                 filterOptions={(opts) => opts}
                 onInputChange={(value, reason) => {
-                  if (mode === 'edit' || reason === 'reset') return
+                  if (mode === 'edit' || lockProject || reason === 'reset') return
                   if (projectSearchTimeoutRef.current) clearTimeout(projectSearchTimeoutRef.current)
                   projectSearchTimeoutRef.current = setTimeout(() => {
                     setProjectSearch(value)
