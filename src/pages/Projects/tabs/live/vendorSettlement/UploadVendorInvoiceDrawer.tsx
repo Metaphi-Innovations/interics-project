@@ -23,6 +23,8 @@ import { baselineService } from '@/modules/projects/baseline.service'
 import { payablesService } from '@/modules/finance/payables.service'
 import { formatInr } from '@/utils/formatters'
 import { previewVendorInvoiceLineTax } from '@/pages/Projects/tabs/live/clientInvoiceUtils'
+import { PoGstRateSelect, isActiveGstRate } from '@/pages/Projects/tabs/live/PoGstRateSelect'
+import { useActiveGstRates } from '@/pages/Projects/tabs/live/useActiveGstRates'
 import {
   flattenVendorPoMilestones,
   remainingVendorMilestoneValue,
@@ -69,6 +71,7 @@ interface FormErrors {
   invoiceDate?: string
   baseAmount?: string
   tdsRate?: string
+  gstRate?: string
 }
 
 const SECTION_HEADER_SX = {
@@ -143,6 +146,7 @@ export function UploadVendorInvoiceDrawer({
   const [selectedMilestoneIds, setSelectedMilestoneIds] = useState<string[]>([])
   const [invoiceNumber, setInvoiceNumber] = useState('')
   const [invoiceDate, setInvoiceDate] = useState('')
+  const [gstRate, setGstRate] = useState<number | null>(null)
   const [tdsRate, setTdsRate] = useState(DEFAULT_TDS_PERCENT)
   const [documentUrl, setDocumentUrl] = useState<string | undefined>(undefined)
   const [documentFileName, setDocumentFileName] = useState<string | undefined>(undefined)
@@ -151,6 +155,7 @@ export function UploadVendorInvoiceDrawer({
   const selectionTouchedRef = useRef(false)
   const poSelectionTouchedRef = useRef(false)
   const initialMilestoneSeededPoRef = useRef<string | null>(null)
+  const { options: gstRateOptions } = useActiveGstRates(open)
 
   const vendorOptions = useMemo((): VendorOption[] => {
     if (isProjectScoped && lockedProjectId) {
@@ -252,39 +257,34 @@ export function UploadVendorInvoiceDrawer({
     if (!selectedPo) {
       return { gstRate: 0, gstAmount: 0, tdsAmount: 0, net: 0 }
     }
-    const poGstRate = selectedPo.gstRate ?? null
+    const invoiceGstRate = gstRate ?? 0
     let gstAmount = 0
     let tdsAmount = 0
     let net = 0
-    let headerGstRate: number | null = poGstRate
 
     for (const li of lineItems) {
-      const poMilestone =
-        selectedPo.milestones.find((m) => m.id === li.milestoneId) ?? null
       const lineTax = previewVendorInvoiceLineTax(
         li.amount,
-        poMilestone,
-        poGstRate,
+        invoiceGstRate,
         Number(tdsRate) || 0,
       )
       gstAmount += lineTax.gstAmount
       tdsAmount += lineTax.tdsAmount
       net += lineTax.netAmount
-      if (headerGstRate == null && lineTax.gstRate > 0) headerGstRate = lineTax.gstRate
     }
 
     return {
-      gstRate: headerGstRate ?? 0,
+      gstRate: invoiceGstRate,
       gstAmount,
       tdsAmount,
       net,
     }
-  }, [lineItems, selectedPo, tdsRate])
+  }, [lineItems, selectedPo, gstRate, tdsRate])
 
   const tdsAmount = payableTax.tdsAmount
   const netPayable = payableTax.net
   const gstAmount = payableTax.gstAmount
-  const gstRate = payableTax.gstRate
+  const summaryGstRate = gstRate ?? payableTax.gstRate
 
   const firstSelectedMilestone = useMemo(() => {
     const firstId = selectedMilestoneIds[0]
@@ -299,6 +299,7 @@ export function UploadVendorInvoiceDrawer({
     setSelectedMilestoneIds([])
     setInvoiceNumber('')
     setInvoiceDate('')
+    setGstRate(null)
     setTdsRate(DEFAULT_TDS_PERCENT)
     setDocumentUrl(undefined)
     setDocumentFileName(undefined)
@@ -310,7 +311,10 @@ export function UploadVendorInvoiceDrawer({
     if (selectedPo.tdsRate != null && !Number.isNaN(selectedPo.tdsRate)) {
       setTdsRate(selectedPo.tdsRate)
     }
-  }, [selectedPo?.id, selectedPo?.tdsRate])
+    if (selectedPo.gstRate != null && !Number.isNaN(selectedPo.gstRate)) {
+      setGstRate(selectedPo.gstRate)
+    }
+  }, [selectedPo?.id, selectedPo?.tdsRate, selectedPo?.gstRate])
 
   useEffect(() => {
     if (!open) {
@@ -468,6 +472,9 @@ export function UploadVendorInvoiceDrawer({
       }
     }
     if (!invoiceNumber.trim()) next.invoiceNumber = 'Invoice number is required'
+    if (gstRate == null || !isActiveGstRate(gstRate, gstRateOptions)) {
+      next.gstRate = 'Select a valid GST rate'
+    }
     const submitBase = sumVendorInvoiceLineItemAmounts(submitLineItems)
     if (!(submitBase > 0)) next.baseAmount = 'Invoice amount is required'
     setErrors(next)
@@ -483,13 +490,12 @@ export function UploadVendorInvoiceDrawer({
       serviceId,
     )
     if (!validate(submitLineItems)) return
+    if (gstRate == null) return
 
     const submitLineItemsWithTax = submitLineItems.map((li) => {
-      const poMilestone = selectedPo.milestones.find((m) => m.id === li.milestoneId) ?? null
       const lineTax = previewVendorInvoiceLineTax(
         li.amount,
-        poMilestone,
-        selectedPo.gstRate ?? null,
+        gstRate,
         Number(tdsRate) || 0,
       )
       return {
@@ -505,12 +511,10 @@ export function UploadVendorInvoiceDrawer({
     let submitGstAmount = 0
     let submitTdsAmount = 0
     let submitNetPayable = 0
-    let submitGstRate = selectedPo.gstRate ?? 0
     for (const li of submitLineItemsWithTax) {
       submitGstAmount += li.gstAmount ?? 0
       submitTdsAmount += li.tdsAmount ?? 0
       submitNetPayable += li.netAmount ?? 0
-      if (submitGstRate === 0 && (li.gstRate ?? 0) > 0) submitGstRate = li.gstRate ?? 0
     }
 
     const headerMilestone =
@@ -534,7 +538,7 @@ export function UploadVendorInvoiceDrawer({
             invoiceNumber: invoiceNumber.trim(),
             invoiceDate,
             baseAmount: base,
-            gstRate: submitGstRate,
+            gstRate,
             gstAmount: submitGstAmount,
             tdsRate,
             tdsAmount: submitTdsAmount,
@@ -782,6 +786,17 @@ export function UploadVendorInvoiceDrawer({
                 ))}
               </Select>
             </FormField>
+            <FormField label="GST Rate" required error={errors.gstRate}>
+              <PoGstRateSelect
+                value={gstRate}
+                options={gstRateOptions}
+                onChange={(rate) => {
+                  setGstRate(rate)
+                  clearError('gstRate')
+                }}
+                required
+              />
+            </FormField>
             <FormField label="Upload Invoice Document" hint="Optional">
               <FileUpload
                 accept="application/pdf,.pdf"
@@ -826,7 +841,7 @@ export function UploadVendorInvoiceDrawer({
                 </Stack>
                 <Stack direction="row" justifyContent="space-between">
                   <Typography variant="body2" color="text.secondary">
-                    GST ({gstRate}%)
+                    GST ({summaryGstRate}%)
                   </Typography>
                   <Typography variant="body2" fontWeight={500}>
                     ₹{formatInr(gstAmount)}
