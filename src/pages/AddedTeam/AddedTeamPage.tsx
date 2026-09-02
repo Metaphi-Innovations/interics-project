@@ -108,7 +108,7 @@ function mapApiTeamRow(raw: TeamMemberApiRow): TeamAssignmentRow | null {
   }
 }
 
-const TEAM_ACTION_WIDTH_PX = 56
+const TEAM_ACTION_WIDTH_PX = 84
 
 type TeamVisibleColumns = {
   projectCount: boolean

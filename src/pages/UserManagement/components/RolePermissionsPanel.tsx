@@ -257,13 +257,17 @@ function ModuleActionRow({
     <Box
       sx={{
         display: 'grid',
-        gridTemplateColumns: { xs: '1fr', sm: 'minmax(160px, 1fr) repeat(4, minmax(84px, 0.35fr))' },
+        gridTemplateColumns: {
+          xs: 'repeat(2, minmax(0, 1fr))',
+          sm: 'minmax(120px, 1fr) repeat(4, minmax(68px, max-content))',
+        },
         gap: { xs: 0.5, sm: 1 },
         alignItems: 'center',
         py: 0.5,
+        minWidth: 0,
       }}
     >
-      <Typography variant="body2" fontWeight={600} sx={{ fontSize: 13 }}>
+      <Typography variant="body2" fontWeight={600} sx={{ fontSize: 13, minWidth: 0 }}>
         {label}
       </Typography>
       {MODULE_CRUD_ACTIONS.map((action) => {
@@ -271,7 +275,11 @@ function ModuleActionRow({
         return (
           <FormControlLabel
             key={action}
-            sx={{ m: 0, minWidth: 0 }}
+            sx={{
+              m: 0,
+              minWidth: 0,
+              '& .MuiFormControlLabel-label': { minWidth: 0 },
+            }}
             control={
               <Checkbox
                 size="small"
@@ -283,7 +291,7 @@ function ModuleActionRow({
             label={
               <Typography
                 variant="body2"
-                sx={{ fontSize: 13 }}
+                sx={{ fontSize: 13, overflowWrap: 'anywhere' }}
               >
                 {ACTION_LABELS[action]}
               </Typography>
@@ -325,9 +333,10 @@ function SubModuleScopeGrid({
       <Box
         sx={{
           display: 'grid',
-          gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(180px, 1fr))', xl: 'repeat(4, minmax(180px, 1fr))' },
+          gridTemplateColumns: { xs: '1fr', sm: 'repeat(auto-fit, minmax(140px, 1fr))' },
           columnGap: 2,
           rowGap: 0.25,
+          minWidth: 0,
         }}
       >
         {childrenDefs.map((child) => {
@@ -335,7 +344,11 @@ function SubModuleScopeGrid({
           return (
             <FormControlLabel
               key={child.id}
-              sx={{ m: 0 }}
+              sx={{
+                m: 0,
+                minWidth: 0,
+                '& .MuiFormControlLabel-label': { minWidth: 0 },
+              }}
               control={
                 <Checkbox
                   size="small"
@@ -347,7 +360,7 @@ function SubModuleScopeGrid({
               label={
                 <Typography
                   variant="body2"
-                  sx={{ fontSize: 13, fontWeight: 600 }}
+                  sx={{ fontSize: 13, fontWeight: 600, overflowWrap: 'anywhere' }}
                 >
                   {child.label}
                 </Typography>
@@ -399,10 +412,10 @@ function ModulePanel({
         '&:before': { display: 'none' },
       }}
     >
-      <AccordionSummary expandIcon={<ExpandMore />} sx={{ px: 2, py: 0.5, minHeight: 48 }}>
-        <Stack direction="row" alignItems="center" gap={1.5} sx={{ width: '100%', pr: 1 }}>
+      <AccordionSummary expandIcon={<ExpandMore />} sx={{ px: 2, py: 0.5, minHeight: 48, minWidth: 0 }}>
+        <Stack direction="row" alignItems="center" gap={1.5} sx={{ width: '100%', minWidth: 0, pr: 1 }}>
           <Box sx={{ color: tokens.color.primary[500], display: 'flex' }}>{mod.icon}</Box>
-          <Typography variant="body2" fontWeight={600} sx={{ flex: 1 }}>
+          <Typography variant="body2" fontWeight={600} sx={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>
             {mod.label}
           </Typography>
           <ModuleStatusBadge status={status} />
@@ -528,8 +541,14 @@ export function RolePermissionsPanel({
   onCollapseAll,
 }: RolePermissionsPanelProps) {
   return (
-    <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 2 }}>
-      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
+    <Paper variant="outlined" sx={{ width: '100%', minWidth: 0, p: { xs: 1.5, sm: 2.5 }, borderRadius: 2 }}>
+      <Stack
+        direction={{ xs: 'column', sm: 'row' }}
+        alignItems={{ xs: 'flex-start', sm: 'center' }}
+        justifyContent="space-between"
+        gap={1}
+        sx={{ mb: 2, minWidth: 0 }}
+      >
         <Typography
           variant="body2"
           fontWeight={700}
@@ -538,7 +557,7 @@ export function RolePermissionsPanel({
           Permissions
         </Typography>
         {!readOnly && (
-          <Stack direction="row" gap={1}>
+          <Stack direction="row" gap={1} flexWrap="wrap">
             <MuiButton size="small" onClick={onExpandAll} sx={{ fontSize: 12, color: 'text.secondary' }}>
               Expand All
             </MuiButton>

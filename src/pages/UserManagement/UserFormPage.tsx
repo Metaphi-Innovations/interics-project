@@ -32,6 +32,13 @@ import {
 } from '@/types/permissions'
 import { normalizeArrayResponse } from '@/utils/normalizeListResponse'
 import { MODULE_DEFS, RolePermissionsPanel } from './components/RolePermissionsPanel'
+import {
+  DEFAULT_PHONE_COUNTRY_ISO,
+  PHONE_COUNTRY_CODES,
+  findPhoneCountryCode,
+  parseInternationalPhone,
+  sanitizePhoneDigits,
+} from '@/utils/phoneCountryCodes'
 
 interface FormState {
   name: string
@@ -73,7 +80,7 @@ function validatePassword(password: string): string | undefined {
 function validateForm(
   form: FormState,
   allUsers: User[],
-  options: { editId?: string; requirePassword?: boolean } = {},
+  options: { editId?: string; requirePassword?: boolean; phoneCountryIso?: string } = {},
 ): Record<string, string> {
   const errors: Record<string, string> = {}
   if (!form.name.trim()) errors.name = 'Name is required'
@@ -84,6 +91,15 @@ function validateForm(
   } else {
     const dup = allUsers.find((u) => u.email.toLowerCase() === form.email.toLowerCase() && u.id !== options.editId)
     if (dup) errors.email = 'Email is already in use'
+  }
+  if (form.phone.trim()) {
+    const selectedCountry = findPhoneCountryCode(options.phoneCountryIso ?? DEFAULT_PHONE_COUNTRY_ISO)
+    if (form.phone.length < selectedCountry.minDigits || form.phone.length > selectedCountry.maxDigits) {
+      errors.phone =
+        selectedCountry.minDigits === selectedCountry.maxDigits
+          ? `Phone number must be ${selectedCountry.maxDigits} digits for ${selectedCountry.country}`
+          : `Phone number must be ${selectedCountry.minDigits}-${selectedCountry.maxDigits} digits for ${selectedCountry.country}`
+    }
   }
   if (!form.role) errors.role = 'Role is required'
   if (options.requirePassword) {
@@ -117,6 +133,7 @@ export default function UserFormPage() {
   const [moduleTree, setModuleTree] = useState<PermissionModuleTree | null>(null)
   const [templates, setTemplates] = useState<PermissionTemplate[]>([])
   const [selectedTemplateId, setSelectedTemplateId] = useState('')
+  const [phoneCountryIso, setPhoneCountryIso] = useState(DEFAULT_PHONE_COUNTRY_ISO)
 
   useEffect(() => {
     dispatch(fetchRoles())
@@ -141,6 +158,7 @@ export default function UserFormPage() {
       setErrors({})
       setTouched({})
       setSelectedTemplateId('')
+      setPhoneCountryIso(DEFAULT_PHONE_COUNTRY_ISO)
       setExpandedModules(MODULE_DEFS.map((m) => m.id))
       return
     }
@@ -154,7 +172,9 @@ export default function UserFormPage() {
       .then((res) => {
         if (cancelled) return
         const user = toUiUser(unwrapApiData(res.data))
-        setLoadedUser(user)
+        const parsedPhone = parseInternationalPhone(user.phone)
+        setPhoneCountryIso(parsedPhone.iso)
+        setLoadedUser({ ...user, phone: parsedPhone.localNumber })
         setLoadUserState('ready')
       })
       .catch(() => {
@@ -190,11 +210,24 @@ export default function UserFormPage() {
     setForm((prev) => ({ ...prev, [field]: value }))
   }, [])
 
+  const selectedPhoneCountry = findPhoneCountryCode(phoneCountryIso)
+
+  function handlePhoneCountryChange(nextIso: string) {
+    const nextCountry = findPhoneCountryCode(nextIso)
+    setPhoneCountryIso(nextCountry.iso)
+    handleChange('phone', sanitizePhoneDigits(form.phone, nextCountry.maxDigits))
+  }
+
+  function handlePhoneChange(value: string) {
+    handleChange('phone', sanitizePhoneDigits(value, selectedPhoneCountry.maxDigits))
+  }
+
   function handleBlur(field: keyof FormState) {
     setTouched((prev) => ({ ...prev, [field]: true }))
     const newErrors = validateForm(form, allUsers, {
       editId: loadedUser?.id,
       requirePassword: isCreate,
+      phoneCountryIso,
     })
     setErrors((prev) => ({ ...prev, [field]: newErrors[field] ?? '' }))
   }
@@ -216,6 +249,7 @@ export default function UserFormPage() {
     const allTouched: Record<string, boolean> = {
       name: true,
       email: true,
+      phone: true,
       role: true,
       ...(isCreate ? { password: true } : {}),
     }
@@ -223,6 +257,7 @@ export default function UserFormPage() {
     const errs = validateForm(form, allUsers, {
       editId: loadedUser?.id,
       requirePassword: isCreate,
+      phoneCountryIso,
     })
     setErrors(errs)
     if (Object.keys(errs).length > 0) return
@@ -237,7 +272,7 @@ export default function UserFormPage() {
     const payload: Omit<User, 'id' | 'createdAt' | 'lastLogin'> = {
       name: form.name.trim(),
       email: form.email.trim(),
-      phone: form.phone.trim() || undefined,
+      phone: form.phone.trim() ? `${selectedPhoneCountry.dialCode}${form.phone.trim()}` : undefined,
       employeeId: form.employeeId.trim() || undefined,
       role: form.role,
       permissionTemplateId: selectedTemplateId || null,
@@ -327,8 +362,8 @@ export default function UserFormPage() {
           p: { xs: 2, md: 3 },
         }}
       >
-        <Stack direction={{ xs: 'column', md: 'row' }} gap={3} alignItems="flex-start">
-          <Box sx={{ width: { xs: 1, md: 400 }, flexShrink: 0 }}>
+        <Stack direction={{ xs: 'column', lg: 'row' }} gap={3} alignItems="flex-start">
+          <Box sx={{ width: { xs: 1, lg: 400 }, flexShrink: 0, minWidth: 0 }}>
             <FormSection title="Basic Info" columns={1} divider={false}>
               <FormField label="Name" required error={touched.name ? errors.name : undefined}>
                 <TextField
@@ -376,15 +411,40 @@ export default function UserFormPage() {
                   inputProps={{ style: { fontSize: 13 } }}
                 />
               </FormField>
-              <FormField label="Phone">
-                <TextField
-                  size="small"
-                  fullWidth
-                  placeholder="+91 98200 00000"
-                  value={form.phone}
-                  onChange={(e) => handleChange('phone', e.target.value)}
-                  inputProps={{ style: { fontSize: 13 } }}
-                />
+              <FormField label="Phone" error={touched.phone ? errors.phone : undefined}>
+                <Stack direction={{ xs: 'column', sm: 'row' }} gap={1}>
+                  <TextField
+                    select
+                    size="small"
+                    value={phoneCountryIso}
+                    onChange={(e) => handlePhoneCountryChange(e.target.value)}
+                    sx={{ width: { xs: '100%', sm: 150 }, flexShrink: 0 }}
+                    inputProps={{ style: { fontSize: 13 } }}
+                  >
+                    {PHONE_COUNTRY_CODES.map((option) => (
+                      <MenuItem key={option.iso} value={option.iso}>
+                        <Typography variant="body2" sx={{ fontSize: 13 }}>
+                          {option.dialCode} {option.country}
+                        </Typography>
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                  <TextField
+                    size="small"
+                    fullWidth
+                    placeholder={`${selectedPhoneCountry.maxDigits} digit number`}
+                    value={form.phone}
+                    onChange={(e) => handlePhoneChange(e.target.value)}
+                    onBlur={() => handleBlur('phone')}
+                    error={Boolean(touched.phone && errors.phone)}
+                    inputProps={{
+                      inputMode: 'numeric',
+                      pattern: '[0-9]*',
+                      maxLength: selectedPhoneCountry.maxDigits,
+                      style: { fontSize: 13 },
+                    }}
+                  />
+                </Stack>
               </FormField>
               <FormField label="Employee ID">
                 <TextField

@@ -22,7 +22,7 @@ import { tokens } from '@/design-system/tokens'
 import { formatCurrency } from '@/utils/formatters'
 import type { ReportColumn, ReportListingRow } from '../reportsConfig'
 
-const ACTION_WIDTH_PX = 60
+const ACTION_WIDTH_PX = 84
 const CELL_PAD_X = '14px'
 const LISTING_EDGE_PAD = CELL_PAD_X
 const DEFAULT_PAGE_SIZE = 10

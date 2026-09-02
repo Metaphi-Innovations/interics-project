@@ -105,7 +105,7 @@ function toColumnFilterOptions(
 }
 
 /** Mirrors VendorsPage TABLE_HEADER_CELL_SX / TABLE_CELL_SX. */
-const EXP_ACTION_WIDTH_PX = 44
+const EXP_ACTION_WIDTH_PX = 72
 const EXP_CELL_PAD_X = '14px'
 const LISTING_EDGE_PAD = EXP_CELL_PAD_X
 

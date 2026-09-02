@@ -98,7 +98,7 @@ interface PaymentTableRow {
 }
 
 /** Equal-width data columns + fixed Action; padding matches listing toolbar (14px). */
-const PAY_ACTION_WIDTH_PX = 60
+const PAY_ACTION_WIDTH_PX = 84
 const PAY_CELL_PAD_X = '14px'
 
 type PayablesVisibleColumns = {

@@ -358,7 +358,7 @@ function ProjectsTable({
     whiteSpace: 'nowrap' as const,
   }
 
-  const actionColWidth = 56
+  const actionColWidth = 84
   const actionHeadSx = {
     ...headSx,
     width: actionColWidth,
@@ -370,7 +370,8 @@ function ProjectsTable({
     ...cellSx,
     width: actionColWidth,
     minWidth: actionColWidth,
-    p: '4px',
+    py: '4px',
+    px: '12px',
     textAlign: 'center' as const,
     verticalAlign: 'middle' as const,
   }

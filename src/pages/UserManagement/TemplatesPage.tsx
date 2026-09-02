@@ -36,7 +36,7 @@ import { normalizeArrayResponse } from '@/utils/normalizeListResponse'
 import { usePermission } from '@/hooks/usePermission'
 
 const LISTING_EDGE_PAD = '14px'
-const TEMPLATE_ACTION_WIDTH_PX = 60
+const TEMPLATE_ACTION_WIDTH_PX = 84
 
 const TABLE_HEADER_CELL_SX = {
   fontSize: 11,
@@ -198,14 +198,22 @@ export default function TemplatesPage() {
   const theme = useTheme()
   const hoverBg = alpha(theme.palette.primary.main, 0.04)
   const { showToast } = useToast()
-  const listing = useListingQuery({ pageSize: 20 })
-  const canView = usePermission('userManagementTemplates', 'view') || usePermission('userManagement', 'view')
-  const canCreate = usePermission('userManagementTemplates', 'create') || usePermission('userManagement', 'create')
-  const canEdit = usePermission('userManagementTemplates', 'edit') || usePermission('userManagement', 'edit')
-  const canDelete = usePermission('userManagementTemplates', 'delete') || usePermission('userManagement', 'delete')
+  const listing = useListingQuery()
+  const canViewTemplates = usePermission('userManagementTemplates', 'view')
+  const canViewUserManagement = usePermission('userManagement', 'view')
+  const canCreateTemplates = usePermission('userManagementTemplates', 'create')
+  const canCreateUserManagement = usePermission('userManagement', 'create')
+  const canEditTemplates = usePermission('userManagementTemplates', 'edit')
+  const canEditUserManagement = usePermission('userManagement', 'edit')
+  const canDeleteTemplates = usePermission('userManagementTemplates', 'delete')
+  const canDeleteUserManagement = usePermission('userManagement', 'delete')
+  const canView = canViewTemplates || canViewUserManagement
+  const canCreate = canCreateTemplates || canCreateUserManagement
+  const canEdit = canEditTemplates || canEditUserManagement
+  const canDelete = canDeleteTemplates || canDeleteUserManagement
 
   const [items, setItems] = useState<PermissionTemplate[]>([])
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [toggleSavingId, setToggleSavingId] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<PermissionTemplate | null>(null)
@@ -227,8 +235,25 @@ export default function TemplatesPage() {
   }
 
   useEffect(() => {
-    loadTemplates()
-  }, [])
+    let cancelled = false
+    permissionTemplatesApi
+      .getAll({ limit: 100 })
+      .then((res) => {
+        if (cancelled) return
+        const raw = normalizeArrayResponse<PermissionTemplate>(unwrapApiData(res.data) ?? res.data)
+        setItems(raw)
+      })
+      .catch(() => {
+        if (!cancelled) showToast({ title: 'Failed to load templates', variant: 'error' })
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [showToast])
 
   const searchedItems = useMemo(() => {
     const query = listing.debouncedSearch.trim().toLowerCase()

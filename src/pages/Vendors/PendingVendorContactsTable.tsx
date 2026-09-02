@@ -21,7 +21,7 @@ import { tokens } from '@/design-system/tokens'
 import { formatDate } from '@/utils/formatters'
 import { FilterableHeaderCell, type ColumnFilterOption } from '@/components/listing'
 
-const ACTION_WIDTH_PX = 60
+const ACTION_WIDTH_PX = 84
 const CELL_PAD_X = '14px'
 const LISTING_EDGE_PAD = CELL_PAD_X
 

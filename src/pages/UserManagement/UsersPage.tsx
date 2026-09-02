@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, type MouseEvent } from 'react'
+import { useState, useEffect, useMemo, useCallback, type MouseEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Box,
@@ -55,7 +55,7 @@ import { downloadCsv } from '@/api/downloadCsv'
 
 const LISTING_EDGE_PAD = '14px'
 const USER_CELL_PAD_X = LISTING_EDGE_PAD
-const USER_ACTION_WIDTH_PX = 60
+const USER_ACTION_WIDTH_PX = 84
 const USER_MIDDLE_EQUAL_COUNT = 5
 const USER_FIXED_RIGHT_PX = USER_ACTION_WIDTH_PX
 
@@ -250,7 +250,7 @@ function UserRowActions({
             <Divider />
             <MenuItem
               dense
-              disabled={user.assignedProjects.length > 0}
+              disabled={(user.assignedProjectCount ?? user.assignedProjects.length) > 0}
               onClick={() => {
                 onDelete()
                 close()
@@ -282,6 +282,18 @@ type UsersColumnFilterOptions = {
   projectAccess: ColumnFilterOption[]
   lastLogin: ColumnFilterOption[]
   status: ColumnFilterOption[]
+}
+
+function normalizeProjectAccessFilterOptions(options: ColumnFilterOption[]): ColumnFilterOption[] {
+  const counts = Array.from(
+    new Set(
+      options
+        .map((option) => Number(option.value))
+        .filter((value) => Number.isFinite(value) && value > 0),
+    ),
+  ).sort((left, right) => left - right)
+
+  return counts.map((count) => ({ value: String(count), label: String(count) }))
 }
 
 interface UsersTableProps {
@@ -447,7 +459,7 @@ function UsersTable({
                 ...baseChip,
                 label: roles.find((r) => r.id === user.role)?.name ?? baseChip.label,
               }
-              const projectCount = user.assignedProjects.length
+              const projectCount = user.assignedProjectCount ?? user.assignedProjects.length
               return (
                 <TableRow
                   key={user.id}
@@ -494,11 +506,7 @@ function UsersTable({
                   </TableCell>
 
                   <TableCell sx={cellMiddleSx}>
-                    {user.projectAccess === 'all' ? (
-                      <Typography variant="body2" sx={{ fontSize: 12, color: tokens.color.neutral[500] }}>
-                        All Projects
-                      </Typography>
-                    ) : (
+                    {projectCount > 0 ? (
                       <MuiChip
                         label={`${projectCount} Project${projectCount !== 1 ? 's' : ''}`}
                         size="small"
@@ -511,6 +519,10 @@ function UsersTable({
                           '& .MuiChip-label': { px: 1 },
                         }}
                       />
+                    ) : (
+                      <Typography variant="body2" sx={{ fontSize: 12, color: tokens.color.neutral[500] }}>
+                        All Projects
+                      </Typography>
                     )}
                   </TableCell>
 
@@ -665,10 +677,18 @@ export default function UsersPage() {
   const items = rawItems ?? []
   const roles = useAppSelector((s) => s.roles.items ?? [])
   const { showToast } = useToast()
-  const canCreate = usePermission('userManagementUsers', 'create') || usePermission('userManagement', 'create')
-  const canView = usePermission('userManagementUsers', 'view') || usePermission('userManagement', 'view')
-  const canEdit = usePermission('userManagementUsers', 'edit') || usePermission('userManagement', 'edit')
-  const canDelete = usePermission('userManagementUsers', 'delete') || usePermission('userManagement', 'delete')
+  const canCreateUsers = usePermission('userManagementUsers', 'create')
+  const canCreateUserManagement = usePermission('userManagement', 'create')
+  const canViewUsers = usePermission('userManagementUsers', 'view')
+  const canViewUserManagement = usePermission('userManagement', 'view')
+  const canEditUsers = usePermission('userManagementUsers', 'edit')
+  const canEditUserManagement = usePermission('userManagement', 'edit')
+  const canDeleteUsers = usePermission('userManagementUsers', 'delete')
+  const canDeleteUserManagement = usePermission('userManagement', 'delete')
+  const canCreate = canCreateUsers || canCreateUserManagement
+  const canView = canViewUsers || canViewUserManagement
+  const canEdit = canEditUsers || canEditUserManagement
+  const canDelete = canDeleteUsers || canDeleteUserManagement
 
   const [toggleTarget, setToggleTarget] = useState<User | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<User | null>(null)
@@ -696,6 +716,27 @@ export default function UsersPage() {
     inactiveUsers: 0,
   })
 
+  const applyStatsResponse = useCallback((res: { data: unknown }) => {
+    const data = unwrapApiData<{
+      totalUsers?: number
+      activeUsers?: number
+      privilegedUsers?: number
+      inactiveUsers?: number
+    }>(res.data)
+    if (data) {
+      setUserStats({
+        totalUsers: data.totalUsers ?? 0,
+        activeUsers: data.activeUsers ?? 0,
+        privilegedUsers: data.privilegedUsers ?? 0,
+        inactiveUsers: data.inactiveUsers ?? 0,
+      })
+    }
+  }, [])
+
+  const refreshUserStats = useCallback(() => {
+    void usersApi.getStats().then(applyStatsResponse).catch(() => undefined)
+  }, [applyStatsResponse])
+
   useEffect(() => {
     dispatch(fetchRoles())
     void usersApi.getFilters().then((data) => {
@@ -703,7 +744,7 @@ export default function UsersPage() {
       setColumnFilterOptions({
         name: data.name ?? [],
         phone: data.phone ?? [],
-        projectAccess: data.projectAccess ?? [],
+        projectAccess: normalizeProjectAccessFilterOptions(data.projectAccess ?? []),
         lastLogin: data.lastLogin ?? [],
         role: data.roles ?? [],
         status: (data.statuses ?? []).map((option) => ({
@@ -712,23 +753,8 @@ export default function UsersPage() {
         })),
       })
     }).catch(() => undefined)
-    void usersApi.getStats().then((res) => {
-      const data = unwrapApiData<{
-        totalUsers?: number
-        activeUsers?: number
-        privilegedUsers?: number
-        inactiveUsers?: number
-      }>(res.data)
-      if (data) {
-        setUserStats({
-          totalUsers: data.totalUsers ?? 0,
-          activeUsers: data.activeUsers ?? 0,
-          privilegedUsers: data.privilegedUsers ?? 0,
-          inactiveUsers: data.inactiveUsers ?? 0,
-        })
-      }
-    }).catch(() => undefined)
-  }, [dispatch])
+    refreshUserStats()
+  }, [dispatch, refreshUserStats])
 
   useEffect(() => {
     void dispatch(
@@ -800,6 +826,7 @@ export default function UsersPage() {
   }
 
   function handleColumnFilterChange(next: Partial<Pick<typeof filters, 'name' | 'role' | 'phone' | 'projectAccess' | 'lastLogin' | 'status'>>) {
+    listing.setPage(0)
     dispatch(setFilters(next))
   }
 
@@ -836,8 +863,37 @@ export default function UsersPage() {
       .unwrap()
       .then(() => {
         const wasActive = toggleTarget.status === 'active'
+        setUserStats((prev) => ({
+          ...prev,
+          activeUsers: wasActive ? Math.max(0, prev.activeUsers - 1) : prev.activeUsers + 1,
+          inactiveUsers: wasActive ? prev.inactiveUsers + 1 : Math.max(0, prev.inactiveUsers - 1),
+        }))
         setToggleTarget(null)
         showToast({ title: wasActive ? 'User deactivated' : 'User activated', variant: 'success' })
+        refreshUserStats()
+        if (filters.status) {
+          const nextTotal = Math.max(0, pagination.total - 1)
+          const nextPage = clampListingPage0Based(listing.page, nextTotal, listing.pageSize)
+          if (nextPage !== listing.page) {
+            listing.setPage(nextPage)
+            return
+          }
+          void dispatch(
+            fetchUsers({
+              page: listing.apiPage,
+              limit: listing.pageSize,
+              search: listing.debouncedSearch || undefined,
+              status: filters.status || undefined,
+              role: filters.role || undefined,
+              name: filters.name || undefined,
+              phone: filters.phone || undefined,
+              projectAccess: filters.projectAccess || undefined,
+              lastLogin: filters.lastLogin || undefined,
+              sortBy: sortConfig.field || undefined,
+              sortOrder: sortConfig.direction,
+            }),
+          )
+        }
       })
       .catch(() => showToast({ title: 'Failed to update status', variant: 'error' }))
       .finally(() => setActionSaving(false))
@@ -878,7 +934,7 @@ export default function UsersPage() {
   }
 
   function handleDeleteClick(user: User) {
-    if (user.assignedProjects.length > 0) {
+    if ((user.assignedProjectCount ?? user.assignedProjects.length) > 0) {
       showToast({ title: 'Cannot delete user with assigned projects.', variant: 'error' })
       return
     }
@@ -917,7 +973,10 @@ export default function UsersPage() {
         statCards={statCards}
         tabs={listTabs}
         activeTab={activeListTab}
-        onTabChange={(v) => dispatch(setFilters({ status: v === 'all' ? '' : v }))}
+        onTabChange={(v) => {
+          listing.setPage(0)
+          dispatch(setFilters({ status: v === 'all' ? '' : v }))
+        }}
         searchPlaceholder="Search by name or email..."
         searchValue={filters.search}
         onSearchChange={(v) => {
@@ -926,8 +985,14 @@ export default function UsersPage() {
         }}
         filterConfig={filterConfig}
         activeFilters={activeFilters}
-        onFilterChange={(next) => dispatch(setFilters({ role: (next.role as string) ?? '' }))}
-        onFilterReset={() => dispatch(resetFilters())}
+        onFilterChange={(next) => {
+          listing.setPage(0)
+          dispatch(setFilters({ role: (next.role as string) ?? '' }))
+        }}
+        onFilterReset={() => {
+          listing.setPage(0)
+          dispatch(resetFilters())
+        }}
         onResetAll={handleResetAll}
         showExport
         onExport={handleExport}
