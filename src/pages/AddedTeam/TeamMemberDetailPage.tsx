@@ -4,7 +4,6 @@ import {
   Badge,
   Box,
   Card,
-  Chip as MuiChip,
   CircularProgress,
   IconButton,
   InputBase,
@@ -30,14 +29,11 @@ import { Eye } from 'lucide-react'
 import { Button, DatePicker, Modal, StatusBadge, useToast } from '@/design-system/components'
 import type { StatusType } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
-import { getStatusMasterChipColors } from '@/utils/masterChipStyles'
 import { FiltersPopover } from '@/components/templates'
 import type { FilterField } from '@/components/templates'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
-import { fetchProjects } from '@/slices/projects/thunk'
 import { fetchRoles } from '@/slices/roles/thunk'
 import { fetchUsers, updateUser } from '@/slices/users/thunk'
-import { fetchStatuses } from '@/slices/settings/thunk'
 import type { Project } from '@/slices/projects/reducer'
 import { ProjectOverviewTab } from '@/pages/Projects/components/ProjectOverviewTab'
 import { formatBuildingFloor } from '@/pages/Projects/projectOverviewHelpers'
@@ -60,12 +56,11 @@ const PERIOD_OPTIONS: AssignedPeriod[] = [
   'Custom Date Range',
 ]
 
-const ASSIGNED_PROJECT_COLUMNS: Array<{ key: SortField; label: string }> = [
+const ASSIGNED_PROJECT_COLUMNS: Array<{ key: string; label: string }> = [
   { key: 'projectName', label: 'Project Name' },
   { key: 'projectLead', label: 'Project Lead' },
   { key: 'sites', label: 'Sites' },
   { key: 'status', label: 'Project Status' },
-  { key: 'progress', label: 'Status' },
   { key: 'startDate', label: 'Start Date' },
   { key: 'expectedEndDate', label: 'Expected End Date' },
   { key: 'revenue', label: 'Revenue' },
@@ -73,7 +68,7 @@ const ASSIGNED_PROJECT_COLUMNS: Array<{ key: SortField; label: string }> = [
   { key: 'profitPct', label: 'Profit %' },
 ]
 
-const PAGE_SIZE = 5
+const PAGE_SIZE = 25
 const ACTION_WIDTH_PX = 88
 const CELL_PAD_X = 1.5 // 12px — matches Projects listing cell padding
 const DATA_COL_COUNT = ASSIGNED_PROJECT_COLUMNS.length
@@ -84,8 +79,6 @@ const tableHeadCellSx = {
   fontWeight: 600,
   py: '8px',
   px: CELL_PAD_X,
-  cursor: 'pointer',
-  userSelect: 'none' as const,
   whiteSpace: 'nowrap' as const,
   width: DATA_COL_WIDTH,
 }
@@ -119,54 +112,19 @@ const actionBodyCellSx = {
   verticalAlign: 'middle' as const,
 }
 
-type SortField =
-  | 'projectName'
-  | 'projectLead'
-  | 'status'
-  | 'progress'
-  | 'startDate'
-  | 'expectedEndDate'
-  | 'sites'
-  | 'revenue'
-  | 'profit'
-  | 'profitPct'
-
 interface AssignedProjectRow {
   id: string
   projectName: string
   projectLead: string
   status: Project['status']
-  progress: string
   startDate: string | null
   expectedEndDate: string | null
+  assignedAt: string | null
   sites: string
   revenue: number
   profit: number
   profitPct: number | null
   project: Project
-}
-
-/** Same progress chip used on Projects listing Status column. */
-function ProgressBadge({ label }: { label: string }) {
-  const theme = useTheme()
-  const mode = theme.palette.mode === 'dark' ? 'dark' : 'light'
-  const colors = getStatusMasterChipColors(label, mode)
-  return (
-    <MuiChip
-      label={label}
-      size="small"
-      sx={{
-        height: 18,
-        fontSize: 10,
-        fontWeight: 600,
-        bgcolor: colors.bg,
-        color: colors.color,
-        borderRadius: '4px',
-        border: 'none',
-        '& .MuiChip-label': { px: '6px' },
-      }}
-    />
-  )
 }
 
 function startOfDay(d: Date): Date {
@@ -207,16 +165,15 @@ function parseProjectDate(value: string | null | undefined): Date | null {
 }
 
 function projectInPeriod(
-  project: Project,
+  assignedAt: string | null | undefined,
   start: Date | null,
   end: Date | null,
 ): boolean {
   if (!start && !end) return true
-  const projectStart = parseProjectDate(project.startDate) ?? parseProjectDate(project.createdAt)
-  if (!projectStart) return false
-  const projectEnd = parseProjectDate(project.expectedEndDate)
-  if (end && projectStart > end) return false
-  if (start && projectEnd && projectEnd < start) return false
+  const effectiveDate = parseProjectDate(assignedAt)
+  if (!effectiveDate) return false
+  if (end && effectiveDate > end) return false
+  if (start && effectiveDate < start) return false
   return true
 }
 
@@ -281,7 +238,7 @@ function mapTeamAssignmentRow(row: TeamMemberAssignmentApi): AssignedProjectRow 
     totalVendorPOValue: Number(row.vendorOfferAmount ?? 0),
     invoicedAmount: 0,
     paidVendorAmount: 0,
-    createdAt: new Date().toISOString(),
+    createdAt: row.startDate ?? new Date(0).toISOString(),
     assignedTeam: [],
   }
 
@@ -290,9 +247,9 @@ function mapTeamAssignmentRow(row: TeamMemberAssignmentApi): AssignedProjectRow 
     projectName: String(row.projectName ?? '—'),
     projectLead: row.projectLeadName?.trim() || '—',
     status,
-    progress: row.progressLabel ?? row.statusLabel ?? status,
     startDate: row.startDate ?? null,
     expectedEndDate: row.expectedEndDate ?? null,
+    assignedAt: row.assignedAt ?? row.startDate ?? null,
     sites: assignmentSites(row),
     revenue: Number(row.revenue ?? 0),
     profit: Number(row.profit ?? 0),
@@ -310,20 +267,10 @@ function fmtPct(value: number | null): string {
   return `${value.toFixed(1)}%`
 }
 
-function compareText(a: string, b: string): number {
-  return a.toLowerCase().localeCompare(b.toLowerCase())
-}
-
-function compareDate(a: string | null, b: string | null): number {
+function compareDateDesc(a: string | null, b: string | null): number {
   const aTs = a ? new Date(a).getTime() : 0
   const bTs = b ? new Date(b).getTime() : 0
-  return aTs - bTs
-}
-
-function compareNumber(a: number | null, b: number | null): number {
-  const left = a ?? Number.NEGATIVE_INFINITY
-  const right = b ?? Number.NEGATIVE_INFINITY
-  return left - right
+  return bTs - aTs
 }
 
 function ProjectRowActions({ onView }: { onView: () => void }) {
@@ -438,8 +385,6 @@ export default function TeamMemberDetailPage() {
   useEffect(() => {
     dispatch(fetchUsers({}))
     dispatch(fetchRoles())
-    dispatch(fetchProjects({ page: 1, pageSize: 500 }))
-    dispatch(fetchStatuses())
   }, [dispatch])
 
   useEffect(() => {
@@ -481,9 +426,9 @@ export default function TeamMemberDetailPage() {
         projectName: project.name,
         projectLead: project.projectManager || '—',
         status: project.status,
-        progress: project.progress || '—',
         startDate: project.startDate,
         expectedEndDate: project.expectedEndDate,
+        assignedAt: project.createdAt ?? project.startDate,
         sites: formatBuildingFloor(project),
         revenue: projectRevenue(project),
         profit: projectProfit(project),
@@ -492,14 +437,12 @@ export default function TeamMemberDetailPage() {
       }))
   }, [teamDetail, projects, selectedUser])
 
-  const [period, setPeriod] = useState<AssignedPeriod>('Last 1 Year')
+  const [period, setPeriod] = useState<AssignedPeriod>('All Time')
   const [customFrom, setCustomFrom] = useState<Date | null>(null)
   const [customTo, setCustomTo] = useState<Date | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchFocused, setSearchFocused] = useState(false)
   const [filterAnchor, setFilterAnchor] = useState<HTMLElement | null>(null)
-  const [sortField, setSortField] = useState<SortField>('projectName')
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
   const [page, setPage] = useState(1)
   const [activeProject, setActiveProject] = useState<Project | null>(null)
   const theme = useTheme()
@@ -523,80 +466,32 @@ export default function TeamMemberDetailPage() {
 
   const activeFilters = useMemo(() => ({ period }), [period])
 
-  const activeFilterCount = period !== 'Last 1 Year' ? 1 : 0
+  const activeFilterCount = period !== 'All Time' ? 1 : 0
 
   const filteredProjects = useMemo(() => {
     if (period === 'Custom Date Range' && (!customFrom || !customTo)) return []
     const q = searchQuery.trim().toLowerCase()
-    return assignedProjects.filter((row) => {
-      if (!projectInPeriod(row.project, periodBounds.start, periodBounds.end)) return false
+    const rows = assignedProjects.filter((row) => {
+      if (!projectInPeriod(row.assignedAt, periodBounds.start, periodBounds.end)) return false
       if (q) {
         const haystack = [row.projectName, row.projectLead, row.sites].join(' ').toLowerCase()
         if (!haystack.includes(q)) return false
       }
       return true
     })
+    // Newest association first; oldest last. No column-header sorting.
+    return [...rows].sort((a, b) => compareDateDesc(a.assignedAt, b.assignedAt))
   }, [assignedProjects, period, customFrom, customTo, periodBounds, searchQuery])
 
-  const sortedProjects = useMemo(() => {
-    const rows = [...filteredProjects]
-    rows.sort((a, b) => {
-      let cmp = 0
-      switch (sortField) {
-        case 'projectName':
-          cmp = compareText(a.projectName, b.projectName)
-          break
-        case 'projectLead':
-          cmp = compareText(a.projectLead, b.projectLead)
-          break
-        case 'status':
-          cmp = compareText(a.status, b.status)
-          break
-        case 'progress':
-          cmp = compareText(a.progress, b.progress)
-          break
-        case 'startDate':
-          cmp = compareDate(a.startDate, b.startDate)
-          break
-        case 'expectedEndDate':
-          cmp = compareDate(a.expectedEndDate, b.expectedEndDate)
-          break
-        case 'sites':
-          cmp = compareText(a.sites, b.sites)
-          break
-        case 'revenue':
-          cmp = compareNumber(a.revenue, b.revenue)
-          break
-        case 'profit':
-          cmp = compareNumber(a.profit, b.profit)
-          break
-        case 'profitPct':
-          cmp = compareNumber(a.profitPct, b.profitPct)
-          break
-      }
-      return sortDirection === 'asc' ? cmp : -cmp
-    })
-    return rows
-  }, [filteredProjects, sortDirection, sortField])
-
-  const totalPages = Math.max(1, Math.ceil(sortedProjects.length / PAGE_SIZE))
-  const pageRows = sortedProjects.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+  const totalPages = Math.max(1, Math.ceil(filteredProjects.length / PAGE_SIZE))
+  const pageRows = filteredProjects.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
   useEffect(() => {
     setPage(1)
-  }, [sortDirection, sortField, filteredProjects.length, period, customFrom, customTo, searchQuery])
-
-  function handleSort(field: SortField) {
-    if (sortField === field) {
-      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'))
-      return
-    }
-    setSortField(field)
-    setSortDirection('asc')
-  }
+  }, [filteredProjects.length, period, customFrom, customTo, searchQuery])
 
   function handleFilterChange(vals: Record<string, unknown>) {
-    const next = (vals.period as AssignedPeriod) || 'Last 1 Year'
+    const next = (vals.period as AssignedPeriod) || 'All Time'
     setPeriod(next)
     if (next !== 'Custom Date Range') {
       setCustomFrom(null)
@@ -605,9 +500,15 @@ export default function TeamMemberDetailPage() {
   }
 
   function handleFilterReset() {
-    setPeriod('Last 1 Year')
+    setPeriod('All Time')
     setCustomFrom(null)
     setCustomTo(null)
+  }
+
+  function handleResetAll() {
+    setSearchQuery('')
+    handleFilterReset()
+    setPage(1)
   }
 
   async function handleSave() {
@@ -831,9 +732,27 @@ export default function TeamMemberDetailPage() {
             borderColor: 'divider',
           }}
         >
-          <Typography variant="h6" sx={{ fontSize: 16, fontWeight: 600 }}>
-            Projects Assigned
-          </Typography>
+          <Stack direction="row" alignItems="center" gap={1}>
+            <Typography variant="h6" sx={{ fontSize: 16, fontWeight: 600 }}>
+              Projects Assigned
+            </Typography>
+            <Typography
+              component="span"
+              variant="body2"
+              sx={{
+                fontSize: 13,
+                fontWeight: 600,
+                color: 'text.secondary',
+                bgcolor: 'action.hover',
+                borderRadius: '6px',
+                px: 1,
+                py: 0.25,
+                lineHeight: 1.4,
+              }}
+            >
+              {assignedProjects.length}
+            </Typography>
+          </Stack>
         </Box>
 
         <Stack
@@ -843,30 +762,40 @@ export default function TeamMemberDetailPage() {
           gap={1.5}
           sx={{ px: 2, py: 1.5, borderBottom: '1px solid', borderColor: 'divider' }}
         >
-          <Stack
-            direction="row"
-            alignItems="center"
-            gap={1}
-            sx={{
-              width: { xs: '100%', sm: 260 },
-              minWidth: { sm: 200 },
-              height: 32,
-              bgcolor: searchFocused ? 'action.selected' : 'action.hover',
-              border: `1px solid ${searchFocused ? theme.palette.primary.main : 'transparent'}`,
-              borderRadius: '6px',
-              px: '10px',
-              transition: 'background-color 0.15s, border-color 0.15s',
-            }}
-          >
-            <SearchIcon sx={{ fontSize: 14, color: tokens.color.neutral[400] }} />
-            <InputBase
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search projects..."
-              onFocus={() => setSearchFocused(true)}
-              onBlur={() => setSearchFocused(false)}
-              sx={{ fontSize: 12, flex: 1, '& input': { p: 0 } }}
-            />
+          <Stack direction="row" alignItems="center" gap={1} sx={{ minWidth: 0 }}>
+            <Stack
+              direction="row"
+              alignItems="center"
+              gap={1}
+              sx={{
+                width: { xs: '100%', sm: 260 },
+                minWidth: { sm: 200 },
+                height: 32,
+                bgcolor: searchFocused ? 'action.selected' : 'action.hover',
+                border: `1px solid ${searchFocused ? theme.palette.primary.main : 'transparent'}`,
+                borderRadius: '6px',
+                px: '10px',
+                transition: 'background-color 0.15s, border-color 0.15s',
+              }}
+            >
+              <SearchIcon sx={{ fontSize: 14, color: tokens.color.neutral[400] }} />
+              <InputBase
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search projects..."
+                onFocus={() => setSearchFocused(true)}
+                onBlur={() => setSearchFocused(false)}
+                sx={{ fontSize: 12, flex: 1, '& input': { p: 0 } }}
+              />
+            </Stack>
+            <MuiButton
+              variant="outlined"
+              size="small"
+              onClick={handleResetAll}
+              sx={{ height: 32, fontSize: 12, flexShrink: 0 }}
+            >
+              Reset
+            </MuiButton>
           </Stack>
 
           <Stack direction="row" alignItems="center" gap={1} flexWrap="wrap" justifyContent="flex-end">
@@ -895,11 +824,7 @@ export default function TeamMemberDetailPage() {
             <TableHead>
               <TableRow sx={{ bgcolor: 'action.hover' }}>
                 {ASSIGNED_PROJECT_COLUMNS.map((column) => (
-                  <TableCell
-                    key={column.key}
-                    onClick={() => handleSort(column.key)}
-                    sx={tableHeadCellSx}
-                  >
+                  <TableCell key={column.key} sx={tableHeadCellSx}>
                     {column.label}
                   </TableCell>
                 ))}
@@ -909,7 +834,7 @@ export default function TeamMemberDetailPage() {
             <TableBody>
               {pageRows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={11} sx={{ py: 5 }}>
+                  <TableCell colSpan={DATA_COL_COUNT + 1} sx={{ py: 5 }}>
                     <Typography variant="body2" color="text.secondary" align="center">
                       {period === 'Custom Date Range' && (!customFrom || !customTo)
                         ? 'Select a custom start and end date to view assigned projects.'
@@ -939,9 +864,6 @@ export default function TeamMemberDetailPage() {
                         }
                       />
                     </TableCell>
-                    <TableCell sx={tableBodyCellSx}>
-                      <ProgressBadge label={row.progress} />
-                    </TableCell>
                     <TableCell sx={tableBodyCellSx}>{formatDate(row.startDate)}</TableCell>
                     <TableCell sx={tableBodyCellSx}>{formatDate(row.expectedEndDate)}</TableCell>
                     <TableCell sx={tableBodyCellSx}>{fmtInr(row.revenue)}</TableCell>
@@ -957,20 +879,22 @@ export default function TeamMemberDetailPage() {
           </Table>
         </TableContainer>
 
-        {sortedProjects.length > PAGE_SIZE ? (
+        {filteredProjects.length > 0 ? (
           <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ px: 2, py: 1.5, borderTop: '1px solid', borderColor: 'divider' }}>
             <Typography variant="caption" color="text.secondary">
               Showing {(page - 1) * PAGE_SIZE + 1}-
-              {Math.min(page * PAGE_SIZE, sortedProjects.length)} of {sortedProjects.length}
+              {Math.min(page * PAGE_SIZE, filteredProjects.length)} of {filteredProjects.length}
             </Typography>
-            <Stack direction="row" gap={1}>
-              <Button variant="outlined" color="secondary" size="sm" disabled={page <= 1} onClick={() => setPage((prev) => Math.max(1, prev - 1))}>
-                Previous
-              </Button>
-              <Button variant="outlined" color="secondary" size="sm" disabled={page >= totalPages} onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}>
-                Next
-              </Button>
-            </Stack>
+            {filteredProjects.length > PAGE_SIZE ? (
+              <Stack direction="row" gap={1}>
+                <Button variant="outlined" color="secondary" size="sm" disabled={page <= 1} onClick={() => setPage((prev) => Math.max(1, prev - 1))}>
+                  Previous
+                </Button>
+                <Button variant="outlined" color="secondary" size="sm" disabled={page >= totalPages} onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}>
+                  Next
+                </Button>
+              </Stack>
+            ) : null}
           </Stack>
         ) : null}
       </Box>
