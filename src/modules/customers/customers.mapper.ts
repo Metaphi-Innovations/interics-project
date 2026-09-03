@@ -245,29 +245,52 @@ export function toCustomerFromSections(api: CustomerDetailSectionsApi): Customer
 export function toCreatePayload(form: CustomerFormInput) {
   const contactName = form.contactPerson.trim()
   const contactPhone = form.phone.trim()
-  const contactEmail = form.email.trim()
+  const contactEmail = form.email.trim().toLowerCase()
   const hasContact = Boolean(contactName || contactPhone || contactEmail)
+  const secondaryContactName = form.secondaryContactPerson?.trim() ?? ''
+  const secondaryContactPhone = form.secondaryPhone?.trim() ?? ''
+  const secondaryContactEmail = form.secondaryEmail?.trim().toLowerCase() ?? ''
+  const secondaryContactDesignation = form.secondaryDesignation?.trim() ?? ''
+  const hasSecondaryContact = Boolean(
+    secondaryContactName ||
+      secondaryContactPhone ||
+      secondaryContactEmail ||
+      secondaryContactDesignation,
+  )
+  const contacts = [
+    ...(hasContact
+      ? [
+          {
+            name: contactName || 'Primary Contact',
+            designation: form.designation.trim() || undefined,
+            phone: contactPhone,
+            email: contactEmail,
+            contactType: 'PRIMARY' as const,
+            isPrimary: true,
+          },
+        ]
+      : []),
+    ...(hasSecondaryContact
+      ? [
+          {
+            name: secondaryContactName,
+            designation: secondaryContactDesignation || undefined,
+            phone: secondaryContactPhone,
+            email: secondaryContactEmail,
+            contactType: 'OTHER' as const,
+            isPrimary: false,
+          },
+        ]
+      : []),
+  ]
 
   return {
     customerName: form.name.trim(),
     sector: form.sector.trim(),
     gstStatus: toApiGstStatus(form.gstStatus),
-    gstin: form.gstin.trim() || undefined,
+    gstin: form.gstStatus === 'Registered' ? form.gstin.trim() || undefined : undefined,
     panNumber: form.pan.trim() || undefined,
-    ...(hasContact
-      ? {
-          contacts: [
-            {
-              name: contactName || 'Primary Contact',
-              designation: form.designation.trim() || undefined,
-              phone: contactPhone,
-              email: contactEmail,
-              contactType: 'PRIMARY' as const,
-              isPrimary: true,
-            },
-          ],
-        }
-      : { contacts: [] }),
+    contacts,
     address: form.address.trim() || undefined,
     city: form.city.trim() || undefined,
     state: form.state.trim() || undefined,
@@ -289,5 +312,9 @@ export const CUSTOMER_FIELD_ALIASES: Record<string, string> = {
   'contacts.0.designation': 'designation',
   'contacts.0.phone': 'phone',
   'contacts.0.email': 'email',
+  'contacts.1.name': 'secondaryContactPerson',
+  'contacts.1.designation': 'secondaryDesignation',
+  'contacts.1.phone': 'secondaryPhone',
+  'contacts.1.email': 'secondaryEmail',
   contacts: 'contactPerson',
 }

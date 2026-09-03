@@ -124,17 +124,28 @@ function mapContactResponse(api: Record<string, unknown>): Contact {
 export const vendorsService = {
   fieldAliases: VENDOR_FIELD_ALIASES,
 
-  async getFilters(): Promise<VendorFiltersApi> {
-    const res = await client.get(`${BASE}/filters`)
+  async getFilters(
+    params: Pick<VendorListParams, 'profileStatus' | 'search' | 'isActive' | 'gstStatus' | 'state'> = {},
+  ): Promise<VendorFiltersApi> {
+    const res = await client.get(`${BASE}/filters`, {
+      params: {
+        ...(params.search?.trim() ? { search: params.search.trim() } : {}),
+        ...(params.isActive !== undefined ? { isActive: params.isActive } : {}),
+        ...(params.profileStatus ? { profileStatus: params.profileStatus } : {}),
+        ...(params.gstStatus ? { gstStatus: params.gstStatus } : {}),
+        ...(params.state ? { state: params.state } : {}),
+      },
+    })
     return unwrapApiData<VendorFiltersApi>(res.data)
   },
 
   async getAll(params: VendorListParams = {}): Promise<VendorListResult> {
     const columns = params.columns?.length ? params.columns : [...DEFAULT_LIST_COLUMNS]
     const ratingFilter = params.rating?.trim()
+    const clientSideRatingMode = Boolean(ratingFilter || params.sortBy === 'rating')
     // Rating is still client-persisted; fetch a wider page then filter locally.
-    const page = ratingFilter ? 1 : (params.page ?? 1)
-    const limit = ratingFilter ? 100 : (params.limit ?? 20)
+    const page = clientSideRatingMode ? 1 : (params.page ?? 1)
+    const limit = clientSideRatingMode ? 100 : (params.limit ?? 20)
     const res = await client.get(BASE, {
       params: {
         page,
@@ -148,13 +159,12 @@ export const vendorsService = {
         ...(params.website ? { website: params.website } : {}),
         ...(params.location ? { location: params.location } : {}),
         ...(params.specialization ? { specialization: params.specialization } : {}),
-        ...(ratingFilter ? { rating: ratingFilter } : {}),
+        ...(params.sortBy && params.sortBy !== 'rating' ? { sortBy: params.sortBy } : {}),
         ...(params.contactPerson ? { contactPerson: params.contactPerson } : {}),
         ...(params.mobile ? { mobile: params.mobile } : {}),
         ...(params.email ? { email: params.email } : {}),
         ...(params.designation ? { designation: params.designation } : {}),
         ...(params.createdOn ? { createdOn: params.createdOn } : {}),
-        ...(params.sortBy ? { sortBy: params.sortBy } : {}),
         ...(params.sortOrder ? { sortOrder: params.sortOrder } : {}),
         columns: columns.join(','),
       },
@@ -168,6 +178,17 @@ export const vendorsService = {
       const needle = ratingFilter.toLowerCase()
       items = items.filter((vendor) => (vendor.rating ?? '').trim().toLowerCase() === needle)
       total = items.length
+    }
+    if (params.sortBy === 'rating') {
+      const direction = params.sortOrder === 'desc' ? -1 : 1
+      items = [...items].sort(
+        (left, right) =>
+          String(left.rating ?? '').localeCompare(String(right.rating ?? ''), undefined, {
+            sensitivity: 'base',
+          }) * direction,
+      )
+    }
+    if (clientSideRatingMode) {
       const pageLimit = params.limit ?? 20
       const pageNum = params.page ?? 1
       const skip = (Math.max(1, pageNum) - 1) * pageLimit
@@ -216,7 +237,12 @@ export const vendorsService = {
         })
       : await client.post(BASE, payload)
     const data = unwrapApiData<VendorDetailSectionsApi>(res.data)
-    return toVendorFromSections(data)
+    const vendor = toVendorFromSections(data)
+    if (form.rating !== undefined) {
+      setStoredVendorRating(vendor.id, form.rating)
+      return { ...vendor, rating: form.rating?.trim() || null }
+    }
+    return vendor
   },
 
   async update(id: string, form: VendorFormInput): Promise<Vendor> {
@@ -228,7 +254,12 @@ export const vendorsService = {
         })
       : await client.put(`${BASE}/${id}`, payload)
     const data = unwrapApiData<VendorDetailSectionsApi>(res.data)
-    return toVendorFromSections(data)
+    const vendor = toVendorFromSections(data)
+    if (form.rating !== undefined) {
+      setStoredVendorRating(vendor.id, form.rating)
+      return { ...vendor, rating: form.rating?.trim() || null }
+    }
+    return vendor
   },
 
   async updatePartial(id: string, patch: Partial<Vendor>): Promise<Vendor> {

@@ -77,6 +77,7 @@ import { formatDate } from '@/utils/formatters'
 import { getSectorTagSx } from '@/utils/sectorTagStyles'
 import { DashboardDateRangeFilter } from '../DashboardDateRangeFilter'
 import {
+  type DashboardDatePeriod,
   dashboardDateParams,
   type DashboardDateRange,
 } from '../dashboardDateRange'
@@ -3772,10 +3773,14 @@ function ProjectDesignAnalyticsSection({ projects }: { projects: Project[] }) {
 }
 
 export function ProjectsTab({
+  datePeriod,
   dateRange,
+  onDatePeriodChange,
   onDateRangeChange,
 }: {
+  datePeriod: DashboardDatePeriod
   dateRange: DashboardDateRange
+  onDatePeriodChange: (period: DashboardDatePeriod) => void
   onDateRangeChange: (range: DashboardDateRange) => void
 }) {
   const dispatch = useAppDispatch()
@@ -3836,7 +3841,12 @@ export function ProjectsTab({
       <ProjectsOverviewSection
         projects={projects}
         action={
-          <DashboardDateRangeFilter value={dateRange} onChange={onDateRangeChange} />
+          <DashboardDateRangeFilter
+            period={datePeriod}
+            value={dateRange}
+            onPeriodChange={onDatePeriodChange}
+            onChange={onDateRangeChange}
+          />
         }
       />
       <ProjectAnalyticsSection projects={projects} />

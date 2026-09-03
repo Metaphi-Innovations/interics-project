@@ -4,6 +4,7 @@ export type UiGstStatus = Customer['gstStatus']
 export type UiStatus = Customer['status']
 
 export type ApiGstStatus = 'REGISTERED' | 'UNREGISTERED' | 'COMPOSITION' | 'SEZ'
+export type ProjectStatusApi = 'PITCH' | 'LIVE' | 'COMPLETED' | 'ARCHIVED' | 'CANCELLED'
 
 export type CustomerListItemApi = {
   id: string
@@ -159,6 +160,7 @@ export type CustomerFiltersApi = {
   status: Array<{ value: boolean; label: string }>
   gstStatuses: Array<{ value: string; label: string }>
   states: Array<{ value: string; label: string }>
+  projectStatuses?: Array<{ value: string; label: string }>
   customerName?: Array<{ value: string; label: string }>
   contactPerson?: Array<{ value: string; label: string }>
   sector?: Array<{ value: string; label: string }>
@@ -172,6 +174,7 @@ export type CustomerListParams = {
   gstStatus?: string
   state?: string
   sector?: string
+  projectStatus?: string
   customerName?: string
   contactPerson?: string
   columns?: string[]
@@ -196,6 +199,10 @@ export type CustomerFormInput = {
   designation: string
   phone: string
   email: string
+  secondaryContactPerson?: string
+  secondaryDesignation?: string
+  secondaryPhone?: string
+  secondaryEmail?: string
   city: string
   state: string
   address: string

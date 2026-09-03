@@ -12,6 +12,7 @@ import {
 import { DrawerForm, FormSection, FormField } from '../../components/templates'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { createVendor, updateVendor, createVendorContact, updateVendorContact } from '../../slices/vendors/thunk'
+import { fetchRatings } from '@/slices/settings/thunk'
 import { useToast, Button } from '@/design-system/components'
 import { validateVendorForm, vendorsService } from '@/modules/vendors'
 import {
@@ -48,6 +49,7 @@ interface FormState {
   state: string
   pincode: string
   tags: string[]
+  rating: string
   paymentTerms: string
   notes: string
 }
@@ -67,6 +69,7 @@ const defaultForm: FormState = {
   state: '',
   pincode: '',
   tags: [],
+  rating: '',
   paymentTerms: '',
   notes: '',
 }
@@ -85,6 +88,7 @@ export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: Vendo
   const dispatch = useAppDispatch()
   const saving = useAppSelector((s) => s.vendors.saving)
   const existingVendors = useAppSelector((s) => s.vendors.items ?? [])
+  const ratings = useAppSelector((s) => s.settings.ratings)
   const { showToast } = useToast()
 
   const [form, setForm] = useState<FormState>(defaultForm)
@@ -118,6 +122,7 @@ export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: Vendo
           state: vendor.state === 'Unknown' ? '' : vendor.state,
           pincode: vendor.pincode ?? '',
           tags: vendor.tags,
+          rating: vendor.rating ?? '',
           paymentTerms: vendor.paymentTerms ?? '',
           notes: vendor.notes ?? '',
         })
@@ -131,6 +136,15 @@ export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: Vendo
   function update<K extends keyof FormState>(field: K, value: FormState[K]) {
     setForm((f) => ({ ...f, [field]: value }))
     setErrors((errs) => clearFieldError(errs, field))
+  }
+
+  function handleGstStatusChange(value: FormState['gstStatus']) {
+    setForm((f) => ({
+      ...f,
+      gstStatus: value,
+      gstin: value === 'Registered' ? f.gstin : '',
+    }))
+    setErrors((errs) => clearFieldError(clearFieldError(errs, 'gstStatus'), 'gstin'))
   }
 
   async function resolvePincode(pin: string) {
@@ -190,6 +204,7 @@ export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: Vendo
       state: form.state.trim(),
       pincode: form.pincode.trim() || null,
       tags: form.tags,
+      rating: form.rating.trim() || null,
       notes: form.notes.trim() || null,
       gstCertificateFile: gstCertFile,
       panCardFile: panDocFile,
@@ -291,6 +306,13 @@ export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: Vendo
   }
 
   const completingPending = mode === 'edit' && vendor?.profileStatus === 'pending'
+  const activeRatings = ratings.filter((rating) => rating.status === 'active')
+
+  useEffect(() => {
+    if (open) {
+      dispatch(fetchRatings({ limit: 100 }))
+    }
+  }, [open, dispatch])
 
   return (
     <DrawerForm
@@ -335,7 +357,7 @@ export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: Vendo
       </FormSection>
 
       <FormSection title="Contact Details" columns={2}>
-        <FormField label="Contact Person" error={errors.contactPerson}>
+        <FormField label="Contact Person" required error={errors.contactPerson}>
           <TextField
             fullWidth
             size="small"
@@ -356,7 +378,7 @@ export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: Vendo
           />
         </FormField>
 
-        <FormField label="Phone" error={errors.phone} hint="10-digit mobile starting with 6–9">
+        <FormField label="Phone" required error={errors.phone} hint="10-digit mobile starting with 6–9">
           <TextField
             fullWidth
             size="small"
@@ -369,13 +391,14 @@ export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: Vendo
           />
         </FormField>
 
-        <FormField label="Email" error={errors.email}>
+        <FormField label="Email" required error={errors.email}>
           <TextField
             fullWidth
             size="small"
             type="email"
             value={form.email}
             onChange={(e) => update('email', e.target.value)}
+            onBlur={() => update('email', form.email.trim())}
             placeholder="name@company.com"
             error={!!errors.email}
           />
@@ -384,7 +407,7 @@ export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: Vendo
 
       <FormSection title="Billing Address" columns={2}>
         <Box sx={{ gridColumn: 'span 2' }}>
-          <FormField label="Address">
+          <FormField label="Address" required error={errors.address}>
             <TextField
               fullWidth
               size="small"
@@ -393,12 +416,14 @@ export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: Vendo
               value={form.address}
               onChange={(e) => update('address', e.target.value)}
               placeholder="Building, Street"
+              error={!!errors.address}
             />
           </FormField>
         </Box>
 
         <FormField
           label="Pincode"
+          required
           error={errors.pincode}
           hint={pincodeLookupLoading ? 'Looking up city & state…' : 'City and state auto-fill'}
         >
@@ -418,7 +443,7 @@ export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: Vendo
           />
         </FormField>
 
-        <FormField label="City" error={errors.city}>
+        <FormField label="City" required error={errors.city}>
           <TextField
             fullWidth
             size="small"
@@ -429,7 +454,7 @@ export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: Vendo
           />
         </FormField>
 
-        <FormField label="State" error={errors.state}>
+        <FormField label="State" required error={errors.state}>
           <TextField
             fullWidth
             size="small"
@@ -451,13 +476,14 @@ export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: Vendo
       </FormSection>
 
       <FormSection title="Tax & Compliance" columns={2}>
-        <FormField label="GST Status">
+        <FormField label="GST Status" required error={errors.gstStatus}>
           <TextField
             fullWidth
             size="small"
             select
             value={form.gstStatus}
-            onChange={(e) => update('gstStatus', e.target.value as 'Registered' | 'Unregistered')}
+            onChange={(e) => handleGstStatusChange(e.target.value as 'Registered' | 'Unregistered')}
+            error={!!errors.gstStatus}
           >
             <MenuItem value="Registered">Registered</MenuItem>
             <MenuItem value="Unregistered">Unregistered</MenuItem>
@@ -476,6 +502,7 @@ export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: Vendo
             value={form.gstin}
             onChange={(e) => update('gstin', e.target.value.toUpperCase())}
             placeholder="29ABCDE1234F1Z5"
+            disabled={form.gstStatus !== 'Registered'}
             error={!!errors.gstin}
           />
         </FormField>
@@ -555,7 +582,7 @@ export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: Vendo
 
       <FormSection title="Vendor Profile" columns={2}>
         <Box sx={{ gridColumn: 'span 2' }}>
-          <FormField label="Specialization Tags">
+          <FormField label="Specialization Tags" required error={errors.tags}>
             <Autocomplete
               multiple
               freeSolo
@@ -578,9 +605,34 @@ export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: Vendo
                   {...params}
                   size="small"
                   placeholder={form.tags.length === 0 ? 'e.g. Civil, Furniture, MEP' : ''}
+                  error={!!errors.tags}
                 />
               )}
             />
+          </FormField>
+        </Box>
+
+        <Box sx={{ gridColumn: 'span 2' }}>
+          <FormField label="Rating" error={errors.rating}>
+            <TextField
+              fullWidth
+              size="small"
+              select
+              value={form.rating}
+              onChange={(e) => update('rating', e.target.value)}
+              error={!!errors.rating}
+              helperText={activeRatings.length ? undefined : 'No active ratings found in Rating Master'}
+            >
+              <MenuItem value="">Select rating...</MenuItem>
+              {activeRatings.map((rating) => (
+                <MenuItem key={rating.id} value={rating.name}>
+                  {rating.name}
+                </MenuItem>
+              ))}
+              {form.rating && !activeRatings.some((rating) => rating.name === form.rating) ? (
+                <MenuItem value={form.rating}>{form.rating}</MenuItem>
+              ) : null}
+            </TextField>
           </FormField>
         </Box>
 

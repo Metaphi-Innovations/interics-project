@@ -406,7 +406,9 @@ export function ListingPaginationFooter({
             </Typography>
             <Select
               size="small"
-              value={pageSize}
+              displayEmpty
+              value={String(pageSize)}
+              renderValue={(selected) => String(selected || pageSize)}
               onChange={(e) => onPageSizeChange(Number(e.target.value))}
               sx={{
                 fontSize: 12,
@@ -417,7 +419,7 @@ export function ListingPaginationFooter({
               }}
             >
               {LISTING_PAGE_SIZE_OPTIONS.map((size) => (
-                <MenuItem key={size} value={size}>
+                <MenuItem key={size} value={String(size)}>
                   {size}
                 </MenuItem>
               ))}

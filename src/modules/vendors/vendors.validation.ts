@@ -74,7 +74,8 @@ export function validateVendorForm(
   form: VendorFormInput,
   options: ValidateVendorFormOptions = {},
 ): FieldErrorMap {
-  const hasContactInput = Boolean(
+  const isPendingProfile = form.profileStatus === 'pending'
+  const hasContactInput = isPendingProfile || Boolean(
     form.contactPerson?.trim() || form.phone?.trim() || form.email?.trim(),
   )
 
@@ -90,13 +91,21 @@ export function validateVendorForm(
     ['email', hasContactInput ? requiredEmail(form.email) : optionalEmail(form.email)],
     ['designation', optionalMaxLength(form.designation, 'Designation', 100)],
     ['website', optionalWebsite(form.website)],
-    ['city', optionalMaxLength(form.city, 'City', 100)],
-    ['state', optionalMaxLength(form.state, 'State', 100)],
-    ['address', optionalMaxLength(form.address, 'Address', 500)],
-    ['pincode', optionalPincode(form.pincode)],
+    ['city', isPendingProfile ? optionalMaxLength(form.city, 'City', 100) : requiredText(form.city, 'City', 100)],
+    ['state', isPendingProfile ? optionalMaxLength(form.state, 'State', 100) : requiredText(form.state, 'State', 100)],
+    ['address', isPendingProfile ? optionalMaxLength(form.address, 'Address', 500) : requiredText(form.address, 'Address', 500)],
+    ['pincode', isPendingProfile ? optionalPincode(form.pincode) : requiredText(form.pincode, 'Pincode', 6) || optionalPincode(form.pincode)],
     ['pan', optionalPan(form.pan)],
     ['notes', optionalMaxLength(form.notes, 'Notes', 5000)],
   ])
+
+  if (!isPendingProfile && !form.gstStatus) {
+    errors.gstStatus = 'GST Status is required'
+  }
+
+  if (!isPendingProfile && !form.tags?.some((tag) => tag.trim())) {
+    errors.tags = 'At least one specialization tag is required'
+  }
 
   if (gstinRequired(form.gstStatus)) {
     if (!form.gstin?.trim()) {

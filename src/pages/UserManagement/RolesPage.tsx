@@ -1,4 +1,4 @@
-import { useEffect, useState, type MouseEvent } from 'react'
+import { useCallback, useEffect, useState, type MouseEvent } from 'react'
 import {
   Box,
   Stack,
@@ -304,8 +304,8 @@ export default function RolesPage() {
     navigate('/user-management/roles')
   }
 
-  useEffect(() => {
-    void dispatch(
+  const loadRoles = useCallback(() => {
+    return dispatch(
       fetchRoles({
         page: listing.apiPage,
         limit: listing.pageSize,
@@ -329,6 +329,12 @@ export default function RolesPage() {
     listing.filters.status,
     sortField,
     sortDirection,
+  ])
+
+  useEffect(() => {
+    void loadRoles()
+  }, [
+    loadRoles,
   ])
 
   useEffect(() => {
@@ -378,6 +384,7 @@ export default function RolesPage() {
       .then(() => {
         setDeleteTarget(null)
         showToast({ title: 'Role deleted', variant: 'success' })
+        void loadRoles()
       })
       .catch(() => showToast({ title: 'Failed to delete role', variant: 'error' }))
   }
@@ -391,6 +398,7 @@ export default function RolesPage() {
         const activating = nextStatus === 'ACTIVE'
         setToggleTarget(null)
         showToast({ title: activating ? 'Role activated' : 'Role deactivated', variant: 'success' })
+        void loadRoles()
       })
       .catch((message: unknown) => {
         showToast({ title: String(message) || 'Failed to update role status', variant: 'error' })
@@ -648,7 +656,24 @@ export default function RolesPage() {
         </Box>
       </UserManagementLayout>
 
-      <RoleDrawer open={drawerOpen} mode={drawerMode} roleId={editId} onClose={closeDrawer} />
+      <RoleDrawer
+        open={drawerOpen}
+        mode={drawerMode}
+        roleId={editId}
+        onClose={closeDrawer}
+        onSaved={() => {
+          void loadRoles()
+          void rolesApi.getFilters().then((data) => {
+            if (!data) return
+            setFilterOptions({
+              name: data.name ?? [],
+              level: data.level ?? [],
+              type: data.type ?? [],
+              status: data.statuses ?? [],
+            })
+          }).catch(() => undefined)
+        }}
+      />
 
       <DeleteRoleDialog
         open={Boolean(deleteTarget)}

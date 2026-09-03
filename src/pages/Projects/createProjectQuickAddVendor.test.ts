@@ -27,13 +27,13 @@ const baseVendorForm = (): VendorFormInput => ({
 })
 
 describe('QuickAdd vendor create payload (Pending Contacts)', () => {
-  it('maps Active status to isActive:true and omits client profileStatus', () => {
+  it('maps Active status to isActive:true and marks the vendor profile as pending', () => {
     const payload = toCreatePayload(baseVendorForm())
     expect(payload.vendorName).toBe('Pending Vendor LLC')
     expect(payload.billingCity).toBe('Unknown')
     expect(payload.billingState).toBe('Unknown')
     expect(payload.isActive).toBe(true)
-    expect(payload.profileStatus).toBeUndefined()
+    expect(payload.profileStatus).toBe('pending')
   })
 
   it('does not force isActive when status is omitted (full VendorDrawer create)', () => {

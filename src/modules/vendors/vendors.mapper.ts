@@ -290,6 +290,7 @@ export function toCreatePayload(form: VendorFormInput): Record<string, unknown> 
       : form.status === 'Active'
         ? { isActive: true }
         : {}),
+    ...(form.profileStatus === 'pending' ? { profileStatus: 'pending' } : {}),
     ...(form.removeDocuments?.length ? { removeDocuments: form.removeDocuments } : {}),
   }
 }

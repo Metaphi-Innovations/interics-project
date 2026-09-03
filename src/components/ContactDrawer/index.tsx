@@ -43,7 +43,7 @@ function validate(form: FormState): FormErrors {
   if (phoneError) errors.phone = phoneError
   if (!form.email.trim()) {
     errors.email = 'Email is required'
-  } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
+  } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
     errors.email = 'Enter a valid email address'
   }
   return errors
@@ -146,6 +146,7 @@ export function ContactDrawer({ open, onClose, mode, contact, onSave }: ContactD
             placeholder="name@company.com"
             value={form.email}
             onChange={(v) => set('email', v)}
+            onBlur={() => set('email', form.email.trim())}
             error={!!errors.email}
             size="sm"
           />

@@ -19,7 +19,10 @@ import { useTheme, alpha } from '@mui/material/styles'
 import type { Vendor } from '@/slices/vendors/reducer'
 import { tokens } from '@/design-system/tokens'
 import { formatDate } from '@/utils/formatters'
-import { FilterableHeaderCell, type ColumnFilterOption } from '@/components/listing'
+import {
+  VendorFilterableSortHeader,
+  type VendorColumnFilterOption,
+} from './VendorFilterableSortHeader'
 
 const ACTION_WIDTH_PX = 84
 const CELL_PAD_X = '14px'
@@ -138,11 +141,14 @@ export interface PendingVendorContactsTableProps {
     designation: string
     createdOn: string
   }
-  contactPersonOptions: ColumnFilterOption[]
-  mobileOptions: ColumnFilterOption[]
-  emailOptions: ColumnFilterOption[]
-  designationOptions: ColumnFilterOption[]
-  createdOnOptions: ColumnFilterOption[]
+  sortField: string | null
+  sortDirection: 'asc' | 'desc'
+  contactPersonOptions: VendorColumnFilterOption[]
+  mobileOptions: VendorColumnFilterOption[]
+  emailOptions: VendorColumnFilterOption[]
+  designationOptions: VendorColumnFilterOption[]
+  createdOnOptions: VendorColumnFilterOption[]
+  onSort: (field: string, direction: 'asc' | 'desc') => void
   onColumnFilter: (
     field: 'contactPerson' | 'mobile' | 'email' | 'designation' | 'createdOn',
     value: string,
@@ -155,11 +161,14 @@ export function PendingVendorContactsTable({
   items,
   loading,
   columnFilters,
+  sortField,
+  sortDirection,
   contactPersonOptions,
   mobileOptions,
   emailOptions,
   designationOptions,
   createdOnOptions,
+  onSort,
   onColumnFilter,
   onView,
   onUpdate,
@@ -201,36 +210,57 @@ export function PendingVendorContactsTable({
         </colgroup>
         <TableHead>
           <TableRow sx={{ bgcolor: alpha(theme.palette.text.primary, 0.02) }}>
-            <FilterableHeaderCell
+            <VendorFilterableSortHeader
               label="Contact Person Name"
+              field="contactPerson"
+              sortField={sortField ?? undefined}
+              sortDirection={sortDirection}
+              onSort={onSort}
               filterValue={columnFilters.contactPerson}
               filterOptions={contactPersonOptions}
               onFilter={(value) => onColumnFilter('contactPerson', value)}
               sx={headSx}
             />
-            <FilterableHeaderCell
+            <VendorFilterableSortHeader
               label="Mobile Number"
+              field="mobile"
+              sortField={sortField ?? undefined}
+              sortDirection={sortDirection}
+              onSort={onSort}
               filterValue={columnFilters.mobile}
               filterOptions={mobileOptions}
               onFilter={(value) => onColumnFilter('mobile', value)}
               sx={headSx}
             />
-            <FilterableHeaderCell
+            <VendorFilterableSortHeader
               label="Email Address"
+              field="email"
+              sortField={sortField ?? undefined}
+              sortDirection={sortDirection}
+              onSort={onSort}
               filterValue={columnFilters.email}
               filterOptions={emailOptions}
               onFilter={(value) => onColumnFilter('email', value)}
               sx={headSx}
             />
-            <FilterableHeaderCell
+            <VendorFilterableSortHeader
               label="Designation"
+              field="designation"
+              sortField={sortField ?? undefined}
+              sortDirection={sortDirection}
+              onSort={onSort}
               filterValue={columnFilters.designation}
               filterOptions={designationOptions}
               onFilter={(value) => onColumnFilter('designation', value)}
               sx={headSx}
             />
-            <FilterableHeaderCell
+            <VendorFilterableSortHeader
               label="Created On"
+              field="createdOn"
+              sortField={sortField ?? undefined}
+              sortDirection={sortDirection}
+              onSort={onSort}
+              filterMode="date"
               filterValue={columnFilters.createdOn}
               filterOptions={createdOnOptions}
               onFilter={(value) => onColumnFilter('createdOn', value)}

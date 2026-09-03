@@ -1,6 +1,10 @@
-import { Box, Typography } from '@mui/material'
+import { Box, MenuItem, TextField, Typography } from '@mui/material'
 import { DatePicker } from '@/design-system/components'
-import type { DashboardDateRange } from './dashboardDateRange'
+import {
+  getDashboardPeriodRange,
+  type DashboardDatePeriod,
+  type DashboardDateRange,
+} from './dashboardDateRange'
 
 const DATE_FIELD_SX = {
   '& .MuiInputBase-root': {
@@ -21,13 +25,25 @@ const DATE_FIELD_SX = {
 } as const
 
 export function DashboardDateRangeFilter({
+  period,
   value,
+  onPeriodChange,
   onChange,
 }: {
+  period: DashboardDatePeriod
   value: DashboardDateRange
+  onPeriodChange: (period: DashboardDatePeriod) => void
   onChange: (range: DashboardDateRange) => void
 }) {
   const [from, to] = value
+  const showCustomRange = period === 'Custom Range'
+
+  function handlePeriodChange(nextPeriod: DashboardDatePeriod) {
+    onPeriodChange(nextPeriod)
+    if (nextPeriod !== 'Custom Range') {
+      onChange(getDashboardPeriodRange(nextPeriod))
+    }
+  }
 
   return (
     <Box sx={{ width: { xs: '100%', sm: 'auto' } }}>
@@ -51,32 +67,72 @@ export function DashboardDateRangeFilter({
           display: 'flex',
           alignItems: 'center',
           gap: 0.75,
+          flexWrap: 'wrap',
           width: { xs: '100%', sm: 'auto' },
         }}
       >
-        <DatePicker
-          label="From"
-          value={from}
-          onChange={(date) => onChange([date, to])}
-          maxDate={to ?? undefined}
-          size="sm"
-          sx={{ ...DATE_FIELD_SX, width: { xs: '100%', sm: 210 } }}
-        />
-        <Typography
-          variant="caption"
-          color="text.secondary"
-          sx={{ flexShrink: 0, fontSize: 12 }}
+        <TextField
+          select
+          size="small"
+          value={period}
+          onChange={(event) => handlePeriodChange(event.target.value as DashboardDatePeriod)}
+          sx={{
+            minWidth: { xs: '100%', sm: 180 },
+            '& .MuiInputBase-root': {
+              height: 32,
+              bgcolor: 'background.paper',
+              fontSize: 12,
+              border: '1px solid',
+              borderColor: 'divider',
+              borderRadius: 1,
+            },
+            '& .MuiOutlinedInput-notchedOutline': {
+              border: 0,
+            },
+            '& .MuiInputBase-root:hover': {
+              borderColor: 'text.secondary',
+            },
+            '& .MuiInputBase-root.Mui-focused': {
+              borderColor: 'primary.main',
+            },
+            '& .MuiSelect-select': {
+              py: 0.5,
+            },
+          }}
         >
-          -
-        </Typography>
-        <DatePicker
-          label="To"
-          value={to}
-          onChange={(date) => onChange([from, date])}
-          minDate={from ?? undefined}
-          size="sm"
-          sx={{ ...DATE_FIELD_SX, width: { xs: '100%', sm: 210 } }}
-        />
+          <MenuItem value="This Month">This Month</MenuItem>
+          <MenuItem value="Last Month">Last Month</MenuItem>
+          <MenuItem value="This Financial Year">This Financial Year</MenuItem>
+          <MenuItem value="Custom Range">Custom Range</MenuItem>
+        </TextField>
+
+        {showCustomRange ? (
+          <>
+            <DatePicker
+              label="From"
+              value={from}
+              onChange={(date) => onChange([date, to])}
+              maxDate={to ?? undefined}
+              size="sm"
+              sx={{ ...DATE_FIELD_SX, width: { xs: '100%', sm: 250 } }}
+            />
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ display: { xs: 'none', sm: 'block' }, flexShrink: 0, fontSize: 12 }}
+            >
+              -
+            </Typography>
+            <DatePicker
+              label="To"
+              value={to}
+              onChange={(date) => onChange([from, date])}
+              minDate={from ?? undefined}
+              size="sm"
+              sx={{ ...DATE_FIELD_SX, width: { xs: '100%', sm: 250 } }}
+            />
+          </>
+        ) : null}
       </Box>
     </Box>
   )

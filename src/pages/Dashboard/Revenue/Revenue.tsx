@@ -51,6 +51,7 @@ import { unwrapApiData } from '@/modules/system-settings/shared/api'
 import { formatCurrency } from '@/utils/formatters'
 import { DashboardDateRangeFilter } from '../DashboardDateRangeFilter'
 import {
+  type DashboardDatePeriod,
   dashboardDateParams,
   type DashboardDateRange,
 } from '../dashboardDateRange'
@@ -1670,10 +1671,14 @@ export function FinancialRevenueYearSection({
 const MENU_ITEM_SX = { fontSize: 12 } as const
 
 export function RevenueTab({
+  datePeriod,
   dateRange,
+  onDatePeriodChange,
   onDateRangeChange,
 }: {
+  datePeriod: DashboardDatePeriod
   dateRange: DashboardDateRange
+  onDatePeriodChange: (period: DashboardDatePeriod) => void
   onDateRangeChange: (range: DashboardDateRange) => void
 }) {
   const [drawerKpi, setDrawerKpi] = useState<RevenueKpi | null>(null)
@@ -1768,7 +1773,12 @@ export function RevenueTab({
           </Typography>
         </Box>
 
-        <DashboardDateRangeFilter value={dateRange} onChange={onDateRangeChange} />
+        <DashboardDateRangeFilter
+          period={datePeriod}
+          value={dateRange}
+          onPeriodChange={onDatePeriodChange}
+          onChange={onDateRangeChange}
+        />
       </Box>
 
       <Grid container spacing={2} columns={{ xs: 1, sm: 2, md: 5 }} sx={{ mb: 3 }}>
