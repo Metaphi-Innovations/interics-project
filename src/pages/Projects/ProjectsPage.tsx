@@ -71,7 +71,6 @@ import {
 import { formatProjectSite } from '../../utils/projectSite'
 import { getProjectTypes, PROJECT_TYPE_OPTIONS } from './projectTypes'
 import { ProjectTypeTags } from './components/ProjectTypeTags'
-import { fetchStatuses } from '../../slices/settings/thunk'
 import { financeApi } from '@/api/financeApi'
 import { unwrapApiData } from '@/modules/system-settings/shared/api'
 import {
@@ -1007,11 +1006,10 @@ export default function ProjectsPage() {
   // Debounce timer
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Load users + status master
+  // Load users + project filter options (no `/settings/statuses` — route removed)
   useEffect(() => {
     dispatch(fetchUsers({}))
     dispatch(fetchRoles(undefined))
-    dispatch(fetchStatuses())
     void dispatch(fetchProjectFilters())
       .unwrap()
       .then((data: ProjectFiltersApi) => {

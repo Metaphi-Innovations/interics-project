@@ -170,7 +170,7 @@ const initialState: ProjectsState = {
   error: null,
   listRequestId: null,
   pagination: { page: 1, pageSize: 10, total: 0 },
-  filters: { search: '', status: 'Live', type: '', projectManager: '' },
+  filters: { search: '', status: '', type: '', projectManager: '' },
   sortConfig: { field: null, direction: 'asc' },
 }
 
