@@ -122,6 +122,7 @@ export const customersService = {
         ...(params.gstStatus ? { gstStatus: params.gstStatus } : {}),
         ...(params.state ? { state: params.state } : {}),
         ...(params.sector ? { sector: params.sector } : {}),
+        ...(params.projectStatus ? { projectStatus: params.projectStatus } : {}),
         ...(params.customerName ? { customerName: params.customerName } : {}),
         ...(params.contactPerson ? { contactPerson: params.contactPerson } : {}),
         ...(params.sortBy ? { sortBy: params.sortBy } : {}),

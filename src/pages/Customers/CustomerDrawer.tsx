@@ -4,7 +4,7 @@ import { DrawerForm, FormSection, FormField } from '../../components/templates'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { createCustomer, updateCustomer } from '../../slices/customers/thunk'
 import { useToast, Button } from '@/design-system/components'
-import type { Customer } from '../../slices/customers/reducer'
+import type { Contact, Customer } from '../../slices/customers/reducer'
 import { fetchSectors } from '../../slices/settings/thunk'
 import {
   customersService,
@@ -35,6 +35,11 @@ interface FormState {
   designation: string
   phone: string
   email: string
+  secondaryContactPerson: string
+  secondaryDesignation: string
+  secondaryPhone: string
+  secondaryEmail: string
+  showSecondaryContact: boolean
   city: string
   state: string
   address: string
@@ -53,12 +58,29 @@ const defaultForm: FormState = {
   designation: '',
   phone: '',
   email: '',
+  secondaryContactPerson: '',
+  secondaryDesignation: '',
+  secondaryPhone: '',
+  secondaryEmail: '',
+  showSecondaryContact: false,
   city: '',
   state: '',
   address: '',
   pincode: '',
   tags: [],
   notes: '',
+}
+
+function getSecondaryContact(contacts?: Contact[]): Contact | undefined {
+  return contacts?.find((contact) => !contact.isPrimary)
+}
+
+function snapshotForm(form: FormState, gstFile?: File | null, panFile?: File | null): string {
+  return JSON.stringify({
+    ...form,
+    gstCertFileName: gstFile?.name ?? '',
+    panDocFileName: panFile?.name ?? '',
+  })
 }
 
 export interface CustomerDrawerProps {
@@ -87,8 +109,14 @@ export function CustomerDrawer({ open, onClose, mode, customer, onSuccess }: Cus
   const panFileInputRef = useRef<HTMLInputElement>(null)
   const submittingRef = useRef(false)
   const pincodeLookupSeq = useRef(0)
+  const initialSnapshotRef = useRef(snapshotForm(defaultForm))
 
   const activeSectors = sectors.filter((s) => s.status === 'active')
+
+  function seedForm(nextForm: FormState) {
+    setForm(nextForm)
+    initialSnapshotRef.current = snapshotForm(nextForm)
+  }
 
   useEffect(() => {
     if (!open) return
@@ -103,7 +131,7 @@ export function CustomerDrawer({ open, onClose, mode, customer, onSuccess }: Cus
     async function hydrate() {
       if (customer && mode === 'edit') {
         // Seed from list row immediately so the form is never blank while detail loads
-        setForm({
+        const seedFromList: FormState = {
           name: customer.name,
           sector: customer.sector ?? '',
           gstStatus: customer.gstStatus,
@@ -112,18 +140,25 @@ export function CustomerDrawer({ open, onClose, mode, customer, onSuccess }: Cus
           contactPerson: customer.contactPerson,
           designation: customer.designation ?? '',
           phone: extractIndianMobileDigits(customer.phone),
-          email: customer.email,
+          email: customer.email.trim(),
+          secondaryContactPerson: '',
+          secondaryDesignation: '',
+          secondaryPhone: '',
+          secondaryEmail: '',
+          showSecondaryContact: false,
           city: customer.city,
           state: customer.state,
           address: customer.address ?? '',
           pincode: customer.pincode ?? '',
           tags: customer.tags,
           notes: customer.notes ?? '',
-        })
+        }
+        seedForm(seedFromList)
         try {
           const full = await customersService.getById(customer.id)
           if (cancelled) return
-          setForm({
+          const secondary = getSecondaryContact(full.contacts)
+          const hydrated: FormState = {
             name: full.name || customer.name,
             sector: full.sector || customer.sector || '',
             gstStatus: full.gstStatus || customer.gstStatus,
@@ -132,19 +167,25 @@ export function CustomerDrawer({ open, onClose, mode, customer, onSuccess }: Cus
             contactPerson: full.contactPerson || customer.contactPerson,
             designation: full.designation ?? customer.designation ?? '',
             phone: extractIndianMobileDigits(full.phone || customer.phone),
-            email: full.email || customer.email,
+            email: (full.email || customer.email).trim(),
+            secondaryContactPerson: secondary?.name ?? '',
+            secondaryDesignation: secondary?.designation ?? '',
+            secondaryPhone: extractIndianMobileDigits(secondary?.phone ?? ''),
+            secondaryEmail: secondary?.email?.trim() ?? '',
+            showSecondaryContact: Boolean(secondary),
             city: full.city || customer.city,
             state: full.state || customer.state,
             address: full.address ?? customer.address ?? '',
             pincode: full.pincode ?? customer.pincode ?? '',
             tags: full.tags?.length ? full.tags : customer.tags,
             notes: full.notes ?? customer.notes ?? '',
-          })
+          }
+          seedForm(hydrated)
         } catch {
           // Keep the list-row seed already applied above
         }
       } else {
-        setForm(defaultForm)
+        seedForm(defaultForm)
       }
     }
 
@@ -154,9 +195,52 @@ export function CustomerDrawer({ open, onClose, mode, customer, onSuccess }: Cus
     }
   }, [open, customer, mode, dispatch])
 
+  useEffect(() => {
+    if (!open) return
+    const isDirty = snapshotForm(form, gstCertFile, panDocFile) !== initialSnapshotRef.current
+    if (!isDirty) return
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [open, form, gstCertFile, panDocFile])
+
   function update<K extends keyof FormState>(field: K, value: FormState[K]) {
     setForm((f) => ({ ...f, [field]: value }))
     setErrors((errs) => clearFieldError(errs, field))
+  }
+
+  function updateGstStatus(value: GstStatus) {
+    setForm((f) => ({
+      ...f,
+      gstStatus: value,
+      gstin: value === 'Registered' ? f.gstin : '',
+    }))
+    setErrors((errs) => clearFieldError(clearFieldError(errs, 'gstStatus'), 'gstin'))
+  }
+
+  function clearSecondaryContact() {
+    setForm((f) => ({
+      ...f,
+      secondaryContactPerson: '',
+      secondaryDesignation: '',
+      secondaryPhone: '',
+      secondaryEmail: '',
+      showSecondaryContact: false,
+    }))
+    setErrors((errs) =>
+      clearFieldError(
+        clearFieldError(
+          clearFieldError(clearFieldError(errs, 'secondaryContactPerson'), 'secondaryDesignation'),
+          'secondaryPhone',
+        ),
+        'secondaryEmail',
+      ),
+    )
   }
 
   async function resolvePincode(pin: string) {
@@ -212,6 +296,10 @@ export function CustomerDrawer({ open, onClose, mode, customer, onSuccess }: Cus
       designation: form.designation.trim(),
       phone: form.phone.trim(),
       email: form.email.trim(),
+      secondaryContactPerson: form.showSecondaryContact ? form.secondaryContactPerson.trim() : '',
+      secondaryDesignation: form.showSecondaryContact ? form.secondaryDesignation.trim() : '',
+      secondaryPhone: form.showSecondaryContact ? form.secondaryPhone.trim() : '',
+      secondaryEmail: form.showSecondaryContact ? form.secondaryEmail.trim() : '',
       city: form.city.trim(),
       state: form.state,
       address: form.address.trim(),
@@ -322,7 +410,7 @@ export function CustomerDrawer({ open, onClose, mode, customer, onSuccess }: Cus
 
       {/* ── Tax & Compliance ────────────────────────────────────────── */}
       <FormSection title="Tax & Compliance" columns={2}>
-        <FormField label="GST Status" error={errors.gstStatus}>
+        <FormField label="GST Status" required error={errors.gstStatus}>
           <TextField
             fullWidth
             size="small"
@@ -330,14 +418,17 @@ export function CustomerDrawer({ open, onClose, mode, customer, onSuccess }: Cus
             value={form.gstStatus}
             onChange={(e) => {
               const val = e.target.value as GstStatus
-              update('gstStatus', val)
+              updateGstStatus(val)
             }}
             error={!!errors.gstStatus}
           >
             <MenuItem value="Registered">Registered</MenuItem>
             <MenuItem value="Unregistered">Unregistered</MenuItem>
-            <MenuItem value="Composition">Composition</MenuItem>
-            <MenuItem value="SEZ">SEZ</MenuItem>
+            {form.gstStatus !== 'Registered' && form.gstStatus !== 'Unregistered' ? (
+              <MenuItem value={form.gstStatus} disabled>
+                {form.gstStatus}
+              </MenuItem>
+            ) : null}
           </TextField>
         </FormField>
 
@@ -354,6 +445,7 @@ export function CustomerDrawer({ open, onClose, mode, customer, onSuccess }: Cus
             onChange={(e) => update('gstin', e.target.value.toUpperCase())}
             placeholder="29ABCDE1234F1Z5"
             error={!!errors.gstin}
+            disabled={!gstinRequired(form.gstStatus)}
           />
         </FormField>
 
@@ -435,7 +527,7 @@ export function CustomerDrawer({ open, onClose, mode, customer, onSuccess }: Cus
 
       {/* ── Primary Contact ──────────────────────────────────────────── */}
       <FormSection title="Primary Contact" columns={2}>
-        <FormField label="Contact Person" error={errors.contactPerson}>
+        <FormField label="Contact Person" required error={errors.contactPerson}>
           <TextField
             fullWidth
             size="small"
@@ -457,7 +549,7 @@ export function CustomerDrawer({ open, onClose, mode, customer, onSuccess }: Cus
           />
         </FormField>
 
-        <FormField label="Phone" error={errors.phone} hint="10-digit mobile starting with 6–9">
+        <FormField label="Phone" required error={errors.phone} hint="10-digit mobile starting with 6-9">
           <TextField
             fullWidth
             size="small"
@@ -470,23 +562,107 @@ export function CustomerDrawer({ open, onClose, mode, customer, onSuccess }: Cus
           />
         </FormField>
 
-        <FormField label="Email" error={errors.email}>
+        <FormField label="Email" required error={errors.email}>
           <TextField
             fullWidth
             size="small"
             type="email"
             value={form.email}
             onChange={(e) => update('email', e.target.value)}
+            onBlur={(e) => update('email', e.target.value.trim())}
             placeholder="name@company.com"
             error={!!errors.email}
           />
         </FormField>
       </FormSection>
 
-      {/* ── Address ─────────────────────────────────────────────────── */}
+      {/* Secondary Contact */}
+      <FormSection title="Secondary Contact" columns={2}>
+        {!form.showSecondaryContact ? (
+          <Box sx={{ gridColumn: 'span 2' }}>
+            <Button
+              type="button"
+              variant="outlined"
+              color="secondary"
+              size="sm"
+              onClick={() => update('showSecondaryContact', true)}
+            >
+              Add Secondary Contact
+            </Button>
+          </Box>
+        ) : (
+          <>
+            <Box sx={{ gridColumn: 'span 2', display: 'flex', justifyContent: 'flex-end' }}>
+              <Button
+                type="button"
+                variant="text"
+                color="secondary"
+                size="sm"
+                onClick={clearSecondaryContact}
+              >
+                Remove Secondary Contact
+              </Button>
+            </Box>
+
+            <FormField label="Secondary Contact Person" error={errors.secondaryContactPerson}>
+              <TextField
+                fullWidth
+                size="small"
+                value={form.secondaryContactPerson}
+                onChange={(e) => update('secondaryContactPerson', e.target.value)}
+                placeholder="Full name"
+                error={!!errors.secondaryContactPerson}
+              />
+            </FormField>
+
+            <FormField label="Secondary Designation" error={errors.secondaryDesignation}>
+              <TextField
+                fullWidth
+                size="small"
+                value={form.secondaryDesignation}
+                onChange={(e) => update('secondaryDesignation', e.target.value)}
+                placeholder="e.g. Finance Manager"
+                error={!!errors.secondaryDesignation}
+              />
+            </FormField>
+
+            <FormField
+              label="Secondary Phone"
+              error={errors.secondaryPhone}
+              hint="10-digit mobile starting with 6-9"
+            >
+              <TextField
+                fullWidth
+                size="small"
+                type="tel"
+                value={form.secondaryPhone}
+                onChange={(e) => update('secondaryPhone', sanitizeMobileInput(e.target.value))}
+                placeholder="9876543210"
+                inputProps={{ inputMode: 'numeric', maxLength: 10 }}
+                error={!!errors.secondaryPhone}
+              />
+            </FormField>
+
+            <FormField label="Secondary Email" error={errors.secondaryEmail}>
+              <TextField
+                fullWidth
+                size="small"
+                type="email"
+                value={form.secondaryEmail}
+                onChange={(e) => update('secondaryEmail', e.target.value)}
+                onBlur={(e) => update('secondaryEmail', e.target.value.trim())}
+                placeholder="name@company.com"
+                error={!!errors.secondaryEmail}
+              />
+            </FormField>
+          </>
+        )}
+      </FormSection>
+
+      {/* Address */}
       <FormSection title="Address" columns={3}>
         <Box sx={{ gridColumn: '1 / -1' }}>
-          <FormField label="Address" error={errors.address}>
+          <FormField label="Address" required error={errors.address}>
             <TextField
               fullWidth
               size="small"
@@ -502,6 +678,7 @@ export function CustomerDrawer({ open, onClose, mode, customer, onSuccess }: Cus
 
         <FormField
           label="Pincode"
+          required
           error={errors.pincode}
           hint={pincodeLookupLoading ? 'Looking up city & state…' : 'City and state auto-fill'}
         >
@@ -521,7 +698,7 @@ export function CustomerDrawer({ open, onClose, mode, customer, onSuccess }: Cus
           />
         </FormField>
 
-        <FormField label="City" error={errors.city}>
+        <FormField label="City" required error={errors.city}>
           <TextField
             fullWidth
             size="small"
@@ -532,7 +709,7 @@ export function CustomerDrawer({ open, onClose, mode, customer, onSuccess }: Cus
           />
         </FormField>
 
-        <FormField label="State" error={errors.state}>
+        <FormField label="State" required error={errors.state}>
           <TextField
             fullWidth
             size="small"

@@ -9,12 +9,15 @@ import { ProjectsTab } from './Projects/Projects'
 import { TeamTab } from './Teams/Teams'
 import { VendorsTab } from './Vendors/Vendors'
 import {
+  getDashboardPeriodRange,
   getCurrentFinancialYearRange,
+  type DashboardDatePeriod,
   type DashboardDateRange,
 } from './dashboardDateRange'
 
 type DashboardTab = 'revenue' | 'projects' | 'team' | 'vendors'
 type DashboardDateRanges = Record<DashboardTab, DashboardDateRange>
+type DashboardDatePeriods = Record<DashboardTab, DashboardDatePeriod>
 
 const DASHBOARD_TABS = [
   { label: 'Revenue', value: 'revenue' },
@@ -31,9 +34,22 @@ export default function DashboardPage() {
     team: getCurrentFinancialYearRange(),
     vendors: getCurrentFinancialYearRange(),
   }))
+  const [datePeriods, setDatePeriods] = useState<DashboardDatePeriods>(() => ({
+    revenue: 'This Financial Year',
+    projects: 'This Financial Year',
+    team: 'This Financial Year',
+    vendors: 'This Financial Year',
+  }))
 
   const setTabDateRange = (tab: DashboardTab, range: DashboardDateRange) => {
     setDateRanges((prev) => ({ ...prev, [tab]: range }))
+  }
+
+  const setTabDatePeriod = (tab: DashboardTab, period: DashboardDatePeriod) => {
+    setDatePeriods((prev) => ({ ...prev, [tab]: period }))
+    if (period !== 'Custom Range') {
+      setTabDateRange(tab, getDashboardPeriodRange(period))
+    }
   }
 
   return (
@@ -69,25 +85,33 @@ export default function DashboardPage() {
         <Box sx={{ p: 2 }}>
           {activeTab === 'revenue' && (
             <RevenueTab
+              datePeriod={datePeriods.revenue}
               dateRange={dateRanges.revenue}
+              onDatePeriodChange={(period) => setTabDatePeriod('revenue', period)}
               onDateRangeChange={(range) => setTabDateRange('revenue', range)}
             />
           )}
           {activeTab === 'projects' && (
             <ProjectsTab
+              datePeriod={datePeriods.projects}
               dateRange={dateRanges.projects}
+              onDatePeriodChange={(period) => setTabDatePeriod('projects', period)}
               onDateRangeChange={(range) => setTabDateRange('projects', range)}
             />
           )}
           {activeTab === 'team' && (
             <TeamTab
+              datePeriod={datePeriods.team}
               dateRange={dateRanges.team}
+              onDatePeriodChange={(period) => setTabDatePeriod('team', period)}
               onDateRangeChange={(range) => setTabDateRange('team', range)}
             />
           )}
           {activeTab === 'vendors' && (
             <VendorsTab
+              datePeriod={datePeriods.vendors}
               dateRange={dateRanges.vendors}
+              onDatePeriodChange={(period) => setTabDatePeriod('vendors', period)}
               onDateRangeChange={(range) => setTabDateRange('vendors', range)}
             />
           )}

@@ -1,9 +1,10 @@
 import type { VendorListParams, VendorListResult } from './vendors.types'
 
-/** Active Contacts badge: all non-deleted vendors (existing convention). */
+/** Active Contacts badge: complete-profile, non-deleted vendors. */
 export const VENDOR_ACTIVE_TAB_COUNT_PARAMS: VendorListParams = {
   page: 1,
   limit: 1,
+  profileStatus: 'complete',
 }
 
 /**

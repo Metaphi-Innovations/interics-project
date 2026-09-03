@@ -18,9 +18,10 @@ interface RoleDrawerProps {
   mode: 'create' | 'edit' | null
   roleId: string | null
   onClose: () => void
+  onSaved?: () => void
 }
 
-export function RoleDrawer({ open, mode, roleId, onClose }: RoleDrawerProps) {
+export function RoleDrawer({ open, mode, roleId, onClose, onSaved }: RoleDrawerProps) {
   const dispatch = useAppDispatch()
   const { items: rawRoles, saving } = useAppSelector((s) => s.roles)
   const roles = rawRoles ?? []
@@ -67,6 +68,7 @@ export function RoleDrawer({ open, mode, roleId, onClose }: RoleDrawerProps) {
         .unwrap()
         .then(() => {
           showToast({ title: 'Role created', variant: 'success' })
+          onSaved?.()
           onClose()
         })
         .catch(() => showToast({ title: 'Failed to create role', variant: 'error' }))
@@ -84,6 +86,7 @@ export function RoleDrawer({ open, mode, roleId, onClose }: RoleDrawerProps) {
         .unwrap()
         .then(() => {
           showToast({ title: 'Role updated', variant: 'success' })
+          onSaved?.()
           onClose()
         })
         .catch(() => showToast({ title: 'Failed to update role', variant: 'error' }))

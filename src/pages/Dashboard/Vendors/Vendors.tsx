@@ -52,6 +52,7 @@ import client from '@/api/client'
 import { unwrapApiData, unwrapApiList } from '@/modules/system-settings/shared/api'
 import { DashboardDateRangeFilter } from '../DashboardDateRangeFilter'
 import {
+  type DashboardDatePeriod,
   dashboardDateParams,
   type DashboardDateRange,
 } from '../dashboardDateRange'
@@ -2324,10 +2325,14 @@ function VendorKpiCard({ kpi }: { kpi: VendorKpi }) {
 }
 
 export function VendorsTab({
+  datePeriod,
   dateRange,
+  onDatePeriodChange,
   onDateRangeChange,
 }: {
+  datePeriod: DashboardDatePeriod
   dateRange: DashboardDateRange
+  onDatePeriodChange: (period: DashboardDatePeriod) => void
   onDateRangeChange: (range: DashboardDateRange) => void
 }) {
   const dispatch = useAppDispatch()
@@ -2570,7 +2575,12 @@ export function VendorsTab({
           </Typography>
         </Box>
 
-        <DashboardDateRangeFilter value={dateRange} onChange={onDateRangeChange} />
+        <DashboardDateRangeFilter
+          period={datePeriod}
+          value={dateRange}
+          onPeriodChange={onDatePeriodChange}
+          onChange={onDateRangeChange}
+        />
       </Box>
 
       <Grid container spacing={2} sx={{ mb: 2.5 }}>

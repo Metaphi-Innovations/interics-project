@@ -105,6 +105,7 @@ interface Filters {
   gstStatus?: string
   state?: string
   sector?: string
+  projectStatus?: string
 }
 
 interface SortConfig {

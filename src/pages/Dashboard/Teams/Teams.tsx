@@ -52,6 +52,7 @@ import client from '@/api/client'
 import { unwrapApiData } from '@/modules/system-settings/shared/api'
 import { DashboardDateRangeFilter } from '../DashboardDateRangeFilter'
 import {
+  type DashboardDatePeriod,
   dashboardDateParams,
   type DashboardDateRange,
 } from '../dashboardDateRange'
@@ -2793,10 +2794,14 @@ function TeamPerformanceGraph({
 }
 
 export function TeamTab({
+  datePeriod,
   dateRange,
+  onDatePeriodChange,
   onDateRangeChange,
 }: {
+  datePeriod: DashboardDatePeriod
   dateRange: DashboardDateRange
+  onDatePeriodChange: (period: DashboardDatePeriod) => void
   onDateRangeChange: (range: DashboardDateRange) => void
 }) {
   const dispatch = useAppDispatch()
@@ -2971,7 +2976,12 @@ export function TeamTab({
           </Typography>
         </Box>
 
-        <DashboardDateRangeFilter value={dateRange} onChange={onDateRangeChange} />
+        <DashboardDateRangeFilter
+          period={datePeriod}
+          value={dateRange}
+          onPeriodChange={onDatePeriodChange}
+          onChange={onDateRangeChange}
+        />
       </Box>
 
       <Box sx={{ mb: 2 }}>
