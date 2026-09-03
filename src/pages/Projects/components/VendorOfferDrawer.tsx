@@ -542,7 +542,7 @@ export function VendorOfferDrawer({
                             startIcon={<Upload sx={{ fontSize: 14 }} />}
                             sx={{ fontSize: 11, height: 28, minWidth: 88 }}
                           >
-                            Upload
+                            Upload Offer
                             <input
                               type="file"
                               hidden

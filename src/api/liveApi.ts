@@ -547,4 +547,8 @@ export interface LiveOverviewCategoryGroup {
 export interface LiveOverviewDto {
   groups: LiveOverviewCategoryGroup[]
   total: LiveOverviewMetrics
+  /** Persisted Project.officeExpenseTotal */
+  officeExpenseTotal: number
+  /** Persisted Project.clientPoMinusOfficeExpense */
+  clientPoMinusOfficeExpense: number
 }

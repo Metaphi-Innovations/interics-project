@@ -48,6 +48,7 @@ import { convertDraftToTax, deleteInvoice, fetchInvoices, sendInvoice } from '@/
 import { fetchCustomers } from '@/slices/customers/thunk'
 import type { Invoice } from '@/slices/receivables/reducer'
 import { formatInr } from '@/utils/formatters'
+import { financeApi } from '@/api/financeApi'
 import { tokens } from '@/design-system/tokens'
 import { CreateInvoiceDrawer } from './components/CreateInvoiceDrawer'
 import { InvoiceDetailDrawer } from './components/InvoiceDetailDrawer'
@@ -58,7 +59,6 @@ import {
   mergeReceivableListDateParams,
   type ReceivableKpiPeriod,
 } from './utils/receivableKpiDateRange'
-import { financeApi } from '@/api/financeApi'
 import { receivablesApi } from '@/api/receivablesApi'
 import { dropdownsApi } from '@/api/dropdownsApi'
 import { unwrapApiData } from '@/modules/system-settings/shared/api'
@@ -303,7 +303,7 @@ function RowActions({
             setAnchor(null)
           }}
         >
-          Download PDF
+          Download Invoice
         </MenuItem>
         {showRestrictedActions && (
           <>
@@ -359,6 +359,25 @@ export default function BillingsPage() {
 
   const { items: rawItems, loading, filters, sortConfig, pagination, saving, error: listError } =
     useAppSelector((s) => s.receivables)
+
+  async function downloadInvoiceDocument(invoiceId: string, invoiceNo?: string) {
+    try {
+      const heading = filters.statusTab === 'tax' ? 'tax' : 'draft'
+      const res = await financeApi.downloadInvoiceDocument(invoiceId, { heading })
+      const blob = res.data as Blob
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const fallback = heading === 'tax' ? 'Tax_Invoice' : 'Draft_Invoice'
+      a.download = `${(invoiceNo || fallback).replace(/[^\w.\-]+/g, '_')}.xlsx`
+      a.click()
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+      showToast({ title: 'Invoice downloaded', variant: 'success' })
+    } catch {
+      showToast({ title: 'Failed to download invoice', variant: 'error' })
+    }
+  }
+
   const items = useMemo(
     () =>
       (rawItems ?? []).map((inv) => ({
@@ -1397,7 +1416,7 @@ export default function BillingsPage() {
                                 onPay={() => setPaymentInv(inv)}
                                 onSend={() => setSendTarget(inv)}
                                 onConvertTax={() => setConvertTaxTarget(inv)}
-                                onPdf={() => showToast({ title: 'PDF download (placeholder)', variant: 'success' })}
+                                onPdf={() => void downloadInvoiceDocument(inv.id, inv.invoiceNo)}
                                 onDelete={() => setDeleteTarget(inv)}
                               />
                             )}
@@ -1528,8 +1547,8 @@ export default function BillingsPage() {
         }
         onRecordPayment={canEditReceivable ? (inv) => setPaymentInv(inv) : undefined}
         onConvertTax={canEditReceivable ? (inv) => setConvertTaxTarget(inv) : undefined}
-        onDownloadPdf={() => {
-          showToast({ title: 'PDF download (placeholder)', variant: 'success' })
+        onDownloadPdf={(inv) => {
+          void downloadInvoiceDocument(inv.id, inv.invoiceNo)
         }}
       />
 

@@ -1,4 +1,5 @@
-import { Box, FormControl, MenuItem, Select as MuiSelect } from '@mui/material'
+import { useRef, useState } from 'react'
+import { Box, CircularProgress, FormControl, MenuItem, Select as MuiSelect } from '@mui/material'
 import { FormField } from '@/components/templates/DrawerForm'
 import {
   AutocompleteField,
@@ -14,6 +15,7 @@ import {
   INDIAN_STATES,
   digitsOnly,
 } from '@/constants/locations'
+import { lookupPincodeLocation } from '@/utils/pincodeLookup'
 import { useAppSelector } from '@/store/hooks'
 import { ProjectTypesField } from './ProjectTypesField'
 
@@ -88,10 +90,49 @@ export function validateProjectSetupForm(values: ProjectSetupFormValues): Projec
 export function ProjectSetupFields({ values, errors, onChange }: SetupFieldsProps) {
   const sectors = useAppSelector((s) => s.settings.sectors)
   const activeSectors = sectors.filter((s) => s.status === 'active')
+  const [pincodeLookupLoading, setPincodeLookupLoading] = useState(false)
+  const [pincodeLookupError, setPincodeLookupError] = useState<string | undefined>()
+  const pincodeLookupSeq = useRef(0)
 
   function set(key: keyof ProjectSetupFormValues, value: string | string[]) {
     onChange({ [key]: value })
   }
+
+  async function resolvePincode(pin: string) {
+    const seq = ++pincodeLookupSeq.current
+    setPincodeLookupLoading(true)
+    setPincodeLookupError(undefined)
+    try {
+      const location = await lookupPincodeLocation(pin)
+      if (seq !== pincodeLookupSeq.current) return
+      onChange({
+        pincode: location.pincode,
+        city: location.city,
+        state: location.state,
+      })
+    } catch {
+      if (seq !== pincodeLookupSeq.current) return
+      setPincodeLookupError('Could not resolve city/state for this pincode')
+    } finally {
+      if (seq === pincodeLookupSeq.current) {
+        setPincodeLookupLoading(false)
+      }
+    }
+  }
+
+  function handlePincodeChange(raw: string) {
+    const pin = digitsOnly(raw).slice(0, 6)
+    set('pincode', pin)
+    setPincodeLookupError(undefined)
+    if (pin.length < 6) {
+      pincodeLookupSeq.current += 1
+      setPincodeLookupLoading(false)
+      return
+    }
+    void resolvePincode(pin)
+  }
+
+  const pincodeError = errors.pincode || pincodeLookupError
 
   return (
     <>
@@ -152,15 +193,33 @@ export function ProjectSetupFields({ values, errors, onChange }: SetupFieldsProp
         </FormField>
       </Box>
 
-      <FormField label="City" error={errors.city}>
+      <FormField
+        label="PIN Code"
+        error={pincodeError}
+        hint={pincodeLookupLoading ? 'Looking up city & state…' : 'City and state auto-fill'}
+      >
+        <Input
+          value={values.pincode}
+          onChange={handlePincodeChange}
+          placeholder="e.g. 110001"
+          size="sm"
+          error={Boolean(pincodeError)}
+          maxLength={6}
+          endAdornment={
+            pincodeLookupLoading ? <CircularProgress color="inherit" size={16} /> : undefined
+          }
+        />
+      </FormField>
+
+      <FormField label="Country" error={errors.country}>
         <AutocompleteField
-          options={[...INDIAN_CITIES]}
-          value={values.city || null}
-          onChange={(v) => set('city', v ?? '')}
+          options={[...COUNTRIES]}
+          value={values.country || null}
+          onChange={(v) => set('country', v ?? '')}
           getOptionLabel={(o) => o}
           isOptionEqualToValue={(a, b) => a === b}
-          placeholder="Search city…"
-          error={Boolean(errors.city)}
+          placeholder="Search country…"
+          error={Boolean(errors.country)}
           size="sm"
         />
       </FormField>
@@ -178,26 +237,16 @@ export function ProjectSetupFields({ values, errors, onChange }: SetupFieldsProp
         />
       </FormField>
 
-      <FormField label="Country" error={errors.country}>
+      <FormField label="City" error={errors.city}>
         <AutocompleteField
-          options={[...COUNTRIES]}
-          value={values.country || null}
-          onChange={(v) => set('country', v ?? '')}
+          options={[...INDIAN_CITIES]}
+          value={values.city || null}
+          onChange={(v) => set('city', v ?? '')}
           getOptionLabel={(o) => o}
           isOptionEqualToValue={(a, b) => a === b}
-          placeholder="Search country…"
-          error={Boolean(errors.country)}
+          placeholder="Search city…"
+          error={Boolean(errors.city)}
           size="sm"
-        />
-      </FormField>
-
-      <FormField label="PIN Code" error={errors.pincode}>
-        <Input
-          value={values.pincode}
-          onChange={(v) => set('pincode', digitsOnly(v).slice(0, 10))}
-          placeholder="e.g. 110001"
-          size="sm"
-          error={Boolean(errors.pincode)}
         />
       </FormField>
 

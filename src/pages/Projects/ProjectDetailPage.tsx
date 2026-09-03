@@ -2,7 +2,6 @@
 import { useState, useEffect } from 'react'
 import {
   Box,
-  Stack,
   Typography,
   Dialog,
   DialogTitle,
@@ -13,7 +12,6 @@ import {
   MenuItem,
   FormControl,
   Skeleton,
-  Chip as MuiChip,
 } from '@mui/material'
 import {
   GridView,
@@ -40,7 +38,6 @@ import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { fetchProjects, fetchProjectById, updateProject, changeProjectStatus } from '../../slices/projects/thunk'
 import { fetchStatuses } from '../../slices/settings/thunk'
 import {
-  getStatusMasterChipColors,
   lifecycleStatusForMasterName,
 } from '../../utils/masterChipStyles'
 import type { StatusMaster } from '../../slices/settings/reducer'
@@ -53,12 +50,11 @@ import {
   WorkspaceSection,
 } from '../../components/templates'
 import {
-  StatusBadge,
   useToast,
   Toggle,
 } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
-import { useTheme, alpha } from '@mui/material/styles'
+import { alpha } from '@mui/material/styles'
 import {
   getInitials,
   getAvatarColor,
@@ -284,7 +280,6 @@ export default function ProjectDetailPage() {
   const location = useLocation()
   const dispatch = useAppDispatch()
   const toast = useToast()
-  const theme = useTheme()
 
   const { items: rawItems, selectedItem: project, loading, saving } = useAppSelector(
     (s) => s.projects
@@ -435,12 +430,6 @@ export default function ProjectDetailPage() {
       icon: t.icon,
       disabled: t.locked,
     }))
-  const progressChipColors = project.progress
-    ? getStatusMasterChipColors(
-        project.progress,
-        theme.palette.mode === 'dark' ? 'dark' : 'light',
-      )
-    : null
 
   // ── Tab content ───────────────────────────────────────────────────────────
 
@@ -500,28 +489,6 @@ export default function ProjectDetailPage() {
         avatarText={getInitials(project.name)}
         avatarColor={alpha(getAvatarColor(project.name).bg, 0.2)}
         title={project.name}
-        titleMeta={
-          <Stack direction="row" alignItems="center" gap={1} sx={{ ml: 1 }}>
-            {project.progress && progressChipColors ? (
-              <MuiChip
-                label={project.progress}
-                size="small"
-                sx={{
-                  height: 22,
-                  fontSize: 11,
-                  fontWeight: 600,
-                  bgcolor: progressChipColors.bg,
-                  color: progressChipColors.color,
-                  border: 'none',
-                  borderRadius: '20px',
-                  '& .MuiChip-label': { px: '10px' },
-                }}
-              />
-            ) : (
-              <StatusBadge status={project.status.toLowerCase() as 'pitch' | 'live' | 'completed' | 'cancelled' | 'archived'} />
-            )}
-          </Stack>
-        }
         metaItems={
           project.customerName?.trim()
             ? [{ label: project.customerName.trim() }]

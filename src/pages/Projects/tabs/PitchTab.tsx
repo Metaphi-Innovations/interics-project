@@ -1145,7 +1145,7 @@ export default function PitchTab({ project }: { project: Project }) {
                       'Service',
                       'Offer Amount',
                       'Notes / Tags',
-                      'Upload',
+                      'Upload Offer',
                       'Actions',
                     ].map((h) => (
                       <TableCell
@@ -1225,7 +1225,7 @@ export default function PitchTab({ project }: { project: Project }) {
                               startIcon={<Upload sx={{ fontSize: 14 }} />}
                               sx={{ fontSize: 11, height: 30, minWidth: 92 }}
                             >
-                              Upload
+                              Upload Offer
                               <input
                                 type="file"
                                 hidden
