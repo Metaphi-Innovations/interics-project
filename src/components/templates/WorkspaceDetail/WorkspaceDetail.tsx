@@ -129,10 +129,9 @@ export function WorkspaceDetail({
           sx={{
             color: 'text.secondary',
             fontSize: 12,
-            maxWidth: 300,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
+            whiteSpace: 'normal',
+            overflow: 'visible',
+            textOverflow: 'clip',
           }}
         >
           {recordName}
@@ -374,6 +373,10 @@ export function WorkspaceDetail({
                 minHeight: 44,
                 padding: '8px 14px',
                 color: 'text.secondary',
+                maxWidth: 'none',
+                whiteSpace: 'nowrap',
+                overflow: 'visible',
+                textOverflow: 'clip',
               },
               '& .MuiTab-root.Mui-selected': {
                 color: 'primary.main',

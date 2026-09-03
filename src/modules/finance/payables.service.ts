@@ -28,6 +28,9 @@ export type PayablesListItem = {
   milestoneId?: string
   invoiceNo: string
   invoiceDate: string
+  gstAmount: number
+  totalAmount: number
+  /** Net payable (base + GST − TDS). */
   invoiceAmount: number
   tdsAmount: number
   paymentStatus: 'settled' | 'partial_payment' | 'not_paid'
@@ -54,6 +57,8 @@ export type PayablesFiltersApi = {
   milestones?: PayablesFilterOption[]
   invoiceNos?: PayablesFilterOption[]
   invoiceDates?: PayablesFilterOption[]
+  gstAmounts?: PayablesFilterOption[]
+  totalAmounts?: PayablesFilterOption[]
   invoiceAmounts?: PayablesFilterOption[]
   tdsAmounts?: PayablesFilterOption[]
   paymentStatuses?: PayablesFilterOption[]
@@ -118,6 +123,8 @@ export const payablesService = {
     milestone?: string
     invoiceNo?: string
     invoiceDate?: string
+    gstAmount?: number
+    totalAmount?: number
     invoiceAmount?: number
     tdsAmount?: number
     paymentStatus?: string

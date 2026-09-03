@@ -7,7 +7,7 @@ export interface BillableMilestone {
   serviceName: string
   baseAmount: number
   clientPoId: string
-  /** TDS rate (%) from the Client PO — used to pre-fill TDS in GenerateInvoiceDrawer. */
+  /** TDS rate (%) from the Client PO — used for receivable display. */
   tdsRate: number | null
   /** Uploaded Client PO document for this milestone row. */
   poDocumentUrl: string | null

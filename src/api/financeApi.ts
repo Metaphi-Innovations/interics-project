@@ -117,6 +117,13 @@ export const financeApi = {
     search?: string
   }) => client.get('/finance/receivables/summary', { params }),
 
+  /** Golden-master Draft/Tax Invoice (.xlsx) — authenticated binary download. */
+  downloadInvoiceDocument: (invoiceId: string, options?: { heading?: 'draft' | 'tax' }) =>
+    client.get(`/invoices/${invoiceId}/document`, {
+      responseType: 'blob',
+      params: options?.heading === 'tax' ? { heading: 'tax' } : undefined,
+    }),
+
   getProjectsSummary: () => client.get('/projects/summary'),
 
   getTeamSummary: () => client.get('/teams/summary'),

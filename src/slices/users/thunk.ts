@@ -51,7 +51,7 @@ export function toUiUser(api: ApiUser): User {
     'User'
   const roleId =
     typeof api.role === 'object' && api.role
-      ? api.role.id ?? ''
+      ? api.role.id || api.role.name || ''
       : api.roleId ?? (typeof api.role === 'string' ? api.role : '')
 
   const inactive =

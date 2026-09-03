@@ -72,6 +72,9 @@ export function RecordDetailSectionTitle({ children }: { children: string }) {
         textTransform: 'uppercase',
         letterSpacing: '0.5px',
         mb: theme.spacing(1.5),
+        whiteSpace: 'normal',
+        overflow: 'visible',
+        textOverflow: 'clip',
       }}
     >
       {children}

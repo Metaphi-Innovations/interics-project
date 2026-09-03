@@ -18,6 +18,7 @@ export function ProjectTypesField({
   return (
     <Autocomplete
       multiple
+      disableCloseOnSelect
       options={[...PROJECT_TYPE_OPTIONS]}
       value={value}
       onChange={(_, newValue) => onChange(newValue)}

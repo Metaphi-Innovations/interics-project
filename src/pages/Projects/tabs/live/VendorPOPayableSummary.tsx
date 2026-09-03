@@ -62,6 +62,7 @@ export function VendorPOPayableSummary({
           vendorPOs={projectVendorPOs}
           baseline={baselineForProject}
           payableContext={payableContext}
+          canUploadInvoice={canCreatePayablesPo}
         />
       </Stack>
 

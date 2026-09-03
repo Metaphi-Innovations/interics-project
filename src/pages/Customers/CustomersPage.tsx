@@ -23,7 +23,7 @@ import {
   LocationOn,
 } from '@mui/icons-material'
 import { useTheme, alpha } from '@mui/material/styles'
-import { Building2, Plus, MoreVertical, Eye, Pencil, FolderPlus, Receipt } from 'lucide-react'
+import { Building2, Plus, MoreVertical, Eye, Pencil } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { fetchCustomers, setCustomerActive, fetchCustomerFilters } from '../../slices/customers/thunk'
@@ -217,20 +217,14 @@ function CustomerAvatar({ name }: { name: string }) {
 
 interface RowActionsProps {
   canEdit: boolean
-  canCreateProject: boolean
   onView: () => void
   onEdit: () => void
-  onAddProject: () => void
-  onBillingSummary: () => void
 }
 
 function RowActions({
   canEdit,
-  canCreateProject,
   onView,
   onEdit,
-  onAddProject,
-  onBillingSummary,
 }: RowActionsProps) {
   const [anchor, setAnchor] = useState<null | HTMLElement>(null)
 
@@ -254,14 +248,6 @@ function RowActions({
             <Pencil size={14} /> Edit
           </MenuItem>
         ) : null}
-        {canCreateProject ? (
-          <MenuItem onClick={() => { onAddProject(); close() }} sx={{ fontSize: 13, gap: 1 }}>
-            <FolderPlus size={14} /> Add Project
-          </MenuItem>
-        ) : null}
-        <MenuItem onClick={() => { onBillingSummary(); close() }} sx={{ fontSize: 13, gap: 1 }}>
-          <Receipt size={14} /> Billing Summary
-        </MenuItem>
       </Menu>
     </>
   )
@@ -346,13 +332,10 @@ interface CustomerTableProps {
   statusOptions: ColumnFilterOption[]
   onColumnFilter: (field: keyof CustomerColumnFilters, value: string) => void
   canEdit: boolean
-  canCreateProject: boolean
   canToggleActive: boolean
   onView: (id: string) => void
   onEdit: (customer: Customer) => void
   onProjects: (customer: Customer) => void
-  onAddProject: (customer: Customer) => void
-  onBillingSummary: (customer: Customer) => void
   onToggleStatus: (customer: Customer) => void
 }
 
@@ -371,13 +354,10 @@ function CustomerTable({
   statusOptions,
   onColumnFilter,
   canEdit,
-  canCreateProject,
   canToggleActive,
   onView,
   onEdit,
   onProjects,
-  onAddProject,
-  onBillingSummary,
   onToggleStatus,
 }: CustomerTableProps) {
   const theme = useTheme()
@@ -584,11 +564,8 @@ function CustomerTable({
                 <Box sx={ROW_ICON_ACTIONS_GROUP_SX}>
                   <RowActions
                     canEdit={canEdit}
-                    canCreateProject={canCreateProject}
                     onView={() => onView(customer.id)}
                     onEdit={() => onEdit(customer)}
-                    onAddProject={() => onAddProject(customer)}
-                    onBillingSummary={() => onBillingSummary(customer)}
                   />
                 </Box>
               </TableCell>
@@ -608,11 +585,8 @@ interface GridCardProps {
   onView: () => void
   onEdit: () => void
   onProjects: () => void
-  onAddProject: () => void
-  onBillingSummary: () => void
   onToggleStatus: () => void
   canEdit: boolean
-  canCreateProject: boolean
   canToggleActive: boolean
 }
 
@@ -622,11 +596,8 @@ function CustomerGridCard({
   onView,
   onEdit,
   onProjects,
-  onAddProject,
-  onBillingSummary,
   onToggleStatus,
   canEdit,
-  canCreateProject,
   canToggleActive,
 }: GridCardProps) {
   const projectCount = getTotalProjectCount(customer)
@@ -654,11 +625,8 @@ function CustomerGridCard({
         />
         <RowActions
           canEdit={canEdit}
-          canCreateProject={canCreateProject}
           onView={onView}
           onEdit={onEdit}
-          onAddProject={onAddProject}
-          onBillingSummary={onBillingSummary}
         />
       </Box>
 
@@ -764,7 +732,6 @@ export default function CustomersPage() {
   const canCreateCustomer = usePermission('customers', 'create')
   const canEditCustomer = usePermission('customers', 'edit')
   const canToggleCustomerActive = usePermission('customers', 'delete')
-  const canCreateProject = usePermission('projects', 'create')
 
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('list')
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -1085,14 +1052,6 @@ export default function CustomersPage() {
     navigate(`${customerDetailPath(customer)}?tab=projects`)
   }
 
-  function handleBillingSummary(customer: Customer) {
-    navigate(`${customerDetailPath(customer)}?tab=financial`)
-  }
-
-  function handleAddProject(customer: Customer) {
-    navigate(`${customerDetailPath(customer)}?tab=projects`)
-  }
-
   async function handleToggleStatus() {
     if (!canToggleCustomerActive || !toggleTarget) return
     const nextActive = toggleTarget.status !== 'Active'
@@ -1178,13 +1137,10 @@ export default function CustomersPage() {
                   customer={customer}
                   visibleColumns={visibleColumns}
                   canEdit={canEditCustomer}
-                  canCreateProject={canCreateProject}
                   canToggleActive={canToggleCustomerActive}
                   onView={() => navigate(customerDetailPath(customer))}
                   onEdit={() => openEditDrawer(customer)}
                   onProjects={() => handleProjectsClick(customer)}
-                  onAddProject={() => handleAddProject(customer)}
-                  onBillingSummary={() => handleBillingSummary(customer)}
                   onToggleStatus={() => setToggleTarget(customer)}
                 />
               ))
@@ -1206,13 +1162,10 @@ export default function CustomersPage() {
             statusOptions={statusOptions}
             onColumnFilter={handleColumnFilter}
             canEdit={canEditCustomer}
-            canCreateProject={canCreateProject}
             canToggleActive={canToggleCustomerActive}
             onView={handleNavigateToCustomer}
             onEdit={openEditDrawer}
             onProjects={handleProjectsClick}
-            onAddProject={handleAddProject}
-            onBillingSummary={handleBillingSummary}
             onToggleStatus={setToggleTarget}
           />
         )}

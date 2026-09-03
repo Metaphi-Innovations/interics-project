@@ -96,6 +96,9 @@ function LabelValue({ label, children }: { label: string; children: React.ReactN
           letterSpacing: '0.4px',
           display: 'block',
           mb: theme.spacing(0.75),
+          whiteSpace: 'normal',
+          overflow: 'visible',
+          textOverflow: 'clip',
         }}
       >
         {label}
@@ -186,7 +189,6 @@ const ACTIVITY_FILTER_OPTIONS: { id: ActivityFilterCategory; label: string }[] =
   { id: 'profile', label: 'Profile' },
   { id: 'documents', label: 'Documents' },
   { id: 'contacts', label: 'Contacts' },
-  { id: 'financial', label: 'Financial' },
   { id: 'system', label: 'System' },
 ]
 
@@ -697,6 +699,75 @@ export default function VendorDetailPage() {
                 No billing address added
               </Typography>
             )}
+          </Box>
+
+          <Box
+            sx={{
+              ...getRecordDetailFlatSectionSx(theme, { isLast: false }),
+              mb: theme.spacing(3),
+              pb: theme.spacing(3),
+            }}
+          >
+            <RecordDetailSectionTitle>Bank Details</RecordDetailSectionTitle>
+            <Box
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(3, 1fr)' },
+                gap: theme.spacing(3),
+                rowGap: theme.spacing(3.5),
+                py: theme.spacing(0.5),
+              }}
+            >
+              <LabelValue label="Account number">
+                <Typography
+                  variant="body2"
+                  sx={{
+                    fontFamily: mono,
+                    letterSpacing: '0.5px',
+                    color: 'text.primary',
+                    fontWeight: 500,
+                    fontSize: theme.typography.body2.fontSize,
+                    whiteSpace: 'normal',
+                    overflow: 'visible',
+                    textOverflow: 'clip',
+                  }}
+                >
+                  {vendor!.bankAccountNumber?.trim() || '—'}
+                </Typography>
+              </LabelValue>
+              <LabelValue label="IFSC code">
+                <Typography
+                  variant="body2"
+                  sx={{
+                    fontFamily: mono,
+                    letterSpacing: '0.5px',
+                    color: 'text.primary',
+                    fontWeight: 500,
+                    fontSize: theme.typography.body2.fontSize,
+                    whiteSpace: 'normal',
+                    overflow: 'visible',
+                    textOverflow: 'clip',
+                  }}
+                >
+                  {vendor!.ifscCode?.trim() || '—'}
+                </Typography>
+              </LabelValue>
+              <LabelValue label="Bank / Branch name">
+                <Typography
+                  variant="body2"
+                  sx={{
+                    color: 'text.primary',
+                    fontWeight: 500,
+                    fontSize: theme.typography.body2.fontSize,
+                    whiteSpace: 'normal',
+                    overflow: 'visible',
+                    textOverflow: 'clip',
+                  }}
+                >
+                  {vendor!.bankBranchName?.trim() || '—'}
+                </Typography>
+              </LabelValue>
+            </Box>
           </Box>
 
           <Box sx={getRecordDetailFlatSectionSx(theme, { isLast: true })}>

@@ -93,6 +93,8 @@ interface PaymentTableRow {
   invoiceId: string
   invoiceNumber: string
   invoiceDate: string
+  gstAmount: number
+  totalAmount: number
   invoiceAmount: number
   tdsAmount: number
 }
@@ -107,8 +109,10 @@ type PayablesVisibleColumns = {
   milestone: boolean
   invoiceNo: boolean
   invoiceDate: boolean
-  invoiceAmount: boolean
+  gstAmount: boolean
+  totalAmount: boolean
   tdsAmount: boolean
+  invoiceAmount: boolean
   paymentStatus: boolean
 }
 
@@ -118,8 +122,10 @@ const DEFAULT_PAYABLES_VISIBLE: PayablesVisibleColumns = {
   milestone: true,
   invoiceNo: true,
   invoiceDate: true,
-  invoiceAmount: true,
+  gstAmount: true,
+  totalAmount: true,
   tdsAmount: true,
+  invoiceAmount: true,
   paymentStatus: true,
 }
 
@@ -135,8 +141,10 @@ function buildPayablesListColumns(v: PayablesVisibleColumns): string[] {
     ...(v.milestone ? (['milestone', 'milestoneId'] as const) : []),
     ...(v.invoiceNo ? (['invoiceNo'] as const) : []),
     ...(v.invoiceDate ? (['invoiceDate'] as const) : []),
-    ...(v.invoiceAmount ? (['invoiceAmount'] as const) : []),
+    ...(v.gstAmount ? (['gstAmount'] as const) : []),
+    ...(v.totalAmount ? (['totalAmount'] as const) : []),
     ...(v.tdsAmount ? (['tdsAmount'] as const) : []),
+    ...(v.invoiceAmount ? (['invoiceAmount'] as const) : []),
     ...(v.paymentStatus ? (['paymentStatus'] as const) : []),
   ]
 }
@@ -281,6 +289,8 @@ type PayablesSortField =
   | 'milestone'
   | 'invoiceNo'
   | 'invoiceDate'
+  | 'gstAmount'
+  | 'totalAmount'
   | 'invoiceAmount'
   | 'tdsAmount'
   | 'paymentStatus'
@@ -395,6 +405,8 @@ export default function PaymentsPage() {
         milestone: data.milestones ?? [],
         invoiceNo: data.invoiceNos ?? [],
         invoiceDate: data.invoiceDates ?? [],
+        gstAmount: data.gstAmounts ?? [],
+        totalAmount: data.totalAmounts ?? [],
         invoiceAmount: data.invoiceAmounts ?? [],
         tdsAmount: data.tdsAmounts ?? [],
         paymentStatus: data.paymentStatuses ?? [],
@@ -558,6 +570,8 @@ export default function PaymentsPage() {
           milestone: nextCols.milestone || undefined,
           invoiceNo: nextCols.invoiceNo || undefined,
           invoiceDate: nextCols.invoiceDate || undefined,
+          gstAmount: nextCols.gstAmount ? Number(nextCols.gstAmount) : undefined,
+          totalAmount: nextCols.totalAmount ? Number(nextCols.totalAmount) : undefined,
           invoiceAmount: nextCols.invoiceAmount ? Number(nextCols.invoiceAmount) : undefined,
           tdsAmount: nextCols.tdsAmount ? Number(nextCols.tdsAmount) : undefined,
           paymentStatus: nextCols.paymentStatus || statusTab,
@@ -629,8 +643,10 @@ export default function PaymentsPage() {
       { field: 'milestone', label: 'Milestone', visible: visibleColumns.milestone },
       { field: 'invoiceNo', label: 'Invoice No.', visible: visibleColumns.invoiceNo },
       { field: 'invoiceDate', label: 'Invoice date', visible: visibleColumns.invoiceDate },
-      { field: 'invoiceAmount', label: 'Invoice Amount', visible: visibleColumns.invoiceAmount },
-      { field: 'tdsAmount', label: 'TDS Amount', visible: visibleColumns.tdsAmount },
+      { field: 'gstAmount', label: 'GST', visible: visibleColumns.gstAmount },
+      { field: 'totalAmount', label: 'Total Amount', visible: visibleColumns.totalAmount },
+      { field: 'tdsAmount', label: 'TDS', visible: visibleColumns.tdsAmount },
+      { field: 'invoiceAmount', label: 'Net payable amount', visible: visibleColumns.invoiceAmount },
       { field: 'paymentStatus', label: 'Payment Status', visible: visibleColumns.paymentStatus },
     ],
     [visibleColumns],
@@ -668,6 +684,8 @@ export default function PaymentsPage() {
           invoiceId: item.invoiceId ?? item.id,
           invoiceNumber: item.invoiceNo,
           invoiceDate: item.invoiceDate,
+          gstAmount: item.gstAmount ?? 0,
+          totalAmount: item.totalAmount ?? 0,
           invoiceAmount: item.invoiceAmount,
           tdsAmount: item.tdsAmount,
         }
@@ -696,6 +714,8 @@ export default function PaymentsPage() {
         invoiceId: item.invoiceId ?? item.id,
         invoiceNumber: item.invoiceNo,
         invoiceDate: item.invoiceDate,
+        gstAmount: item.gstAmount ?? 0,
+        totalAmount: item.totalAmount ?? 0,
         invoiceAmount: item.invoiceAmount,
         tdsAmount: item.tdsAmount,
       }
@@ -828,6 +848,8 @@ export default function PaymentsPage() {
           milestone: colFilters.milestone || undefined,
           invoiceNo: colFilters.invoiceNo || undefined,
           invoiceDate: colFilters.invoiceDate || undefined,
+          gstAmount: colFilters.gstAmount ? Number(colFilters.gstAmount) : undefined,
+          totalAmount: colFilters.totalAmount ? Number(colFilters.totalAmount) : undefined,
           invoiceAmount: colFilters.invoiceAmount ? Number(colFilters.invoiceAmount) : undefined,
           tdsAmount: colFilters.tdsAmount ? Number(colFilters.tdsAmount) : undefined,
           paymentStatus: colFilters.paymentStatus || statusTab,
@@ -1037,6 +1059,8 @@ export default function PaymentsPage() {
           milestone: colFilters.milestone || undefined,
           invoiceNo: colFilters.invoiceNo || undefined,
           invoiceDate: colFilters.invoiceDate || undefined,
+          gstAmount: colFilters.gstAmount ? Number(colFilters.gstAmount) : undefined,
+          totalAmount: colFilters.totalAmount ? Number(colFilters.totalAmount) : undefined,
           invoiceAmount: colFilters.invoiceAmount ? Number(colFilters.invoiceAmount) : undefined,
           tdsAmount: colFilters.tdsAmount ? Number(colFilters.tdsAmount) : undefined,
           paymentStatus: colFilters.paymentStatus || statusTab,
@@ -1196,7 +1220,7 @@ export default function PaymentsPage() {
         >
           <>
               <TableContainer sx={{ overflowX: 'auto', width: '100%' }}>
-                <Table size="small" sx={{ tableLayout: 'fixed', width: '100%', minWidth: 1080 }}>
+                <Table size="small" sx={{ tableLayout: 'fixed', width: '100%', minWidth: 1280 }}>
                   <colgroup>
                     {Array.from({ length: dataColCount }, (_, index) => (
                       <col key={index} style={{ width: dataColWidth }} />
@@ -1220,11 +1244,17 @@ export default function PaymentsPage() {
                       {visibleColumns.invoiceDate && (
                         <FilterableSortHeader label="Invoice date" field="invoiceDate" sortField={sortConfig.field ?? undefined} sortDirection={sortConfig.direction} onSort={handleSort} filterMode="date" filterValue={colFilters.invoiceDate ?? ''} filterOptions={payableFilterOptions.invoiceDate ?? []} onFilter={(v) => handleColumnFilter('invoiceDate', v)} sx={PAY_HEADER_SX} />
                       )}
-                      {visibleColumns.invoiceAmount && (
-                        <FilterableSortHeader label="Invoice Amount" field="invoiceAmount" sortField={sortConfig.field ?? undefined} sortDirection={sortConfig.direction} onSort={handleSort} filterValue={colFilters.invoiceAmount ?? ''} filterOptions={payableFilterOptions.invoiceAmount ?? []} onFilter={(v) => handleColumnFilter('invoiceAmount', v)} sx={PAY_HEADER_SX} />
+                      {visibleColumns.gstAmount && (
+                        <FilterableSortHeader label="GST" field="gstAmount" sortField={sortConfig.field ?? undefined} sortDirection={sortConfig.direction} onSort={handleSort} filterValue={colFilters.gstAmount ?? ''} filterOptions={payableFilterOptions.gstAmount ?? []} onFilter={(v) => handleColumnFilter('gstAmount', v)} sx={PAY_HEADER_SX} />
+                      )}
+                      {visibleColumns.totalAmount && (
+                        <FilterableSortHeader label="Total Amount" field="totalAmount" sortField={sortConfig.field ?? undefined} sortDirection={sortConfig.direction} onSort={handleSort} filterValue={colFilters.totalAmount ?? ''} filterOptions={payableFilterOptions.totalAmount ?? []} onFilter={(v) => handleColumnFilter('totalAmount', v)} sx={PAY_HEADER_SX} />
                       )}
                       {visibleColumns.tdsAmount && (
-                        <FilterableSortHeader label="TDS Amount" field="tdsAmount" sortField={sortConfig.field ?? undefined} sortDirection={sortConfig.direction} onSort={handleSort} filterValue={colFilters.tdsAmount ?? ''} filterOptions={payableFilterOptions.tdsAmount ?? []} onFilter={(v) => handleColumnFilter('tdsAmount', v)} sx={PAY_HEADER_SX} />
+                        <FilterableSortHeader label="TDS" field="tdsAmount" sortField={sortConfig.field ?? undefined} sortDirection={sortConfig.direction} onSort={handleSort} filterValue={colFilters.tdsAmount ?? ''} filterOptions={payableFilterOptions.tdsAmount ?? []} onFilter={(v) => handleColumnFilter('tdsAmount', v)} sx={PAY_HEADER_SX} />
+                      )}
+                      {visibleColumns.invoiceAmount && (
+                        <FilterableSortHeader label="Net payable amount" field="invoiceAmount" sortField={sortConfig.field ?? undefined} sortDirection={sortConfig.direction} onSort={handleSort} filterValue={colFilters.invoiceAmount ?? ''} filterOptions={payableFilterOptions.invoiceAmount ?? []} onFilter={(v) => handleColumnFilter('invoiceAmount', v)} sx={PAY_HEADER_SX} />
                       )}
                       {visibleColumns.paymentStatus && (
                         <FilterableSortHeader label="Payment Status" field="paymentStatus" sortField={sortConfig.field ?? undefined} sortDirection={sortConfig.direction} onSort={handleSort} filterValue={colFilters.paymentStatus ?? ''} filterOptions={payableFilterOptions.paymentStatus ?? []} onFilter={(v) => handleColumnFilter('paymentStatus', v)} sx={PAY_HEADER_STATUS_SX} />
@@ -1307,10 +1337,17 @@ export default function PaymentsPage() {
                               </Typography>
                             </TableCell>
                           )}
-                          {visibleColumns.invoiceAmount && (
+                          {visibleColumns.gstAmount && (
                             <TableCell sx={PAY_CELL_SX}>
                               <Typography variant="body2" sx={PAY_TEXT_BODY_SX}>
-                                ₹{formatInr(row.invoiceAmount)}
+                                ₹{formatInr(row.gstAmount)}
+                              </Typography>
+                            </TableCell>
+                          )}
+                          {visibleColumns.totalAmount && (
+                            <TableCell sx={PAY_CELL_SX}>
+                              <Typography variant="body2" sx={PAY_TEXT_BODY_SX}>
+                                ₹{formatInr(row.totalAmount)}
                               </Typography>
                             </TableCell>
                           )}
@@ -1318,6 +1355,13 @@ export default function PaymentsPage() {
                             <TableCell sx={PAY_CELL_SX}>
                               <Typography variant="body2" sx={PAY_TEXT_BODY_SX}>
                                 ₹{formatInr(row.tdsAmount)}
+                              </Typography>
+                            </TableCell>
+                          )}
+                          {visibleColumns.invoiceAmount && (
+                            <TableCell sx={PAY_CELL_SX}>
+                              <Typography variant="body2" sx={PAY_TEXT_BODY_SX}>
+                                ₹{formatInr(row.invoiceAmount)}
                               </Typography>
                             </TableCell>
                           )}

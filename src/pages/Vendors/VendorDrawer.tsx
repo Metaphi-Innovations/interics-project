@@ -48,6 +48,9 @@ interface FormState {
   city: string
   state: string
   pincode: string
+  bankAccountNumber: string
+  ifscCode: string
+  bankBranchName: string
   tags: string[]
   rating: string
   paymentTerms: string
@@ -68,6 +71,9 @@ const defaultForm: FormState = {
   city: '',
   state: '',
   pincode: '',
+  bankAccountNumber: '',
+  ifscCode: '',
+  bankBranchName: '',
   tags: [],
   rating: '',
   paymentTerms: '',
@@ -121,6 +127,9 @@ export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: Vendo
           city: vendor.city === 'Unknown' ? '' : vendor.city,
           state: vendor.state === 'Unknown' ? '' : vendor.state,
           pincode: vendor.pincode ?? '',
+          bankAccountNumber: vendor.bankAccountNumber ?? '',
+          ifscCode: vendor.ifscCode ?? '',
+          bankBranchName: vendor.bankBranchName ?? '',
           tags: vendor.tags,
           rating: vendor.rating ?? '',
           paymentTerms: vendor.paymentTerms ?? '',
@@ -203,6 +212,9 @@ export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: Vendo
       city: form.city.trim(),
       state: form.state.trim(),
       pincode: form.pincode.trim() || null,
+      bankAccountNumber: form.bankAccountNumber.trim() || null,
+      ifscCode: form.ifscCode.trim() || null,
+      bankBranchName: form.bankBranchName.trim() || null,
       tags: form.tags,
       rating: form.rating.trim() || null,
       notes: form.notes.trim() || null,
@@ -473,6 +485,44 @@ export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: Vendo
             ))}
           </TextField>
         </FormField>
+      </FormSection>
+
+      <FormSection title="Bank Details" columns={2}>
+        <FormField label="Account number" hint="Optional">
+          <TextField
+            fullWidth
+            size="small"
+            value={form.bankAccountNumber}
+            onChange={(e) => update('bankAccountNumber', e.target.value.replace(/\s/g, ''))}
+            placeholder="Account number"
+            error={!!errors.bankAccountNumber}
+          />
+        </FormField>
+
+        <FormField label="IFSC code" hint="Optional · 11 characters" error={errors.ifscCode}>
+          <TextField
+            fullWidth
+            size="small"
+            value={form.ifscCode}
+            onChange={(e) => update('ifscCode', e.target.value.toUpperCase().replace(/\s/g, ''))}
+            placeholder="HDFC0001234"
+            inputProps={{ maxLength: 11 }}
+            error={!!errors.ifscCode}
+          />
+        </FormField>
+
+        <Box sx={{ gridColumn: 'span 2' }}>
+          <FormField label="Bank / Branch name" hint="Optional">
+            <TextField
+              fullWidth
+              size="small"
+              value={form.bankBranchName}
+              onChange={(e) => update('bankBranchName', e.target.value)}
+              placeholder="Bank name and branch"
+              error={!!errors.bankBranchName}
+            />
+          </FormField>
+        </Box>
       </FormSection>
 
       <FormSection title="Tax & Compliance" columns={2}>

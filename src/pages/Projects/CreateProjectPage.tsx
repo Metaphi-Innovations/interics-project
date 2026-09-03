@@ -23,10 +23,13 @@ import {
   createCustomerContact,
   fetchCustomerById,
 } from '../../slices/customers/thunk'
-import { fetchUsers } from '../../slices/users/thunk'
+import { fetchUsers, toUiUser } from '../../slices/users/thunk'
 import { fetchRoles } from '../../slices/roles/thunk'
+import { usersApi } from '../../api/usersApi'
+import { unwrapApiData } from '@/modules/system-settings/shared/api'
+import { normalizeArrayResponse } from '@/utils/normalizeListResponse'
 import { createVendorContact, fetchVendorById, fetchVendors } from '../../slices/vendors/thunk'
-import { isProjectLeadRole } from './projectManagerRoles'
+import { isProjectLeadRole, PROJECT_LEAD_ROLE_KEY } from './projectManagerRoles'
 import { ContactPersonAutocomplete } from './components/ContactPersonAutocomplete'
 import {
   AddNewPersonModal,
@@ -874,14 +877,30 @@ function Step4Team({
     (u) => u.status === 'active' && u.id !== formData.projectManagerId,
   )
 
+  function resolveUserDisplayName(userId: string, fallbackName?: string): string {
+    const fromManagers = managers.find((m) => m.id === userId)?.name?.trim()
+    if (fromManagers) return fromManagers
+    const fromTeam = allUsers.find((u) => u.id === userId)?.name?.trim()
+    if (fromTeam) return fromTeam
+    const stored = fallbackName?.trim()
+    if (stored && stored !== userId) return stored
+    return 'Selected user'
+  }
+
+  function resolveRoleChipLabel(roleId: string): string | null {
+    const label = getRoleLabel(roleId)?.trim()
+    if (!label || label === roleId) return null
+    return label
+  }
+
   return (
     <FullPageFormSection
       title="Team"
       subtitle="Select a project lead, then assign additional team members"
-      columns={1}
+      columns={2}
     >
       <FormField label="Project Lead" required error={errors.projectManagerId}>
-        <FormControl fullWidth size="small" error={Boolean(errors.projectManagerId)}>
+        <FormControl fullWidth size="small" error={Boolean(errors.projectManagerId)} sx={{ minWidth: 0 }}>
           <MuiSelect
             value={formData.projectManagerId}
             onChange={(e) => {
@@ -894,21 +913,22 @@ function Step4Team({
               }))
             }}
             displayEmpty
+            fullWidth
+            MenuProps={{ PaperProps: { sx: { maxHeight: 320 } } }}
             sx={{ fontSize: 13 }}
             renderValue={(val) => {
               if (!val) {
                 return (
                   <Typography sx={{ fontSize: 13, color: 'text.disabled' }}>
-                    Select project lead…
+                    {managers.length === 0 ? 'No project leads available…' : 'Select project lead…'}
                   </Typography>
                 )
               }
-              const mgr = managers.find((m) => m.id === val)
-              if (!mgr) return val
+              const displayName = resolveUserDisplayName(val, formData.projectManagerName)
               return (
                 <Stack direction="row" alignItems="center" gap={1}>
                   <PersonOutline sx={{ fontSize: 14 }} />
-                  <Typography sx={{ fontSize: 13 }}>{mgr.name}</Typography>
+                  <Typography sx={{ fontSize: 13 }}>{displayName}</Typography>
                 </Stack>
               )
             }}
@@ -916,17 +936,22 @@ function Step4Team({
             <MenuItem value="" sx={{ fontSize: 13 }}>
               Select project lead…
             </MenuItem>
-            {managers.map((m) => (
-              <MenuItem key={m.id} value={m.id} sx={{ fontSize: 13, gap: 1 }}>
-                <PersonOutline sx={{ fontSize: 14 }} />
-                {m.name}
-                <MuiChip
-                  label={getRoleLabel(m.role)}
-                  size="small"
-                  sx={{ height: 16, fontSize: 10, ml: 'auto', '& .MuiChip-label': { px: '6px' } }}
-                />
-              </MenuItem>
-            ))}
+            {managers.map((m) => {
+              const roleLabel = resolveRoleChipLabel(m.role)
+              return (
+                <MenuItem key={m.id} value={m.id} sx={{ fontSize: 13, gap: 1 }}>
+                  <PersonOutline sx={{ fontSize: 14 }} />
+                  {m.name}
+                  {roleLabel ? (
+                    <MuiChip
+                      label={roleLabel}
+                      size="small"
+                      sx={{ height: 16, fontSize: 10, ml: 'auto', '& .MuiChip-label': { px: '6px' } }}
+                    />
+                  ) : null}
+                </MenuItem>
+              )
+            })}
           </MuiSelect>
         </FormControl>
       </FormField>
@@ -942,7 +967,9 @@ function Step4Team({
           onChange={(_, val) =>
             setFormData((prev) => ({ ...prev, teamMembers: val }))
           }
-          renderOption={(props, option) => (
+          renderOption={(props, option) => {
+            const roleLabel = resolveRoleChipLabel(option.role)
+            return (
             <Box component="li" {...props} sx={{ gap: 1 }}>
               <Box
                 sx={{
@@ -964,13 +991,16 @@ function Step4Team({
               <Box>
                 <Typography sx={{ fontSize: 13 }}>{option.name}</Typography>
               </Box>
-              <MuiChip
-                label={getRoleLabel(option.role)}
-                size="small"
-                sx={{ height: 16, fontSize: 10, ml: 'auto', '& .MuiChip-label': { px: '6px' } }}
-              />
+              {roleLabel ? (
+                <MuiChip
+                  label={roleLabel}
+                  size="small"
+                  sx={{ height: 16, fontSize: 10, ml: 'auto', '& .MuiChip-label': { px: '6px' } }}
+                />
+              ) : null}
             </Box>
-          )}
+            )
+          }}
           renderTags={(selected, getTagProps) =>
             selected.map((option, index) => (
               <MuiChip
@@ -1015,6 +1045,7 @@ function Step4Team({
       {formData.teamMembers.length > 0 && (
         <Box
           sx={{
+            gridColumn: '1 / -1',
             display: 'grid',
             gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(4, 1fr)' },
             gap: 2,
@@ -1157,23 +1188,49 @@ export default function CreateProjectPage() {
   const [activeStep, setActiveStep] = useState(0)
   const [formData, setFormData] = useState<WizardFormData>(INITIAL_FORM)
   const [errors, setErrors] = useState<StepErrors>({})
+  const [projectLeadUsers, setProjectLeadUsers] = useState<User[]>([])
 
   useEffect(() => {
     dispatch(fetchCustomers({}))
-    dispatch(fetchUsers({}))
-    dispatch(fetchRoles(undefined))
+    // Explicit limit so Project Lead/Team options are not limited to a prior Users-page page size.
+    dispatch(fetchUsers({ limit: 100 }))
+    dispatch(fetchRoles({ limit: 100 }))
     dispatch(fetchVendors({ pageSize: 500 }))
     dispatch(fetchSectors())
     dispatch(fetchStatuses())
+
+    // Dedicated Project Lead options via existing users API role filter (same source as before).
+    let cancelled = false
+    void usersApi
+      .getAll({ limit: 100, status: 'active', role: PROJECT_LEAD_ROLE_KEY })
+      .then((response) => {
+        if (cancelled) return
+        const envelope = response.data as { data?: unknown }
+        const raw = normalizeArrayResponse(unwrapApiData(envelope) ?? envelope)
+        setProjectLeadUsers(
+          raw
+            .map((row) => toUiUser(row as Parameters<typeof toUiUser>[0]))
+            .filter((u) => u.status === 'active'),
+        )
+      })
+      .catch(() => {
+        if (!cancelled) setProjectLeadUsers([])
+      })
+    return () => {
+      cancelled = true
+    }
   }, [dispatch])
 
-  const managers = users.filter(
-    (u) => u.status === 'active' && isProjectLeadRole(u.role, roles),
+  const managersFromUsers = useMemo(
+    () => users.filter((u) => u.status === 'active' && isProjectLeadRole(u.role, roles)),
+    [users, roles],
   )
-  const activeUsers = users.filter((u) => u.status === 'active')
+  /** Prefer role-filtered fetch; fall back to client-side filter of the shared users list. */
+  const managers = projectLeadUsers.length > 0 ? projectLeadUsers : managersFromUsers
+  const activeUsers = useMemo(() => users.filter((u) => u.status === 'active'), [users])
 
   function getRoleLabel(roleId: string) {
-    return roles.find((r) => r.id === roleId)?.name ?? roleId
+    return roles.find((r) => r.id === roleId)?.name ?? ''
   }
 
   // ── Validation ────────────────────────────────────────────────────────────

@@ -12,7 +12,7 @@ import { fetchVendorPOs } from '@/slices/baseline/thunk'
 import type { Project } from '@/slices/projects/reducer'
 import type { VendorPO } from '@/slices/baseline/reducer'
 import { liveApi } from '@/api/liveApi'
-import { openAuthenticatedDocument } from '@/utils/openAuthenticatedDocument'
+import { downloadAuthenticatedDocument } from '@/utils/openAuthenticatedDocument'
 import { ProjectTabSkeleton } from '../components/ProjectTabSkeleton'
 import {
   VENDOR_PO_TEMPLATE_LABELS,
@@ -86,8 +86,12 @@ export function VendorPODocumentsSection({ project }: VendorPODocumentsSectionPr
         vendorPoId: po.id,
         template,
       })
-      if (row.downloadUrl) {
-        void openAuthenticatedDocument(row.downloadUrl)
+      if (row.downloadUrl || row.viewUrl) {
+        await downloadAuthenticatedDocument(
+          row.downloadUrl || row.viewUrl,
+          row.fileName || undefined,
+          () => error('Document generated but download failed'),
+        )
         success('Document generated', 'Download started.')
       } else {
         error('Document generated but no download URL was returned')

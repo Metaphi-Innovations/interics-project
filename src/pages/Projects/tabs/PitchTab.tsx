@@ -13,7 +13,6 @@ import {
   FormControl,
   IconButton as MuiIconButton,
   InputAdornment,
-  InputLabel,
   MenuItem,
   Select as MuiSelect,
   Stack,
@@ -29,7 +28,7 @@ import { alpha } from '@mui/material/styles'
 import { Add, Delete, Edit as EditIcon, ExpandMore, Upload } from '@mui/icons-material'
 import { useToast } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
-import { LISTING_SEARCH_DEBOUNCE_MS } from '@/components/listing'
+import { LISTING_SEARCH_DEBOUNCE_MS, SearchableSelect } from '@/components/listing'
 import { PitchFinancialSidebar } from '@/components/projects/PitchFinancialSidebar'
 import { AddExpenseDrawer } from '@/components/expenses/AddExpenseDrawer'
 import {
@@ -1145,7 +1144,7 @@ export default function PitchTab({ project }: { project: Project }) {
                       'Service',
                       'Offer Amount',
                       'Notes / Tags',
-                      'Upload',
+                      'Upload Offer',
                       'Actions',
                     ].map((h) => (
                       <TableCell
@@ -1225,7 +1224,7 @@ export default function PitchTab({ project }: { project: Project }) {
                               startIcon={<Upload sx={{ fontSize: 14 }} />}
                               sx={{ fontSize: 11, height: 30, minWidth: 92 }}
                             >
-                              Upload
+                              Upload Offer
                               <input
                                 type="file"
                                 hidden
@@ -1427,24 +1426,19 @@ export default function PitchTab({ project }: { project: Project }) {
         <DialogTitle sx={{ fontSize: 15, fontWeight: 600 }}>Add Category</DialogTitle>
         <DialogContent>
           <Stack gap={1.5} sx={{ mt: 1 }}>
-            <FormControl fullWidth size="small">
-              <InputLabel id="pitch-add-category-label" sx={{ fontSize: 12 }}>
-                Category
-              </InputLabel>
-              <MuiSelect
-                labelId="pitch-add-category-label"
-                label="Category"
-                value={selectedMasterCategoryId}
-                onChange={(e) => setSelectedMasterCategoryId(e.target.value)}
-                sx={{ fontSize: 12 }}
-              >
-                {addablePitchCategories.map((cat) => (
-                  <MenuItem key={cat.id} value={cat.id} sx={{ fontSize: 12 }}>
-                    {cat.name}
-                  </MenuItem>
-                ))}
-              </MuiSelect>
-            </FormControl>
+            <SearchableSelect
+              label="Category"
+              fullWidth
+              size="small"
+              placeholder="Search category…"
+              value={selectedMasterCategoryId}
+              onChange={setSelectedMasterCategoryId}
+              options={addablePitchCategories.map((cat) => ({
+                value: cat.id,
+                label: cat.name,
+              }))}
+              disabled={addablePitchCategories.length === 0}
+            />
             {addablePitchCategories.length === 0 ? (
               <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
                 {masterCategories.length === 0
