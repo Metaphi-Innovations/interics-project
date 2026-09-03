@@ -54,6 +54,11 @@ export type VendorDetailSectionsApi = {
       pincode?: string | null
       fullAddress?: string
     }
+    bankDetails?: {
+      accountNumber?: string | null
+      ifscCode?: string | null
+      bankBranchName?: string | null
+    }
     specialization?: { tags?: string[] }
     notes?: string | null
     catalogue?: VendorDocumentRefApi | null
@@ -175,6 +180,9 @@ export type VendorFormInput = {
   city: string
   state: string
   pincode?: string | null
+  bankAccountNumber?: string | null
+  ifscCode?: string | null
+  bankBranchName?: string | null
   tags?: string[]
   notes?: string | null
   paymentTerms?: string | null

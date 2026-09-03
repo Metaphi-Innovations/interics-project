@@ -112,6 +112,9 @@ export interface Vendor {
   state: string
   address: string | null
   pincode?: string | null
+  bankAccountNumber?: string | null
+  ifscCode?: string | null
+  bankBranchName?: string | null
   tags: string[]
   paymentTerms?: string | null
   notes: string | null

@@ -149,6 +149,7 @@ export function toVendorFromListItem(api: VendorListItemApi): Vendor {
 export function toVendorFromSections(api: VendorDetailSectionsApi): Vendor {
   const profile = api.overview?.vendorProfile
   const billing = api.overview?.billingAddress
+  const bank = api.overview?.bankDetails
   const docs = api.documentsAndTax
   const primary = api.overview?.primaryContact ?? api.contacts?.primaryContact
   const contactItems = api.contacts?.items ?? []
@@ -211,6 +212,9 @@ export function toVendorFromSections(api: VendorDetailSectionsApi): Vendor {
     state: billing?.state ?? '',
     address: billing?.address ?? null,
     pincode: billing?.pincode ?? null,
+    bankAccountNumber: bank?.accountNumber ?? null,
+    ifscCode: bank?.ifscCode ?? null,
+    bankBranchName: bank?.bankBranchName ?? null,
     tags: api.overview?.specialization?.tags ?? [],
     notes: api.overview?.notes ?? null,
     status: profile?.status === 'Inactive' ? 'Inactive' : 'Active',
@@ -282,6 +286,9 @@ export function toCreatePayload(form: VendorFormInput): Record<string, unknown> 
     billingCity: form.city.trim() || 'Unknown',
     billingState: form.state.trim() || 'Unknown',
     billingPincode: form.pincode?.trim() || undefined,
+    bankAccountNumber: form.bankAccountNumber?.trim() || null,
+    ifscCode: form.ifscCode?.trim() || null,
+    bankBranchName: form.bankBranchName?.trim() || null,
     specializationTags: form.tags?.length ? form.tags : undefined,
     notes: form.notes?.trim() || undefined,
     insuranceExpiryDate: form.insuranceExpiryDate || undefined,
@@ -322,6 +329,13 @@ export function toPartialUpdatePayload(patch: Partial<Vendor>): Record<string, u
   if (patch.city !== undefined) body.billingCity = patch.city.trim()
   if (patch.state !== undefined) body.billingState = patch.state.trim()
   if (patch.pincode !== undefined) body.billingPincode = patch.pincode?.trim() || undefined
+  if (patch.bankAccountNumber !== undefined) {
+    body.bankAccountNumber = patch.bankAccountNumber?.trim() || null
+  }
+  if (patch.ifscCode !== undefined) body.ifscCode = patch.ifscCode?.trim() || null
+  if (patch.bankBranchName !== undefined) {
+    body.bankBranchName = patch.bankBranchName?.trim() || null
+  }
   if (patch.tags !== undefined) body.specializationTags = patch.tags
   if (patch.notes !== undefined) body.notes = patch.notes?.trim() || undefined
 
@@ -362,6 +376,9 @@ export const VENDOR_FIELD_ALIASES: Record<string, string> = {
   billingState: 'state',
   billingAddress: 'address',
   billingPincode: 'pincode',
+  bankAccountNumber: 'bankAccountNumber',
+  ifscCode: 'ifscCode',
+  bankBranchName: 'bankBranchName',
   specializationTags: 'tags',
   'contacts.0.name': 'contactPerson',
   'contacts.0.phone': 'phone',

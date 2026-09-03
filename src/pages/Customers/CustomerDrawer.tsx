@@ -698,7 +698,7 @@ export function CustomerDrawer({ open, onClose, mode, customer, onSuccess }: Cus
           />
         </FormField>
 
-        <FormField label="City" required error={errors.city}>
+        <FormField label="City" error={errors.city}>
           <TextField
             fullWidth
             size="small"
@@ -709,7 +709,7 @@ export function CustomerDrawer({ open, onClose, mode, customer, onSuccess }: Cus
           />
         </FormField>
 
-        <FormField label="State" required error={errors.state}>
+        <FormField label="State" error={errors.state}>
           <TextField
             fullWidth
             size="small"

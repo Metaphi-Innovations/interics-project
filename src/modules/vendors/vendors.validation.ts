@@ -96,6 +96,17 @@ export function validateVendorForm(
     ['address', isPendingProfile ? optionalMaxLength(form.address, 'Address', 500) : requiredText(form.address, 'Address', 500)],
     ['pincode', isPendingProfile ? optionalPincode(form.pincode) : requiredText(form.pincode, 'Pincode', 6) || optionalPincode(form.pincode)],
     ['pan', optionalPan(form.pan)],
+    ['bankAccountNumber', optionalMaxLength(form.bankAccountNumber, 'Account number', 34)],
+    [
+      'ifscCode',
+      (() => {
+        const v = (form.ifscCode ?? '').trim().toUpperCase()
+        if (!v) return undefined
+        if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(v)) return 'Enter a valid 11-character IFSC code'
+        return undefined
+      })(),
+    ],
+    ['bankBranchName', optionalMaxLength(form.bankBranchName, 'Bank / Branch name', 255)],
     ['notes', optionalMaxLength(form.notes, 'Notes', 5000)],
   ])
 

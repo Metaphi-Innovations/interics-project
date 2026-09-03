@@ -846,24 +846,6 @@ export default function CustomerDetailPage() {
       <Grid container spacing={2}>
         <Grid size={{ xs: 12, md: 6 }}>
           <SummaryCard
-            title="Billing Summary"
-            rows={[
-              { label: 'Total Billed', value: fmt(fd.totalBilled) },
-              { label: 'Amount Received', value: fmt(fd.amountReceived) },
-              {
-                label: 'Outstanding',
-                value: (
-                  <Box sx={{ color: fd.outstanding > 0 ? 'error.main' : 'success.main' }}>
-                    {fmt(fd.outstanding)}
-                  </Box>
-                ),
-              },
-              { label: 'TDS Withheld', value: fmt(fd.tdsWithheld) },
-            ]}
-          />
-        </Grid>
-        <Grid size={{ xs: 12, md: 6 }}>
-          <SummaryCard
             title="Project Summary"
             rows={[
               { label: 'Active Projects', value: fd.activeProjects },
