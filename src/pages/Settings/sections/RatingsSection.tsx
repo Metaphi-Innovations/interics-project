@@ -150,6 +150,19 @@ export default function RatingsSection() {
     action.unwrap()
       .then(() => {
         setDrawerOpen(false)
+        if (!editingRow) {
+          listing.setPage(0)
+          setSortField(undefined)
+          setSortDirection('asc')
+        }
+        void dispatch(
+          fetchRatings({
+            ...buildListParams(),
+            page: editingRow ? listing.apiPage : 1,
+            sortBy: editingRow ? sortField : undefined,
+            sortOrder: editingRow && sortField ? sortDirection : undefined,
+          }),
+        )
         success(editingRow ? 'Rating updated' : 'Rating added')
       })
       .catch((err) => {

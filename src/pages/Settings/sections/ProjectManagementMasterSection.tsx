@@ -115,16 +115,22 @@ export default function ProjectManagementMasterSection() {
   const search = listing.search.trim()
   const isSearchPending = search.length > 0 && search !== listing.debouncedSearch
 
-  useEffect(() => {
+  const loadFilterOptions = () => {
     void projectManagementService.getFilters()
       .then((data) => {
         setFilterOptions({
           category: data.category ?? [],
-          totalCheckpoints: data.totalCheckpoints ?? [],
+          totalCheckpoints: [...(data.totalCheckpoints ?? [])].sort(
+            (a, b) => Number(a.value) - Number(b.value),
+          ),
           status: data.status ?? [],
         })
       })
       .catch(() => undefined)
+  }
+
+  useEffect(() => {
+    loadFilterOptions()
   }, [dispatch])
 
   const buildListParams = () => ({
@@ -253,6 +259,20 @@ export default function ProjectManagementMasterSection() {
       .unwrap()
       .then(() => {
         closeDrawer()
+        if (!editingRow) {
+          listing.setPage(0)
+          setSortField(undefined)
+          setSortDirection('asc')
+        }
+        loadFilterOptions()
+        void dispatch(
+          fetchProjectManagementCategories({
+            ...buildListParams(),
+            page: editingRow ? listing.apiPage : 1,
+            sortBy: editingRow ? sortField : undefined,
+            sortOrder: editingRow && sortField ? sortDirection : undefined,
+          }),
+        )
         success(editingRow ? 'Category updated' : 'Category added')
       })
       .catch((err) => {

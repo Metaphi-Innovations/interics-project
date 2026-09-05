@@ -113,7 +113,11 @@ export const servicesService = {
     sacCodes: SACCode[],
   ): Promise<Service> {
     const res = await client.post(BASE, toPayload(data, sacCodes))
-    return toService(unwrapApiData<ServiceApi>(res.data), categories, sacCodes)
+    const created = toService(unwrapApiData<ServiceApi>(res.data), categories, sacCodes)
+    if (data.status === 'inactive') {
+      return servicesService.toggle(created.id, false, categories, sacCodes)
+    }
+    return created
   },
 
   async update(
@@ -123,7 +127,11 @@ export const servicesService = {
     sacCodes: SACCode[],
   ): Promise<Service> {
     const res = await client.put(`${BASE}/${id}`, toPayload(data, sacCodes))
-    return toService(unwrapApiData<ServiceApi>(res.data), categories, sacCodes)
+    const updated = toService(unwrapApiData<ServiceApi>(res.data), categories, sacCodes)
+    if (data.status && data.status !== updated.status) {
+      return servicesService.toggle(id, data.status === 'active', categories, sacCodes)
+    }
+    return updated
   },
 
   async toggle(

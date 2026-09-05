@@ -110,23 +110,29 @@ export default function ServicesSection() {
   const search = listing.search.trim()
   const isSearchPending = search.length > 0 && search !== listing.debouncedSearch
 
-  useEffect(() => {
-    void Promise.all([
-      dispatch(fetchCategories({ force: true, page: 1, limit: 100 })),
-      dispatch(fetchSACCodes({ force: true, page: 1, limit: 100 })),
-      dispatch(fetchGSTRates({ force: true, page: 1, limit: 100 })),
-    ])
+  const loadFilterOptions = () => {
     void servicesService.getFilters()
       .then((data) => {
         setFilterOptions({
           name: data.name ?? [],
           categoryId: data.categoryId ?? [],
           sacCode: data.sacCode ?? [],
-          gstRate: data.gstRate ?? [],
+          gstRate: [...(data.gstRate ?? [])].sort(
+            (a, b) => Number(a.value) - Number(b.value),
+          ),
           isActive: data.isActive ?? [],
         })
       })
       .catch(() => undefined)
+  }
+
+  useEffect(() => {
+    void Promise.all([
+      dispatch(fetchCategories({ force: true, page: 1, limit: 100 })),
+      dispatch(fetchSACCodes({ force: true, page: 1, limit: 100 })),
+      dispatch(fetchGSTRates({ force: true, page: 1, limit: 100 })),
+    ])
+    loadFilterOptions()
   }, [dispatch])
 
   const buildListParams = () => ({
@@ -237,13 +243,31 @@ export default function ServicesSection() {
     ).unwrap()
       .then(() => {
         setDrawerOpen(false)
+        if (!editingRow) {
+          listing.setPage(0)
+          setSortField(undefined)
+          setSortDirection('asc')
+        }
+        loadFilterOptions()
+        void dispatch(
+          fetchServices({
+            ...buildListParams(),
+            page: editingRow ? listing.apiPage : 1,
+            sortBy: editingRow ? sortField : undefined,
+            sortOrder: editingRow && sortField ? sortDirection : undefined,
+          }),
+        )
         success(editingRow ? 'Service updated' : 'Service added')
       })
       .catch((err) => {
         const parsed = parseSettingsApiError(err, 'Failed to save service', {
           sacCode: 'sacCodeId',
         })
-        if (Object.keys(parsed.fieldErrors).length) setFieldErrors(parsed.fieldErrors)
+        const fieldErrors = { ...parsed.fieldErrors }
+        if (!fieldErrors.name && /service name already exists/i.test(parsed.message)) {
+          fieldErrors.name = 'Service name already exists'
+        }
+        if (Object.keys(fieldErrors).length) setFieldErrors(fieldErrors)
         error(parsed.message)
       })
   }

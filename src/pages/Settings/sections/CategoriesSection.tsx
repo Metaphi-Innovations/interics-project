@@ -55,6 +55,7 @@ const defaultForm: CategoryForm = { name: '', description: '', status: 'active' 
 type CategoryFilterOptions = {
   name: ColumnFilterOption[]
   description: ColumnFilterOption[]
+  servicesCount: ColumnFilterOption[]
   isActive: ColumnFilterOption[]
 }
 
@@ -76,6 +77,7 @@ export default function CategoriesSection() {
   const [filterOptions, setFilterOptions] = useState<CategoryFilterOptions>({
     name: [],
     description: [],
+    servicesCount: [],
     isActive: [],
   })
   const search = listing.search.trim()
@@ -87,6 +89,7 @@ export default function CategoriesSection() {
         setFilterOptions({
           name: data.name ?? [],
           description: data.description ?? [],
+          servicesCount: data.servicesCount ?? [],
           isActive: data.isActive ?? [],
         })
       })
@@ -100,6 +103,7 @@ export default function CategoriesSection() {
     search: listing.debouncedSearch || undefined,
     name: listing.filters.name,
     description: listing.filters.description,
+    servicesCount: listing.filters.servicesCount,
     isActive: listing.filters.isActive,
     sortBy: sortField,
     sortOrder: sortField ? sortDirection : undefined,
@@ -156,6 +160,18 @@ export default function CategoriesSection() {
     action.unwrap()
       .then(() => {
         setDrawerOpen(false)
+        if (!editingRow) {
+          listing.setPage(0)
+          setSortField(undefined)
+          setSortDirection('asc')
+        }
+        void dispatch(
+          fetchCategories({
+            ...buildListParams(editingRow ? listing.page : 0),
+            sortBy: editingRow ? sortField : undefined,
+            sortOrder: editingRow && sortField ? sortDirection : undefined,
+          }),
+        )
         success(editingRow ? 'Category updated' : 'Category added')
       })
       .catch((err) => {
@@ -263,10 +279,11 @@ export default function CategoriesSection() {
             />
             <FilterableSortHeader
               label="Services"
+              field="servicesCount"
               sortable={false}
-              filterValue=""
-              filterOptions={[]}
-              onFilter={() => undefined}
+              filterValue={listing.filters.servicesCount ?? ''}
+              filterOptions={filterOptions.servicesCount}
+              onFilter={applyColumnFilter('servicesCount')}
               sx={SETTINGS_TABLE_HEADER_CELL_SX}
             />
             <FilterableSortHeader
@@ -296,7 +313,7 @@ export default function CategoriesSection() {
               ))
             : categories.map(row => (
             <TableRow key={row.id} sx={{ height: 44 }}>
-              <TableCell sx={{ ...SETTINGS_TABLE_CELL_SX, fontWeight: 500 }}>{row.name}</TableCell>
+              <SettingsDescriptionCell value={row.name} textSx={{ fontWeight: 500 }} />
               <SettingsDescriptionCell value={row.description} textSx={{ color: 'text.secondary' }} />
               <TableCell sx={SETTINGS_TABLE_CELL_SX}>
                 <Chip

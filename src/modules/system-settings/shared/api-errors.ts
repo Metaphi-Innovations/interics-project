@@ -46,6 +46,9 @@ function humanizeTechnicalMessage(message: string): string {
     return 'Something went wrong. Please try again.'
   }
   if (trimmed === 'Already exists') return 'This value already exists'
+  if (trimmed === 'This GST rate value already exists') {
+    return 'This GST rate value already exists'
+  }
   if (trimmed === 'Validation failed' || trimmed === 'Query validation failed') {
     return 'Please fix the highlighted fields and try again'
   }

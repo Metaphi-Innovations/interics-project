@@ -273,7 +273,11 @@ const settingsSlice = createSlice({
       .addCase(createGSTRate.pending, (state) => { state.saving = true })
       .addCase(createGSTRate.fulfilled, (state, action: PayloadAction<GSTRate>) => {
         state.saving = false
-        state.gstRates.push(action.payload)
+        state.gstRates = [
+          action.payload,
+          ...state.gstRates.filter((row) => row.id !== action.payload.id),
+        ]
+        state.gstRatesTotal += 1
       })
       .addCase(createGSTRate.rejected, (state) => { state.saving = false })
       .addCase(updateGSTRate.pending, (state) => { state.saving = true })
@@ -300,7 +304,11 @@ const settingsSlice = createSlice({
       .addCase(createTDSSection.pending, (state) => { state.saving = true })
       .addCase(createTDSSection.fulfilled, (state, action: PayloadAction<TDSSection>) => {
         state.saving = false
-        state.tdsSections.push(action.payload)
+        state.tdsSections = [
+          action.payload,
+          ...state.tdsSections.filter((row) => row.id !== action.payload.id),
+        ]
+        state.tdsSectionsTotal += 1
       })
       .addCase(createTDSSection.rejected, (state) => { state.saving = false })
       .addCase(updateTDSSection.pending, (state) => { state.saving = true })
@@ -327,7 +335,11 @@ const settingsSlice = createSlice({
       .addCase(createSACCode.pending, (state) => { state.saving = true })
       .addCase(createSACCode.fulfilled, (state, action: PayloadAction<SACCode>) => {
         state.saving = false
-        state.sacCodes.push(action.payload)
+        state.sacCodes = [
+          action.payload,
+          ...state.sacCodes.filter((row) => row.id !== action.payload.id),
+        ]
+        state.sacCodesTotal += 1
       })
       .addCase(createSACCode.rejected, (state) => { state.saving = false })
       .addCase(updateSACCode.pending, (state) => { state.saving = true })
@@ -354,7 +366,11 @@ const settingsSlice = createSlice({
       .addCase(createCategory.pending, (state) => { state.saving = true })
       .addCase(createCategory.fulfilled, (state, action: PayloadAction<Category>) => {
         state.saving = false
-        state.categories.push(action.payload)
+        state.categories = [
+          action.payload,
+          ...state.categories.filter((row) => row.id !== action.payload.id),
+        ]
+        state.categoriesTotal += 1
       })
       .addCase(createCategory.rejected, (state) => { state.saving = false })
       .addCase(updateCategory.pending, (state) => { state.saving = true })
@@ -381,7 +397,11 @@ const settingsSlice = createSlice({
       .addCase(createService.pending, (state) => { state.saving = true })
       .addCase(createService.fulfilled, (state, action: PayloadAction<Service>) => {
         state.saving = false
-        state.services.push(action.payload)
+        state.services = [
+          action.payload,
+          ...state.services.filter((row) => row.id !== action.payload.id),
+        ]
+        state.servicesTotal += 1
       })
       .addCase(createService.rejected, (state) => { state.saving = false })
       .addCase(updateService.pending, (state) => { state.saving = true })
@@ -407,7 +427,10 @@ const settingsSlice = createSlice({
       .addCase(createStatus.pending, (state) => { state.saving = true })
       .addCase(createStatus.fulfilled, (state, action: PayloadAction<StatusMaster>) => {
         state.saving = false
-        state.statuses.push(action.payload)
+        state.statuses = [
+          action.payload,
+          ...state.statuses.filter((row) => row.id !== action.payload.id),
+        ]
       })
       .addCase(createStatus.rejected, (state) => { state.saving = false })
       .addCase(updateStatus.pending, (state) => { state.saving = true })
@@ -434,7 +457,11 @@ const settingsSlice = createSlice({
       .addCase(createSector.pending, (state) => { state.saving = true })
       .addCase(createSector.fulfilled, (state, action: PayloadAction<SectorMaster>) => {
         state.saving = false
-        state.sectors.push(action.payload)
+        state.sectors = [
+          action.payload,
+          ...state.sectors.filter((row) => row.id !== action.payload.id),
+        ]
+        state.sectorsTotal += 1
       })
       .addCase(createSector.rejected, (state) => { state.saving = false })
       .addCase(updateSector.pending, (state) => { state.saving = true })
@@ -461,7 +488,11 @@ const settingsSlice = createSlice({
       .addCase(createRating.pending, (state) => { state.saving = true })
       .addCase(createRating.fulfilled, (state, action: PayloadAction<RatingMaster>) => {
         state.saving = false
-        state.ratings.push(action.payload)
+        state.ratings = [
+          action.payload,
+          ...state.ratings.filter((row) => row.id !== action.payload.id),
+        ]
+        state.ratingsTotal += 1
       })
       .addCase(createRating.rejected, (state) => { state.saving = false })
       .addCase(updateRating.pending, (state) => { state.saving = true })
@@ -493,7 +524,11 @@ const settingsSlice = createSlice({
         createProjectManagementCategory.fulfilled,
         (state, action: PayloadAction<ProjectManagementMasterCategory>) => {
           state.saving = false
-          state.projectManagementCategories.push(action.payload)
+          state.projectManagementCategories = [
+            action.payload,
+            ...state.projectManagementCategories.filter((row) => row.id !== action.payload.id),
+          ]
+          state.projectManagementCategoriesTotal += 1
         },
       )
       .addCase(createProjectManagementCategory.rejected, (state) => { state.saving = false })

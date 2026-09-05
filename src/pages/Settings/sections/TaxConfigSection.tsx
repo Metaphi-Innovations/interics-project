@@ -72,6 +72,26 @@ function parseRateInput(raw: string): number {
   return Number.isFinite(n) ? n : 0
 }
 
+/** Keep GST rate field as digits only (no decimals). */
+function sanitizeGstRateInput(raw: string): string {
+  return raw.replace(/[^\d]/g, '')
+}
+
+function isDuplicateGstRate(
+  rate: number,
+  rates: GSTRate[],
+  filterRates: ColumnFilterOption[],
+  editingId?: string,
+  editingRate?: number,
+): boolean {
+  if (rates.some((row) => row.rate === rate && row.id !== editingId)) return true
+  const inFilters = filterRates.some((opt) => Number(opt.value) === rate)
+  if (!inFilters) return false
+  // Editing the same rate on the same row is allowed
+  if (editingId && editingRate === rate) return false
+  return true
+}
+
 type ToggleTarget =
   | { kind: 'gst'; row: GSTRate }
   | { kind: 'tds'; row: TDSSection }
@@ -255,9 +275,20 @@ export default function TaxConfigSection() {
     const rateValidator = editingGST
       ? (raw: string) => requiredRateInput(raw, 'Rate')
       : requiredGstRateInput
+    const rateValidationError = rateValidator(gstRateInput)
+    const rate = parseRateInput(gstRateInput)
+    const duplicateRate =
+      !rateValidationError &&
+      isDuplicateGstRate(
+        rate,
+        gstRates,
+        gstFilterOptions.ratePercent,
+        editingGST?.id,
+        editingGST?.rate,
+      )
     const next = collectErrors([
       ['slabName', requiredText(gstForm.slabName, 'Slab Name', 100)],
-      ['rate', rateValidator(gstRateInput)],
+      ['rate', rateValidationError ?? (duplicateRate ? 'This GST rate value already exists' : undefined)],
       ['description', optionalMaxLength(gstForm.description, 'Description', 500)],
     ])
     setGstFieldErrors(next)
@@ -268,7 +299,7 @@ export default function TaxConfigSection() {
     const payload: GSTForm = {
       ...gstForm,
       slabName: gstForm.slabName.trim(),
-      rate: parseRateInput(gstRateInput),
+      rate,
     }
     const action = editingGST
       ? dispatch(updateGSTRate({ id: editingGST.id, ...payload }))
@@ -277,12 +308,31 @@ export default function TaxConfigSection() {
       .then(() => {
         closeGstDrawer()
         loadGstFilterOptions()
-        void dispatch(fetchGSTRates(buildGstListParams()))
+        if (!editingGST) {
+          gstListing.setPage(0)
+          setGstSortField(undefined)
+          setGstSortDirection('asc')
+        }
+        void dispatch(
+          fetchGSTRates({
+            ...buildGstListParams(),
+            page: editingGST ? gstListing.apiPage : 1,
+            sortBy: editingGST ? gstSortField : undefined,
+            sortOrder: editingGST && gstSortField ? gstSortDirection : undefined,
+          }),
+        )
         success(editingGST ? 'GST rate updated' : 'GST rate added')
       })
       .catch((err) => {
         const parsed = parseSettingsApiError(err, 'Failed to save GST rate')
-        if (Object.keys(parsed.fieldErrors).length) setGstFieldErrors(parsed.fieldErrors)
+        const fieldErrors = { ...parsed.fieldErrors }
+        if (
+          !fieldErrors.rate &&
+          /gst rate value already exists/i.test(parsed.message)
+        ) {
+          fieldErrors.rate = 'This GST rate value already exists'
+        }
+        if (Object.keys(fieldErrors).length) setGstFieldErrors(fieldErrors)
         error(parsed.message)
       })
   }
@@ -330,7 +380,19 @@ export default function TaxConfigSection() {
       .then(() => {
         closeTdsDrawer()
         loadTdsFilterOptions()
-        void dispatch(fetchTDSSections(buildTdsListParams()))
+        if (!editingTDS) {
+          tdsListing.setPage(0)
+          setTdsSortField(undefined)
+          setTdsSortDirection('asc')
+        }
+        void dispatch(
+          fetchTDSSections({
+            ...buildTdsListParams(),
+            page: editingTDS ? tdsListing.apiPage : 1,
+            sortBy: editingTDS ? tdsSortField : undefined,
+            sortOrder: editingTDS && tdsSortField ? tdsSortDirection : undefined,
+          }),
+        )
         success(editingTDS ? 'TDS section updated' : 'TDS section added')
       })
       .catch((err) => {
@@ -669,16 +731,17 @@ export default function TaxConfigSection() {
             <TextField
               size="small"
               label="Rate (%)"
-              type="number"
+              type="text"
+              inputMode="numeric"
               required
               fullWidth
               placeholder="e.g. 18"
               value={gstRateInput}
               onChange={e => {
-                setGstRateInput(e.target.value)
+                setGstRateInput(sanitizeGstRateInput(e.target.value))
                 setGstFieldErrors(errors => clearFieldError(errors, 'rate'))
               }}
-              inputProps={{ min: 0, max: 100, step: 1 }}
+              inputProps={{ min: 0, max: 100, pattern: '[0-9]*' }}
               sx={{ flex: 1, minWidth: 0 }}
               error={!!gstFieldErrors.rate}
               helperText={gstFieldErrors.rate}

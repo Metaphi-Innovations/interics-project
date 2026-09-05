@@ -20,6 +20,7 @@ export type CategoryListParams = {
   search?: string
   name?: string
   description?: string
+  servicesCount?: string
   isActive?: string
   sortBy?: string
   sortOrder?: 'asc' | 'desc'
@@ -28,6 +29,7 @@ export type CategoryListParams = {
 type CategoryFilters = {
   name?: ColumnFilterOption[]
   description?: ColumnFilterOption[]
+  servicesCount?: ColumnFilterOption[]
   isActive?: ColumnFilterOption[]
 }
 
@@ -49,6 +51,7 @@ export const categoriesService = {
       search: params.search,
       name: params.name,
       description: params.description,
+      servicesCount: params.servicesCount,
       isActive: params.isActive,
       sortBy: params.sortBy,
       sortOrder: params.sortOrder,

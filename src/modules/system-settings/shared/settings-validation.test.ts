@@ -65,17 +65,19 @@ describe('settings-validation service GST', () => {
 })
 
 describe('TaxConfigSection GST rate field', () => {
-  it('renders the original GST rate numeric input bound to gstRateInput', () => {
+  it('renders the GST rate numeric input bound to gstRateInput', () => {
     const source = readFileSync(
       path.resolve(__dirname, '../../../pages/Settings/sections/TaxConfigSection.tsx'),
       'utf8',
     )
 
     expect(source).toContain('label="Rate (%)"')
-    expect(source).toContain('type="number"')
+    expect(source).toContain('inputMode="numeric"')
     expect(source).toContain('value={gstRateInput}')
     expect(source).toContain('setGstRateInput')
-    expect(source).toContain('requiredGstRateInput(gstRateInput)')
+    expect(source).toContain('sanitizeGstRateInput')
+    expect(source).toContain('requiredGstRateInput')
+    expect(source).toContain('This GST rate value already exists')
   })
 
   it('loads existing saved GST values into gstRateInput on edit', () => {

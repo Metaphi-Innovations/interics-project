@@ -85,6 +85,7 @@ type CategoryFetchOpts =
       search?: string
       name?: string
       description?: string
+      servicesCount?: string
       isActive?: string
       sortBy?: string
       sortOrder?: 'asc' | 'desc'

@@ -95,13 +95,25 @@ export default function SACCodesSection() {
     void dispatch(fetchGSTRates({ force: true, page: 1, limit: 100 }))
   }, [dispatch])
 
+  const loadFilterOptions = () => {
+    void sacCodesService.getFilters()
+      .then((data) => {
+        setFilterOptions({
+          sacCode: data.sacCode ?? [],
+          description: data.description ?? [],
+          gstSlabId: data.gstSlabId ?? [],
+          status: data.status ?? [],
+        })
+      })
+      .catch(() => undefined)
+  }
+
   const buildListParams = () => ({
     force: true as const,
     page: listing.apiPage,
     limit: listing.pageSize,
     search: listing.debouncedSearch || undefined,
     sacCode: listing.filters.sacCode,
-    description: listing.filters.description,
     gstSlabId: listing.filters.gstSlabId,
     status: listing.filters.status,
     sortBy: sortField,
@@ -173,6 +185,25 @@ export default function SACCodesSection() {
     action.unwrap()
       .then(() => {
         setDrawerOpen(false)
+        if (!editingRow) {
+          listing.setPage(0)
+          setSortField(undefined)
+          setSortDirection('asc')
+        }
+        loadFilterOptions()
+        void dispatch(
+          fetchSACCodes({
+            force: true,
+            page: editingRow ? listing.apiPage : 1,
+            limit: listing.pageSize,
+            search: listing.debouncedSearch || undefined,
+            sacCode: listing.filters.sacCode,
+            gstSlabId: listing.filters.gstSlabId,
+            status: listing.filters.status,
+            sortBy: editingRow ? sortField : undefined,
+            sortOrder: editingRow && sortField ? sortDirection : undefined,
+          }),
+        )
         success(editingRow ? 'SAC code updated' : 'SAC code added')
       })
       .catch((err) => {
@@ -251,9 +282,10 @@ export default function SACCodesSection() {
               sortField={sortField}
               sortDirection={sortDirection}
               onSort={handleSort}
-              filterValue={listing.filters.description ?? ''}
-              filterOptions={filterOptions.description}
-              onFilter={applyColumnFilter('description')}
+              filterable={false}
+              filterValue=""
+              filterOptions={[]}
+              onFilter={() => undefined}
               sx={SETTINGS_TABLE_HEADER_CELL_SX}
             />
             <FilterableSortHeader

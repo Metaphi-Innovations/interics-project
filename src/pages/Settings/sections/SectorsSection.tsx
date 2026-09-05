@@ -146,6 +146,19 @@ export default function SectorsSection() {
     action.unwrap()
       .then(() => {
         setDrawerOpen(false)
+        if (!editingRow) {
+          listing.setPage(0)
+          setSortField(undefined)
+          setSortDirection('asc')
+        }
+        void dispatch(
+          fetchSectors({
+            ...buildListParams(),
+            page: editingRow ? listing.apiPage : 1,
+            sortBy: editingRow ? sortField : undefined,
+            sortOrder: editingRow && sortField ? sortDirection : undefined,
+          }),
+        )
         success(editingRow ? 'Sector updated' : 'Sector added')
       })
       .catch((err) => {

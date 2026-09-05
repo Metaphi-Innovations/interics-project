@@ -18,8 +18,6 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const PINCODE_REGEX = /^[1-9][0-9]{5}$/
 const SAC_CODE_REGEX = /^\d{6}$/
 const ALLOWED_PAGINATION = [10, 25, 50, 100] as const
-/** Official GST rate slabs permitted in Tax Configuration. */
-export const OFFICIAL_GST_RATE_SLABS = [0, 5, 12, 18, 28] as const
 
 function trim(value: string | null | undefined): string {
   return (value ?? '').trim()
@@ -178,18 +176,16 @@ export function ratePercent(value: number | null | undefined, label = 'Rate'): s
   return undefined
 }
 
-/** Validate GST rate input in Tax & Configuration (official slabs only). */
+/** Validate GST rate input in Tax & Configuration (integer 0–100 only). */
 export function requiredGstRateInput(raw: string | null | undefined): string | undefined {
   const v = trim(raw)
   if (!v) return 'Rate is required'
-  if (!/^-?\d+$/.test(v)) return 'Rate must be a number'
+  if (!/^-?\d+(\.\d+)?$/.test(v)) return 'Rate must be a number'
   const n = Number(v)
   if (!Number.isFinite(n)) return 'Rate must be a number'
   if (n < 0) return 'GST rate cannot be negative.'
   if (!Number.isInteger(n)) return 'GST rate must be a whole number.'
-  if (!(OFFICIAL_GST_RATE_SLABS as readonly number[]).includes(n)) {
-    return 'GST rate must be one of 0, 5, 12, 18, or 28.'
-  }
+  if (n > 100) return 'Rate must not exceed 100'
   return undefined
 }
 
@@ -197,7 +193,7 @@ export function requiredGstRateInput(raw: string | null | undefined): string | u
 export function requiredRateInput(raw: string | null | undefined, label = 'Rate'): string | undefined {
   const v = trim(raw)
   if (!v) return `${label} is required`
-  if (!/^-?\d+$/.test(v)) return `${label} must be a number`
+  if (!/^-?\d+(\.\d+)?$/.test(v)) return `${label} must be a number`
   const n = Number(v)
   if (!Number.isFinite(n)) return `${label} must be a number`
   if (n < 0) return `${label} must not be negative`
