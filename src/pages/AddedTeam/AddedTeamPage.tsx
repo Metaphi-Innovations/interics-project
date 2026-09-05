@@ -16,15 +16,13 @@ import {
 } from '@mui/material'
 import { useTheme, alpha } from '@mui/material/styles'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
-import { PersonOutline } from '@mui/icons-material'
 import { Eye } from 'lucide-react'
-import { FolderKanban, UserPlus } from 'lucide-react'
+import { UserPlus } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import type { Project } from '@/slices/projects/reducer'
 import { ListingTemplate } from '@/components/templates/ListingTemplate'
 import type { ColumnItem } from '@/components/templates/ListingTemplate'
 import {
-  FilterableHeaderCell,
   FilterableSortHeader,
   type ColumnFilterOption,
 } from '@/components/listing'
@@ -64,7 +62,6 @@ type TeamColumnFilters = {
   teamMember: string
   projectCount: string
   role: string
-  projectId: string
 }
 
 function toColumnFilterOptions(
@@ -78,9 +75,9 @@ function toColumnFilterOptions(
 
 function mapApiTeamRow(raw: TeamMemberApiRow): TeamAssignmentRow | null {
   const userId = raw.userId?.trim()
-  const projectId = raw.projectId?.trim()
-  if (!userId || !projectId) return null
+  if (!userId) return null
 
+  const projectId = raw.projectId?.trim() || ''
   const statusRaw = String(raw.projectStatus ?? '').toUpperCase()
   const projectStatus: Project['status'] =
     statusRaw === 'LIVE'
@@ -96,7 +93,7 @@ function mapApiTeamRow(raw: TeamMemberApiRow): TeamAssignmentRow | null {
               : 'Pitch'
 
   return {
-    id: raw.id?.trim() || `${projectId}-${userId}`,
+    id: raw.id?.trim() || userId,
     userId,
     memberName: (raw.memberName ?? raw.teamMember ?? '').trim() || 'Unknown',
     projectCount: Number(raw.projectCount ?? 1) || 1,
@@ -113,7 +110,6 @@ const TEAM_ACTION_WIDTH_PX = 84
 type TeamVisibleColumns = {
   projectCount: boolean
   role: boolean
-  project: boolean
 }
 
 function buildTeamListColumns(visible: TeamVisibleColumns): string[] {
@@ -124,7 +120,7 @@ function buildTeamListColumns(visible: TeamVisibleColumns): string[] {
     'teamMember',
     ...(visible.projectCount ? (['projectCount'] as const) : []),
     ...(visible.role ? (['role', 'roleLabel'] as const) : []),
-    ...(visible.project ? (['projectId', 'projectName', 'project', 'projectCode'] as const) : []),
+    'projectId',
   ]
 }
 
@@ -282,7 +278,6 @@ function RowActions({
 interface AddedTeamTableProps {
   rows: TeamAssignmentRow[]
   loading: boolean
-  projectCount: number
   loadError: string | null
   sortField: string | null
   sortDirection: 'asc' | 'desc'
@@ -292,7 +287,6 @@ interface AddedTeamTableProps {
   teamMemberOptions: ColumnFilterOption[]
   projectCountOptions: ColumnFilterOption[]
   roleOptions: ColumnFilterOption[]
-  projectOptions: ColumnFilterOption[]
   onColumnFilter: (field: keyof TeamColumnFilters, value: string) => void
   onViewDetails: (userId: string) => void
 }
@@ -300,7 +294,6 @@ interface AddedTeamTableProps {
 function AddedTeamTable({
   rows,
   loading,
-  projectCount,
   loadError,
   sortField,
   sortDirection,
@@ -310,7 +303,6 @@ function AddedTeamTable({
   teamMemberOptions,
   projectCountOptions,
   roleOptions,
-  projectOptions,
   onColumnFilter,
   onViewDetails,
 }: AddedTeamTableProps) {
@@ -318,8 +310,7 @@ function AddedTeamTable({
   const visibleDataCount =
     1 +
     (visibleColumns.projectCount ? 1 : 0) +
-    (visibleColumns.role ? 1 : 0) +
-    (visibleColumns.project ? 1 : 0)
+    (visibleColumns.role ? 1 : 0)
   const dataColWidth = teamDataColWidth(visibleDataCount)
   const hoverBg = alpha(theme.palette.primary.main, 0.04)
   const headSx = { ...TABLE_HEADER_CELL_SX, width: dataColWidth }
@@ -339,10 +330,8 @@ function AddedTeamTable({
 
   if (rows.length === 0) {
     const emptyMessage = loadError
-      ? `Could not load projects: ${loadError}`
-      : projectCount === 0
-        ? 'No projects loaded. Check that the API is available and refresh the page.'
-        : 'No team assignments found for the current filters.'
+      ? `Could not load team members: ${loadError}`
+      : 'No team assignments found for the current filters.'
     return (
       <Box sx={{ py: 8, textAlign: 'center', px: LISTING_EDGE_PAD }}>
         <Box sx={{ color: tokens.color.neutral[300], mb: 1, display: 'flex', justifyContent: 'center' }}>
@@ -391,24 +380,15 @@ function AddedTeamTable({
               />
             )}
             {visibleColumns.role && (
-              <FilterableHeaderCell
-                label="Role"
-                filterValue={columnFilters.role}
-                filterOptions={roleOptions}
-                onFilter={(value) => onColumnFilter('role', value)}
-                sx={headSx}
-              />
-            )}
-            {visibleColumns.project && (
               <FilterableSortHeader
-                label="Project"
-                field="projectName"
+                label="Role"
+                field="roleLabel"
                 sortField={sortField ?? undefined}
                 sortDirection={sortDirection}
                 onSort={onSort}
-                filterValue={columnFilters.projectId}
-                filterOptions={projectOptions}
-                onFilter={(value) => onColumnFilter('projectId', value)}
+                filterValue={columnFilters.role}
+                filterOptions={roleOptions}
+                onFilter={(value) => onColumnFilter('role', value)}
                 sx={headSx}
               />
             )}
@@ -447,18 +427,6 @@ function AddedTeamTable({
                   </Typography>
                 </TableCell>
               )}
-              {visibleColumns.project && (
-                <TableCell sx={cellSx}>
-                  <Box sx={{ minWidth: 0 }}>
-                    <Typography variant="body2" sx={{ fontWeight: 600, fontSize: 12, lineHeight: 1.35, wordBreak: 'break-word' }}>
-                      {row.projectName}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary" sx={{ fontSize: 10 }}>
-                      {row.projectCode}
-                    </Typography>
-                  </Box>
-                </TableCell>
-              )}
               <TableCell sx={cellActionSx} onClick={(e) => e.stopPropagation()}>
                 <Box sx={CENTER_CELL_CONTENT_SX}>
                   <RowActions onViewDetails={() => onViewDetails(row.userId)} />
@@ -480,45 +448,30 @@ export default function AddedTeamPage() {
 
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState('')
-  const [projectFilter, setProjectFilter] = useState('')
   const [columnFilters, setColumnFilters] = useState<TeamColumnFilters>({
     teamMember: '',
     projectCount: '',
     role: '',
-    projectId: '',
   })
   const [visibleColumns, setVisibleColumns] = useState<TeamVisibleColumns>({
     projectCount: true,
     role: true,
-    project: true,
   })
   const [sortField, setSortField] = useState<string | null>('memberName')
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(LISTING_DEFAULT_PAGE_SIZE)
   const [total, setTotal] = useState(0)
-  const [summary, setSummary] = useState({ assignments: 0, teamMembers: 0, projectsWithTeam: 0 })
   const [filterOptions, setFilterOptions] = useState<{
     teamMember: { value: string; label: string }[]
     roles: { value: string; label: string }[]
     projectCount: { value: string; label: string }[]
-    projects: { value: string; label: string }[]
-    statuses: { value: string; label: string }[]
-  }>({ teamMember: [], roles: [], projectCount: [], projects: [], statuses: [] })
-
-  const resolvedProjectId = columnFilters.projectId || projectFilter
+  }>({ teamMember: [], roles: [], projectCount: [] })
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 300)
     return () => window.clearTimeout(timer)
   }, [search])
-
-  useEffect(() => {
-    void teamsApi.getSummary().then((s) => {
-      if (s) setSummary(s)
-    }).catch(() => undefined)
-  }, [])
 
   useEffect(() => {
     void teamsApi.getFilters().then((f) => {
@@ -527,8 +480,6 @@ export default function AddedTeamPage() {
           teamMember: f.teamMember ?? [],
           roles: f.roles ?? [],
           projectCount: f.projectCount ?? [],
-          projects: f.projects ?? [],
-          statuses: f.statuses ?? [],
         })
       }
     }).catch(() => undefined)
@@ -543,8 +494,6 @@ export default function AddedTeamPage() {
           page: page + 1,
           limit: pageSize,
           search: debouncedSearch || undefined,
-          status: statusFilter || undefined,
-          projectId: resolvedProjectId || undefined,
           teamMember: columnFilters.teamMember || undefined,
           role: columnFilters.role || undefined,
           projectCount: columnFilters.projectCount || undefined,
@@ -554,11 +503,9 @@ export default function AddedTeamPage() {
               ? 'teamMember'
               : sortField === 'roleLabel'
                 ? 'role'
-                : sortField === 'projectName'
-                  ? 'project'
-                  : sortField === 'projectCount'
-                    ? 'projectCount'
-                    : undefined,
+                : sortField === 'projectCount'
+                  ? 'projectCount'
+                  : undefined,
           sortOrder: sortDirection,
         })
         if (cancelled) return
@@ -591,8 +538,6 @@ export default function AddedTeamPage() {
     page,
     pageSize,
     debouncedSearch,
-    statusFilter,
-    resolvedProjectId,
     columnFilters.teamMember,
     columnFilters.role,
     columnFilters.projectCount,
@@ -601,7 +546,6 @@ export default function AddedTeamPage() {
     visibleColumns,
   ])
 
-  const projectOptions = toColumnFilterOptions(filterOptions.projects)
   const teamMemberOptions = toColumnFilterOptions(filterOptions.teamMember)
   const roleOptions = toColumnFilterOptions(filterOptions.roles)
   const projectCountOptions = toColumnFilterOptions(filterOptions.projectCount)
@@ -610,7 +554,6 @@ export default function AddedTeamPage() {
   const columnsConfig: ColumnItem[] = [
     { field: 'projectCount', label: 'No. of Project', visible: visibleColumns.projectCount },
     { field: 'role', label: 'Role', visible: visibleColumns.role },
-    { field: 'project', label: 'Project', visible: visibleColumns.project },
   ]
 
   function handleColumnVisibilityChange(field: string, visible: boolean) {
@@ -620,82 +563,17 @@ export default function AddedTeamPage() {
     setPage(0)
   }
 
-  const statCards = [
-    {
-      label: 'ASSIGNMENTS',
-      value: summary.assignments,
-      variant: 'default' as const,
-      icon: <UserPlus size={24} strokeWidth={1.75} />,
-    },
-    {
-      label: 'TEAM MEMBERS',
-      value: summary.teamMembers,
-      variant: 'info' as const,
-      icon: <PersonOutline sx={{ fontSize: 24 }} />,
-    },
-    {
-      label: 'PROJECTS WITH TEAM',
-      value: summary.projectsWithTeam,
-      variant: 'success' as const,
-      icon: <FolderKanban size={24} strokeWidth={1.75} />,
-    },
-  ]
-
-  const statusFilterOptions =
-    filterOptions.statuses.length > 0
-      ? filterOptions.statuses.map((s) => ({ label: s.label, value: s.value }))
-      : [
-          { label: 'Pitch', value: 'PITCH' },
-          { label: 'Live', value: 'LIVE' },
-          { label: 'Completed', value: 'COMPLETED' },
-          { label: 'Archived', value: 'ARCHIVED' },
-          { label: 'Cancelled', value: 'CANCELLED' },
-        ]
-
-  const filterConfig = [
-    {
-      field: 'status',
-      label: 'Project Status',
-      type: 'select' as const,
-      options: [{ label: 'All', value: '' }, ...statusFilterOptions],
-    },
-    {
-      field: 'projectId',
-      label: 'Project',
-      type: 'select' as const,
-      options: [{ label: 'All', value: '' }, ...projectOptions],
-    },
-  ]
-
   const handleSearch = useCallback((value: string) => {
     setSearch(value)
     setPage(0)
   }, [])
 
-  function handleFilterChange(vals: Record<string, unknown>) {
-    const nextProjectId = (vals.projectId as string) ?? ''
-    setStatusFilter((vals.status as string) ?? '')
-    setProjectFilter(nextProjectId)
-    setColumnFilters((prev) => ({ ...prev, projectId: nextProjectId }))
-    setPage(0)
-  }
-
-  function handleFilterReset() {
-    setStatusFilter('')
-    setProjectFilter('')
-    setColumnFilters((prev) => ({ ...prev, projectId: '' }))
-    setPage(0)
-  }
-
   function handleResetAll() {
     setSearch('')
-    setStatusFilter('')
-    setProjectFilter('')
     setColumnFilters({
       teamMember: '',
       projectCount: '',
       role: '',
-      projectId: '',
     })
     setSortField('memberName')
     setSortDirection('asc')
@@ -710,9 +588,6 @@ export default function AddedTeamPage() {
 
   function handleColumnFilter(field: keyof TeamColumnFilters, value: string) {
     setColumnFilters((prev) => ({ ...prev, [field]: value }))
-    if (field === 'projectId') {
-      setProjectFilter(value)
-    }
     setPage(0)
   }
 
@@ -721,8 +596,6 @@ export default function AddedTeamPage() {
   }
 
   const activeFilterCount = [
-    statusFilter,
-    resolvedProjectId,
     columnFilters.teamMember,
     columnFilters.role,
     columnFilters.projectCount,
@@ -733,14 +606,9 @@ export default function AddedTeamPage() {
       icon={<UserPlus size={20} strokeWidth={1.75} />}
       title="Team"
       subtitle="Team members assigned to projects"
-      statCards={statCards}
       searchPlaceholder="Search team or project…"
       searchValue={search}
       onSearchChange={handleSearch}
-      filterConfig={filterConfig}
-      activeFilters={{ status: statusFilter, projectId: resolvedProjectId }}
-      onFilterChange={handleFilterChange}
-      onFilterReset={handleFilterReset}
       onResetAll={handleResetAll}
       filterCount={activeFilterCount}
       columns={columnsConfig}
@@ -759,7 +627,6 @@ export default function AddedTeamPage() {
       <AddedTeamTable
         rows={sortedRows}
         loading={loading}
-        projectCount={new Set(items.map((p) => p.projectId)).size}
         loadError={error}
         sortField={sortField}
         sortDirection={sortDirection}
@@ -769,7 +636,6 @@ export default function AddedTeamPage() {
         teamMemberOptions={teamMemberOptions}
         projectCountOptions={projectCountOptions}
         roleOptions={roleOptions}
-        projectOptions={projectOptions}
         onColumnFilter={handleColumnFilter}
         onViewDetails={handleViewDetails}
       />

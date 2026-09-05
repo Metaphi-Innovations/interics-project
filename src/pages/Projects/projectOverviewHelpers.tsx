@@ -86,9 +86,9 @@ export function formatExpectedDuration(
   const end = dayjs(expectedEndDate)
   if (!start.isValid() || !end.isValid() || end.isBefore(start)) return '—'
   const months = end.diff(start, 'month')
-  if (months >= 1) return `~${months} month${months === 1 ? '' : 's'}`
+  if (months >= 1) return `${months} month${months === 1 ? '' : 's'}`
   const days = end.diff(start, 'day')
-  return `~${days} day${days === 1 ? '' : 's'}`
+  return `${days} day${days === 1 ? '' : 's'}`
 }
 
 export function countContacts(members?: ContactInfo[]): number {

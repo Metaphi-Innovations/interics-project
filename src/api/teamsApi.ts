@@ -19,6 +19,7 @@ export type TeamMemberAssignmentApi = {
   meetingRooms?: string | null
   startDate?: string | null
   expectedEndDate?: string | null
+  assignedAt?: string | null
   revenue?: number
   vendorOfferAmount?: number
   profit?: number
