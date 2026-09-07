@@ -18,6 +18,7 @@ import type { Contact } from '@/slices/customers/reducer'
 import { updateProject, fetchProjectById, addProjectVendorAssociation } from '@/slices/projects/thunk'
 import type { ContactInfo, Project } from '@/slices/projects/reducer'
 import { getInitials, getAvatarColor } from '@/utils/formatters'
+import { tokens } from '@/design-system/tokens'
 import { getProjectAdditionalTeamMembers } from '@/utils/projectAssignedTeam'
 import { clientTeamFromContacts, getContactsForCustomer, isPersistedContactId } from '../projectCreateHelpers'
 import { CreateContactPersonModal } from './CreateContactPersonModal'
@@ -61,6 +62,9 @@ export function ProjectOverviewTab({ project, readOnly = false }: ProjectOvervie
   const [editTeamOpen, setEditTeamOpen] = useState(false)
 
   const additionalTeamMembers = getProjectAdditionalTeamMembers(project)
+  const projectLeadInactive =
+    (project.assignedTeam ?? []).find((m) => m.userId === project.projectManagerId)?.isActive ===
+    false
   const customerForContacts =
     selectedCustomer?.id === project.customerId ? selectedCustomer : null
   const existingCustomerContacts = getContactsForCustomer(customerForContacts)
@@ -276,14 +280,33 @@ export function ProjectOverviewTab({ project, readOnly = false }: ProjectOvervie
             >
               PROJECT LEAD
             </Typography>
-            <Stack direction="row" alignItems="center" gap={1}>
+            <Stack
+              direction="row"
+              alignItems="center"
+              gap={1}
+              sx={
+                projectLeadInactive
+                  ? {
+                      bgcolor: tokens.color.neutral[50],
+                      borderRadius: 1,
+                      px: 1,
+                      py: 0.5,
+                      color: 'text.disabled',
+                    }
+                  : undefined
+              }
+            >
               <Box
                 sx={{
                   width: 28,
                   height: 28,
                   borderRadius: '50%',
-                  bgcolor: alpha(getAvatarColor(project.projectManager).bg, 0.15),
-                  color: getAvatarColor(project.projectManager).text,
+                  bgcolor: projectLeadInactive
+                    ? tokens.color.neutral[200]
+                    : alpha(getAvatarColor(project.projectManager).bg, 0.15),
+                  color: projectLeadInactive
+                    ? tokens.color.neutral[500]
+                    : getAvatarColor(project.projectManager).text,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -293,7 +316,14 @@ export function ProjectOverviewTab({ project, readOnly = false }: ProjectOvervie
               >
                 {getInitials(project.projectManager)}
               </Box>
-              <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 500 }}>
+              <Typography
+                variant="body2"
+                sx={{
+                  fontSize: 12,
+                  fontWeight: 500,
+                  color: projectLeadInactive ? 'text.disabled' : undefined,
+                }}
+              >
                 {project.projectManager}
               </Typography>
             </Stack>
@@ -317,15 +347,36 @@ export function ProjectOverviewTab({ project, readOnly = false }: ProjectOvervie
                   No additional team members
                 </Typography>
               ) : (
-                additionalTeamMembers.map((member) => (
-                  <Stack key={member.userId} direction="row" alignItems="center" gap={1}>
+                additionalTeamMembers.map((member) => {
+                  const inactive = member.isActive === false
+                  return (
+                  <Stack
+                    key={member.userId}
+                    direction="row"
+                    alignItems="center"
+                    gap={1}
+                    sx={
+                      inactive
+                        ? {
+                            bgcolor: tokens.color.neutral[50],
+                            borderRadius: 1,
+                            px: 1,
+                            py: 0.5,
+                          }
+                        : undefined
+                    }
+                  >
                     <Box
                       sx={{
                         width: 28,
                         height: 28,
                         borderRadius: '50%',
-                        bgcolor: alpha(getAvatarColor(member.name).bg, 0.15),
-                        color: getAvatarColor(member.name).text,
+                        bgcolor: inactive
+                          ? tokens.color.neutral[200]
+                          : alpha(getAvatarColor(member.name).bg, 0.15),
+                        color: inactive
+                          ? tokens.color.neutral[500]
+                          : getAvatarColor(member.name).text,
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
@@ -338,12 +389,18 @@ export function ProjectOverviewTab({ project, readOnly = false }: ProjectOvervie
                     </Box>
                     <Typography
                       variant="body2"
-                      sx={{ fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap' }}
+                      sx={{
+                        fontSize: 12,
+                        fontWeight: 500,
+                        whiteSpace: 'nowrap',
+                        color: inactive ? 'text.disabled' : undefined,
+                      }}
                     >
                       {member.name}
                     </Typography>
                   </Stack>
-                ))
+                  )
+                })
               )}
             </Stack>
           </Box>

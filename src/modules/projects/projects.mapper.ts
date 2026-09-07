@@ -59,6 +59,7 @@ function buildAssignedTeamFromDetail(api: ProjectDetailApi): ProjectTeamMember[]
       userId: lead.id,
       name: lead.name,
       roleLabel: 'Project Lead',
+      isActive: lead.isActive !== false,
     })
   }
   for (const member of api.team?.members ?? []) {
@@ -67,6 +68,7 @@ function buildAssignedTeamFromDetail(api: ProjectDetailApi): ProjectTeamMember[]
       userId: member.id,
       name: member.name,
       roleLabel: 'Team Member',
+      isActive: member.isActive !== false,
     })
   }
   return members

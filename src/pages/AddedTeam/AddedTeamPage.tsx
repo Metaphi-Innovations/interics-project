@@ -41,6 +41,7 @@ export interface TeamAssignmentRow {
   projectName: string
   projectCode: string
   projectStatus: Project['status']
+  isActive: boolean
 }
 
 type TeamMemberApiRow = {
@@ -56,6 +57,7 @@ type TeamMemberApiRow = {
   projectName?: string
   projectCode?: string
   projectStatus?: string
+  isActive?: boolean
 }
 
 type TeamColumnFilters = {
@@ -102,6 +104,7 @@ function mapApiTeamRow(raw: TeamMemberApiRow): TeamAssignmentRow | null {
     projectName: (raw.projectName ?? raw.project ?? '').trim() || 'Untitled project',
     projectCode: (raw.projectCode ?? '').trim(),
     projectStatus,
+    isActive: raw.isActive !== false,
   }
 }
 
@@ -214,7 +217,7 @@ const CENTER_CELL_CONTENT_SX = {
   width: 1,
 } as const
 
-function MemberAvatar({ name }: { name: string }) {
+function MemberAvatar({ name, inactive = false }: { name: string; inactive?: boolean }) {
   const colors = getAvatarColor(name)
   return (
     <Box
@@ -222,8 +225,8 @@ function MemberAvatar({ name }: { name: string }) {
         width: 28,
         height: 28,
         borderRadius: '50%',
-        bgcolor: colors.bg,
-        color: colors.text,
+        bgcolor: inactive ? tokens.color.neutral[200] : colors.bg,
+        color: inactive ? tokens.color.neutral[500] : colors.text,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -398,31 +401,59 @@ function AddedTeamTable({
           </TableRow>
         </TableHead>
         <TableBody>
-          {rows.map((row) => (
+          {rows.map((row) => {
+            const inactive = !row.isActive
+            return (
             <TableRow
               key={row.id}
               hover
               onClick={() => onViewDetails(row.userId)}
-              sx={{ cursor: 'pointer', '&:hover': { bgcolor: hoverBg }, '&:last-child td': { border: 0 } }}
+              sx={{
+                cursor: 'pointer',
+                bgcolor: inactive ? tokens.color.neutral[50] : undefined,
+                color: inactive ? 'text.disabled' : undefined,
+                '&:hover': { bgcolor: inactive ? tokens.color.neutral[100] : hoverBg },
+                '&:last-child td': { border: 0 },
+                '& td': inactive ? { color: 'text.disabled' } : undefined,
+              }}
             >
               <TableCell sx={cellSx}>
                 <Stack direction="row" alignItems="center" gap={1.25} sx={{ minWidth: 0 }}>
-                  <MemberAvatar name={row.memberName} />
-                  <Typography variant="body2" sx={{ fontWeight: 600, fontSize: 12, lineHeight: 1.35, wordBreak: 'break-word' }}>
+                  <MemberAvatar name={row.memberName} inactive={inactive} />
+                  <Typography
+                    variant="body2"
+                    sx={{
+                      fontWeight: 600,
+                      fontSize: 12,
+                      lineHeight: 1.35,
+                      wordBreak: 'break-word',
+                      color: inactive ? 'text.disabled' : undefined,
+                    }}
+                  >
                     {row.memberName}
                   </Typography>
                 </Stack>
               </TableCell>
               {visibleColumns.projectCount && (
                 <TableCell sx={cellSx}>
-                  <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600 }}>
+                  <Typography
+                    variant="body2"
+                    sx={{ fontSize: 12, fontWeight: 600, color: inactive ? 'text.disabled' : undefined }}
+                  >
                     {row.projectCount}
                   </Typography>
                 </TableCell>
               )}
               {visibleColumns.role && (
                 <TableCell sx={cellSx}>
-                  <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary', wordBreak: 'break-word' }}>
+                  <Typography
+                    variant="body2"
+                    sx={{
+                      fontSize: 12,
+                      color: inactive ? 'text.disabled' : 'text.secondary',
+                      wordBreak: 'break-word',
+                    }}
+                  >
                     {row.roleLabel}
                   </Typography>
                 </TableCell>
@@ -433,7 +464,8 @@ function AddedTeamTable({
                 </Box>
               </TableCell>
             </TableRow>
-          ))}
+            )
+          })}
         </TableBody>
         </Table>
     </TableContainer>

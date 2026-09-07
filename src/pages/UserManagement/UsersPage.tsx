@@ -15,7 +15,6 @@ import {
   IconButton as MuiIconButton,
   Menu,
   MenuItem,
-  Divider,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -31,7 +30,7 @@ import {
 import { useTheme, alpha } from '@mui/material/styles'
 import { Users, MoreVertical } from 'lucide-react'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
-import { fetchUsers, toggleUserStatus, deleteUser } from '@/slices/users/thunk'
+import { fetchUsers, toggleUserStatus } from '@/slices/users/thunk'
 import { fetchRoles } from '@/slices/roles/thunk'
 import { setFilters, resetFilters, setSortConfig } from '@/slices/users/reducer'
 import type { User } from '@/slices/users/reducer'
@@ -172,22 +171,18 @@ interface UserRowActionsProps {
   user: User
   canView: boolean
   canEdit: boolean
-  canDelete: boolean
   onView: () => void
   onEdit: () => void
   onToggleStatus: () => void
-  onDelete: () => void
 }
 
 function UserRowActions({
   user,
   canView,
   canEdit,
-  canDelete,
   onView,
   onEdit,
   onToggleStatus,
-  onDelete,
 }: UserRowActionsProps) {
   const [anchor, setAnchor] = useState<null | HTMLElement>(null)
 
@@ -200,7 +195,7 @@ function UserRowActions({
     setAnchor(null)
   }
 
-  const hasMenuItems = canView || canEdit || canDelete
+  const hasMenuItems = canView || canEdit
   if (!hasMenuItems) return null
 
   return (
@@ -244,22 +239,6 @@ function UserRowActions({
           >
             {user.status === 'active' ? 'Deactivate' : 'Activate'}
           </MenuItem>
-        ) : null}
-        {canDelete ? (
-          <>
-            <Divider />
-            <MenuItem
-              dense
-              disabled={(user.assignedProjectCount ?? user.assignedProjects.length) > 0}
-              onClick={() => {
-                onDelete()
-                close()
-              }}
-              sx={{ fontSize: 13, gap: 1, color: 'error.main' }}
-            >
-              Delete
-            </MenuItem>
-          </>
         ) : null}
       </Menu>
     </>
@@ -310,10 +289,8 @@ interface UsersTableProps {
   onViewClick: (user: User) => void
   onEditClick: (user: User) => void
   onToggleStatus: (user: User) => void
-  onDelete: (user: User) => void
   canView: boolean
   canEdit: boolean
-  canDelete: boolean
 }
 
 function UsersTable({
@@ -330,10 +307,8 @@ function UsersTable({
   onViewClick,
   onEditClick,
   onToggleStatus,
-  onDelete,
   canView,
   canEdit,
-  canDelete,
 }: UsersTableProps) {
   const theme = useTheme()
   const hoverBg = alpha(theme.palette.primary.main, 0.04)
@@ -554,11 +529,9 @@ function UsersTable({
                         user={user}
                         canView={canView}
                         canEdit={canEdit}
-                        canDelete={canDelete}
                         onView={() => onViewClick(user)}
                         onEdit={() => onEditClick(user)}
                         onToggleStatus={() => onToggleStatus(user)}
-                        onDelete={() => onDelete(user)}
                       />
                     </Box>
                   </TableCell>
@@ -637,39 +610,6 @@ function ActivateDialog({
   )
 }
 
-function DeleteDialog({
-  open,
-  user,
-  onClose,
-  onConfirm,
-  saving,
-}: {
-  open: boolean
-  user: User | null
-  onClose: () => void
-  onConfirm: () => void
-  saving: boolean
-}) {
-  return (
-    <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
-      <DialogTitle sx={{ fontSize: 15, fontWeight: 600 }}>Delete User</DialogTitle>
-      <DialogContent>
-        <Typography variant="body2">
-          Delete <strong>{user?.name}</strong>? This cannot be undone.
-        </Typography>
-      </DialogContent>
-      <DialogActions sx={{ px: 3, pb: 2 }}>
-        <MuiButton size="small" onClick={onClose} disabled={saving}>
-          Cancel
-        </MuiButton>
-        <MuiButton size="small" variant="contained" color="error" onClick={onConfirm} disabled={saving}>
-          Delete
-        </MuiButton>
-      </DialogActions>
-    </Dialog>
-  )
-}
-
 export default function UsersPage() {
   const navigate = useNavigate()
   const dispatch = useAppDispatch()
@@ -683,15 +623,11 @@ export default function UsersPage() {
   const canViewUserManagement = usePermission('userManagement', 'view')
   const canEditUsers = usePermission('userManagementUsers', 'edit')
   const canEditUserManagement = usePermission('userManagement', 'edit')
-  const canDeleteUsers = usePermission('userManagementUsers', 'delete')
-  const canDeleteUserManagement = usePermission('userManagement', 'delete')
   const canCreate = canCreateUsers || canCreateUserManagement
   const canView = canViewUsers || canViewUserManagement
   const canEdit = canEditUsers || canEditUserManagement
-  const canDelete = canDeleteUsers || canDeleteUserManagement
 
   const [toggleTarget, setToggleTarget] = useState<User | null>(null)
-  const [deleteTarget, setDeleteTarget] = useState<User | null>(null)
   const [actionSaving, setActionSaving] = useState(false)
   const listing = useListingQuery({ pageSize: 10 })
   const [columnFilterOptions, setColumnFilterOptions] = useState<{
@@ -899,48 +835,6 @@ export default function UsersPage() {
       .finally(() => setActionSaving(false))
   }
 
-  function handleConfirmDelete() {
-    if (!deleteTarget) return
-    setActionSaving(true)
-    dispatch(deleteUser(deleteTarget.id))
-      .unwrap()
-      .then(() => {
-        setDeleteTarget(null)
-        showToast({ title: 'User deleted', variant: 'success' })
-        const nextTotal = Math.max(0, pagination.total - 1)
-        const nextPage = clampListingPage0Based(listing.page, nextTotal, listing.pageSize)
-        if (nextPage !== listing.page) {
-          listing.setPage(nextPage)
-          return
-        }
-        void dispatch(
-          fetchUsers({
-            page: listing.apiPage,
-            limit: listing.pageSize,
-            search: listing.debouncedSearch || undefined,
-            status: filters.status || undefined,
-            role: filters.role || undefined,
-            name: filters.name || undefined,
-            phone: filters.phone || undefined,
-            projectAccess: filters.projectAccess || undefined,
-            lastLogin: filters.lastLogin || undefined,
-            sortBy: sortConfig.field || undefined,
-            sortOrder: sortConfig.direction,
-          }),
-        )
-      })
-      .catch((msg: unknown) => showToast({ title: String(msg) || 'Failed to delete user', variant: 'error' }))
-      .finally(() => setActionSaving(false))
-  }
-
-  function handleDeleteClick(user: User) {
-    if ((user.assignedProjectCount ?? user.assignedProjects.length) > 0) {
-      showToast({ title: 'Cannot delete user with assigned projects.', variant: 'error' })
-      return
-    }
-    setDeleteTarget(user)
-  }
-
   async function handleExport() {
     try {
       await downloadCsv(
@@ -1033,10 +927,8 @@ export default function UsersPage() {
           onViewClick={handleViewClick}
           onEditClick={handleEditClick}
           onToggleStatus={(u) => setToggleTarget(u)}
-          onDelete={handleDeleteClick}
           canView={canView}
           canEdit={canEdit}
-          canDelete={canDelete}
         />
       </ListingTemplate>
 
@@ -1057,14 +949,6 @@ export default function UsersPage() {
           saving={actionSaving}
         />
       )}
-
-      <DeleteDialog
-        open={Boolean(deleteTarget)}
-        user={deleteTarget}
-        onClose={() => setDeleteTarget(null)}
-        onConfirm={handleConfirmDelete}
-        saving={actionSaving}
-      />
     </>
   )
 }

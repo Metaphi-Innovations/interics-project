@@ -27,6 +27,8 @@ export interface ProjectTeamMember {
   userId: string
   name: string
   roleLabel?: string
+  /** False when the linked user is deactivated; omit/true for active. */
+  isActive?: boolean
 }
 
 export interface ProjectDocumentFile {

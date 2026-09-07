@@ -119,12 +119,14 @@ export interface ProjectDetailApi {
       name: string
       email?: string
       employeeCode?: string
+      isActive?: boolean
     }
     members: Array<{
       id: string
       name: string
       email?: string
       employeeCode?: string
+      isActive?: boolean
     }>
   }
   documents?: unknown

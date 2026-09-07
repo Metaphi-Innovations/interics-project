@@ -25,7 +25,24 @@ import {
   getProjectAdditionalTeamMembers,
 } from '@/utils/projectAssignedTeam'
 import { getAvatarColor, getInitials } from '@/utils/formatters'
+import { tokens } from '@/design-system/tokens'
+import { makeEmptyUserPermissions } from '@/types/permissions'
 import { isProjectLeadRole } from '../projectManagerRoles'
+
+function toTeamUserStub(member: { userId: string; name: string; isActive?: boolean }): User {
+  return {
+    id: member.userId,
+    name: member.name,
+    email: '',
+    role: '',
+    permissions: makeEmptyUserPermissions(),
+    projectAccess: 'selected',
+    assignedProjects: [],
+    status: member.isActive === false ? 'inactive' : 'active',
+    lastLogin: null,
+    createdAt: '',
+  }
+}
 
 interface EditProjectTeamDrawerProps {
   open: boolean
@@ -54,10 +71,39 @@ export function EditProjectTeamDrawer({
     [users, roles],
   )
 
-  const teamOptions = useMemo(
-    () => users.filter((u) => u.id !== projectManagerId),
-    [users, projectManagerId],
-  )
+  const currentLeadOutsideManagers = useMemo(() => {
+    if (!projectManagerId) return null
+    if (managers.some((m) => m.id === projectManagerId)) return null
+    const fromUsers = users.find((u) => u.id === projectManagerId)
+    if (fromUsers) return fromUsers
+    if (project.projectManagerId === projectManagerId && project.projectManager) {
+      const leadMeta = (project.assignedTeam ?? []).find((m) => m.userId === projectManagerId)
+      return toTeamUserStub({
+        userId: projectManagerId,
+        name: projectManagerName || project.projectManager,
+        isActive: leadMeta?.isActive !== false,
+      })
+    }
+    return null
+  }, [
+    managers,
+    users,
+    projectManagerId,
+    projectManagerName,
+    project.projectManagerId,
+    project.projectManager,
+    project.assignedTeam,
+  ])
+
+  const teamOptions = useMemo(() => {
+    const active = users.filter((u) => u.status === 'active' && u.id !== projectManagerId)
+    const existingInactive = getProjectAdditionalTeamMembers(project)
+      .filter((m) => m.isActive === false && m.userId !== projectManagerId)
+      .map((m) => users.find((u) => u.id === m.userId) ?? toTeamUserStub(m))
+    const byId = new Map<string, User>()
+    for (const user of [...active, ...existingInactive]) byId.set(user.id, user)
+    return Array.from(byId.values())
+  }, [users, projectManagerId, project])
 
   function getRoleLabel(roleId: string) {
     return roles.find((r) => r.id === roleId)?.name ?? roleId
@@ -76,9 +122,10 @@ export function EditProjectTeamDrawer({
     setLeadError(undefined)
 
     const additional = getProjectAdditionalTeamMembers(project)
-    const mapped = additional
-      .map((m) => users.find((u) => u.id === m.userId))
-      .filter((u): u is User => Boolean(u))
+    const mapped = additional.map((m) => {
+      const found = users.find((u) => u.id === m.userId)
+      return found ?? toTeamUserStub(m)
+    })
     setTeamMembers(mapped)
   }, [open, project, users])
 
@@ -146,12 +193,17 @@ export function EditProjectTeamDrawer({
                     </Typography>
                   )
                 }
-                const mgr = managers.find((m) => m.id === val)
-                if (!mgr) return val
+                const mgr =
+                  managers.find((m) => m.id === val) ??
+                  (currentLeadOutsideManagers?.id === val ? currentLeadOutsideManagers : null)
+                const name = mgr?.name ?? projectManagerName ?? String(val)
+                const inactive = mgr?.status === 'inactive'
                 return (
                   <Stack direction="row" alignItems="center" gap={1}>
-                    <PersonOutline sx={{ fontSize: 14 }} />
-                    <Typography sx={{ fontSize: 13 }}>{mgr.name}</Typography>
+                    <PersonOutline sx={{ fontSize: 14, color: inactive ? 'text.disabled' : undefined }} />
+                    <Typography sx={{ fontSize: 13, color: inactive ? 'text.disabled' : undefined }}>
+                      {name}
+                    </Typography>
                   </Stack>
                 )
               }}
@@ -159,6 +211,33 @@ export function EditProjectTeamDrawer({
               <MenuItem value="" sx={{ fontSize: 13 }}>
                 Select project lead…
               </MenuItem>
+              {currentLeadOutsideManagers ? (
+                <MenuItem
+                  value={currentLeadOutsideManagers.id}
+                  sx={{
+                    fontSize: 13,
+                    gap: 1,
+                    color: currentLeadOutsideManagers.status === 'inactive' ? 'text.disabled' : undefined,
+                  }}
+                >
+                  <PersonOutline sx={{ fontSize: 14 }} />
+                  {currentLeadOutsideManagers.name}
+                  <MuiChip
+                    label={
+                      currentLeadOutsideManagers.status === 'inactive'
+                        ? 'Inactive'
+                        : getRoleLabel(currentLeadOutsideManagers.role)
+                    }
+                    size="small"
+                    sx={{
+                      height: 16,
+                      fontSize: 10,
+                      ml: 'auto',
+                      '& .MuiChip-label': { px: '6px' },
+                    }}
+                  />
+                </MenuItem>
+              ) : null}
               {managers.map((m) => (
                 <MenuItem key={m.id} value={m.id} sx={{ fontSize: 13, gap: 1 }}>
                   <PersonOutline sx={{ fontSize: 14 }} />
@@ -186,17 +265,32 @@ export function EditProjectTeamDrawer({
             options={teamOptions}
             disabled={!projectManagerId}
             getOptionLabel={(u) => u.name}
+            getOptionDisabled={(u) => u.status === 'inactive'}
+            isOptionEqualToValue={(a, b) => a.id === b.id}
             value={teamMembers}
             onChange={(_, val) => setTeamMembers(val)}
             renderOption={(props, option) => (
-              <Box component="li" {...props} sx={{ gap: 1 }}>
+              <Box
+                component="li"
+                {...props}
+                sx={{
+                  gap: 1,
+                  color: option.status === 'inactive' ? 'text.disabled' : undefined,
+                }}
+              >
                 <Box
                   sx={{
                     width: 26,
                     height: 26,
                     borderRadius: '50%',
-                    bgcolor: alpha(getAvatarColor(option.name).bg, 0.15),
-                    color: getAvatarColor(option.name).text,
+                    bgcolor:
+                      option.status === 'inactive'
+                        ? tokens.color.neutral[200]
+                        : alpha(getAvatarColor(option.name).bg, 0.15),
+                    color:
+                      option.status === 'inactive'
+                        ? tokens.color.neutral[500]
+                        : getAvatarColor(option.name).text,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -208,10 +302,12 @@ export function EditProjectTeamDrawer({
                   {getInitials(option.name)}
                 </Box>
                 <Box>
-                  <Typography sx={{ fontSize: 13 }}>{option.name}</Typography>
+                  <Typography sx={{ fontSize: 13, color: option.status === 'inactive' ? 'text.disabled' : undefined }}>
+                    {option.name}
+                  </Typography>
                 </Box>
                 <MuiChip
-                  label={getRoleLabel(option.role)}
+                  label={option.status === 'inactive' ? 'Inactive' : getRoleLabel(option.role)}
                   size="small"
                   sx={{
                     height: 16,
@@ -262,7 +358,9 @@ export function EditProjectTeamDrawer({
 
         {teamMembers.length > 0 ? (
           <Stack gap={1}>
-            {teamMembers.map((member) => (
+            {teamMembers.map((member) => {
+              const inactive = member.status === 'inactive'
+              return (
               <Stack
                 key={member.id}
                 direction="row"
@@ -274,6 +372,7 @@ export function EditProjectTeamDrawer({
                   borderRadius: 1,
                   px: 1.5,
                   py: 1,
+                  bgcolor: inactive ? tokens.color.neutral[50] : undefined,
                 }}
               >
                 <Box
@@ -281,8 +380,12 @@ export function EditProjectTeamDrawer({
                     width: 28,
                     height: 28,
                     borderRadius: '50%',
-                    bgcolor: alpha(getAvatarColor(member.name).bg, 0.15),
-                    color: getAvatarColor(member.name).text,
+                    bgcolor: inactive
+                      ? tokens.color.neutral[200]
+                      : alpha(getAvatarColor(member.name).bg, 0.15),
+                    color: inactive
+                      ? tokens.color.neutral[500]
+                      : getAvatarColor(member.name).text,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -294,11 +397,21 @@ export function EditProjectTeamDrawer({
                   {getInitials(member.name)}
                 </Box>
                 <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <Typography sx={{ fontSize: 13, fontWeight: 500 }}>
+                  <Typography
+                    sx={{
+                      fontSize: 13,
+                      fontWeight: 500,
+                      color: inactive ? 'text.disabled' : undefined,
+                    }}
+                  >
                     {member.name}
                   </Typography>
-                  <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
-                    {getRoleLabel(member.role)}
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ fontSize: 11, color: inactive ? 'text.disabled' : undefined }}
+                  >
+                    {inactive ? 'Inactive' : getRoleLabel(member.role)}
                   </Typography>
                 </Box>
                 <MuiIconButton
@@ -312,7 +425,8 @@ export function EditProjectTeamDrawer({
                   <Close sx={{ fontSize: 16 }} />
                 </MuiIconButton>
               </Stack>
-            ))}
+              )
+            })}
           </Stack>
         ) : null}
       </Stack>

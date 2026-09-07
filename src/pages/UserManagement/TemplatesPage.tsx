@@ -2,11 +2,6 @@ import { useEffect, useMemo, useState, type MouseEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Box,
-  Button as MuiButton,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
   IconButton as MuiIconButton,
   Menu,
   MenuItem,
@@ -86,20 +81,16 @@ const CENTER_CELL_CONTENT_SX = {
 function TemplateRowActions({
   onView,
   onEdit,
-  onDelete,
   canView,
   canEdit,
-  canDelete,
 }: {
   onView: () => void
   onEdit: () => void
-  onDelete: () => void
   canView: boolean
   canEdit: boolean
-  canDelete: boolean
 }) {
   const [anchor, setAnchor] = useState<null | HTMLElement>(null)
-  const hasItems = canView || canEdit || canDelete
+  const hasItems = canView || canEdit
   if (!hasItems) return null
 
   function open(e: MouseEvent<HTMLElement>) {
@@ -127,46 +118,8 @@ function TemplateRowActions({
             Edit
           </MenuItem>
         ) : null}
-        {canDelete ? (
-          <MenuItem dense onClick={() => { onDelete(); close() }} sx={{ fontSize: 13, color: 'error.main' }}>
-            Delete
-          </MenuItem>
-        ) : null}
       </Menu>
     </>
-  )
-}
-
-function DeleteDialog({
-  open,
-  template,
-  saving,
-  onClose,
-  onConfirm,
-}: {
-  open: boolean
-  template: PermissionTemplate | null
-  saving: boolean
-  onClose: () => void
-  onConfirm: () => void
-}) {
-  return (
-    <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
-      <DialogTitle sx={{ fontSize: 15, fontWeight: 600 }}>Delete Template</DialogTitle>
-      <DialogContent>
-        <Typography variant="body2">
-          Delete <strong>{template?.templateName}</strong>? This cannot be undone.
-        </Typography>
-      </DialogContent>
-      <DialogActions sx={{ px: 3, pb: 2 }}>
-        <MuiButton size="small" onClick={onClose} disabled={saving}>
-          Cancel
-        </MuiButton>
-        <MuiButton size="small" variant="contained" color="error" onClick={onConfirm} disabled={saving}>
-          Delete
-        </MuiButton>
-      </DialogActions>
-    </Dialog>
   )
 }
 
@@ -205,34 +158,17 @@ export default function TemplatesPage() {
   const canCreateUserManagement = usePermission('userManagement', 'create')
   const canEditTemplates = usePermission('userManagementTemplates', 'edit')
   const canEditUserManagement = usePermission('userManagement', 'edit')
-  const canDeleteTemplates = usePermission('userManagementTemplates', 'delete')
-  const canDeleteUserManagement = usePermission('userManagement', 'delete')
   const canView = canViewTemplates || canViewUserManagement
   const canCreate = canCreateTemplates || canCreateUserManagement
   const canEdit = canEditTemplates || canEditUserManagement
-  const canDelete = canDeleteTemplates || canDeleteUserManagement
 
   const [items, setItems] = useState<PermissionTemplate[]>([])
   const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
   const [toggleSavingId, setToggleSavingId] = useState<string | null>(null)
-  const [deleteTarget, setDeleteTarget] = useState<PermissionTemplate | null>(null)
   const [statusFilter, setStatusFilter] = useState('')
   const [nameFilter, setNameFilter] = useState('')
   const [sortField, setSortField] = useState<'templateName' | 'status' | 'updatedAt'>('templateName')
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
-
-  function loadTemplates() {
-    setLoading(true)
-    permissionTemplatesApi
-      .getAll({ limit: 100 })
-      .then((res) => {
-        const raw = normalizeArrayResponse<PermissionTemplate>(unwrapApiData(res.data) ?? res.data)
-        setItems(raw)
-      })
-      .catch(() => showToast({ title: 'Failed to load templates', variant: 'error' }))
-      .finally(() => setLoading(false))
-  }
 
   useEffect(() => {
     let cancelled = false
@@ -317,20 +253,6 @@ export default function TemplatesPage() {
     setNameFilter('')
     setSortField('templateName')
     setSortDirection('asc')
-  }
-
-  function handleConfirmDelete() {
-    if (!deleteTarget) return
-    setSaving(true)
-    permissionTemplatesApi
-      .remove(deleteTarget.id)
-      .then(() => {
-        showToast({ title: 'Template deleted', variant: 'success' })
-        setDeleteTarget(null)
-        loadTemplates()
-      })
-      .catch(() => showToast({ title: 'Failed to delete template', variant: 'error' }))
-      .finally(() => setSaving(false))
   }
 
   function handleToggleStatus(template: PermissionTemplate) {
@@ -497,10 +419,8 @@ export default function TemplatesPage() {
                         <TemplateRowActions
                           canView={canView}
                           canEdit={canEdit}
-                          canDelete={canDelete}
                           onView={() => navigate(`/user-management/templates/${template.id}`)}
                           onEdit={() => navigate(`/user-management/templates/${template.id}/edit`)}
-                          onDelete={() => setDeleteTarget(template)}
                         />
                       </Box>
                     </TableCell>
@@ -510,14 +430,6 @@ export default function TemplatesPage() {
           </Table>
         </TableContainer>
       </ListingTemplate>
-
-      <DeleteDialog
-        open={Boolean(deleteTarget)}
-        template={deleteTarget}
-        saving={saving}
-        onClose={() => setDeleteTarget(null)}
-        onConfirm={handleConfirmDelete}
-      />
     </>
   )
 }

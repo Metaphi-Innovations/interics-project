@@ -63,6 +63,7 @@ const ASSIGNED_PROJECT_COLUMNS: Array<{ key: string; label: string }> = [
   { key: 'status', label: 'Project Status' },
   { key: 'startDate', label: 'Start Date' },
   { key: 'expectedEndDate', label: 'Expected End Date' },
+  { key: 'completedAt', label: 'Completion Date' },
   { key: 'revenue', label: 'Revenue' },
   { key: 'profit', label: 'Profit' },
   { key: 'profitPct', label: 'Profit %' },
@@ -119,6 +120,7 @@ interface AssignedProjectRow {
   status: Project['status']
   startDate: string | null
   expectedEndDate: string | null
+  completedAt: string | null
   assignedAt: string | null
   sites: string
   revenue: number
@@ -233,6 +235,7 @@ function mapTeamAssignmentRow(row: TeamMemberAssignmentApi): AssignedProjectRow 
     projectManagerId: row.projectLeadId ?? '',
     startDate: row.startDate ?? null,
     expectedEndDate: row.expectedEndDate ?? null,
+    completedAt: row.completedAt ?? null,
     projectValue: 0,
     totalClientPOValue: Number(row.revenue ?? 0),
     totalVendorPOValue: Number(row.vendorOfferAmount ?? 0),
@@ -249,6 +252,7 @@ function mapTeamAssignmentRow(row: TeamMemberAssignmentApi): AssignedProjectRow 
     status,
     startDate: row.startDate ?? null,
     expectedEndDate: row.expectedEndDate ?? null,
+    completedAt: row.completedAt ?? null,
     assignedAt: row.assignedAt ?? row.startDate ?? null,
     sites: assignmentSites(row),
     revenue: Number(row.revenue ?? 0),
@@ -428,6 +432,7 @@ export default function TeamMemberDetailPage() {
         status: project.status,
         startDate: project.startDate,
         expectedEndDate: project.expectedEndDate,
+        completedAt: project.completedAt ?? null,
         assignedAt: project.createdAt ?? project.startDate,
         sites: formatBuildingFloor(project),
         revenue: projectRevenue(project),
@@ -866,6 +871,7 @@ export default function TeamMemberDetailPage() {
                     </TableCell>
                     <TableCell sx={tableBodyCellSx}>{formatDate(row.startDate)}</TableCell>
                     <TableCell sx={tableBodyCellSx}>{formatDate(row.expectedEndDate)}</TableCell>
+                    <TableCell sx={tableBodyCellSx}>{formatDate(row.completedAt)}</TableCell>
                     <TableCell sx={tableBodyCellSx}>{fmtInr(row.revenue)}</TableCell>
                     <TableCell sx={tableBodyCellSx}>{fmtInr(row.profit)}</TableCell>
                     <TableCell sx={tableBodyCellSx}>{fmtPct(row.profitPct)}</TableCell>

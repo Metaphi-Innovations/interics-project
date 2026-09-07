@@ -26,7 +26,12 @@ import {
   TABLE_CELL_SX,
   TABLE_HEADER_SX,
 } from './live/vendorSettlement/utils'
-import { VendorInvoiceDetailModal } from './live/vendorSettlement/SettlementModals'
+import {
+  VendorPayableWorkflowDrawer,
+  vendorInvoiceMilestoneEntries,
+  computeMilestonePayableStatus,
+  type VendorMilestoneEntry,
+} from './live/vendorSettlement'
 import { ViewInvoiceDrawer } from './live/BillingTab'
 import { downloadClientInvoiceDocument } from './live/downloadClientInvoice'
 import { usePermission } from '@/hooks/usePermission'
@@ -39,8 +44,9 @@ import {
 import { TaxComplianceSection } from './live/TaxComplianceSection'
 import { liveApi, type FinancialInvoiceRow, type FinancialOverviewDto } from '@/api/liveApi'
 import { ProjectTabSkeleton } from '../components/ProjectTabSkeleton'
-import { useAppDispatch } from '../../../store/hooks'
+import { useAppDispatch, useAppSelector } from '../../../store/hooks'
 import { fetchInvoices } from '../../../slices/live/thunk'
+import { fetchBaseline } from '../../../slices/baseline/thunk'
 import type { ClientInvoice, VendorInvoice } from '../../../slices/live/types'
 
 const SUMMARY_COUNT = 4
@@ -145,19 +151,51 @@ function fmtDate(value: string | null | undefined): string {
   return dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
+/** Prefer YYYY-MM-DD so timezone offsets do not shift the calendar day. */
+function parseDurationDateParts(
+  raw: string,
+): { year: number; month: number; day: number } | null {
+  const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(raw.trim())
+  if (iso) {
+    return { year: Number(iso[1]), month: Number(iso[2]), day: Number(iso[3]) }
+  }
+  const dt = new Date(raw)
+  if (Number.isNaN(dt.getTime())) return null
+  return { year: dt.getFullYear(), month: dt.getMonth() + 1, day: dt.getDate() }
+}
+
+function daysInCalendarMonth(year: number, month: number): number {
+  return new Date(year, month, 0).getDate()
+}
+
+/** Calendar months + leftover days (e.g. 06 Sep 2026 → 06 Sep 2027 = "12 mo"). */
 function activeDurationLabel(startRaw: string | null | undefined, endRaw: string | null | undefined): string {
   if (!startRaw || !endRaw) return '—'
-  const start = new Date(startRaw)
-  const end = new Date(endRaw)
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return '—'
+  const start = parseDurationDateParts(startRaw)
+  const end = parseDurationDateParts(endRaw)
+  if (!start || !end) return '—'
 
-  const ms = end.getTime() - start.getTime()
-  if (ms <= 0) return '0 days'
+  const startUtc = Date.UTC(start.year, start.month - 1, start.day)
+  const endUtc = Date.UTC(end.year, end.month - 1, end.day)
+  if (endUtc < startUtc) return '0 days'
+  if (endUtc === startUtc) return '0 days'
 
-  const totalDays = Math.floor(ms / (1000 * 60 * 60 * 24))
-  const months = Math.floor(totalDays / 30)
-  const days = totalDays % 30
+  let months = (end.year - start.year) * 12 + (end.month - start.month)
+  let days: number
+
+  if (end.day >= start.day) {
+    days = end.day - start.day
+  } else {
+    months -= 1
+    const prevMonth = end.month === 1 ? 12 : end.month - 1
+    const prevYear = end.month === 1 ? end.year - 1 : end.year
+    const dim = daysInCalendarMonth(prevYear, prevMonth)
+    const effectiveStartDay = Math.min(start.day, dim)
+    days = dim - effectiveStartDay + end.day
+  }
+
   if (months <= 0) return `${days} day${days === 1 ? '' : 's'}`
+  if (days === 0) return `${months} mo`
   return `${months} mo ${days} day${days === 1 ? '' : 's'}`
 }
 
@@ -202,6 +240,7 @@ function CommercialRatesSection({
 export default function FinancialsTab({ project }: FinancialsTabProps) {
   const toast = useToast((s) => s.showToast)
   const dispatch = useAppDispatch()
+  const baseline = useAppSelector((s) => s.baseline.baseline)
   const [activeSubTab, setActiveSubTab] = useState<FinancialSubTab>('overview')
   const canViewFinancialMetrics = usePermission('projectFinancials', 'view')
   const canViewCompliance = usePermission('compliance', 'view')
@@ -213,7 +252,10 @@ export default function FinancialsTab({ project }: FinancialsTabProps) {
   const [overviewLoaded, setOverviewLoaded] = useState(false)
   const [invoiceLoaded, setInvoiceLoaded] = useState(false)
   const [viewClientInvoice, setViewClientInvoice] = useState<ClientInvoice | null>(null)
-  const [viewVendorInvoice, setViewVendorInvoice] = useState<VendorInvoice | null>(null)
+  const [viewVendorWorkflow, setViewVendorWorkflow] = useState<{
+    entry: VendorMilestoneEntry
+    invoice: VendorInvoice
+  } | null>(null)
   const [viewLoadingId, setViewLoadingId] = useState<string | null>(null)
 
   const projectId = project.id
@@ -250,7 +292,22 @@ export default function FinancialsTab({ project }: FinancialsTabProps) {
           })
           return
         }
-        setViewVendorInvoice(match)
+        const entries = vendorInvoiceMilestoneEntries(
+          projectId,
+          projectForSummary.name,
+          [match],
+        )
+        const entry = entries[0]
+        if (!entry) {
+          toast({
+            title: 'Unable to open invoice',
+            description: 'Vendor invoice milestone context could not be resolved.',
+            variant: 'error',
+          })
+          return
+        }
+        void dispatch(fetchBaseline(projectId))
+        setViewVendorWorkflow({ entry, invoice: match })
         return
       }
 
@@ -749,10 +806,25 @@ export default function FinancialsTab({ project }: FinancialsTabProps) {
         }}
       />
 
-      <VendorInvoiceDetailModal
-        open={!!viewVendorInvoice}
-        invoice={viewVendorInvoice}
-        onClose={() => setViewVendorInvoice(null)}
+      <VendorPayableWorkflowDrawer
+        key={
+          viewVendorWorkflow
+            ? `${viewVendorWorkflow.invoice.id}-${viewVendorWorkflow.entry.milestone.id}-details`
+            : 'closed'
+        }
+        open={!!viewVendorWorkflow}
+        onClose={() => setViewVendorWorkflow(null)}
+        entry={viewVendorWorkflow?.entry ?? null}
+        baseline={baseline?.projectId === projectId ? baseline : null}
+        focus="details"
+        readOnly
+        invoiceId={viewVendorWorkflow?.invoice.id}
+        invoiceDate={viewVendorWorkflow?.invoice.invoiceDate}
+        paymentStatus={
+          viewVendorWorkflow
+            ? computeMilestonePayableStatus(viewVendorWorkflow.invoice)
+            : undefined
+        }
       />
 
       {activeSubTab === 'compliance' && canViewCompliance ? (

@@ -73,7 +73,7 @@ function fileToRow(
     isUpload: false,
     blobUrl: file.blobUrl,
     fileName: file.fileName,
-    canDelete: false,
+    canDelete: true,
     onView: () => {
       void openAuthenticatedDocument(file.blobUrl)
     },
@@ -331,7 +331,7 @@ export function clientPOToDocumentRow(po: ClientPO): ProjectDocumentColumnRow | 
     sizeStr: null,
     isUpload: false,
     href,
-    canDelete: false,
+    canDelete: true,
     onView: () => {
       if (po.documentUrl) openExternalDocument(po.documentUrl)
     },
@@ -351,7 +351,7 @@ export function vendorPOToDocumentRow(po: VendorPO): ProjectDocumentColumnRow | 
     sizeStr: null,
     isUpload: false,
     href,
-    canDelete: false,
+    canDelete: true,
     onView: () => {
       if (po.documentUrl) openExternalDocument(po.documentUrl)
     },
@@ -374,7 +374,7 @@ export function vendorQuotationToDocumentRow(
     sizeStr: null,
     isUpload: false,
     href: quotation.fileUrl,
-    canDelete: false,
+    canDelete: true,
     onView: () => openExternalDocument(quotation.fileUrl),
   }
 }

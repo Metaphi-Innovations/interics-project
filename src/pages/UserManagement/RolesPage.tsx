@@ -13,7 +13,6 @@ import {
   IconButton as MuiIconButton,
   Menu,
   MenuItem,
-  Divider,
   Chip as MuiChip,
   Dialog,
   DialogTitle,
@@ -25,7 +24,7 @@ import { useTheme, alpha } from '@mui/material/styles'
 import { Plus, ShieldCheck, MoreVertical } from 'lucide-react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
-import { fetchRoles, deleteRole, toggleRoleStatus } from '@/slices/roles/thunk'
+import { fetchRoles, toggleRoleStatus } from '@/slices/roles/thunk'
 import type { Role } from '@/types/permissions'
 import { rolesApi } from '@/api/rolesApi'
 import {
@@ -71,39 +70,6 @@ type RoleColumnFilterOptions = {
   level: ColumnFilterOption[]
   type: ColumnFilterOption[]
   status: ColumnFilterOption[]
-}
-
-function DeleteRoleDialog({
-  open,
-  role,
-  onClose,
-  onConfirm,
-  saving,
-}: {
-  open: boolean
-  role: Role | null
-  onClose: () => void
-  onConfirm: () => void
-  saving: boolean
-}) {
-  return (
-    <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
-      <DialogTitle sx={{ fontSize: 15, fontWeight: 600 }}>Delete Role</DialogTitle>
-      <DialogContent>
-        <Typography variant="body2">
-          Delete <strong>{role?.name}</strong>? This cannot be undone.
-        </Typography>
-      </DialogContent>
-      <DialogActions sx={{ px: 3, pb: 2 }}>
-        <MuiButton size="small" onClick={onClose} disabled={saving}>
-          Cancel
-        </MuiButton>
-        <MuiButton size="small" variant="contained" color="error" onClick={onConfirm} disabled={saving}>
-          Delete
-        </MuiButton>
-      </DialogActions>
-    </Dialog>
-  )
 }
 
 function RoleStatusDialog({
@@ -198,12 +164,10 @@ const CENTER_CELL_CONTENT_SX = {
 interface RoleRowActionsProps {
   role: Role
   canEdit: boolean
-  canDelete: boolean
   onEdit: () => void
-  onDelete: () => void
 }
 
-function RoleRowActions({ role, canEdit, canDelete, onEdit, onDelete }: RoleRowActionsProps) {
+function RoleRowActions({ role, canEdit, onEdit }: RoleRowActionsProps) {
   const [anchor, setAnchor] = useState<null | HTMLElement>(null)
 
   function open(e: MouseEvent<HTMLElement>) {
@@ -215,10 +179,9 @@ function RoleRowActions({ role, canEdit, canDelete, onEdit, onDelete }: RoleRowA
     setAnchor(null)
   }
 
-  if (!canEdit && !canDelete) return null
+  if (!canEdit) return null
 
   const editDisabled = role.isSystem || !canEdit
-  const deleteDisabled = role.isSystem || role.userCount > 0 || !canDelete
 
   return (
     <>
@@ -226,35 +189,17 @@ function RoleRowActions({ role, canEdit, canDelete, onEdit, onDelete }: RoleRowA
         <MoreVertical size={16} />
       </MuiIconButton>
       <Menu anchorEl={anchor} open={Boolean(anchor)} onClose={close} onClick={(e) => e.stopPropagation()}>
-        {canEdit ? (
-          <MenuItem
-            dense
-            disabled={editDisabled}
-            onClick={() => {
-              if (!editDisabled) onEdit()
-              close()
-            }}
-            sx={{ fontSize: 13, gap: 1 }}
-          >
-            Edit
-          </MenuItem>
-        ) : null}
-        {canDelete ? (
-          <>
-            {canEdit ? <Divider /> : null}
-            <MenuItem
-              dense
-              disabled={deleteDisabled}
-              onClick={() => {
-                if (!deleteDisabled) onDelete()
-                close()
-              }}
-              sx={{ fontSize: 13, gap: 1, color: deleteDisabled ? undefined : 'error.main' }}
-            >
-              Delete
-            </MenuItem>
-          </>
-        ) : null}
+        <MenuItem
+          dense
+          disabled={editDisabled}
+          onClick={() => {
+            if (!editDisabled) onEdit()
+            close()
+          }}
+          sx={{ fontSize: 13, gap: 1 }}
+        >
+          Edit
+        </MenuItem>
       </Menu>
     </>
   )
@@ -277,13 +222,9 @@ export default function RolesPage() {
   const canEditUserManagement = usePermission('userManagement', 'edit')
   const canCreateRole = usePermission('userManagementRoles', 'create')
   const canCreateUserManagement = usePermission('userManagement', 'create')
-  const canDeleteRole = usePermission('userManagementRoles', 'delete')
-  const canDeleteUserManagement = usePermission('userManagement', 'delete')
   const canEdit = canEditRole || canEditUserManagement
   const canCreate = canCreateRole || canCreateUserManagement
-  const canDelete = canDeleteRole || canDeleteUserManagement
 
-  const [deleteTarget, setDeleteTarget] = useState<Role | null>(null)
   const [toggleTarget, setToggleTarget] = useState<Role | null>(null)
   const [filterOptions, setFilterOptions] = useState<RoleColumnFilterOptions>({
     name: [],
@@ -353,18 +294,6 @@ export default function RolesPage() {
     navigate(`/user-management/roles/${role.id}/edit`)
   }
 
-  function handleDeleteClick(role: Role) {
-    if (role.isSystem) {
-      showToast({ title: 'System roles cannot be deleted', variant: 'error' })
-      return
-    }
-    if (role.userCount > 0) {
-      showToast({ title: 'Reassign users before deleting this role', variant: 'error' })
-      return
-    }
-    setDeleteTarget(role)
-  }
-
   function handleStatusToggleClick(role: Role) {
     if (role.isSystem) {
       showToast({ title: 'System roles cannot be updated', variant: 'error' })
@@ -375,18 +304,6 @@ export default function RolesPage() {
       return
     }
     setToggleTarget(role)
-  }
-
-  function handleConfirmDelete() {
-    if (!deleteTarget) return
-    dispatch(deleteRole(deleteTarget.id))
-      .unwrap()
-      .then(() => {
-        setDeleteTarget(null)
-        showToast({ title: 'Role deleted', variant: 'success' })
-        void loadRoles()
-      })
-      .catch(() => showToast({ title: 'Failed to delete role', variant: 'error' }))
   }
 
   function handleConfirmToggle() {
@@ -635,9 +552,7 @@ export default function RolesPage() {
                           <RoleRowActions
                             role={role}
                             canEdit={canEdit}
-                            canDelete={canDelete}
                             onEdit={() => handleEdit(role)}
-                            onDelete={() => handleDeleteClick(role)}
                           />
                         </Box>
                       </TableCell>
@@ -673,14 +588,6 @@ export default function RolesPage() {
             })
           }).catch(() => undefined)
         }}
-      />
-
-      <DeleteRoleDialog
-        open={Boolean(deleteTarget)}
-        role={deleteTarget}
-        onClose={() => setDeleteTarget(null)}
-        onConfirm={handleConfirmDelete}
-        saving={saving}
       />
 
       <RoleStatusDialog
