@@ -45,10 +45,7 @@ import {
   buildProjectsStartEndCellModel,
   mergeProjectsDualDateColFilters,
 } from './projectsDatesCell'
-import { projectsService, type ProjectFiltersApi } from '@/modules/projects'
-import { fetchUsers } from '../../slices/users/thunk'
-import { fetchRoles } from '../../slices/roles/thunk'
-import { isProjectLeadRole } from './projectManagerRoles'
+import { projectsService } from '@/modules/projects'
 import {
   setFilters,
   resetFilters,
@@ -69,7 +66,7 @@ import {
   getAvatarColor,
 } from '../../utils/formatters'
 import { formatProjectSite } from '../../utils/projectSite'
-import { getProjectTypes, PROJECT_TYPE_OPTIONS } from './projectTypes'
+import { getProjectTypes } from './projectTypes'
 import { ProjectTypeTags } from './components/ProjectTypeTags'
 import { financeApi } from '@/api/financeApi'
 import { unwrapApiData } from '@/modules/system-settings/shared/api'
@@ -971,8 +968,6 @@ export default function ProjectsPage() {
     (s) => s.projects
   )
   const items = rawItems ?? []
-  const users = useAppSelector((s) => s.users.items ?? [])
-  const roles = useAppSelector((s) => s.roles.items ?? [])
   const statusMasters = useAppSelector((s) => s.settings.statuses)
   const canViewProjectModule = usePermission('projects', 'view')
   const canViewProjectOverview = usePermission('projectOverview', 'view')
@@ -1020,29 +1015,152 @@ export default function ProjectsPage() {
   // Debounce timer
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Load users + project filter options (no `/settings/statuses` — route removed)
+  // Default to Live whenever the Projects module is opened.
   useEffect(() => {
-    dispatch(fetchUsers({}))
-    dispatch(fetchRoles(undefined))
-    void dispatch(fetchProjectFilters())
-      .unwrap()
-      .then((data: ProjectFiltersApi) => {
-        setProjectFilterOptions({
-          projectName: data.projectName ?? [],
-          status: data.status ?? [],
-          projectType: data.projectType ?? data.type ?? [],
-          projectLeadId: data.projectLeadId ?? [],
-          expectedStartDate: data.expectedStartDate ?? [],
-          expectedEndDate: data.expectedEndDate ?? [],
-          createdAt: data.createdAt ?? [],
-          wentLiveAt: data.wentLiveAt ?? [],
-          completedAt: data.completedAt ?? [],
-          archivedAt: data.archivedAt ?? [],
-          cancelledAt: data.cancelledAt ?? [],
-        })
-      })
-      .catch(() => undefined)
+    dispatch(setFilters({ status: 'Live' }))
   }, [dispatch])
+
+  // Load stage-scoped project column filter options
+  useEffect(() => {
+    let cancelled = false
+    const status = filters.status || undefined
+
+    void (async () => {
+      const uniqueLabels = (values: Array<string | null | undefined>): ColumnFilterOption[] => {
+        const seen = new Set<string>()
+        const out: ColumnFilterOption[] = []
+        for (const raw of values) {
+          const value = String(raw ?? '').trim()
+          if (!value) continue
+          const key = value.toLowerCase()
+          if (seen.has(key)) continue
+          seen.add(key)
+          out.push({ value, label: value })
+        }
+        // Keep encounter order (list is sorted newest-first).
+        return out
+      }
+
+      const pickOptions = (
+        preferred: ColumnFilterOption[] | undefined,
+        fallback: ColumnFilterOption[] | undefined,
+      ): ColumnFilterOption[] =>
+        preferred && preferred.length > 0 ? preferred : fallback && fallback.length > 0 ? fallback : []
+
+      let data: Awaited<ReturnType<typeof projectsService.getFilters>> | null = null
+      let listItems: Awaited<ReturnType<typeof projectsService.getAll>>['items'] = []
+
+      try {
+        data = await dispatch(fetchProjectFilters(status ? { status } : undefined)).unwrap()
+      } catch {
+        data = null
+      }
+
+      try {
+        // Newest projects first so the Project funnel shows latest on top.
+        const list = await projectsService.getAll({
+          status,
+          page: 1,
+          limit: 100,
+          sortBy: 'createdAt',
+          sortOrder: 'desc',
+          columns: [
+            'projectName',
+            'projectTypes',
+            'projectLeadName',
+            'expectedStartDate',
+            'expectedEndDate',
+            'createdAt',
+            'wentLiveAt',
+            'completedAt',
+            'archivedAt',
+            'cancelledAt',
+          ],
+        })
+        listItems = list.items
+      } catch {
+        listItems = []
+      }
+
+      if (cancelled) return
+
+      const leadOptions: ColumnFilterOption[] = []
+      const leadSeen = new Set<string>()
+      for (const project of listItems) {
+        const id = project.projectManagerId?.trim()
+        if (!id || leadSeen.has(id)) continue
+        leadSeen.add(id)
+        leadOptions.push({
+          value: id,
+          label: project.projectManager?.trim() || id,
+        })
+      }
+
+      const listProjectNames = uniqueLabels(listItems.map((project) => project.name))
+      const listProjectTypes = uniqueLabels(listItems.flatMap((project) => project.projectTypes ?? []))
+      const listStartDates = uniqueLabels(listItems.map((project) => project.startDate))
+      const listEndDates = uniqueLabels(listItems.map((project) => project.expectedEndDate))
+      const listCreatedAt = uniqueLabels(listItems.map((project) => project.createdAt?.slice(0, 10)))
+      const listWentLiveAt = uniqueLabels(listItems.map((project) => project.wentLiveAt?.slice(0, 10)))
+      const listCompletedAt = uniqueLabels(listItems.map((project) => project.completedAt?.slice(0, 10)))
+      const listArchivedAt = uniqueLabels(listItems.map((project) => project.archivedAt?.slice(0, 10)))
+      const listCancelledAt = uniqueLabels(listItems.map((project) => project.cancelledAt?.slice(0, 10)))
+
+      const nextOptions = {
+        // Prefer list order (createdAt desc) so newest projects appear first.
+        projectName: pickOptions(listProjectNames, data?.projectName),
+        status: data?.status ?? [],
+        projectType: status
+          ? pickOptions(listProjectTypes, data?.projectType ?? data?.type)
+          : pickOptions(data?.projectType ?? data?.type, listProjectTypes),
+        projectLeadId: status
+          ? pickOptions(leadOptions, data?.projectLeadId)
+          : pickOptions(data?.projectLeadId, leadOptions),
+        expectedStartDate: status
+          ? pickOptions(listStartDates, data?.expectedStartDate)
+          : pickOptions(data?.expectedStartDate, listStartDates),
+        expectedEndDate: status
+          ? pickOptions(listEndDates, data?.expectedEndDate)
+          : pickOptions(data?.expectedEndDate, listEndDates),
+        createdAt: status
+          ? pickOptions(listCreatedAt, data?.createdAt)
+          : pickOptions(data?.createdAt, listCreatedAt),
+        wentLiveAt: status
+          ? pickOptions(listWentLiveAt, data?.wentLiveAt)
+          : pickOptions(data?.wentLiveAt, listWentLiveAt),
+        completedAt: status
+          ? pickOptions(listCompletedAt, data?.completedAt)
+          : pickOptions(data?.completedAt, listCompletedAt),
+        archivedAt: status
+          ? pickOptions(listArchivedAt, data?.archivedAt)
+          : pickOptions(data?.archivedAt, listArchivedAt),
+        cancelledAt: status
+          ? pickOptions(listCancelledAt, data?.cancelledAt)
+          : pickOptions(data?.cancelledAt, listCancelledAt),
+      }
+
+      setProjectFilterOptions(nextOptions)
+      setColFilters((prev) => {
+        if (Object.keys(prev).length === 0) return prev
+        const next = { ...prev }
+        let changed = false
+        for (const [field, selected] of Object.entries(next)) {
+          if (field === 'status') continue
+          const options = nextOptions[field as keyof typeof nextOptions]
+          if (!options) continue
+          if (!options.some((option) => option.value === selected)) {
+            delete next[field]
+            changed = true
+          }
+        }
+        return changed ? next : prev
+      })
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [dispatch, filters.status])
 
 
   useEffect(() => {
@@ -1185,67 +1303,11 @@ export default function ProjectsPage() {
             ? { field: 'cancelledAt' as const, label: 'Cancelled Date' }
             : { field: 'createdAt' as const, label: 'Created Date' }
 
-  const managerOptions = users
-    .filter((u) => isProjectLeadRole(u.role, roles))
-    .map((u) => ({ value: u.id, label: u.name }))
-
-  const filterConfig = [
-    {
-      field: 'status',
-      label: 'Status',
-      type: 'select' as const,
-      options: [
-        { label: 'All', value: '' },
-        { label: 'Pitch', value: 'Pitch' },
-        { label: 'Live', value: 'Live' },
-        { label: 'Completed', value: 'Completed' },
-        { label: 'Cancelled', value: 'Cancelled' },
-        { label: 'Archived', value: 'Archived' },
-      ],
-    },
-    {
-      field: 'type',
-      label: 'Project Scope',
-      type: 'select' as const,
-      options: [
-        { label: 'All', value: '' },
-        ...PROJECT_TYPE_OPTIONS.map((t) => ({ label: t, value: t })),
-      ],
-    },
-    {
-      field: 'projectManager',
-      label: 'Project Lead',
-      type: 'select' as const,
-      options: [
-        { label: 'All', value: '' },
-        ...managerOptions.map((o) => ({ label: o.label, value: o.value })),
-      ],
-    },
-    {
-      field: 'expectedStartDate',
-      label: 'Start Date',
-      type: 'date' as const,
-    },
-    {
-      field: 'expectedEndDate',
-      label: 'End Date',
-      type: 'date' as const,
-    },
-  ]
-
   const columnItems = [
     { field: 'type', label: 'Scope', visible: columnVisibility.type },
     { field: 'projectLead', label: 'Project Lead', visible: columnVisibility.projectLead },
     { field: 'dates', label: 'Start / End Date', visible: columnVisibility.dates },
   ]
-
-  const activeFilterCount = [
-    filters.status,
-    filters.type,
-    filters.projectManager,
-    filters.expectedStartDate,
-    filters.expectedEndDate,
-  ].filter(Boolean).length
 
   // ── Handlers ─────────────────────────────────────────────────────────────
 
@@ -1255,22 +1317,6 @@ export default function ProjectsPage() {
     searchTimer.current = setTimeout(() => {
       dispatch(setFilters({ search: value }))
     }, 300)
-  }
-
-  function handleFilterChange(vals: Record<string, unknown>) {
-    dispatch(
-      setFilters({
-        status: (vals.status as string) ?? '',
-        type: (vals.type as string) ?? '',
-        projectManager: (vals.projectManager as string) ?? '',
-        expectedStartDate: (vals.expectedStartDate as string) ?? '',
-        expectedEndDate: (vals.expectedEndDate as string) ?? '',
-      })
-    )
-  }
-
-  function handleFilterReset() {
-    dispatch(resetFilters())
   }
 
   function handleTabChange(tab: string) {
@@ -1415,18 +1461,7 @@ export default function ProjectsPage() {
         searchPlaceholder="Search projects…"
         searchValue={searchInput}
         onSearchChange={handleSearch}
-        filterConfig={filterConfig}
-        activeFilters={{
-          status: filters.status,
-          type: filters.type,
-          projectManager: filters.projectManager,
-          expectedStartDate: filters.expectedStartDate,
-          expectedEndDate: filters.expectedEndDate,
-        }}
-        onFilterChange={handleFilterChange}
-        onFilterReset={handleFilterReset}
         onResetAll={handleResetAll}
-        filterCount={activeFilterCount}
         columns={columnItems}
         onColumnVisibilityChange={handleColumnToggle}
         showViewToggle={true}

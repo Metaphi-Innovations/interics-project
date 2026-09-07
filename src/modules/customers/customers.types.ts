@@ -160,7 +160,8 @@ export type CustomerFiltersApi = {
   status: Array<{ value: boolean; label: string }>
   gstStatuses: Array<{ value: string; label: string }>
   states: Array<{ value: string; label: string }>
-  projectStatuses?: Array<{ value: string; label: string }>
+  projectStatuses?: Array<{ value: string; label: string; count?: number }>
+  projectCounts?: Array<{ value: string; label: string; count?: number }>
   customerName?: Array<{ value: string; label: string }>
   contactPerson?: Array<{ value: string; label: string }>
   sector?: Array<{ value: string; label: string }>
@@ -175,6 +176,7 @@ export type CustomerListParams = {
   state?: string
   sector?: string
   projectStatus?: string
+  projectCount?: number
   customerName?: string
   contactPerson?: string
   columns?: string[]

@@ -44,7 +44,7 @@ import {
   setPage,
   setPageSize,
 } from '@/slices/receivables/reducer'
-import { convertDraftToTax, deleteInvoice, fetchInvoiceById, fetchInvoices, sendInvoice } from '@/slices/receivables/thunk'
+import { convertDraftToTax, deleteInvoice, fetchInvoices, sendInvoice } from '@/slices/receivables/thunk'
 import { fetchCustomers } from '@/slices/customers/thunk'
 import type { Invoice } from '@/slices/receivables/reducer'
 import { formatInr } from '@/utils/formatters'
@@ -66,7 +66,6 @@ import { downloadCsv } from '@/api/downloadCsv'
 import { invoiceStatusToBadgeType, mapInvoiceStatus, showPartialPaidAlongsideTabStatus } from './invoiceStatus'
 import { financeReceivableNetAmount, financeReceivableOutstanding } from './utils/financeReceivableListingAmounts'
 import { usePermission } from '@/hooks/usePermission'
-import { downloadClientInvoiceDocument } from '@/pages/Projects/tabs/live/downloadClientInvoice'
 
 const KPI_PERIOD_OPTIONS: { label: string; value: ReceivableKpiPeriod }[] = [
   { label: 'Today', value: 'Today' },
@@ -361,36 +360,19 @@ export default function BillingsPage() {
   const { items: rawItems, loading, filters, sortConfig, pagination, saving, error: listError } =
     useAppSelector((s) => s.receivables)
 
-  async function downloadInvoiceDocument(inv: Invoice) {
+  async function downloadInvoiceDocument(invoiceId: string, invoiceNo?: string) {
     try {
-      let invoice = inv
-      if (!invoice.lineItems?.length) {
-        const loaded = await dispatch(fetchInvoiceById(invoice.id)).unwrap()
-        invoice = {
-          ...loaded,
-          status: mapInvoiceStatus(loaded) as Invoice['status'],
-          showPartialPaid: showPartialPaidAlongsideTabStatus(loaded),
-        }
-      }
-      downloadClientInvoiceDocument({
-        invoiceNumber: invoice.invoiceNo,
-        invoiceDate: invoice.invoiceDate,
-        dueDate: invoice.dueDate,
-        projectName: invoice.projectName,
-        clientName: invoice.clientName,
-        notes: invoice.notes,
-        milestoneName: invoice.milestoneName,
-        serviceName: invoice.serviceName,
-        lineItems: (invoice.lineItems ?? []).map((l) => ({
-          serviceName: l.serviceName,
-          amount: l.amount,
-          labourCessRate: l.labourCessRate,
-          gstRate: l.gstRate,
-          labourCessAmount: l.labourCessAmount,
-          taxableAmount: l.taxableAmount,
-          gstAmount: l.gstAmount,
-        })),
-      })
+      const heading = filters.statusTab === 'tax' ? 'tax' : 'draft'
+      const res = await financeApi.downloadInvoiceDocument(invoiceId, { heading })
+      const blob = res.data as Blob
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const fallback = heading === 'tax' ? 'Tax_Invoice' : 'Draft_Invoice'
+      a.download = `${(invoiceNo || fallback).replace(/[^\w.\-]+/g, '_')}.xlsx`
+      a.click()
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+      showToast({ title: 'Invoice downloaded', variant: 'success' })
     } catch {
       showToast({ title: 'Failed to download invoice', variant: 'error' })
     }
@@ -1470,7 +1452,7 @@ export default function BillingsPage() {
                                 onPay={() => setPaymentInv(inv)}
                                 onSend={() => setSendTarget(inv)}
                                 onConvertTax={() => setConvertTaxTarget(inv)}
-                                onPdf={() => void downloadInvoiceDocument(inv)}
+                                onPdf={() => void downloadInvoiceDocument(inv.id, inv.invoiceNo)}
                                 onDelete={() => setDeleteTarget(inv)}
                               />
                             )}
@@ -1602,7 +1584,7 @@ export default function BillingsPage() {
         onRecordPayment={canEditReceivable ? (inv) => setPaymentInv(inv) : undefined}
         onConvertTax={canEditReceivable ? (inv) => setConvertTaxTarget(inv) : undefined}
         onDownloadPdf={(inv) => {
-          void downloadInvoiceDocument(inv)
+          void downloadInvoiceDocument(inv.id, inv.invoiceNo)
         }}
       />
 

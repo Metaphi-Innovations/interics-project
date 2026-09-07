@@ -81,7 +81,7 @@ type CustomerColumnFilters = {
   customerName: string
   contactPerson: string
   sector: string
-  projectStatus: string
+  projectCount: string
   status: string
 }
 
@@ -96,12 +96,10 @@ const CUSTOMER_STATUS_OPTIONS: ColumnFilterOption[] = [
   { value: 'Inactive', label: 'Inactive' },
 ]
 
-const CUSTOMER_PROJECT_STATUS_OPTIONS: ColumnFilterOption[] = [
-  { value: 'PITCH', label: 'Pitch' },
-  { value: 'LIVE', label: 'Live' },
-  { value: 'COMPLETED', label: 'Completed' },
-  { value: 'ARCHIVED', label: 'Archived' },
-  { value: 'CANCELLED', label: 'Cancelled' },
+const CUSTOMER_PROJECT_COUNT_FALLBACK_OPTIONS: ColumnFilterOption[] = [
+  { value: '0', label: '0' },
+  { value: '1', label: '1' },
+  { value: '2', label: '2' },
 ]
 
 const CUSTOMER_GST_FILTER_OPTIONS = [
@@ -110,11 +108,12 @@ const CUSTOMER_GST_FILTER_OPTIONS = [
 ]
 
 function toColumnFilterOptions(
-  options?: Array<{ value: string | number | boolean; label: string }>,
+  options?: Array<{ value: string | number | boolean; label: string; count?: number }>,
 ): ColumnFilterOption[] {
   return (options ?? []).map((option) => ({
     value: String(option.value),
     label: option.label,
+    ...(typeof option.count === 'number' ? { count: option.count } : {}),
   }))
 }
 
@@ -328,7 +327,7 @@ interface CustomerTableProps {
   customerNameOptions: ColumnFilterOption[]
   contactPersonOptions: ColumnFilterOption[]
   sectorOptions: ColumnFilterOption[]
-  projectStatusOptions: ColumnFilterOption[]
+  projectCountOptions: ColumnFilterOption[]
   statusOptions: ColumnFilterOption[]
   onColumnFilter: (field: keyof CustomerColumnFilters, value: string) => void
   canEdit: boolean
@@ -350,7 +349,7 @@ function CustomerTable({
   customerNameOptions,
   contactPersonOptions,
   sectorOptions,
-  projectStatusOptions,
+  projectCountOptions,
   statusOptions,
   onColumnFilter,
   canEdit,
@@ -410,9 +409,9 @@ function CustomerTable({
             {visibleColumns.projects && (
               <FilterableSortHeader
                 label="Projects"
-                filterValue={columnFilters.projectStatus}
-                filterOptions={projectStatusOptions}
-                onFilter={(value) => onColumnFilter('projectStatus', value)}
+                filterValue={columnFilters.projectCount}
+                filterOptions={projectCountOptions}
+                onFilter={(value) => onColumnFilter('projectCount', value)}
                 sortable={false}
                 sx={{ display: { xs: 'none', lg: 'table-cell' } }}
               />
@@ -502,19 +501,31 @@ function CustomerTable({
               )}
 
               {visibleColumns.sector && (
-                <TableCell sx={{ ...TABLE_CELL_SX, display: { xs: 'none', md: 'table-cell' } }}>
+                <TableCell
+                  sx={{
+                    ...TABLE_CELL_SX,
+                    verticalAlign: 'middle',
+                    display: { xs: 'none', md: 'table-cell' },
+                  }}
+                >
                   <SectorCell customer={customer} />
                 </TableCell>
               )}
 
               {visibleColumns.projects && (
-                <TableCell sx={{ ...TABLE_CELL_SX, display: { xs: 'none', lg: 'table-cell' } }}>
+                <TableCell
+                  sx={{
+                    ...TABLE_CELL_SX,
+                    verticalAlign: 'middle',
+                    display: { xs: 'none', lg: 'table-cell' },
+                  }}
+                >
                   {(() => {
                     const count = getTotalProjectCount(customer)
                     const label = `${count} Project${count === 1 ? '' : 's'}`
                     if (count === 0) {
                       return (
-                        <Typography variant="body2" color="text.disabled" sx={{ fontSize: 12 }}>
+                        <Typography variant="body2" color="text.disabled" sx={{ fontSize: 12, lineHeight: 1.2 }}>
                           {label}
                         </Typography>
                       )
@@ -536,6 +547,7 @@ function CustomerTable({
                           bgcolor: 'transparent',
                           p: 0,
                           textAlign: 'left',
+                          lineHeight: 1.2,
                           '&:hover': { textDecoration: 'underline' },
                         }}
                       >
@@ -743,7 +755,7 @@ export default function CustomersPage() {
     customerName: '',
     contactPerson: '',
     sector: '',
-    projectStatus: '',
+    projectCount: '',
     status: '',
   })
   const [visibleColumns, setVisibleColumns] = useState<CustomerTableVisibleColumns>(
@@ -788,10 +800,17 @@ export default function CustomersPage() {
       (Object.prototype.hasOwnProperty.call(overrides, 'status')
         ? overrides.status
         : columnFilters.status || filters.status) as string | undefined
-    const projectStatusRaw =
-      (Object.prototype.hasOwnProperty.call(overrides, 'projectStatus')
-        ? overrides.projectStatus
-        : columnFilters.projectStatus || filters.projectStatus) as string | undefined
+    const projectCountRaw =
+      (Object.prototype.hasOwnProperty.call(overrides, 'projectCount')
+        ? overrides.projectCount
+        : columnFilters.projectCount ||
+          (filters.projectCount !== undefined ? String(filters.projectCount) : '')) as
+        | string
+        | undefined
+    const projectCountParsed =
+      projectCountRaw !== undefined && projectCountRaw !== '' && !Number.isNaN(Number(projectCountRaw))
+        ? Number(projectCountRaw)
+        : undefined
     const search = searchRaw?.trim() || undefined
     const customerNameRaw =
       (Object.prototype.hasOwnProperty.call(overrides, 'customerName')
@@ -814,7 +833,7 @@ export default function CustomersPage() {
       gstStatus: gstRaw || undefined,
       state: stateRaw || undefined,
       sector: columnSectorRaw || sectorRaw || undefined,
-      projectStatus: projectStatusRaw || undefined,
+      projectCount: projectCountParsed,
       customerName: customerNameRaw?.trim() || undefined,
       contactPerson: contactPersonRaw?.trim() || undefined,
       columns,
@@ -859,9 +878,11 @@ export default function CustomersPage() {
   const customerNameOptions = toColumnFilterOptions(filterOptions?.customerName)
   const contactPersonOptions = toColumnFilterOptions(filterOptions?.contactPerson)
   const sectorOptions = toColumnFilterOptions(filterOptions?.sector)
-  const projectStatusOptions = filterOptions?.projectStatuses?.length
-    ? toColumnFilterOptions(filterOptions.projectStatuses)
-    : CUSTOMER_PROJECT_STATUS_OPTIONS
+  const projectCountOptions = filterOptions?.projectCounts?.length
+    ? toColumnFilterOptions(filterOptions.projectCounts)
+    : filterOptions?.projectStatuses?.length
+      ? toColumnFilterOptions(filterOptions.projectStatuses)
+      : CUSTOMER_PROJECT_COUNT_FALLBACK_OPTIONS
   const statusOptions = toStatusFilterOptions(filterOptions?.status)
 
   const filterConfig: FilterField[] = [
@@ -882,7 +903,9 @@ export default function CustomersPage() {
       icon: <LocationOn sx={{ fontSize: 12 }} />,
       options: [
         { label: 'All', value: '' },
-        ...(filterOptions?.states?.map((t) => ({ label: t.label, value: t.value })) ?? []),
+        ...(filterOptions?.states
+          ?.filter((t) => String(t.value ?? '').trim() !== '')
+          .map((t) => ({ label: t.label, value: t.value })) ?? []),
       ],
     },
     {
@@ -962,8 +985,10 @@ export default function CustomersPage() {
       dispatch(setFilters({ sector: value }))
     } else if (field === 'status') {
       dispatch(setFilters({ status: value }))
-    } else if (field === 'projectStatus') {
-      dispatch(setFilters({ projectStatus: value }))
+    } else if (field === 'projectCount') {
+      const parsed =
+        value !== '' && !Number.isNaN(Number(value)) ? Number(value) : undefined
+      dispatch(setFilters({ projectCount: parsed, projectStatus: undefined }))
     }
     dispatch(setPage(1))
     void dispatch(fetchCustomers(buildListParams({ page: 1, [field]: value })))
@@ -990,11 +1015,21 @@ export default function CustomersPage() {
       customerName: '',
       contactPerson: '',
       sector: '',
-      projectStatus: '',
+      projectCount: '',
       status: '',
     })
     setVisibleColumns(DEFAULT_CUSTOMER_VISIBLE_COLUMNS)
-    dispatch(setFilters({ search: '', status: '', gstStatus: '', state: '', sector: '', projectStatus: '' }))
+    dispatch(
+      setFilters({
+        search: '',
+        status: '',
+        gstStatus: '',
+        state: '',
+        sector: '',
+        projectStatus: undefined,
+        projectCount: undefined,
+      }),
+    )
     dispatch(setSortConfig({ field: null, direction: 'asc' }))
     dispatch(setPage(1))
     void dispatch(
@@ -1005,7 +1040,7 @@ export default function CustomersPage() {
           gstStatus: '',
           state: '',
           sector: '',
-          projectStatus: '',
+          projectCount: '',
           customerName: '',
           contactPerson: '',
           status: '',
@@ -1158,7 +1193,7 @@ export default function CustomersPage() {
             customerNameOptions={customerNameOptions}
             contactPersonOptions={contactPersonOptions}
             sectorOptions={sectorOptions}
-            projectStatusOptions={projectStatusOptions}
+            projectCountOptions={projectCountOptions}
             statusOptions={statusOptions}
             onColumnFilter={handleColumnFilter}
             canEdit={canEditCustomer}

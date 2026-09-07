@@ -15,7 +15,7 @@ import { Check, Filter, Search, X } from 'lucide-react'
 import { tokens } from '@/design-system/tokens'
 import { Button, DatePicker, Input, dateFromIso, isoFromDate } from '@/design-system/components'
 
-export type ColumnFilterOption = { value: string; label: string }
+export type ColumnFilterOption = { value: string; label: string; count?: number }
 
 export type DualDateFilterValue = {
   start: string
@@ -353,14 +353,24 @@ export function ColumnFilterPopover(props: ColumnFilterPopoverProps) {
                 }}
               >
                 <FilterOptionItem
-                  label="All"
+                  label={
+                    (() => {
+                      const total = options.reduce((sum, opt) => sum + (opt.count ?? 0), 0)
+                      const hasCounts = options.some((opt) => typeof opt.count === 'number')
+                      return hasCounts ? `All (${total})` : 'All'
+                    })()
+                  }
                   selected={!singleValue}
                   onSelect={() => selectValue('')}
                 />
                 {filtered.map((opt) => (
                   <FilterOptionItem
                     key={opt.value}
-                    label={opt.label}
+                    label={
+                      typeof opt.count === 'number'
+                        ? `${opt.label} (${opt.count})`
+                        : opt.label
+                    }
                     selected={singleValue === opt.value}
                     onSelect={() => selectValue(opt.value)}
                   />

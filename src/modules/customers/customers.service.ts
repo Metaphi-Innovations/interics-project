@@ -123,6 +123,7 @@ export const customersService = {
         ...(params.state ? { state: params.state } : {}),
         ...(params.sector ? { sector: params.sector } : {}),
         ...(params.projectStatus ? { projectStatus: params.projectStatus } : {}),
+        ...(params.projectCount !== undefined ? { projectCount: params.projectCount } : {}),
         ...(params.customerName ? { customerName: params.customerName } : {}),
         ...(params.contactPerson ? { contactPerson: params.contactPerson } : {}),
         ...(params.sortBy ? { sortBy: params.sortBy } : {}),

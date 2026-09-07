@@ -92,8 +92,12 @@ function isCreateFormInput(data: unknown): data is ProjectCreateFormInput {
 export const projectsService = {
   fieldAliases: PROJECT_FIELD_ALIASES,
 
-  async getFilters(): Promise<ProjectFiltersApi> {
-    const res = await client.get(`${BASE}/filters`)
+  async getFilters(params: { status?: string } = {}): Promise<ProjectFiltersApi> {
+    const res = await client.get(`${BASE}/filters`, {
+      params: {
+        status: toListStatusParam(params.status),
+      },
+    })
     return unwrapApiData<ProjectFiltersApi>(res.data)
   },
 

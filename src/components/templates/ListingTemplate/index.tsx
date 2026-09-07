@@ -256,10 +256,19 @@ export function FiltersPopover({
                   value={(local[f.field] as string) ?? ''}
                   onChange={(e) => setLocal((prev) => ({ ...prev, [f.field]: e.target.value }))}
                   displayEmpty
+                  renderValue={(selected) => {
+                    const value = String(selected ?? '')
+                    const match = f.options?.find((opt) => opt.value === value)
+                    return match?.label ?? value
+                  }}
                   sx={{ fontSize: '12px' }}
                 >
                   {f.options.map((opt) => (
-                    <MenuItem key={opt.value} value={opt.value} sx={{ fontSize: '12px' }}>
+                    <MenuItem
+                      key={`${f.field}:${opt.value}:${opt.label}`}
+                      value={opt.value}
+                      sx={{ fontSize: '12px' }}
+                    >
                       {opt.label}
                     </MenuItem>
                   ))}

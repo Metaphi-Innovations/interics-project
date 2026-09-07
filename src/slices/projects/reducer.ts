@@ -190,7 +190,7 @@ const initialState: ProjectsState = {
   pagination: { page: 1, pageSize: 10, total: 0 },
   filters: {
     search: '',
-    status: '',
+    status: 'Live',
     type: '',
     projectManager: '',
     expectedStartDate: '',

@@ -75,11 +75,11 @@ export const fetchProjects = createAsyncThunk(
 
 export const fetchProjectFilters = createAsyncThunk<
   ProjectFiltersApi,
-  void,
+  { status?: string } | void,
   { rejectValue: ReturnType<typeof rejectProject> }
->('projects/fetchFilters', async (_, { rejectWithValue }) => {
+>('projects/fetchFilters', async (params, { rejectWithValue }) => {
   try {
-    return await projectsService.getFilters()
+    return await projectsService.getFilters(params ?? {})
   } catch (err: unknown) {
     return rejectWithValue(rejectProject(err, 'Failed to fetch project filters'))
   }

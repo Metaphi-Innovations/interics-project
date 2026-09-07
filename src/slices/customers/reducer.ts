@@ -106,6 +106,7 @@ interface Filters {
   state?: string
   sector?: string
   projectStatus?: string
+  projectCount?: number
 }
 
 interface SortConfig {
