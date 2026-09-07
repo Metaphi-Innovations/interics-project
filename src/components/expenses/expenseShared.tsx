@@ -46,6 +46,9 @@ const ALLOCATION_HEADER_SX = {
   py: 0.75,
   px: 1.25,
   borderBottom: `1px solid ${tokens.color.neutral[100]}`,
+  whiteSpace: 'nowrap' as const,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
 } as const
 
 const ALLOCATION_CELL_SX = {
@@ -54,6 +57,8 @@ const ALLOCATION_CELL_SX = {
   px: 1.25,
   borderBottom: `1px solid ${tokens.color.neutral[50]}`,
   verticalAlign: 'middle' as const,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
 } as const
 
 export function expenseStatusDisplay(
@@ -284,7 +289,7 @@ export function ViewExpenseModal({
   const allocationRows = expense.vendorAllocations ?? []
 
   return (
-    <Modal open={open} onClose={onClose} title="Expense details" size="sm">
+    <Modal open={open} onClose={onClose} title="Expense details" size="md">
       <Stack gap={1.25} sx={{ py: 0 }}>
         {locked ? (
           <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary', lineHeight: 1.45 }}>
@@ -460,10 +465,10 @@ export function ViewExpenseModal({
             >
               <Table size="small" sx={{ tableLayout: 'fixed', width: '100%' }}>
                 <colgroup>
-                  <col style={{ width: '12%' }} />
-                  <col style={{ width: '36%' }} />
+                  <col style={{ width: '18%' }} />
+                  <col style={{ width: '34%' }} />
                   <col style={{ width: '22%' }} />
-                  <col style={{ width: '30%' }} />
+                  <col style={{ width: '26%' }} />
                 </colgroup>
                 <TableHead>
                   <TableRow sx={{ bgcolor: tokens.color.neutral[50] }}>

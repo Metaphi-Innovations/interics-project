@@ -150,6 +150,11 @@ const PAYABLES_ACTION_CELL_SX = {
   verticalAlign: 'middle' as const,
 } as const
 
+const PAYABLES_ACTION_HEADER_SX = {
+  ...PAYABLES_TABLE_HEADER_SX,
+  textAlign: 'center' as const,
+} as const
+
 const PAYABLES_NESTED_HEADERS = [
   'Milestone / Service',
   'Invoice Details',
@@ -679,7 +684,9 @@ export function VendorMilestonesSection({
                                       {col}
                                     </TableCell>
                                   ))}
-                                  <TableCell sx={PAYABLES_ACTION_CELL_SX} align="center" />
+                                  <TableCell sx={PAYABLES_ACTION_HEADER_SX} align="center">
+                                    Action
+                                  </TableCell>
                                 </TableRow>
                               </TableHead>
                               <TableBody>

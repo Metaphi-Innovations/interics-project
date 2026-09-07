@@ -201,6 +201,32 @@ export function InvoiceLineItems({
 
   const baseTotal = lines.reduce((s, l) => s + l.amount, 0)
   const gstTotal = lines.reduce((s, l) => s + l.gstAmount, 0)
+  const labourCessTotal = lines.reduce((s, l) => {
+    const rate = 'labourCessRate' in l ? Number(l.labourCessRate ?? 0) : 0
+    const stored =
+      'labourCessAmount' in l && l.labourCessAmount != null
+        ? Number(l.labourCessAmount)
+        : null
+    return s + (stored != null && Number.isFinite(stored) ? stored : (l.amount * rate) / 100)
+  }, 0)
+  const taxableTotal = lines.reduce((s, l) => {
+    const stored =
+      'taxableAmount' in l && l.taxableAmount != null ? Number(l.taxableAmount) : null
+    if (stored != null && Number.isFinite(stored)) return s + stored
+    const rate = 'labourCessRate' in l ? Number(l.labourCessRate ?? 0) : 0
+    return s + l.amount + (l.amount * rate) / 100
+  }, 0)
+  /** Amount-weighted effective labour cess % (cess amount ÷ base). */
+  const labourCessRateTotal =
+    baseTotal > 0 ? Math.round((labourCessTotal / baseTotal) * 10000) / 100 : null
+  /** Amount-weighted effective GST % (GST amount ÷ taxable). */
+  const gstRateTotal =
+    taxableTotal > 0 ? Math.round((gstTotal / taxableTotal) * 10000) / 100 : null
+
+  function formatRatePercent(rate: number | null): string {
+    if (rate == null) return '—'
+    return `${Number.isInteger(rate) ? rate : rate.toFixed(2)}%`
+  }
 
   const descLabel = projectSourced ? 'Service / milestone' : 'Service'
   const isCompactProjectTable = projectSourced && hideSacColumn
@@ -410,8 +436,14 @@ export function InvoiceLineItems({
                 <TableCell sx={{ fontSize: 12, fontWeight: 700 }}>Subtotal</TableCell>
                 {!hideSacColumn ? <TableCell>—</TableCell> : null}
                 <TableCell sx={{ fontSize: 12, fontWeight: 700 }}>₹{formatInr(baseTotal)}</TableCell>
-                {showLabourCessColumn ? <TableCell>—</TableCell> : null}
-                <TableCell>—</TableCell>
+                {showLabourCessColumn ? (
+                  <TableCell sx={{ fontSize: 12, fontWeight: 700 }}>
+                    {formatRatePercent(labourCessRateTotal)}
+                  </TableCell>
+                ) : null}
+                <TableCell sx={{ fontSize: 12, fontWeight: 700 }}>
+                  {formatRatePercent(gstRateTotal)}
+                </TableCell>
                 {showTdsColumn ? <TableCell>{tdsRateLabel}</TableCell> : null}
                 <TableCell sx={{ fontSize: 12, fontWeight: 700 }}>₹{formatInr(gstTotal)}</TableCell>
               </TableRow>

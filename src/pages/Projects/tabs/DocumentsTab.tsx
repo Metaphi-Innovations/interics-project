@@ -19,6 +19,7 @@ import { DrawerForm, FormField } from '../../../components/templates/DrawerForm'
 import {
   Badge,
   Button,
+  ConfirmDialog,
   IconButton,
   Input,
   Select,
@@ -30,6 +31,7 @@ import { useAppDispatch, useAppSelector } from '../../../store/hooks'
 import type { Project } from '../../../slices/projects/reducer'
 import { fetchClientPO, fetchVendorPOs } from '../../../slices/baseline/thunk'
 import { fetchVersions } from '../../../slices/pitch/thunk'
+import { fetchProjectById } from '../../../slices/projects/thunk'
 import { formatDate } from '../../../utils/formatters'
 import {
   TABLE_CELL_SX,
@@ -141,6 +143,76 @@ function matchesSearch(text: string, q: string): boolean {
   return text.toLowerCase().includes(q.trim().toLowerCase())
 }
 
+/** Create-project file slots use synthetic ids (`final_layout-<fileId>`). */
+const PROJECT_FILE_SLOT_SLUG_TO_DOCTYPE: Record<string, string> = {
+  requirements: 'requirement',
+  'final-layout': 'final_layout',
+  'final-rcp': 'final_rcp',
+  'final-views': 'final_views',
+  'final-photographs': 'final_photographs',
+}
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+/** Resolve a Documents-tab row id to the persisted document id for DELETE. */
+function resolvePersistedDocumentId(
+  rowId: string,
+  apiDocuments: ProjectDocumentListItem[],
+  href?: string | null,
+): string | null {
+  const apiMatch = apiDocuments.find(
+    (doc) =>
+      doc.id === rowId ||
+      `api-${doc.doctype}-${doc.id}` === rowId ||
+      (doc.doctype === 'client_po' &&
+        (`api-client-po-${doc.id}` === rowId || `baseline-client-po-${doc.id}` === rowId)) ||
+      (doc.doctype === 'vendor_po' &&
+        (`api-vendor-po-${doc.id}` === rowId || `baseline-vendor-po-${doc.id}` === rowId)),
+  )
+  if (apiMatch) return apiMatch.id
+
+  const prefixes = [
+    'baseline-client-po-',
+    'baseline-vendor-po-',
+    'api-client-po-',
+    'api-vendor-po-',
+  ] as const
+  for (const prefix of prefixes) {
+    if (rowId.startsWith(prefix)) return rowId.slice(prefix.length)
+  }
+
+  const apiPrefixed = /^api-[a-z0-9_]+-(.+)$/i.exec(rowId)
+  if (apiPrefixed?.[1]) return apiPrefixed[1]
+
+  const projectFile =
+    /^project-doc-file-(.+)-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(
+      rowId,
+    )
+  if (projectFile) {
+    const slug = projectFile[1]
+    const fileId = projectFile[2]
+    const doctype = PROJECT_FILE_SLOT_SLUG_TO_DOCTYPE[slug]
+    if (doctype) return `${doctype}-${fileId}`
+    const byFile = apiDocuments.find(
+      (d) => d.id === fileId || d.id.endsWith(`-${fileId}`) || d.viewUrl?.includes(fileId),
+    )
+    if (byFile) return byFile.id
+  }
+
+  if (rowId.startsWith('pitch-vendor-quotation-')) {
+    if (href) {
+      const byHref = apiDocuments.find((d) => d.viewUrl === href || d.downloadUrl === href)
+      if (byHref) return byHref.id
+    }
+    const suffix = rowId.slice('pitch-vendor-quotation-'.length)
+    if (UUID_RE.test(suffix)) return suffix
+  }
+
+  if (UUID_RE.test(rowId)) return rowId
+  return null
+}
+
 // ─── Subsection tables ───────────────────────────────────────────────────────
 
 type ColumnRow = ProjectDocumentColumnRow
@@ -150,7 +222,7 @@ function RowActions({
   onDelete,
 }: {
   row: ColumnRow
-  onDelete?: (id: string) => void
+  onDelete?: (row: ColumnRow) => void
 }) {
   const deleteEnabled = Boolean(row.canDelete && onDelete)
 
@@ -173,7 +245,7 @@ function RowActions({
         tooltip="Delete document"
         disabled={!deleteEnabled}
         onClick={() => {
-          if (deleteEnabled && onDelete) onDelete(row.id)
+          if (deleteEnabled && onDelete) onDelete(row)
         }}
       />
     </Stack>
@@ -194,7 +266,7 @@ function DocumentsTable({
   onDelete,
 }: {
   rows: ColumnRow[]
-  onDelete?: (id: string) => void
+  onDelete?: (row: ColumnRow) => void
 }) {
   return (
     <Table
@@ -302,7 +374,7 @@ function SubsectionBlock({
 }: {
   title: string
   rows: ColumnRow[]
-  onDelete?: (id: string) => void
+  onDelete?: (row: ColumnRow) => void
 }) {
   return (
     <Box sx={{ mb: 2 }}>
@@ -354,7 +426,6 @@ interface DocumentsTabProps {
 export default function DocumentsTab({ project }: DocumentsTabProps) {
   const dispatch = useAppDispatch()
   const toast = useToast((s) => s.showToast)
-  const authUser = useAppSelector((s) => s.auth.user)
   const listProjects = useAppSelector((s) => s.projects.items ?? [])
   const clientPOs = useAppSelector((s) => s.baseline.clientPOs)
   const vendorPOList = useAppSelector((s) => s.baseline.vendorPOs)
@@ -382,6 +453,8 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
     name?: string
     category?: string
   }>({})
+  const [deleteTarget, setDeleteTarget] = useState<ColumnRow | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
     void dispatch(fetchClientPO(project.id))
@@ -397,7 +470,10 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
         const doctypeParam =
           filter === 'all'
             ? undefined
-            : filter === 'client' || filter === 'vendor' || filter === 'project'
+            : filter === 'client' ||
+                filter === 'vendor' ||
+                filter === 'project' ||
+                filter === 'other'
               ? filter
               : (filter as string)
         const [rows, doctypes] = await Promise.all([
@@ -465,7 +541,7 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
             dateStr: formatDate(doc.uploadedAt),
             sizeStr: doc.sizeBytes != null ? formatBytes(doc.sizeBytes) : '—',
             isUpload: false,
-            canDelete: doc.source === 'project',
+            canDelete: true,
             onView: () => {
               openDocumentUrl(doc.viewUrl)
             },
@@ -506,7 +582,7 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
     isUpload: true,
     blobUrl: u.blobUrl,
     fileName: u.fileName,
-    canDelete: Boolean(authUser?.id && u.uploadedByUserId === authUser.id),
+    canDelete: true,
     onView: () => {
       const opened = openProjectUploadInNewTab(u)
       if (!opened) {
@@ -572,7 +648,7 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
           dateStr: formatDate(doc.uploadedAt),
           sizeStr: doc.sizeBytes != null ? formatBytes(doc.sizeBytes) : null,
           isUpload: false,
-          canDelete: false,
+          canDelete: true,
           onView: () => {
             openDocumentUrl(doc.viewUrl)
           },
@@ -614,7 +690,7 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
           dateStr: formatDate(doc.uploadedAt),
           sizeStr: doc.sizeBytes != null ? formatBytes(doc.sizeBytes) : null,
           isUpload: false,
-          canDelete: false,
+          canDelete: true,
           onView: () => {
             openDocumentUrl(doc.viewUrl)
           },
@@ -733,63 +809,79 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
     return Math.max(local, fromApi)
   }, [projectForDocuments, apiDocuments])
 
-  const handleDelete = (id: string) => {
-    void (async () => {
-      const apiMatch = apiDocuments.find(
-        (doc) => doc.id === id || `api-${doc.doctype}-${doc.id}` === id,
-      )
+  const requestDelete = (row: ColumnRow) => {
+    setDeleteTarget(row)
+  }
 
-      // Persisted project uploads must always hit DELETE — never local-only short-circuit.
-      if (apiMatch) {
-        if (apiMatch.source !== 'project') {
-          toast({
-            title: 'Unable to delete document',
-            description: 'This document cannot be deleted from here.',
-            variant: 'error',
-          })
-          return
+  const confirmDelete = () => {
+    if (!deleteTarget) return
+    const id = deleteTarget.id
+    const href = deleteTarget.href
+    void (async () => {
+      setDeleting(true)
+      try {
+        const isLocal = uploads.some((u) => u.id === id)
+        const persistedId = resolvePersistedDocumentId(id, apiDocuments, href)
+
+        if (persistedId) {
+          try {
+            await liveApi.deleteProjectDocument(project.id, persistedId)
+            setApiDocuments((prev) => prev.filter((doc) => doc.id !== persistedId))
+            removeUpload(persistedId)
+            removeUpload(id)
+            void dispatch(fetchClientPO(project.id))
+            void dispatch(fetchVendorPOs(project.id))
+            void dispatch(fetchVersions(project.id))
+            void dispatch(fetchProjectById(project.id))
+            toast({ title: 'Document deleted', variant: 'success' })
+            try {
+              const rows = await liveApi.getProjectDocuments(project.id, {
+                doctype:
+                  filter === 'all'
+                    ? undefined
+                    : filter === 'client' ||
+                        filter === 'vendor' ||
+                        filter === 'project' ||
+                        filter === 'other'
+                      ? filter
+                      : (filter as string),
+              })
+              setApiDocuments(rows)
+            } catch {
+              // Optimistic removal already applied
+            }
+            setDeleteTarget(null)
+            return
+          } catch (err) {
+            if (!isLocal) {
+              toast({
+                title: 'Unable to delete document',
+                description: parseSettingsApiError(
+                  err,
+                  'The delete request failed. Try again.',
+                ).message,
+                variant: 'error',
+              })
+              return
+            }
+          }
         }
-        try {
-          await liveApi.deleteProjectDocument(project.id, apiMatch.id)
-          setApiDocuments((prev) => prev.filter((doc) => doc.id !== apiMatch.id))
-          removeUpload(apiMatch.id)
+
+        if (isLocal) {
           removeUpload(id)
           toast({ title: 'Document deleted', variant: 'success' })
-          try {
-            const rows = await liveApi.getProjectDocuments(project.id, {
-              doctype:
-                filter === 'all'
-                  ? undefined
-                  : filter === 'client' || filter === 'vendor' || filter === 'project'
-                    ? filter
-                    : (filter as string),
-            })
-            setApiDocuments(rows)
-          } catch {
-            // Optimistic removal already applied
-          }
-        } catch (err) {
-          toast({
-            title: 'Unable to delete document',
-            description: parseSettingsApiError(err, 'The delete request failed. Try again.').message,
-            variant: 'error',
-          })
+          setDeleteTarget(null)
+          return
         }
-        return
-      }
 
-      const isLocal = uploads.some((u) => u.id === id)
-      if (isLocal) {
-        removeUpload(id)
-        toast({ title: 'Document deleted', variant: 'success' })
-        return
+        toast({
+          title: 'Unable to delete document',
+          description: 'This document could not be deleted.',
+          variant: 'error',
+        })
+      } finally {
+        setDeleting(false)
       }
-
-      toast({
-        title: 'Unable to delete document',
-        description: 'This document cannot be deleted from here.',
-        variant: 'error',
-      })
     })()
   }
 
@@ -829,7 +921,7 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
   const clientRowCount = clientQuotations.length + clientPO.length + clientDocumentUploads.length
   const vendorRowCount = vendorQuotations.length + vendorPORows.length + vendorDocumentUploads.length
   const othersRowCount = othersDocumentRows.length
-  const showOthers = filter === 'all' && !isCustomFilter
+  const showOthers = (filter === 'all' || filter === 'other') && !isCustomFilter
 
   const customCategorySections = useMemo(
     () =>
@@ -893,27 +985,27 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
       key={section.title}
       title={section.title}
       rows={section.rows}
-      onDelete={handleDelete}
+      onDelete={requestDelete}
     />
   ))
 
   const clientDocumentContent = (
     <>
       {clientDocumentUploads.length > 0 ? (
-        <SubsectionBlock title="Uploads" rows={clientDocumentUploads} onDelete={handleDelete} />
+        <SubsectionBlock title="Uploads" rows={clientDocumentUploads} onDelete={requestDelete} />
       ) : null}
-      <SubsectionBlock title="Client Quotations" rows={clientQuotations} onDelete={handleDelete} />
-      <SubsectionBlock title="Client POs" rows={clientPO} onDelete={handleDelete} />
+      <SubsectionBlock title="Client Quotations" rows={clientQuotations} onDelete={requestDelete} />
+      <SubsectionBlock title="Client POs" rows={clientPO} onDelete={requestDelete} />
     </>
   )
 
   const vendorDocumentContent = (
     <>
       {vendorDocumentUploads.length > 0 ? (
-        <SubsectionBlock title="Uploads" rows={vendorDocumentUploads} onDelete={handleDelete} />
+        <SubsectionBlock title="Uploads" rows={vendorDocumentUploads} onDelete={requestDelete} />
       ) : null}
-      <SubsectionBlock title="Vendor Quotations" rows={vendorQuotations} onDelete={handleDelete} />
-      <SubsectionBlock title="Vendor POs" rows={vendorPORows} onDelete={handleDelete} />
+      <SubsectionBlock title="Vendor Quotations" rows={vendorQuotations} onDelete={requestDelete} />
+      <SubsectionBlock title="Vendor POs" rows={vendorPORows} onDelete={requestDelete} />
     </>
   )
 
@@ -999,6 +1091,7 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
           <ToggleButton value="client">Client Documents</ToggleButton>
           <ToggleButton value="vendor">Vendor Documents</ToggleButton>
           <ToggleButton value="project">Project Documents</ToggleButton>
+          <ToggleButton value="other">Others</ToggleButton>
           {customCategories.map((cat) => (
             <ToggleButton key={cat.value} value={cat.value}>
               {cat.label}
@@ -1100,12 +1193,12 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
           <DocumentGroup title="Vendor Documents">{vendorDocumentContent}</DocumentGroup>
         )}
 
-        {showOthers && othersRowCount > 0 && (
+        {showOthers && (filter === 'other' || othersRowCount > 0) && (
           <DocumentGroup title="Others">
             <SubsectionBlock
               title="Uploads"
               rows={othersDocumentRows}
-              onDelete={handleDelete}
+              onDelete={requestDelete}
             />
           </DocumentGroup>
         )}
@@ -1118,7 +1211,7 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
               <SubsectionBlock
                 title="Uploads"
                 rows={section.rows}
-                onDelete={handleDelete}
+                onDelete={requestDelete}
               />
             </DocumentGroup>
           )
@@ -1147,6 +1240,25 @@ export default function DocumentsTab({ project }: DocumentsTabProps) {
           formErrors={formErrors}
         />
       </DrawerForm>
+
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        onClose={() => {
+          if (deleting) return
+          setDeleteTarget(null)
+        }}
+        onConfirm={() => void confirmDelete()}
+        loading={deleting}
+        variant="destructive"
+        title="Delete document?"
+        description={
+          deleteTarget
+            ? `This will permanently delete "${deleteTarget.name}". This action cannot be undone.`
+            : undefined
+        }
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+      />
     </Box>
   )
 }

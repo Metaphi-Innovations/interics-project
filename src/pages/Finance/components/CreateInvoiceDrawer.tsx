@@ -25,6 +25,7 @@ import type { ClientPO } from '@/slices/baseline/reducer'
 import { InvoiceLineItems, type DraftLineItem } from './InvoiceLineItems'
 import {
   computeLineItemTaxBreakdown,
+  calcClientInvoiceTdsAmount,
   rollupsFromLineItems,
 } from '@/pages/Projects/tabs/live/clientInvoiceUtils'
 import {
@@ -532,6 +533,13 @@ export function CreateInvoiceDrawer({
         lineSource: l.lineSource,
       }
     })
+    const payloadBase = payloadLines.reduce((s, l) => s + l.amount, 0)
+    const payloadGross = payloadLines.reduce(
+      (s, l) => s + l.taxableAmount + l.gstAmount,
+      0,
+    )
+    const payloadTdsRate = selectedPo?.tdsRate ?? null
+    const payloadTdsAmount = calcClientInvoiceTdsAmount(payloadBase, payloadTdsRate)
     return {
       invoiceNo: invoiceNo.trim(),
       clientId: project!.customerId,
@@ -550,6 +558,9 @@ export function CreateInvoiceDrawer({
           ? flattenClientPoMilestones(selectedPo).find((m) => m.milestoneId === selectedMilestoneIds[0])
               ?.milestoneName
           : undefined,
+      tdsRate: payloadTdsRate,
+      tdsAmount: payloadTdsAmount,
+      netReceivable: Math.round((payloadGross - payloadTdsAmount) * 100) / 100,
     }
   }
 
@@ -612,12 +623,19 @@ export function CreateInvoiceDrawer({
       ),
     [lines],
   )
+  const invoiceTdsRate = selectedPo?.tdsRate ?? null
+  const invoiceTdsAmount = calcClientInvoiceTdsAmount(roll.baseAmount, invoiceTdsRate)
+  const invoiceNetReceivable = roll.grossAmount - invoiceTdsAmount
 
   function formatLabourCessPercent(rate: number | null): string {
     if (rate === null) return '—'
     const rounded = Math.round(rate * 100) / 100
     return `${Number.isInteger(rounded) ? rounded : rounded.toFixed(2)}%`
   }
+
+  /** Project Live generate/edit: amounts locked; labour cess editable; matches legacy GenerateInvoiceDrawer. */
+  const projectLineItemsLocked = lockProject
+  const lineItemsMode = projectLineItemsLocked ? 'read' : 'edit'
 
   const footer = (
     <Stack direction="row" justifyContent="flex-end" gap={1} sx={{ px: 5, py: 3.5 }}>
@@ -817,7 +835,7 @@ export function CreateInvoiceDrawer({
 
         <FormSection title="Line items">
           <InvoiceLineItems
-            mode="edit"
+            mode={lineItemsMode}
             lines={lines}
             services={services}
             sacCodes={sacCodes}
@@ -828,6 +846,10 @@ export function CreateInvoiceDrawer({
             allowEmpty
             allowManualAdd={false}
             showLabourCessColumn
+            hideSacColumn={projectLineItemsLocked}
+            editableLabourCessInReadMode={projectLineItemsLocked}
+            showTdsColumn={invoiceTdsRate != null && invoiceTdsRate > 0}
+            tdsRate={invoiceTdsRate}
           />
         </FormSection>
 
@@ -935,6 +957,16 @@ export function CreateInvoiceDrawer({
                   ₹{formatInr(roll.gstAmount)}
                 </Typography>
               </Stack>
+              {invoiceTdsAmount > 0 ? (
+                <Stack direction="row" justifyContent="space-between">
+                  <Typography variant="body2" color="text.secondary">
+                    {invoiceTdsRate != null ? `TDS (${invoiceTdsRate}%)` : 'TDS'}
+                  </Typography>
+                  <Typography variant="body2" fontWeight={600} color="text.secondary">
+                    −₹{formatInr(invoiceTdsAmount)}
+                  </Typography>
+                </Stack>
+              ) : null}
               <Box sx={{ borderTop: `1px solid ${tokens.color.neutral[200]}`, my: 1 }} />
               <Stack direction="row" justifyContent="space-between">
                 <Typography variant="body2" fontWeight={700}>
@@ -944,10 +976,22 @@ export function CreateInvoiceDrawer({
                   ₹{formatInr(roll.grossAmount)}
                 </Typography>
               </Stack>
+              {invoiceTdsAmount > 0 ? (
+                <Stack direction="row" justifyContent="space-between">
+                  <Typography variant="body2" fontWeight={700}>
+                    Net receivable
+                  </Typography>
+                  <Typography variant="body2" fontWeight={700}>
+                    ₹{formatInr(invoiceNetReceivable)}
+                  </Typography>
+                </Stack>
+              ) : null}
             </Stack>
-            <Typography variant="caption" color="text.secondary" sx={{ mt: 1.5, display: 'block' }}>
-              TDS will be captured during payment.
-            </Typography>
+            {invoiceTdsAmount <= 0 ? (
+              <Typography variant="caption" color="text.secondary" sx={{ mt: 1.5, display: 'block' }}>
+                TDS will be captured during payment when no PO TDS rate is set.
+              </Typography>
+            ) : null}
           </Box>
         </FormSection>
       </Stack>
