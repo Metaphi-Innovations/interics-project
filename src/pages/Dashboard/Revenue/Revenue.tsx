@@ -49,7 +49,7 @@ import {
 import { FilterableHeaderCell } from '@/components/listing/FilterableSortHeader'
 import client from '@/api/client'
 import { unwrapApiData } from '@/modules/system-settings/shared/api'
-import { formatCurrency } from '@/utils/formatters'
+import { formatCurrency, formatCurrencyCompact } from '@/utils/formatters'
 import { DashboardDateRangeFilter } from '../DashboardDateRangeFilter'
 import {
   type DashboardDatePeriod,
@@ -832,7 +832,7 @@ export function RevenueKpiCard({ kpi, onClick, loading = false }: RevenueKpiCard
             fontWeight={700}
             sx={{ fontSize: { xs: 20, md: 22 }, lineHeight: 1.2, letterSpacing: -0.3 }}
           >
-            ₹{formatCurrency(kpi.value)}
+            {formatRevenueAmount(kpi.value, kpi.id === 'received')}
           </Typography>
 
           <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11, mt: 'auto' }}>
@@ -870,7 +870,7 @@ interface DrawerColumn {
   key: string
   label: string
   align?: 'left' | 'right'
-  format?: 'currency' | 'date' | 'status'
+  format?: 'currency' | 'currencyPrecise' | 'date' | 'status'
   width?: string
   /** Extra left padding (theme spacing); defaults to shared table `px`. */
   pl?: number
@@ -918,7 +918,7 @@ function getDrawerConfig(
       columns: [
         { key: 'client', label: 'Client', width: '28%' },
         { key: 'project', label: 'Project', width: '34%' },
-        { key: 'amount', label: 'Amount', align: 'right', format: 'currency', width: '20%' },
+        { key: 'amount', label: 'Amount', align: 'right', format: 'currencyPrecise', width: '20%' },
         { key: 'status', label: 'Status', format: 'status', width: '18%' },
       ],
       rows: getDrawerRows(rowsByKpi, kpiId, RECEIVED_ROWS),
@@ -980,7 +980,7 @@ function getDrawerConfig(
           { key: 'projectCount', label: 'Projects', align: 'right', width: '18%' },
           // Extra pr/pl so Amount↔Status has the same breathing room as Client↔Project
           { key: 'status', label: 'Project Status', format: 'status', width: '18%' },
-          { key: 'amount', label: 'Amount Received', align: 'right', format: 'currency', width: '22%' },
+          { key: 'amount', label: 'Amount Received', align: 'right', format: 'currencyPrecise', width: '22%' },
         ],
         rows: getDrawerRows(rowsByKpi, kpiId, RECEIVED_ROWS),
         totalKey: 'amount',
@@ -1003,7 +1003,7 @@ function getDrawerConfig(
           { key: 'client', label: 'Client', width: '20%' },
           { key: 'status', label: 'Project Status', format: 'status', width: '15%' },
           { key: 'poValue', label: 'PO Value', align: 'right', format: 'currency', width: '13%' },
-          { key: 'received', label: 'Received', align: 'right', format: 'currency', width: '13%' },
+          { key: 'received', label: 'Received', align: 'right', format: 'currencyPrecise', width: '13%' },
           { key: 'pending', label: 'Client Pending', align: 'right', format: 'currency', width: '13%' },
         ],
         rows: getDrawerRows(rowsByKpi, kpiId, CLIENT_PENDING_ROWS),
@@ -1059,8 +1059,13 @@ const STATUS_TYPE_BY_LABEL: Record<string, StatusType> = {
   Upcoming: 'issued',
 }
 
+function formatRevenueAmount(value: number, precise = false): string {
+  return precise ? formatCurrencyCompact(value, 2) : `₹${formatCurrency(value)}`
+}
+
 function formatCell(value: string | number, format?: DrawerColumn['format']): string {
-  if (format === 'currency' && typeof value === 'number') return `₹${formatCurrency(value)}`
+  if (format === 'currency' && typeof value === 'number') return formatRevenueAmount(value)
+  if (format === 'currencyPrecise' && typeof value === 'number') return formatRevenueAmount(value, true)
   if (format === 'date') {
     const date = new Date(value)
     if (!Number.isNaN(date.getTime())) {
@@ -1190,7 +1195,7 @@ export function RevenueKpiDrawer({
               mt: 0.5,
             }}
           >
-            ₹{formatCurrency(kpi.value)}
+            {formatRevenueAmount(kpi.value, kpi.id === 'received')}
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ fontSize: 13, mt: 0.5 }}>
             {kpi.subtitle}
@@ -1348,7 +1353,7 @@ const REVENUE_PROJECT_COLUMNS: Array<{
   key: keyof RevenueProjectListingRow
   label: string
   align?: 'left' | 'right'
-  format?: 'currency' | 'area' | 'status'
+  format?: 'currency' | 'currencyPrecise' | 'area' | 'status'
   width?: string
 }> = [
   { key: 'projectName', label: 'Project Name', width: '18%' },
@@ -1380,7 +1385,7 @@ const REVENUE_PROJECT_COLUMNS: Array<{
   {
     key: 'clientReceived',
     label: 'Client Received',
-    format: 'currency',
+    format: 'currencyPrecise',
     width: '11%',
   },
   {
@@ -1403,7 +1408,8 @@ function renderRevenueProjectCell(
 ) {
   const value = row[column.key]
 
-  if (column.format === 'currency') return `₹${formatCurrency(Number(value ?? 0))}`
+  if (column.format === 'currency') return formatRevenueAmount(Number(value ?? 0))
+  if (column.format === 'currencyPrecise') return formatRevenueAmount(Number(value ?? 0), true)
   if (column.format === 'area') return formatArea(Number(value ?? 0))
   if (column.format === 'status') {
     const label = String(value || 'Draft')
@@ -1675,9 +1681,11 @@ function RevenueProjectListingTable({
 function SummaryStat({
   label,
   value,
+  precise = false,
 }: {
   label: string
   value: number
+  precise?: boolean
 }) {
   return (
     <Paper
@@ -1700,7 +1708,7 @@ function SummaryStat({
         {label}
       </Typography>
       <Typography variant="h6" fontWeight={700} sx={{ fontSize: { xs: 18, md: 20 } }}>
-        ₹{formatCurrency(value)}
+        {formatRevenueAmount(value, precise)}
       </Typography>
     </Paper>
   )
@@ -1774,7 +1782,7 @@ export function FinancialRevenueYearSection({
           {loading ? (
             <DashboardSectionLoader minHeight={72} size={22} />
           ) : (
-            <SummaryStat label="Total Amount Received" value={analytics.totals.amountReceived} />
+            <SummaryStat label="Total Amount Received" value={analytics.totals.amountReceived} precise />
           )}
         </Grid>
       </Grid>
