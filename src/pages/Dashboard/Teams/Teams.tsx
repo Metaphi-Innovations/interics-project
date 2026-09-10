@@ -34,6 +34,7 @@ import {
   CartesianGrid,
   Cell as RechartsCell,
   ResponsiveContainer,
+  ReferenceLine,
   Tooltip,
   type TooltipContentProps,
   XAxis,
@@ -481,6 +482,7 @@ export const TEAM_METRIC_OPTIONS = [
 export type TeamMetric = (typeof TEAM_METRIC_OPTIONS)[number]
 
 export const DEFAULT_TEAM_PERFORMANCE_MEMBERS = 5
+const TEAM_PERFORMANCE_GRAPH_HEIGHT = 'clamp(320px, calc(100dvh - 330px), 720px)'
 
 export interface TeamMemberOption {
   value: string
@@ -547,6 +549,10 @@ export interface TeamLifecycleProjectPoint {
   completedAt: string | null
   archivedAt: string | null
   cancelledAt: string | null
+  lifecycleEvents: Array<{
+    status: 'PITCH' | 'LIVE' | 'COMPLETED' | 'ARCHIVED' | 'CANCELLED'
+    occurredAt: string
+  }>
 }
 
 export interface TeamMemberProjectLifecyclePoint {
@@ -561,8 +567,9 @@ export interface ProjectLifecycleByTeamMemberBundle {
 }
 
 interface ProjectLifecycleStageSegment {
-  key: 'pitchDays' | 'liveDays' | 'completedDays'
-  label: 'Pitch' | 'Live' | 'Completed'
+  key: 'pitch' | 'live' | 'completed' | 'archived' | 'cancelled'
+  chartKey: string
+  label: 'Pitch' | 'Live' | 'Completed' | 'Archived' | 'Cancelled'
   startDate: string
   endDate: string
   days: number
@@ -576,6 +583,7 @@ interface ProjectLifecycleChartRow {
   liveDays: number
   completedDays: number
   stages: ProjectLifecycleStageSegment[]
+  segmentValues: Record<string, number>
 }
 
 interface ProjectLifecycleChartConfig {
@@ -1247,6 +1255,26 @@ function asTeamLifecycleProjectPoints(value: unknown): TeamLifecycleProjectPoint
     .map((row) => {
       const record = row && typeof row === 'object' ? (row as Record<string, unknown>) : {}
       const areaSqFt = Number(record.areaSqFt ?? 0)
+      const lifecycleEvents = Array.isArray(record.lifecycleEvents)
+        ? record.lifecycleEvents
+            .map((event) => {
+              const eventRecord =
+                event && typeof event === 'object' ? (event as Record<string, unknown>) : {}
+              const status = String(eventRecord.status ?? '').trim().toUpperCase()
+              if (!['PITCH', 'LIVE', 'COMPLETED', 'ARCHIVED', 'CANCELLED'].includes(status)) {
+                return null
+              }
+              const occurredAt = String(eventRecord.occurredAt ?? '')
+              return {
+                status: status as TeamLifecycleProjectPoint['lifecycleEvents'][number]['status'],
+                occurredAt,
+              }
+            })
+            .filter(
+              (event): event is TeamLifecycleProjectPoint['lifecycleEvents'][number] =>
+                event != null && Boolean(parseDate(event.occurredAt)),
+            )
+        : []
       return {
         projectId: String(record.projectId ?? ''),
         projectName: String(record.projectName ?? 'Unknown Project'),
@@ -1257,6 +1285,7 @@ function asTeamLifecycleProjectPoints(value: unknown): TeamLifecycleProjectPoint
         completedAt: record.completedAt == null ? null : String(record.completedAt),
         archivedAt: record.archivedAt == null ? null : String(record.archivedAt),
         cancelledAt: record.cancelledAt == null ? null : String(record.cancelledAt),
+        lifecycleEvents,
       }
     })
     .filter((row) => row.projectId && row.projectName && row.createdAt)
@@ -1506,6 +1535,21 @@ function buildProjectLifecycleByTeamMemberFromProjects(
         completedAt: project.completedAt ?? null,
         archivedAt: project.archivedAt ?? null,
         cancelledAt: project.cancelledAt ?? null,
+        lifecycleEvents: [
+          { status: 'PITCH', occurredAt: project.createdAt },
+          ...(project.wentLiveAt
+            ? [{ status: 'LIVE' as const, occurredAt: project.wentLiveAt }]
+            : []),
+          ...(project.completedAt
+            ? [{ status: 'COMPLETED' as const, occurredAt: project.completedAt }]
+            : []),
+          ...(project.archivedAt
+            ? [{ status: 'ARCHIVED' as const, occurredAt: project.archivedAt }]
+            : []),
+          ...(project.cancelledAt
+            ? [{ status: 'CANCELLED' as const, occurredAt: project.cancelledAt }]
+            : []),
+        ],
       })
     }
   }
@@ -1551,6 +1595,7 @@ function addLifecycleSegment(
   if (days <= 0) return
   segments.push({
     key,
+    chartKey: `segment${segments.length}`,
     label,
     startDate: start.toISOString(),
     endDate: end.toISOString(),
@@ -1564,33 +1609,41 @@ function projectLifecycleSegments(
 ): ProjectLifecycleStageSegment[] {
   const createdAt = safeLifecycleDate(project.createdAt)
   if (!createdAt) return []
-  const wentLiveAt = safeLifecycleDate(project.wentLiveAt)
-  const completedAt = safeLifecycleDate(project.completedAt)
-  const status = project.status.trim().toUpperCase()
+  const fallbackEvents = [
+    { status: 'PITCH' as const, occurredAt: project.createdAt },
+    ...(project.wentLiveAt ? [{ status: 'LIVE' as const, occurredAt: project.wentLiveAt }] : []),
+    ...(project.completedAt
+      ? [{ status: 'COMPLETED' as const, occurredAt: project.completedAt }]
+      : []),
+    ...(project.archivedAt
+      ? [{ status: 'ARCHIVED' as const, occurredAt: project.archivedAt }]
+      : []),
+    ...(project.cancelledAt
+      ? [{ status: 'CANCELLED' as const, occurredAt: project.cancelledAt }]
+      : []),
+  ]
+  const sourceEvents = project.lifecycleEvents.length > 0 ? project.lifecycleEvents : fallbackEvents
+  const events = sourceEvents
+    .map((event) => ({
+      status: event.status.toLowerCase() as ProjectLifecycleStageSegment['key'],
+      occurredAt: safeLifecycleDate(event.occurredAt),
+    }))
+    .filter((event): event is { status: ProjectLifecycleStageSegment['key']; occurredAt: Date } =>
+      event.occurredAt != null,
+    )
+    .sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime())
+
+  if (events.length === 0 || events[0].occurredAt.getTime() > createdAt.getTime()) {
+    events.unshift({ status: 'pitch', occurredAt: createdAt })
+  }
+
   const segments: ProjectLifecycleStageSegment[] = []
-
-  const hasLiveDate = Boolean(wentLiveAt && wentLiveAt.getTime() >= createdAt.getTime())
-  const hasCompletedDate = Boolean(completedAt && completedAt.getTime() >= createdAt.getTime())
-
-  if (hasLiveDate && wentLiveAt) {
-    addLifecycleSegment(segments, 'pitchDays', 'Pitch', createdAt, wentLiveAt)
-  } else if (!hasLiveDate && status === 'PITCH') {
-    addLifecycleSegment(segments, 'pitchDays', 'Pitch', createdAt, now)
-  }
-
-  const liveStart =
-    hasLiveDate && wentLiveAt
-      ? wentLiveAt
-      : ['LIVE', 'COMPLETED', 'ARCHIVED'].includes(status)
-        ? createdAt
-        : null
-  if (liveStart) {
-    const liveEnd = hasCompletedDate && completedAt ? completedAt : now
-    addLifecycleSegment(segments, 'liveDays', 'Live', liveStart, liveEnd)
-  }
-
-  if (hasCompletedDate && completedAt) {
-    addLifecycleSegment(segments, 'completedDays', 'Completed', completedAt, now)
+  for (let index = 0; index < events.length; index += 1) {
+    const event = events[index]
+    const nextStart = events[index + 1]?.occurredAt ?? now
+    if (nextStart.getTime() < event.occurredAt.getTime()) continue
+    const meta = lifecycleStageMeta(event.status)
+    addLifecycleSegment(segments, meta.key, meta.label, event.occurredAt, nextStart)
   }
 
   return segments
@@ -1622,10 +1675,20 @@ function buildProjectLifecycleChart(
         projectId: project.projectId,
         projectName: project.projectName,
         status: project.status,
-        pitchDays: stages.find((stage) => stage.key === 'pitchDays')?.days ?? 0,
-        liveDays: stages.find((stage) => stage.key === 'liveDays')?.days ?? 0,
-        completedDays: stages.find((stage) => stage.key === 'completedDays')?.days ?? 0,
+        pitchDays: stages
+          .filter((stage) => stage.key === 'pitch')
+          .reduce((sum, stage) => sum + stage.days, 0),
+        liveDays: stages
+          .filter((stage) => stage.key === 'live')
+          .reduce((sum, stage) => sum + stage.days, 0),
+        completedDays: stages
+          .filter((stage) => stage.key === 'completed')
+          .reduce((sum, stage) => sum + stage.days, 0),
         stages,
+        segmentValues: Object.fromEntries(
+          stages.map((stage) => [stage.chartKey, stage.days]),
+        ),
+        ...Object.fromEntries(stages.map((stage) => [stage.chartKey, stage.days])),
       }
     })
     .filter((row): row is ProjectLifecycleChartRow => row != null)
@@ -2003,11 +2066,10 @@ function ProjectAreaTooltip({ active, payload }: TooltipContentProps) {
 function ProjectAreaChart({ data }: { data: ProjectAreaChartRow[] }) {
   const theme = useTheme()
   const axis = useMemo(() => buildProjectAreaAxis(data), [data])
-  const height = Math.max(300, data.length * 46 + 86)
 
   return (
-    <Box sx={{ maxHeight: 520, overflowY: 'auto', overflowX: 'hidden' }}>
-      <ResponsiveContainer width="100%" height={height}>
+    <Box sx={{ overflow: 'visible', width: '100%', height: TEAM_PERFORMANCE_GRAPH_HEIGHT }}>
+      <ResponsiveContainer width="100%" height="100%">
         <RechartsBarChart
           data={data}
           layout="vertical"
@@ -2149,7 +2211,8 @@ function TeamRevenueYearChart({ data }: { data: TeamRevenueYearPoint[] }) {
   const axis = useMemo(() => buildCurrencyAxis(data), [data])
 
   return (
-    <ResponsiveContainer width="100%" height={340}>
+    <Box sx={{ width: '100%', height: TEAM_PERFORMANCE_GRAPH_HEIGHT }}>
+      <ResponsiveContainer width="100%" height="100%">
       <RechartsBarChart
         data={data}
         margin={{ top: 12, right: 24, left: 36, bottom: 16 }}
@@ -2197,7 +2260,8 @@ function TeamRevenueYearChart({ data }: { data: TeamRevenueYearPoint[] }) {
           animationDuration={800}
         />
       </RechartsBarChart>
-    </ResponsiveContainer>
+      </ResponsiveContainer>
+    </Box>
   )
 }
 
@@ -2206,15 +2270,21 @@ const PROJECT_LIFECYCLE_SERIES: Array<{
   label: ProjectLifecycleStageSegment['label']
   color: string
 }> = [
-  { key: 'pitchDays', label: 'Pitch', color: CHART_COLORS.blue },
-  { key: 'liveDays', label: 'Live', color: CHART_COLORS.teal },
-  { key: 'completedDays', label: 'Completed', color: CHART_COLORS.green },
+  { key: 'pitch', label: 'Pitch', color: CHART_COLORS.blue },
+  { key: 'live', label: 'Live', color: CHART_COLORS.teal },
+  { key: 'completed', label: 'Completed', color: CHART_COLORS.green },
+  { key: 'archived', label: 'Archived', color: CHART_COLORS.orange },
+  { key: 'cancelled', label: 'Cancelled', color: CHART_COLORS.red },
 ]
+
+function lifecycleStageMeta(status: ProjectLifecycleStageSegment['key']) {
+  return PROJECT_LIFECYCLE_SERIES.find((stage) => stage.key === status) ?? PROJECT_LIFECYCLE_SERIES[0]
+}
 
 function buildWeekAxis(rows: ProjectLifecycleChartRow[]): { domainMax: number; ticks: number[] } {
   const maxDays = Math.max(
     0,
-    ...rows.map((row) => row.pitchDays + row.liveDays + row.completedDays),
+    ...rows.map((row) => row.stages.reduce((sum, stage) => sum + stage.days, 0)),
   )
   const maxWeeks = Math.max(1, Math.ceil(maxDays / 7))
   const roughStep = Math.max(1, Math.ceil(maxWeeks / 5))
@@ -2249,12 +2319,33 @@ function ProjectLifecycleTooltip({ active, payload }: TooltipContentProps) {
   const row = payload[0]?.payload as ProjectLifecycleChartRow | undefined
   if (!row) return null
 
+  const groupedStages = Array.from(
+    row.stages.reduce(
+      (groups, stage) => {
+        const existing = groups.get(stage.key)
+        if (existing) {
+          existing.days += stage.days
+          if (new Date(stage.startDate).getTime() < new Date(existing.startDate).getTime()) {
+            existing.startDate = stage.startDate
+          }
+          if (new Date(stage.endDate).getTime() > new Date(existing.endDate).getTime()) {
+            existing.endDate = stage.endDate
+          }
+        } else {
+          groups.set(stage.key, { ...stage })
+        }
+        return groups
+      },
+      new Map<ProjectLifecycleStageSegment['key'], ProjectLifecycleStageSegment>(),
+    ).values(),
+  )
+
   return (
     <ChartTooltipShell>
       <Typography variant="caption" fontWeight={700} sx={{ fontSize: 12, display: 'block', mb: 0.5 }}>
         {row.projectName}
       </Typography>
-      {row.stages.map((stage) => (
+      {groupedStages.map((stage) => (
         <Typography
           key={stage.key}
           variant="caption"
@@ -2282,12 +2373,12 @@ function ProjectLifecycleTooltip({ active, payload }: TooltipContentProps) {
 function ProjectLifecycleChart({ data }: { data: ProjectLifecycleChartRow[] }) {
   const theme = useTheme()
   const axis = useMemo(() => buildWeekAxis(data), [data])
-  const height = Math.max(300, data.length * 46 + 86)
+  const segmentCount = Math.max(0, ...data.map((row) => row.stages.length))
 
   return (
     <Box>
-      <Box sx={{ maxHeight: 520, overflowY: 'auto', overflowX: 'hidden' }}>
-        <ResponsiveContainer width="100%" height={height}>
+      <Box sx={{ overflow: 'visible', width: '100%', height: TEAM_PERFORMANCE_GRAPH_HEIGHT }}>
+        <ResponsiveContainer width="100%" height="100%">
           <RechartsBarChart
             data={data}
             layout="vertical"
@@ -2337,19 +2428,29 @@ function ProjectLifecycleChart({ data }: { data: ProjectLifecycleChartRow[] }) {
               }}
               cursor={{ fill: theme.palette.action.hover }}
             />
-            {PROJECT_LIFECYCLE_SERIES.map((stage) => (
+            {Array.from({ length: segmentCount }, (_, index) => (
               <RechartsBar
-                key={stage.key}
-                dataKey={stage.key}
-                name={stage.label}
+                key={`segment${index}`}
+                dataKey={`segment${index}`}
+                name={`Stage ${index + 1}`}
                 stackId="lifecycle"
-                fill={stage.color}
-                radius={stage.key === 'completedDays' ? [0, 4, 4, 0] : 0}
+                fill={CHART_COLORS.teal}
+                radius={index === segmentCount - 1 ? [0, 4, 4, 0] : 0}
                 maxBarSize={18}
-                minPointSize={stage.key === 'completedDays' ? 4 : 0}
+                minPointSize={0}
                 activeBar={false}
                 animationDuration={800}
-              />
+              >
+                {data.map((row) => {
+                  const stage = row.stages[index]
+                  return (
+                    <RechartsCell
+                      key={`${row.projectId}-${index}`}
+                      fill={stage ? lifecycleStageMeta(stage.key).color : 'transparent'}
+                    />
+                  )
+                })}
+              </RechartsBar>
             ))}
           </RechartsBarChart>
         </ResponsiveContainer>
@@ -2368,6 +2469,10 @@ function ProjectLifecycleChart({ data }: { data: ProjectLifecycleChartRow[] }) {
 
 const PROJECT_STATUS_AXIS_TICKS = PROJECT_STATUS_PROGRESS_SERIES.map(
   (_stage, index) => index + 0.5,
+)
+const PROJECT_STATUS_BOUNDARY_TICKS = Array.from(
+  { length: PROJECT_STATUS_PROGRESS_SERIES.length + 1 },
+  (_value, index) => index,
 )
 
 function formatStatusAxis(value: number | string): string {
@@ -2439,12 +2544,11 @@ function ProjectStatusProgressTooltip({ active, payload }: TooltipContentProps) 
 
 function ProjectStatusProgressChart({ data }: { data: ProjectStatusProgressChartRow[] }) {
   const theme = useTheme()
-  const height = Math.max(300, data.length * 46 + 86)
 
   return (
     <Box>
-      <Box sx={{ maxHeight: 520, overflowY: 'auto', overflowX: 'hidden' }}>
-        <ResponsiveContainer width="100%" height={height}>
+      <Box sx={{ overflow: 'visible', width: '100%', height: TEAM_PERFORMANCE_GRAPH_HEIGHT }}>
+        <ResponsiveContainer width="100%" height="100%">
           <RechartsBarChart
             data={data}
             layout="vertical"
@@ -2455,7 +2559,7 @@ function ProjectStatusProgressChart({ data }: { data: ProjectStatusProgressChart
               stroke={tokens.color.neutral[200]}
               strokeDasharray="3 3"
               horizontal={false}
-              vertical
+              vertical={false}
             />
             <XAxis
               type="number"
@@ -2473,6 +2577,14 @@ function ProjectStatusProgressChart({ data }: { data: ProjectStatusProgressChart
                 fontSize: 11,
               }}
             />
+            {PROJECT_STATUS_BOUNDARY_TICKS.map((boundary) => (
+              <ReferenceLine
+                key={boundary}
+                x={boundary}
+                stroke={tokens.color.neutral[200]}
+                strokeDasharray="3 3"
+              />
+            ))}
             <YAxis
               type="category"
               dataKey="projectName"
@@ -2515,7 +2627,7 @@ function ProjectStatusProgressChart({ data }: { data: ProjectStatusProgressChart
                   return (
                     <RechartsCell
                       key={`${row.projectId}-${stage.key}`}
-                      fill={isReached ? stage.color : 'transparent'}
+                      fill={isReached ? stage.color : tokens.color.neutral[100]}
                     />
                   )
                 })}
@@ -2601,6 +2713,86 @@ function TeamPerformanceTooltip({
   )
 }
 
+function TeamYearComparisonChart({
+  chart,
+}: {
+  chart: TeamPerformanceChartConfig
+}) {
+  const theme = useTheme()
+  const memberAxisWidth = Math.min(
+    240,
+    Math.max(140, ...chart.data.map((row) => String(row.member ?? '').length * 7 + 24)),
+  )
+
+  return (
+    <Box
+      sx={{ overflow: 'visible', width: '100%', height: TEAM_PERFORMANCE_GRAPH_HEIGHT }}
+    >
+      <ResponsiveContainer width="100%" height="100%">
+        <RechartsBarChart
+          data={[...chart.data]}
+          layout="vertical"
+          barCategoryGap="20%"
+          margin={{ top: 4, right: 16, left: 0, bottom: 4 }}
+        >
+          <CartesianGrid
+            stroke={tokens.color.neutral[200]}
+            strokeDasharray="3 3"
+            horizontal={false}
+            vertical
+          />
+          <XAxis
+            type="number"
+            tick={{ fill: theme.palette.text.secondary, fontSize: 11 }}
+            tickLine={false}
+            axisLine={{ stroke: tokens.color.neutral[300], strokeWidth: 1 }}
+            tickFormatter={formatCount}
+          />
+          <YAxis
+            type="category"
+            dataKey="member"
+            width={memberAxisWidth}
+            tick={{ fill: theme.palette.text.secondary, fontSize: 11, textAnchor: 'end' }}
+            tickLine={false}
+            axisLine={{ stroke: tokens.color.neutral[200] }}
+            tickMargin={8}
+          />
+          <Tooltip
+            content={(props) => <TeamPerformanceTooltip {...props} format={chart.format} />}
+            cursor={{ fill: theme.palette.action.hover }}
+            isAnimationActive={false}
+            animationDuration={0}
+            allowEscapeViewBox={{ x: true, y: true }}
+            offset={12}
+            wrapperStyle={{
+              outline: 'none',
+              pointerEvents: 'none',
+              zIndex: tokens.zIndex.tooltip,
+            }}
+          />
+          {chart.series.map((series) => (
+            <RechartsBar
+              key={series.key}
+              dataKey={series.key}
+              name={series.label}
+              fill={series.color}
+              radius={[0, 4, 4, 0]}
+              maxBarSize={14}
+              activeBar={false}
+              animationDuration={800}
+            />
+          ))}
+        </RechartsBarChart>
+      </ResponsiveContainer>
+      <Box sx={{ mt: 1, display: 'flex', justifyContent: 'center' }}>
+        <ChartSeriesLegend
+          items={chart.series.map((series) => ({ label: series.label, color: series.color }))}
+        />
+      </Box>
+    </Box>
+  )
+}
+
 function TeamPerformanceGraph({
   chart,
   projectAreaChart,
@@ -2671,6 +2863,21 @@ function TeamPerformanceGraph({
         <CircularProgress size={28} />
       </Box>
     )
+  }
+
+  if (yearComparison) {
+    if (!hasChartData) {
+      return (
+        <Typography
+          variant="body2"
+          color="text.secondary"
+          sx={{ fontSize: 12, py: 6, textAlign: 'center' }}
+        >
+          No completed projects for the selected team member.
+        </Typography>
+      )
+    }
+    return <TeamYearComparisonChart chart={chart} />
   }
 
   if (metric === 'Revenue') {
@@ -2747,17 +2954,7 @@ function TeamPerformanceGraph({
 
   return (
     <Box
-      sx={{
-        maxHeight: 520,
-        overflowY: 'auto',
-        overflowX: 'hidden',
-        '&::-webkit-scrollbar': { width: 6 },
-        '&::-webkit-scrollbar-track': { bgcolor: 'transparent' },
-        '&::-webkit-scrollbar-thumb': {
-          bgcolor: 'divider',
-          borderRadius: 3,
-        },
-      }}
+      sx={{ overflow: 'visible', width: '100%' }}
     >
       <BarChart
         key={`${teamMemberIds.join(',')}-${metric}`}

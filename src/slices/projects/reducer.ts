@@ -97,6 +97,8 @@ export interface Project {
   expectedEndDate: string | null
   projectValue: number
   totalClientPOValue: number
+  clientReceived?: number
+  actualProfitPct?: number | null
   totalVendorPOValue: number
   invoicedAmount: number
   paidVendorAmount: number
@@ -110,6 +112,10 @@ export interface Project {
   completedAt?: string | null
   archivedAt?: string | null
   cancelledAt?: string | null
+  lifecycleEvents?: Array<{
+    status: 'Pitch' | 'Live' | 'Completed' | 'Cancelled' | 'Archived'
+    occurredAt: string
+  }>
   // Extended metadata
   sector?: string
   gstNumber?: string

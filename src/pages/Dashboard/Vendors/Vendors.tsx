@@ -1167,7 +1167,7 @@ export function getVendorProjectPerformanceAnalytics(
 
     return {
       vendorOptions,
-      rows: selectedVendorId ? rows : rows.slice(0, 5),
+      rows: selectedVendorId ? rows : rows.slice(0, 10),
     }
   }
 
@@ -1310,7 +1310,7 @@ export function getVendorProjectPerformanceAnalytics(
 
   return {
     vendorOptions,
-    rows: selectedVendorId ? rows : rows.slice(0, 5),
+    rows: selectedVendorId ? rows : rows.slice(0, 10),
   }
 }
 
@@ -1365,7 +1365,7 @@ function buildVendorProjectPerformanceFromServer(
 
   return {
     vendorOptions: source.vendorOptions,
-    rows: selectedVendorId ? rows : rows.slice(0, 5),
+    rows: selectedVendorId ? rows : rows.slice(0, 10),
   }
 }
 
@@ -2167,7 +2167,7 @@ function VendorBillingYearModal({
       <Box
         sx={{
           display: 'grid',
-          gridTemplateColumns: 'minmax(180px, 1.4fr) repeat(4, minmax(96px, auto))',
+          gridTemplateColumns: 'minmax(180px, 1.4fr) repeat(3, minmax(96px, auto))',
           columnGap: 3,
           pb: 1,
           mb: 0.5,
@@ -2186,7 +2186,7 @@ function VendorBillingYearModal({
         >
           Vendor
         </Typography>
-        {['Amount Paid', 'Completed', 'Area', 'Payable'].map((label) => (
+        {['Amount Paid', 'Area', 'Payable'].map((label) => (
           <Typography
             key={label}
             variant="caption"
@@ -2214,7 +2214,7 @@ function VendorBillingYearModal({
         <Box
           sx={{
             display: 'grid',
-            gridTemplateColumns: 'minmax(180px, 1.4fr) repeat(4, minmax(96px, auto))',
+            gridTemplateColumns: 'minmax(180px, 1.4fr) repeat(3, minmax(96px, auto))',
             columnGap: 3,
             rowGap: 1,
             py: 1,
@@ -2230,12 +2230,6 @@ function VendorBillingYearModal({
                 sx={{ fontSize: 13, fontWeight: 600, textAlign: 'right' }}
               >
                 {formatBillingValue(row.amount)}
-              </Typography>
-              <Typography
-                variant="body2"
-                sx={{ fontSize: 13, fontWeight: 600, textAlign: 'right' }}
-              >
-                {row.completedProjects}
               </Typography>
               <Typography
                 variant="body2"

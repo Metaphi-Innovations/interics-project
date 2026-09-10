@@ -34,10 +34,13 @@ import {
   Banknote,
   Building2,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Clock3,
   IndianRupee,
   Percent,
   PlayCircle,
+  RotateCcw,
   Sparkles,
   Wallet,
   X,
@@ -802,6 +805,74 @@ function buildProjectLifecycleData(projects: Project[]): {
   return { lines, events: allEvents }
 }
 
+interface TimelineEvent {
+  id: string
+  projectId: string
+  projectName: string
+  status: LifecycleEventType
+  timestamp: number
+  areaSqft: number | null
+}
+
+interface TimelineProjectLine {
+  projectId: string
+  projectName: string
+  createdAt: number
+  totalDurationDays: number | null
+  events: TimelineEvent[]
+}
+
+function buildProjectLifecycleTimelineData(projects: Project[]): TimelineProjectLine[] {
+  return [...projects]
+    .sort((a, b) => (parseDate(b.createdAt)?.getTime() ?? 0) - (parseDate(a.createdAt)?.getTime() ?? 0))
+    .map((project) => {
+      const createdAt = parseDate(project.createdAt)?.getTime()
+      if (createdAt == null) return null
+
+      const fallbackEvents: Array<{ status: LifecycleEventType; timestamp: string | null | undefined }> = [
+        { status: 'Pitch', timestamp: project.createdAt },
+        { status: 'Live', timestamp: project.wentLiveAt },
+        { status: 'Completed', timestamp: project.completedAt },
+        { status: 'Archived', timestamp: project.archivedAt },
+        { status: 'Cancelled', timestamp: project.cancelledAt },
+      ]
+      const sourceEvents = project.lifecycleEvents?.length
+        ? project.lifecycleEvents.map((event) => ({ status: event.status, timestamp: event.occurredAt }))
+        : fallbackEvents.filter((event) => Boolean(event.timestamp))
+      const events = sourceEvents
+        .map((event, index) => {
+          const timestamp = parseDate(event.timestamp)?.getTime()
+          if (timestamp == null) return null
+          return {
+            id: `${project.id}-${event.status}-${timestamp}-${index}`,
+            projectId: project.id,
+            projectName: project.name,
+            status: event.status,
+            timestamp,
+            areaSqft: projectSqft(project),
+          } satisfies TimelineEvent
+        })
+        .filter((event): event is TimelineEvent => Boolean(event))
+        .sort((a, b) => a.timestamp - b.timestamp)
+
+      const start = parseDate(project.startDate)?.getTime()
+      const end = parseDate(project.expectedEndDate)?.getTime()
+      const totalDurationDays =
+        start != null && end != null && end >= start
+          ? Math.round((end - start) / 86_400_000) + 1
+          : null
+
+      return {
+        projectId: project.id,
+        projectName: project.name,
+        createdAt,
+        totalDurationDays,
+        events,
+      } satisfies TimelineProjectLine
+    })
+    .filter((line): line is TimelineProjectLine => Boolean(line))
+}
+
 /**
  * Dashboard Projects Overview module.
  */
@@ -1262,7 +1333,7 @@ function financialSummary(
       id: 'profit-pct',
       title: 'Profit Percentage',
       value: profitPct,
-      subtitle: 'Client PO minus vendor paid, divided by client PO.',
+      subtitle: 'Client received minus vendor paid, divided by client received.',
       icon: 'profit',
     },
     {
@@ -1317,10 +1388,13 @@ function projectDesignFee(project: Project): number {
 }
 
 function projectProfitPercent(project: Project): string {
-  const clientPoAmount = projectValue(project)
+  if (project.actualProfitPct != null && Number.isFinite(project.actualProfitPct)) {
+    return `${Math.round(project.actualProfitPct * 100) / 100}%`
+  }
+  const clientReceived = project.clientReceived ?? 0
   const vendorPaid = project.paidVendorAmount || 0
-  if (clientPoAmount <= 0) return '0%'
-  return `${Math.round(((clientPoAmount - vendorPaid) / clientPoAmount) * 1000) / 10}%`
+  if (clientReceived <= 0) return '0%'
+  return `${Math.round(((clientReceived - vendorPaid) / clientReceived) * 1000) / 10}%`
 }
 
 function projectFeePerSqft(project: Project, area: number): DesignFeePerSqftRow[] {
@@ -1402,6 +1476,7 @@ function buildFeePerSqftChartData(
 interface ChartSeriesLegendItem {
   label: string
   color: string
+  marker?: 'bar' | 'circle' | 'diamond' | 'cross' | 'square'
 }
 
 function ChartSeriesLegend({ items }: { items: ChartSeriesLegendItem[] }) {
@@ -1419,11 +1494,30 @@ function ChartSeriesLegend({ items }: { items: ChartSeriesLegendItem[] }) {
         <Box key={item.label} sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75 }}>
           <Box
             sx={{
-              width: 10,
-              height: 10,
-              borderRadius: '2px',
+              width: item.marker === 'bar' ? 18 : 10,
+              height: item.marker === 'bar' ? 8 : 10,
+              borderRadius: item.marker === 'circle' || item.marker === 'diamond' ? '50%' : '2px',
               bgcolor: item.color,
               flexShrink: 0,
+              transform: item.marker === 'diamond' ? 'rotate(45deg) scale(0.8)' : 'none',
+              position: 'relative',
+              ...(item.marker === 'cross'
+                ? {
+                    bgcolor: 'transparent',
+                    '&::before, &::after': {
+                      content: '""',
+                      position: 'absolute',
+                      left: '50%',
+                      top: '50%',
+                      width: 3,
+                      height: 12,
+                      borderRadius: 1,
+                      bgcolor: item.color,
+                    },
+                    '&::before': { transform: 'translate(-50%, -50%) rotate(45deg)' },
+                    '&::after': { transform: 'translate(-50%, -50%) rotate(-45deg)' },
+                  }
+                : {}),
             }}
           />
           <Typography
@@ -2132,7 +2226,7 @@ function ProjectsOverviewSection({
 
 /**
  * Dashboard — Project Analytics
- * Project Lifecycle & Size timeline + yearly completions
+ * Project Lifecycle Timeline + yearly completions
  */
 
 /* ─────────────────── constants ─────────────────── */
@@ -2176,12 +2270,12 @@ const EVENT_COLORS: Record<LifecycleEventType, string> = {
   Archived: CHART_COLORS.orange,
 }
 
-const LEGEND_ITEMS = [
-  { label: 'Pitch', color: CHART_COLORS.blue },
-  { label: 'Live', color: CHART_COLORS.teal },
-  { label: 'Completed', color: CHART_COLORS.green },
-  { label: 'Cancelled', color: CHART_COLORS.red },
-  { label: 'Archived', color: CHART_COLORS.orange },
+const TIMELINE_LEGEND_ITEMS = [
+  { label: 'Pitch', color: CHART_COLORS.blue, marker: 'bar' },
+  { label: 'Live', color: CHART_COLORS.teal, marker: 'bar' },
+  { label: 'Completed', color: CHART_COLORS.green, marker: 'diamond' },
+  { label: 'Cancelled', color: CHART_COLORS.red, marker: 'cross' },
+  { label: 'Archived', color: CHART_COLORS.orange, marker: 'square' },
 ] as const
 
 /** FY month labels shown on the X-axis (Apr -> Mar, no years). */
@@ -2593,9 +2687,228 @@ function LifecycleChart({
 
 /* ─────────────────── section component ─────────────────── */
 
+// Kept local for compatibility with older chart snapshots; the timeline below is the rendered chart.
+void buildProjectLifecycleData
+void FILTER_LABEL_SX
+void AUTOCOMPLETE_SX
+void ALL_PROJECTS_OPTION
+void buildFyAxis
+void LifecycleChartTooltip
+void LifecycleChart
+
+type TimelineSegment = {
+  kind: 'duration' | 'milestone'
+  status: LifecycleEventType
+  start: number
+  end: number
+  event: TimelineEvent
+}
+
+interface TimelineTooltipState {
+  segment: TimelineSegment
+  x: number
+  y: number
+}
+
+const TIMELINE_ROW_HEIGHT = 48
+const TIMELINE_PROJECT_COLUMN = 190
+const TIMELINE_DURATION_COLUMN = 110
+const TIMELINE_MONTHS = ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar']
+
+function timelineFyStartYear(timestamp: number): number {
+  const date = new Date(timestamp)
+  return date.getMonth() >= 3 ? date.getFullYear() : date.getFullYear() - 1
+}
+
+function timelineDate(timestamp: number): string {
+  return new Date(timestamp).toLocaleString('en-GB', {
+    day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+  })
+}
+
+function timelineSegments(line: TimelineProjectLine, now: number): TimelineSegment[] {
+  return line.events.flatMap<TimelineSegment>((event, index) => {
+    const next = line.events[index + 1]?.timestamp
+    if (event.status === 'Pitch' || event.status === 'Live') {
+      const end = next ?? now
+      return end > event.timestamp
+        ? [{ kind: 'duration' as const, status: event.status, start: event.timestamp, end, event }]
+        : []
+    }
+    return [{ kind: 'milestone' as const, status: event.status, start: event.timestamp, end: event.timestamp, event }]
+  })
+}
+
+function TimelineTooltip({ tip }: { tip: TimelineTooltipState }) {
+  const { segment, x, y } = tip
+  const color = EVENT_COLORS[segment.status]
+  return (
+    <Box
+      sx={{
+        position: 'fixed', left: x, top: y, transform: 'translate(-50%, calc(-100% - 12px))',
+        zIndex: 9999, bgcolor: tokens.color.neutral[900], color: tokens.color.neutral[50],
+        borderRadius: 1, boxShadow: `0 8px 24px ${alpha(tokens.color.neutral[900], 0.35)}`,
+        px: 1.5, py: 1.25, minWidth: 220, pointerEvents: 'none',
+      }}
+    >
+      <Typography variant="caption" sx={{ display: 'block', fontWeight: 700, color, mb: 0.5 }}>
+        {segment.event.projectName} - {segment.status}
+      </Typography>
+      <Typography variant="caption" sx={{ display: 'block' }}>
+        Area: {segment.event.areaSqft != null && segment.event.areaSqft > 0 ? `${formatSqft(segment.event.areaSqft)} sq.ft.` : '\u2014'}
+      </Typography>
+      <Typography variant="caption" sx={{ display: 'block' }}>Date: {timelineDate(segment.start)}</Typography>
+    </Box>
+  )
+}
+
+function ProjectLifecycleTimelineChart({
+  lines,
+  fyStartYear,
+  onHover,
+}: {
+  lines: TimelineProjectLine[]
+  fyStartYear: number
+  onHover: (tip: TimelineTooltipState | null) => void
+}) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [width, setWidth] = useState(900)
+  const [zoomMonth, setZoomMonth] = useState<number | null>(null)
+  const now = useMemo(() => Date.now(), [])
+  const visibleLines = lines.slice(0, 10)
+
+  useEffect(() => {
+    const element = containerRef.current
+    if (!element) return
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry?.contentRect.width) setWidth(entry.contentRect.width)
+    })
+    observer.observe(element)
+    setWidth(element.clientWidth || 900)
+    return () => observer.disconnect()
+  }, [])
+
+  useEffect(() => {
+    setZoomMonth(null)
+    onHover(null)
+  }, [fyStartYear, onHover])
+
+  const monthStart = (index: number) => {
+    const year = index < 9 ? fyStartYear : fyStartYear + 1
+    const month = (index + 3) % 12
+    return new Date(year, month, 1).getTime()
+  }
+  const viewStart = zoomMonth == null ? monthStart(0) : monthStart(zoomMonth)
+  const viewEnd = zoomMonth == null
+    ? new Date(fyStartYear + 1, 3, 1).getTime()
+    : monthStart(zoomMonth + 1 <= 11 ? zoomMonth + 1 : 12)
+  const plotLeft = TIMELINE_PROJECT_COLUMN + TIMELINE_DURATION_COLUMN
+  const plotWidth = Math.max(1, width - plotLeft)
+  const rowTop = 66
+  const rowBottom = rowTop + visibleLines.length * TIMELINE_ROW_HEIGHT
+  const axisHeight = 46
+  const svgHeight = rowBottom + axisHeight
+  const toX = (timestamp: number) => {
+    if (zoomMonth == null) {
+      const monthIndex = Math.max(0, Math.min(11, TIMELINE_MONTHS.findIndex((_, index) => {
+        const start = monthStart(index)
+        const end = index === 11 ? viewEnd : monthStart(index + 1)
+        return timestamp >= start && timestamp < end
+      })))
+      const start = monthStart(monthIndex)
+      const end = monthIndex === 11 ? viewEnd : monthStart(monthIndex + 1)
+      return plotLeft + ((monthIndex + Math.max(0, Math.min(1, (timestamp - start) / (end - start)))) / 12) * plotWidth
+    }
+    return plotLeft + Math.max(0, Math.min(1, (timestamp - viewStart) / (viewEnd - viewStart))) * plotWidth
+  }
+  const displaySegment = (segment: TimelineSegment) => {
+    if (segment.kind === 'milestone') return segment.start >= viewStart && segment.start < viewEnd
+    return segment.end > viewStart && segment.start < viewEnd
+  }
+  const showTooltip = (event: ReactMouseEvent<SVGElement>, segment: TimelineSegment) => {
+    onHover({ segment, x: event.clientX, y: event.clientY })
+  }
+
+  const weekTicks = zoomMonth == null ? [] : Array.from({ length: Math.ceil((viewEnd - viewStart) / (7 * 86_400_000)) + 1 }, (_, index) => {
+    const timestamp = Math.min(viewEnd, viewStart + index * 7 * 86_400_000)
+    return { timestamp, label: `${new Date(timestamp).getDate()}-${Math.min(new Date(timestamp + 6 * 86_400_000).getDate(), new Date(viewEnd - 1).getDate())}` }
+  })
+
+  return (
+    <Box ref={containerRef} sx={{ width: '100%', overflow: 'hidden' }}>
+      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 0.75 }}>
+        <ChartSeriesLegend items={[...TIMELINE_LEGEND_ITEMS]} />
+        {zoomMonth != null && (
+          <IconButton size="small" onClick={() => setZoomMonth(null)} aria-label="Reset timeline zoom" title="Reset zoom">
+            <RotateCcw size={15} />
+          </IconButton>
+        )}
+      </Stack>
+      <svg width="100%" height={svgHeight} viewBox={`0 0 ${width} ${svgHeight}`} style={{ display: 'block' }}>
+        <line x1={0} y1={rowTop} x2={width} y2={rowTop} stroke={tokens.color.neutral[200]} />
+        <line x1={plotLeft} y1={rowTop} x2={plotLeft} y2={rowBottom} stroke={tokens.color.neutral[300]} />
+        <text x={12} y={25} fontSize={11} fontWeight={700} fill={tokens.color.neutral[600]}>Project</text>
+        <text x={TIMELINE_PROJECT_COLUMN + 12} y={25} fontSize={11} fontWeight={700} fill={tokens.color.neutral[600]}>Total Duration</text>
+        <text x={plotLeft + 12} y={25} fontSize={11} fontWeight={700} fill={tokens.color.neutral[600]}>Timeline</text>
+
+        {zoomMonth == null ? TIMELINE_MONTHS.map((label, index) => {
+          const x = plotLeft + (index / 12) * plotWidth
+          return (
+            <g key={label}>
+              <rect x={x} y={rowTop} width={plotWidth / 12} height={rowBottom - rowTop} fill="transparent" onClick={() => setZoomMonth(index)} style={{ cursor: 'zoom-in' }} />
+              <line x1={x} y1={rowTop} x2={x} y2={rowBottom} stroke={tokens.color.neutral[200]} strokeDasharray="3 3" />
+              <text x={x + plotWidth / 24} y={rowTop - 12} textAnchor="middle" fontSize={11} fill={tokens.color.neutral[600]}>{label}</text>
+            </g>
+          )
+        }) : weekTicks.map((tick) => {
+          const x = toX(tick.timestamp)
+          return <g key={tick.timestamp}><line x1={x} y1={rowTop} x2={x} y2={rowBottom} stroke={tokens.color.neutral[200]} strokeDasharray="3 3" /><text x={x + 4} y={rowTop - 12} fontSize={10} fill={tokens.color.neutral[600]}>{tick.label}</text></g>
+        })}
+
+        {visibleLines.map((line, rowIndex) => {
+          const y = rowTop + rowIndex * TIMELINE_ROW_HEIGHT
+          return (
+            <g key={line.projectId}>
+              <line x1={0} y1={y + TIMELINE_ROW_HEIGHT} x2={width} y2={y + TIMELINE_ROW_HEIGHT} stroke={tokens.color.neutral[200]} />
+              <text x={12} y={y + 29} fontSize={12} fill={tokens.color.neutral[800]}>{line.projectName}</text>
+              <text x={TIMELINE_PROJECT_COLUMN + 12} y={y + 29} fontSize={12} fill={tokens.color.neutral[700]}>{line.totalDurationDays == null ? '\u2014' : `${line.totalDurationDays} days`}</text>
+              {timelineSegments(line, now).filter(displaySegment).map((segment) => {
+                const color = EVENT_COLORS[segment.status]
+                const centerY = y + TIMELINE_ROW_HEIGHT / 2
+                if (segment.kind === 'milestone') {
+                  const x = toX(segment.start)
+                  if (segment.status === 'Completed') {
+                    return <path key={segment.event.id} d={`M ${x} ${centerY - 8} L ${x + 8} ${centerY} L ${x} ${centerY + 8} L ${x - 8} ${centerY} Z`} fill={color} onMouseMove={(event) => showTooltip(event, segment)} onMouseLeave={() => onHover(null)} style={{ cursor: 'pointer' }} />
+                  }
+                  if (segment.status === 'Cancelled') {
+                    return <g key={segment.event.id} onMouseMove={(event) => showTooltip(event, segment)} onMouseLeave={() => onHover(null)} style={{ cursor: 'pointer' }}><line x1={x - 7} y1={centerY - 7} x2={x + 7} y2={centerY + 7} stroke={color} strokeWidth={3} /><line x1={x + 7} y1={centerY - 7} x2={x - 7} y2={centerY + 7} stroke={color} strokeWidth={3} /></g>
+                  }
+                  return <rect key={segment.event.id} x={x - 7} y={centerY - 7} width={14} height={14} fill={color} onMouseMove={(event) => showTooltip(event, segment)} onMouseLeave={() => onHover(null)} style={{ cursor: 'pointer' }} />
+                }
+                const start = Math.max(segment.start, viewStart)
+                const end = Math.min(segment.end, viewEnd)
+                const x = toX(start)
+                const right = toX(end)
+                const clippedLeft = segment.start < viewStart
+                const clippedRight = segment.end > viewEnd
+                const barWidth = Math.max(4, right - x)
+                return <g key={segment.event.id} onMouseMove={(event) => showTooltip(event, segment)} onMouseLeave={() => onHover(null)} style={{ cursor: 'pointer' }}><rect x={x} y={centerY - 8} width={barWidth} height={16} rx={4} fill={color} /><circle cx={x} cy={centerY} r={5} fill={color} stroke={tokens.color.neutral[50]} strokeWidth={2} />{clippedLeft && <path d={`M ${x + 1} ${centerY} l 7 -6 v 12 z`} fill={tokens.color.neutral[100]} />}{clippedRight && <path d={`M ${x + barWidth - 1} ${centerY} l -7 -6 v 12 z`} fill={tokens.color.neutral[100]} />}</g>
+              })}
+            </g>
+          )
+        })}
+        <line x1={plotLeft} y1={rowBottom} x2={width} y2={rowBottom} stroke={tokens.color.neutral[300]} />
+      </svg>
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', textAlign: 'center', mt: 0.5 }}>
+        {zoomMonth == null ? 'Click a month to zoom into weekly dates.' : `Detailed view: ${TIMELINE_MONTHS[zoomMonth]} ${zoomMonth < 9 ? fyStartYear : fyStartYear + 1}`}
+      </Typography>
+    </Box>
+  )
+}
+
 interface ProjectAnalyticsSectionProps {
   projects: Project[]
-  dateRange?: string
+  dateRange?: DashboardDateRange
   clientFilter?: string
   statusFilter?: string
   pmFilter?: string
@@ -2603,12 +2916,15 @@ interface ProjectAnalyticsSectionProps {
 
 function ProjectAnalyticsSection({
   projects,
+  dateRange,
   clientFilter = 'All Clients',
   statusFilter = 'All Status',
   pmFilter = 'All Managers',
 }: ProjectAnalyticsSectionProps) {
-  const [projectId, setProjectId] = useState(ALL_PROJECTS_VALUE)
-  const [tooltip, setTooltip] = useState<TooltipState | null>(null)
+  const [tooltip, setTooltip] = useState<TimelineTooltipState | null>(null)
+  const [fyStartYear, setFyStartYear] = useState(() =>
+    timelineFyStartYear(dateRange?.[0]?.getTime() ?? Date.now()),
+  )
 
   // Lifecycle chart ignores date-range filter so spans remain visible.
   const lifecycleProjects = useMemo(
@@ -2622,57 +2938,14 @@ function ProjectAnalyticsSection({
     [projects, clientFilter, statusFilter, pmFilter],
   )
 
-  const lifecycleData = useMemo(
-    () => buildProjectLifecycleData(lifecycleProjects),
+  const lifecycleLines = useMemo(
+    () => buildProjectLifecycleTimelineData(lifecycleProjects),
     [lifecycleProjects],
   )
 
-  const projectOptions = useMemo(() => {
-    const ids = new Set(lifecycleData.events.map((e) => e.projectId))
-    return lifecycleProjects
-      .filter((p) => ids.has(p.id))
-      .map((p) => ({ value: p.id, label: p.name }))
-      .sort((a, b) => a.label.localeCompare(b.label))
-  }, [lifecycleProjects, lifecycleData])
-
-  const selectedProjectOption = useMemo(
-    () => projectOptions.find((o) => o.value === projectId) ?? ALL_PROJECTS_OPTION,
-    [projectOptions, projectId],
-  )
-
   useEffect(() => {
-    if (!projectOptions.some((o) => o.value === projectId)) {
-      setProjectId(ALL_PROJECTS_VALUE)
-    }
-  }, [projectOptions, projectId])
-
-  const handleProjectChange = (
-    _event: SyntheticEvent,
-    value: typeof ALL_PROJECTS_OPTION | null,
-  ) => {
-    if (value == null) return
-    setProjectId(value.value)
-  }
-
-  const { lines } = useMemo(() => {
-    if (projectId === ALL_PROJECTS_VALUE) return lifecycleData
-    return {
-      lines: lifecycleData.lines.filter((l) => l.projectId === projectId),
-      events: lifecycleData.events.filter((e) => e.projectId === projectId),
-    }
-  }, [lifecycleData, projectId])
-
-  const visibleEvents = useMemo(() => {
-    if (projectId === ALL_PROJECTS_VALUE) return lifecycleData.events
-    return lifecycleData.events.filter((e) => e.projectId === projectId)
-  }, [lifecycleData, projectId])
-
-  const fyAxis = useMemo(() => {
-    const refTs = visibleEvents.length
-      ? Math.max(...visibleEvents.map((e) => e.date))
-      : Date.now()
-    return buildFyAxis(refTs)
-  }, [visibleEvents])
+    if (dateRange?.[0]) setFyStartYear(timelineFyStartYear(dateRange[0].getTime()))
+  }, [dateRange])
 
   const projectsCompletedByYear = useMemo(
     () => buildProjectsCompletedByYear(projects),
@@ -2694,60 +2967,23 @@ function ProjectAnalyticsSection({
         {/* ── Project Lifecycle & Size ── */}
         <Grid size={{ xs: 12 }}>
           <ChartCard
-            title="Project Lifecycle & Size"
+            title="Project Lifecycle Timeline"
             subtitle="Project lifecycle distribution by project (Pitch → Live → Completed/Cancelled/Archived)."
             action={
-              <Box
-                sx={{
-                  display: 'flex',
-                  flexDirection: { xs: 'column', md: 'row' },
-                  alignItems: { xs: 'stretch', md: 'flex-start' },
-                  gap: { xs: 1.5, md: 3 },
-                }}
-              >
-                <Box sx={{ pt: { md: 0.5 } }}>
-                  <ChartSeriesLegend items={[...LEGEND_ITEMS]} />
-                </Box>
-                <Box sx={{ width: { xs: '100%', sm: 220 } }}>
-                  <Typography
-                    variant="caption"
-                    color="text.secondary"
-                    fontWeight={600}
-                    sx={FILTER_LABEL_SX}
-                  >
-                    Project
-                  </Typography>
-                  <Autocomplete
-                    size="small"
-                    disableClearable
-                    options={[ALL_PROJECTS_OPTION, ...projectOptions]}
-                    value={selectedProjectOption}
-                    onChange={handleProjectChange}
-                    getOptionLabel={(option) => option.label}
-                    isOptionEqualToValue={(option, value) => option.value === value.value}
-                    filterOptions={(options, state) => {
-                      const q = state.inputValue.trim().toLowerCase()
-                      if (!q) return options
-                      return options.filter((o) => o.label.toLowerCase().includes(q))
-                    }}
-                    renderInput={(params) => (
-                      <TextField {...params} placeholder="Search projects..." />
-                    )}
-                    slotProps={{
-                      paper: {
-                        sx: {
-                          fontSize: 12,
-                          '& .MuiAutocomplete-option': { fontSize: 12, minHeight: 36 },
-                        },
-                      },
-                    }}
-                    sx={{ ...AUTOCOMPLETE_SX, maxWidth: '100%' }}
-                  />
-                </Box>
-              </Box>
+              <Stack direction="row" spacing={0.5} alignItems="center">
+                <IconButton size="small" onClick={() => setFyStartYear((year) => year - 1)} aria-label="Previous financial year">
+                  <ChevronLeft size={17} />
+                </IconButton>
+                <Typography variant="caption" fontWeight={700} sx={{ minWidth: 86, textAlign: 'center' }}>
+                  FY {fyStartYear}-{String(fyStartYear + 1).slice(-2)}
+                </Typography>
+                <IconButton size="small" onClick={() => setFyStartYear((year) => year + 1)} aria-label="Next financial year">
+                  <ChevronRight size={17} />
+                </IconButton>
+              </Stack>
             }
           >
-            {lines.length === 0 ? (
+            {lifecycleLines.length === 0 ? (
               <Typography
                 variant="body2"
                 color="text.secondary"
@@ -2756,15 +2992,13 @@ function ProjectAnalyticsSection({
                 No projects with lifecycle events for the selected filters.
               </Typography>
             ) : (
-              <LifecycleChart
-                lines={lines}
-                domainStart={fyAxis.domainStart}
-                domainEnd={fyAxis.domainEnd}
-                ticks={fyAxis.ticks}
+              <ProjectLifecycleTimelineChart
+                lines={lifecycleLines}
+                fyStartYear={fyStartYear}
                 onHover={setTooltip}
               />
             )}
-            {tooltip && <LifecycleChartTooltip tip={tooltip} />}
+            {tooltip && <TimelineTooltip tip={tooltip} />}
           </ChartCard>
         </Grid>
 
@@ -3828,7 +4062,7 @@ export function ProjectsTab({
         </>
       ) : (
         <>
-          <ProjectAnalyticsSection projects={projects} />
+          <ProjectAnalyticsSection projects={projects} dateRange={dateRange} />
           <SectorAnalyticsSection
             projects={projects}
             backendSectorPerformance={backendSectorPerformance}

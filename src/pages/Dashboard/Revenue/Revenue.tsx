@@ -1110,9 +1110,11 @@ export function RevenueKpiDrawer({
   rowsByKpi = null,
 }: RevenueKpiDrawerProps) {
   const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('')
 
   useEffect(() => {
     setSearch('')
+    setStatusFilter('')
   }, [kpi?.id])
 
   const config = useMemo(() => {
@@ -1120,19 +1122,26 @@ export function RevenueKpiDrawer({
     return getDrawerConfig(kpi.id as ClickableKpiId, rowsByKpi)
   }, [kpi, rowsByKpi])
 
+  const statusOptions = useMemo(() => {
+    if (!config || !['total-po', 'payable'].includes(kpi?.id ?? '')) return []
+    return Array.from(
+      new Set(config.rows.map((row) => String(row.status ?? '').trim()).filter(Boolean)),
+    ).sort((a, b) => a.localeCompare(b))
+  }, [config, kpi?.id])
+
   const visibleRows = useMemo(() => {
     if (!config) return []
     const query = search.trim().toLowerCase()
 
-    if (!query) return config.rows
-
-    return config.rows.filter((row) =>
-      config.columns.some((col) => {
+    return config.rows.filter((row) => {
+      if (statusFilter && String(row.status ?? '') !== statusFilter) return false
+      if (!query) return true
+      return config.columns.some((col) => {
         if (col.format === 'currency') return false
         return String(row[col.key] ?? '').toLowerCase().includes(query)
-      }),
-    )
-  }, [config, search])
+      })
+    })
+  }, [config, search, statusFilter])
 
   if (!kpi || !config) return null
 
@@ -1211,6 +1220,42 @@ export function RevenueKpiDrawer({
           debounce={200}
           sx={{ flex: '1 1 180px', minWidth: 160, maxWidth: 280 }}
         />
+        {kpi.id === 'total-po' || kpi.id === 'payable' ? (
+          <MuiSelect
+            size="small"
+            displayEmpty
+            value={statusFilter}
+            onChange={(event) => setStatusFilter(String(event.target.value))}
+            renderValue={(value) => {
+              const label = String(value ?? '')
+              if (!label) return 'All Status'
+              return (
+                <StatusBadge
+                  status={STATUS_TYPE_BY_LABEL[label] ?? 'draft'}
+                  label={label}
+                  size="small"
+                />
+              )
+            }}
+            sx={{
+              minWidth: 150,
+              height: 36,
+              fontSize: 13,
+              bgcolor: tokens.color.neutral[50],
+            }}
+          >
+            <MenuItem value="" sx={{ fontSize: 13 }}>All Status</MenuItem>
+            {statusOptions.map((status) => (
+              <MenuItem key={status} value={status} sx={{ fontSize: 13 }}>
+                <StatusBadge
+                  status={STATUS_TYPE_BY_LABEL[status] ?? 'draft'}
+                  label={status}
+                  size="small"
+                />
+              </MenuItem>
+            ))}
+          </MuiSelect>
+        ) : null}
       </Box>
 
       <Box sx={{ px: 3, pb: 3, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
@@ -1380,7 +1425,15 @@ function RevenueProjectListingTable({
 }) {
   const [page, setPage] = useState(0)
   const [rowsPerPage, setRowsPerPage] = useState(10)
+  const [projectNameFilter, setProjectNameFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
+
+  const projectNameOptions = useMemo(() => {
+    const values = Array.from(
+      new Set(rows.map((row) => String(row.projectName ?? '').trim()).filter(Boolean)),
+    ).sort((a, b) => a.localeCompare(b))
+    return values.map((value) => ({ value, label: value }))
+  }, [rows])
 
   const statusOptions = useMemo(() => {
     const values = Array.from(
@@ -1390,9 +1443,12 @@ function RevenueProjectListingTable({
   }, [rows])
 
   const filteredRows = useMemo(() => {
-    if (!statusFilter) return rows
-    return rows.filter((row) => String(row.status ?? '') === statusFilter)
-  }, [rows, statusFilter])
+    return rows.filter((row) => {
+      if (projectNameFilter && String(row.projectName ?? '') !== projectNameFilter) return false
+      if (statusFilter && String(row.status ?? '') !== statusFilter) return false
+      return true
+    })
+  }, [projectNameFilter, rows, statusFilter])
 
   const safePage = clampListingPage0Based(page, filteredRows.length, rowsPerPage)
   const visibleRows = useMemo(
@@ -1408,6 +1464,11 @@ function RevenueProjectListingTable({
 
   function handleStatusFilter(value: string) {
     setStatusFilter(value)
+    setPage(0)
+  }
+
+  function handleProjectNameFilter(value: string) {
+    setProjectNameFilter(value)
     setPage(0)
   }
 
@@ -1454,7 +1515,16 @@ function RevenueProjectListingTable({
             <TableHead>
               <TableRow>
                 {REVENUE_PROJECT_COLUMNS.map((column) =>
-                  column.key === 'status' ? (
+                  column.key === 'projectName' ? (
+                    <FilterableHeaderCell
+                      key={column.key}
+                      label={column.label}
+                      filterValue={projectNameFilter}
+                      filterOptions={projectNameOptions}
+                      onFilter={handleProjectNameFilter}
+                      sx={{ width: column.width }}
+                    />
+                  ) : column.key === 'status' ? (
                     <FilterableHeaderCell
                       key={column.key}
                       label={column.label}
