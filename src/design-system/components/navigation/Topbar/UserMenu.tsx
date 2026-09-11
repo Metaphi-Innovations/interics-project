@@ -2,7 +2,7 @@ import {
   Box, Menu, MenuItem, ListItemIcon, Divider, Typography, Avatar, Stack,
 } from '@mui/material'
 import { alpha, useTheme } from '@mui/material/styles'
-import { User, Settings, LogOut /*, Sun, Moon */ } from 'lucide-react'
+import { Settings, LogOut /*, User, Sun, Moon */ } from 'lucide-react'
 import { useState } from 'react'
 import { tokens } from '../../../tokens'
 // import { useFoundationTheme } from '../../../ThemeContext'
@@ -18,6 +18,7 @@ export interface UserMenuUser {
 export interface UserMenuProps {
   user: UserMenuUser
   onSignOut?: () => void
+  /** @deprecated Profile menu item removed; prop kept for call-site compatibility. */
   onProfileClick?: () => void
   onSettingsClick?: () => void
 }
@@ -25,7 +26,6 @@ export interface UserMenuProps {
 export default function UserMenu({
   user,
   onSignOut,
-  onProfileClick,
   onSettingsClick,
 }: UserMenuProps) {
   const theme = useTheme()
@@ -114,16 +114,6 @@ export default function UserMenu({
         </Box>
 
         <Divider />
-
-        <MenuItem
-          onClick={() => { setAnchor(null); onProfileClick?.() }}
-          sx={{ py: '8px', gap: 1.5 }}
-        >
-          <ListItemIcon sx={{ minWidth: 'unset' }}>
-            <User size={16} strokeWidth={1.75} />
-          </ListItemIcon>
-          <Typography variant="body2">Profile</Typography>
-        </MenuItem>
 
         <MenuItem
           onClick={() => { setAnchor(null); onSettingsClick?.() }}

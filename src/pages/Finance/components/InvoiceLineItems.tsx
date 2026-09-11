@@ -161,18 +161,27 @@ export function InvoiceLineItems({
   function updateLine(index: number, patch: Partial<DraftLineItem>) {
     if (!onChange) return
     const next = [...(lines as DraftLineItem[])]
-    const cur = { ...next[index], ...patch }
-    if (patch.serviceId !== undefined) {
-      const svc = activeServices.find((s) => s.id === patch.serviceId)
+    const sanitized =
+      patch.labourCessRate !== undefined
+        ? {
+            ...patch,
+            labourCessRate: Number.isFinite(Number(patch.labourCessRate))
+              ? Math.max(0, Number(patch.labourCessRate))
+              : 0,
+          }
+        : patch
+    const cur = { ...next[index], ...sanitized }
+    if (sanitized.serviceId !== undefined) {
+      const svc = activeServices.find((s) => s.id === sanitized.serviceId)
       cur.serviceName = svc?.name ?? ''
       cur.gstRate = svc?.gstRate ?? DEFAULT_GST_RATE
       cur.sacCode = sacCodeForService(sacCodes, svc)
     }
     if (
-      patch.amount !== undefined ||
-      patch.gstRate !== undefined ||
-      patch.labourCessRate !== undefined ||
-      patch.serviceId !== undefined
+      sanitized.amount !== undefined ||
+      sanitized.gstRate !== undefined ||
+      sanitized.labourCessRate !== undefined ||
+      sanitized.serviceId !== undefined
     ) {
       next[index] = applyLineTaxes(cur)
     } else {

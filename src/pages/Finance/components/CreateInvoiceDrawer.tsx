@@ -497,6 +497,8 @@ export function CreateInvoiceDrawer({
     if (lines.length < 1) le = 'At least one line item is required'
     else if (lines.some((l) => !l.serviceId || l.amount <= 0)) {
       le = 'Each line needs a service and amount greater than 0'
+    } else if (lines.some((l) => Number(l.labourCessRate ?? 0) < 0)) {
+      le = 'Labour cess % cannot be negative'
     }
     setLineError(le)
     setErrors(e)

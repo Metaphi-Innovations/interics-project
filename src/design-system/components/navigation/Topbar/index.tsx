@@ -1,6 +1,5 @@
-import { Box, Toolbar, IconButton, Badge, Divider } from '@mui/material'
+import { Box, Toolbar, IconButton } from '@mui/material'
 import MenuIcon from '@mui/icons-material/Menu'
-import { Bell } from 'lucide-react'
 import UserMenu from './UserMenu'
 import type { UserMenuUser } from './UserMenu'
 
@@ -9,7 +8,9 @@ export const TOPBAR_HEIGHT = 52
 export interface TopbarProps {
   onMenuToggle: () => void
   user: UserMenuUser
+  /** @deprecated Notification bell removed from topbar; prop kept for call-site compatibility. */
   notificationCount?: number
+  /** @deprecated Notification bell removed from topbar; prop kept for call-site compatibility. */
   onNotificationClick?: () => void
   onSignOut?: () => void
   onProfileClick?: () => void
@@ -20,8 +21,6 @@ export interface TopbarProps {
 export default function Topbar({
   onMenuToggle,
   user,
-  notificationCount,
-  onNotificationClick,
   onSignOut,
   onProfileClick,
   onSettingsClick,
@@ -40,7 +39,6 @@ export default function Topbar({
         width: '100%',
       }}
     >
-      {/* LEFT — hamburger (shown conditionally) */}
       {showMenuButton && (
         <IconButton
           onClick={onMenuToggle}
@@ -56,46 +54,9 @@ export default function Topbar({
         </IconButton>
       )}
 
-      {/* SPACER — pushes right section to end */}
       <Box sx={{ flex: 1 }} />
 
-      {/* RIGHT — bell + avatar */}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-        {/* Notification bell */}
-        <IconButton
-          size="small"
-          onClick={onNotificationClick}
-          sx={{
-            color: 'text.secondary',
-            width: 34,
-            height: 34,
-            flexShrink: 0,
-          }}
-        >
-          <Badge
-            badgeContent={notificationCount}
-            color="error"
-            max={99}
-            sx={{
-              '& .MuiBadge-badge': {
-                height: 14,
-                minWidth: 14,
-                fontSize: '9px',
-              },
-            }}
-          >
-            <Bell size={18} strokeWidth={1.75} />
-          </Badge>
-        </IconButton>
-
-        {/* Vertical divider */}
-        <Divider
-          orientation="vertical"
-          flexItem
-          sx={{ height: 18, alignSelf: 'center', mx: '4px', opacity: 0.25 }}
-        />
-
-        {/* Avatar + dropdown */}
         <UserMenu
           user={user}
           onSignOut={onSignOut}

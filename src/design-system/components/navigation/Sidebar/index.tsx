@@ -1,7 +1,7 @@
 import { Box, Drawer, IconButton, Tooltip, Stack, Typography } from '@mui/material'
 import { alpha, useTheme } from '@mui/material/styles'
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
-import { HelpCircle, LogOut } from 'lucide-react'
+import { LogOut } from 'lucide-react'
 import type { ReactNode } from 'react'
 import NavItem from './NavItem'
 import NavGroup from './NavGroup'
@@ -273,7 +273,7 @@ function SidebarContent({
         {renderNavConfig(navConfig, collapsed, currentPath)}
       </Box>
 
-      {/* Bottom — Help & Docs + User footer */}
+      {/* Bottom — User footer */}
       <Box
         sx={{
           flexShrink: 0,
@@ -281,23 +281,14 @@ function SidebarContent({
           p: '8px',
         }}
       >
-        <NavItem
-          label="Help & Docs"
-          icon={<HelpCircle size={16} strokeWidth={1.75} />}
-          href="/docs"
-          collapsed={collapsed}
-        />
-
         {sidebarUser && (!collapsed || onLogout) && (
           <Box
             sx={{
-              mt: '4px',
               px: collapsed ? 0 : '8px',
               py: '6px',
               display: 'flex',
               alignItems: 'center',
               gap: 1.5,
-              borderTop: `1px solid ${alpha(theme.palette.mode === 'light' ? '#000000' : '#ffffff', 0.06)}`,
               justifyContent: collapsed ? 'center' : 'space-between',
             }}
           >
