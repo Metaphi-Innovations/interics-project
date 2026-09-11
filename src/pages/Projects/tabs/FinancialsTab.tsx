@@ -20,9 +20,7 @@ import { tokens } from '@/design-system/tokens'
 import { Button, useToast } from '@/design-system/components'
 import type { Project } from '../../../slices/projects/reducer'
 import { formatCurrencyCompact } from '../../../utils/formatters'
-import { openAuthenticatedDocument } from '@/utils/openAuthenticatedDocument'
 import {
-  vendorInvoiceDocumentOpenUrl,
   TABLE_CELL_SX,
   TABLE_HEADER_SX,
 } from './live/vendorSettlement/utils'
@@ -33,7 +31,10 @@ import {
   type VendorMilestoneEntry,
 } from './live/vendorSettlement'
 import { ViewInvoiceDrawer } from './live/BillingTab'
-import { downloadClientInvoiceDocument } from './live/downloadClientInvoice'
+import {
+  downloadReceivableInvoiceDocument,
+  receivableInvoiceDocumentHeadingFromStatus,
+} from '@/pages/Finance/utils/downloadReceivableInvoiceDocument'
 import { usePermission } from '@/hooks/usePermission'
 import { RecordDetailSectionTitle } from '@/pages/workspace/recordDetailTabUtils'
 import {
@@ -134,11 +135,6 @@ const INVOICES_TABLE_COLGROUP = (
 )
 
 type ProjectInvoiceRow = FinancialInvoiceRow & { receivedDate: string }
-
-function invoiceDocumentOpenUrl(documentUrl: string | undefined): string | null {
-  if (!documentUrl) return null
-  return vendorInvoiceDocumentOpenUrl(documentUrl)
-}
 
 function fmtInr(amount: number): string {
   return formatCurrencyCompact(amount, 2)
@@ -773,36 +769,21 @@ export default function FinancialsTab({ project }: FinancialsTabProps) {
         }}
         onDownloadPdf={() => {
           if (!viewClientInvoice) return
-          const openUrl = invoiceDocumentOpenUrl(viewClientInvoice.documentUrl)
-          if (openUrl) {
-            void openAuthenticatedDocument(openUrl, () => {
+          const heading = receivableInvoiceDocumentHeadingFromStatus(viewClientInvoice.status)
+          void downloadReceivableInvoiceDocument({
+            invoiceId: viewClientInvoice.id,
+            invoiceNo: viewClientInvoice.invoiceNumber,
+            heading,
+          })
+            .then(() => {
+              toast({ title: 'Invoice downloaded', variant: 'success' })
+            })
+            .catch(() => {
               toast({
-                title: 'Unable to open invoice document',
-                description: 'The invoice document could not be opened.',
+                title: 'Failed to download invoice',
                 variant: 'error',
               })
             })
-            return
-          }
-          downloadClientInvoiceDocument({
-            invoiceNumber: viewClientInvoice.invoiceNumber,
-            invoiceDate: viewClientInvoice.invoiceDate,
-            dueDate: viewClientInvoice.dueDate,
-            projectName: projectForSummary.name,
-            clientName: viewClientInvoice.clientName ?? projectForSummary.customerName ?? '',
-            notes: viewClientInvoice.notes,
-            milestoneName: viewClientInvoice.milestoneName,
-            serviceName: viewClientInvoice.serviceName,
-            lineItems: viewClientInvoice.lineItems.map((l) => ({
-              serviceName: l.serviceName,
-              amount: l.amount,
-              labourCessRate: l.labourCessRate,
-              gstRate: l.gstRate,
-              labourCessAmount: l.labourCessAmount,
-              taxableAmount: l.taxableAmount,
-              gstAmount: l.gstAmount,
-            })),
-          })
         }}
       />
 

@@ -1,3 +1,7 @@
+/**
+ * Legacy HTML print invoice. Project Live / Finance downloads use
+ * `downloadReceivableInvoiceDocument` → GET /invoices/:id/document instead.
+ */
 import { formatInr } from '@/utils/formatters'
 import type { ClientInvoiceLineItem } from '@/slices/live/types'
 import {

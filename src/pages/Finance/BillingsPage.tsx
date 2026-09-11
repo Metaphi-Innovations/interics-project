@@ -65,6 +65,9 @@ import { unwrapApiData } from '@/modules/system-settings/shared/api'
 import { downloadCsv } from '@/api/downloadCsv'
 import { invoiceStatusToBadgeType, mapInvoiceStatus, showPartialPaidAlongsideTabStatus } from './invoiceStatus'
 import { financeReceivableNetAmount, financeReceivableOutstanding } from './utils/financeReceivableListingAmounts'
+import {
+  downloadReceivableInvoiceDocument,
+} from './utils/downloadReceivableInvoiceDocument'
 import { usePermission } from '@/hooks/usePermission'
 
 const KPI_PERIOD_OPTIONS: { label: string; value: ReceivableKpiPeriod }[] = [
@@ -364,15 +367,7 @@ export default function BillingsPage() {
   async function downloadInvoiceDocument(invoiceId: string, invoiceNo?: string) {
     try {
       const heading = filters.statusTab === 'tax' ? 'tax' : 'draft'
-      const res = await financeApi.downloadInvoiceDocument(invoiceId, { heading })
-      const blob = res.data as Blob
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      const fallback = heading === 'tax' ? 'Tax_Invoice' : 'Draft_Invoice'
-      a.download = `${(invoiceNo || fallback).replace(/[^\w.\-]+/g, '_')}.xlsx`
-      a.click()
-      window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+      await downloadReceivableInvoiceDocument({ invoiceId, invoiceNo, heading })
       showToast({ title: 'Invoice downloaded', variant: 'success' })
     } catch {
       showToast({ title: 'Failed to download invoice', variant: 'error' })

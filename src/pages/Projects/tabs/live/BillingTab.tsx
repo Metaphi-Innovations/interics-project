@@ -46,7 +46,10 @@ import {
   type InvoiceLineRollups,
 } from './clientInvoiceUtils'
 import { clientInvoiceToInvoice } from './invoiceAdapters'
-import { downloadClientInvoiceDocument } from './downloadClientInvoice'
+import {
+  downloadReceivableInvoiceDocument,
+  receivableInvoiceDocumentHeadingFromStatus,
+} from '@/pages/Finance/utils/downloadReceivableInvoiceDocument'
 import { convertDraftToTax } from '@/slices/receivables/thunk'
 import { usePermission } from '@/hooks/usePermission'
 import {
@@ -1080,25 +1083,18 @@ export default function BillingTab({ projectId, projectName, clientId, clientNam
         }}
         onDownloadPdf={() => {
           if (!viewInvoiceResolved) return
-          downloadClientInvoiceDocument({
-            invoiceNumber: viewInvoiceResolved.invoiceNumber,
-            invoiceDate: viewInvoiceResolved.invoiceDate,
-            dueDate: viewInvoiceResolved.dueDate,
-            projectName,
-            clientName: viewInvoiceResolved.clientName ?? clientName,
-            notes: viewInvoiceResolved.notes,
-            milestoneName: viewInvoiceResolved.milestoneName,
-            serviceName: viewInvoiceResolved.serviceName,
-            lineItems: viewInvoiceResolved.lineItems.map((l) => ({
-              serviceName: l.serviceName,
-              amount: l.amount,
-              labourCessRate: l.labourCessRate,
-              gstRate: l.gstRate,
-              labourCessAmount: l.labourCessAmount,
-              taxableAmount: l.taxableAmount,
-              gstAmount: l.gstAmount,
-            })),
+          const heading = receivableInvoiceDocumentHeadingFromStatus(viewInvoiceResolved.status)
+          void downloadReceivableInvoiceDocument({
+            invoiceId: viewInvoiceResolved.id,
+            invoiceNo: viewInvoiceResolved.invoiceNumber,
+            heading,
           })
+            .then(() => {
+              showToast({ title: 'Invoice downloaded', variant: 'success' })
+            })
+            .catch(() => {
+              showToast({ title: 'Failed to download invoice', variant: 'error' })
+            })
         }}
       />
       <Modal
