@@ -13,11 +13,43 @@ function normalizeLabel(value: string | undefined): string {
   return (value ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
 }
 
+/** Nested retention rows use `${parentId}-retention`; standalone use `cli-ret-*`. */
+function isClientRetentionTargetId(id: string | undefined): boolean {
+  if (!id?.trim()) return false
+  const value = id.trim()
+  return value.endsWith('-retention') || value.startsWith('cli-ret-')
+}
+
+function isClientRetentionLookup(milestoneId: string, milestoneName?: string): boolean {
+  if (isClientRetentionTargetId(milestoneId)) return true
+  const name = normalizeLabel(milestoneName)
+  return name === 'retention' || name.includes(' — retention')
+}
+
+/**
+ * Decode milestone label from encoded line serviceName (`Milestone — Service`).
+ * Retention lines are encoded as `Milestone — Retention — Service` — return
+ * `Milestone — Retention` so they never collapse to the parent milestone name.
+ */
 function milestoneNameFromServiceName(serviceName: string | undefined): string {
   const raw = (serviceName ?? '').trim()
   if (!raw) return ''
-  const parts = raw.split(' — ')
-  return parts.length >= 2 ? parts[0]!.trim() : raw
+  const parts = raw
+    .split(' — ')
+    .map((part) => part.trim())
+    .filter(Boolean)
+  if (parts.length < 2) return raw
+  const retentionIdx = parts.findIndex((part) => part.toLowerCase() === 'retention')
+  if (retentionIdx >= 1) {
+    return `${parts[0]} — Retention`
+  }
+  return parts[0]!
+}
+
+function invoiceHasRetentionTarget(invoice: ClientInvoice): boolean {
+  if (isClientRetentionTargetId(invoice.milestoneId)) return true
+  if (isClientRetentionLookup(invoice.milestoneId ?? '', invoice.milestoneName)) return true
+  return (invoice.lineItems ?? []).some((li) => isClientRetentionTargetId(li.milestoneId))
 }
 
 function lineHasMilestoneId(
@@ -76,9 +108,12 @@ export function findClientInvoicesForMilestone(
   serviceId: string,
   milestoneName?: string,
 ): ClientInvoice[] {
+  const retentionLookup = isClientRetentionLookup(milestoneId, milestoneName)
   return invoices.filter((invoice) => {
     if (invoiceCoversMilestoneId(invoice, milestoneId)) return true
     if (!milestoneName?.trim()) return false
+    // Retention invoices must not attach to parent milestones via name fallback.
+    if (!retentionLookup && invoiceHasRetentionTarget(invoice)) return false
     return invoiceCoversMilestoneName(invoice, milestoneName, serviceId)
   })
 }

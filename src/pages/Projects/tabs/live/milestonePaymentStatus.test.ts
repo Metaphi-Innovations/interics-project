@@ -23,6 +23,7 @@ import {
   clientMilestoneIsLocked,
   clientRetentionIsLocked,
   findClientInvoiceForMilestone,
+  findClientInvoicesForMilestone,
   clientRetentionPaymentStatus,
   findVendorInvoiceForMilestone,
   findVendorInvoicesForMilestone,
@@ -139,6 +140,175 @@ describe('findClientInvoiceForMilestone', () => {
     })
 
     expect(findClientInvoiceForMilestone([inv], 'cpm-missing', 'master-svc', 'Mobilization')).toBeUndefined()
+  })
+})
+
+describe('retention invoice must not cover parent milestone (Receivables)', () => {
+  function milestoneInv(
+    id: string,
+    milestoneId: string,
+    milestoneName: string,
+    serviceId: string,
+  ): ClientInvoice {
+    return invoice({
+      id,
+      milestoneId,
+      milestoneName,
+      serviceId,
+      serviceName: `${milestoneName} — Interior Design`,
+      lineItems: [
+        {
+          id: `${id}-li`,
+          serviceId,
+          serviceName: `${milestoneName} — Interior Design`,
+          sacCode: '998391',
+          amount: 10000,
+          gstRate: 18,
+          gstAmount: 1800,
+          milestoneId,
+          baselineServiceId: serviceId,
+          lineSource: 'milestone',
+        },
+      ],
+    })
+  }
+
+  function retentionInv(
+    id: string,
+    parentMilestoneId: string,
+    parentName: string,
+    serviceId: string,
+  ): ClientInvoice {
+    const retentionId = `${parentMilestoneId}-retention`
+    const retentionName = `${parentName} — Retention`
+    return invoice({
+      id,
+      milestoneId: retentionId,
+      milestoneName: retentionName,
+      serviceId,
+      serviceName: `${retentionName} — Interior Design`,
+      lineItems: [
+        {
+          id: `${id}-li`,
+          serviceId,
+          serviceName: `${retentionName} — Interior Design`,
+          sacCode: '998391',
+          amount: 2000,
+          gstRate: 18,
+          gstAmount: 360,
+          milestoneId: retentionId,
+          baselineServiceId: serviceId,
+          lineSource: 'milestone',
+        },
+      ],
+    })
+  }
+
+  it('two services: milestones then retentions stay isolated', () => {
+    const invMA = milestoneInv('inv-ma', 'm-a', 'Milestone A', 'svc-a')
+    const invMB = milestoneInv('inv-mb', 'm-b', 'Milestone B', 'svc-b')
+    const invRA = retentionInv('inv-ra', 'm-a', 'Milestone A', 'svc-a')
+    const invRB = retentionInv('inv-rb', 'm-b', 'Milestone B', 'svc-b')
+    const all = [invMA, invMB, invRA, invRB]
+
+    expect(findClientInvoicesForMilestone(all, 'm-a', 'svc-a', 'Milestone A').map((i) => i.id)).toEqual([
+      'inv-ma',
+    ])
+    expect(findClientInvoicesForMilestone(all, 'm-b', 'svc-b', 'Milestone B').map((i) => i.id)).toEqual([
+      'inv-mb',
+    ])
+    expect(
+      findClientInvoicesForMilestone(all, 'm-a-retention', 'svc-a', 'Milestone A — Retention').map(
+        (i) => i.id,
+      ),
+    ).toEqual(['inv-ra'])
+    expect(
+      findClientInvoicesForMilestone(all, 'm-b-retention', 'svc-b', 'Milestone B — Retention').map(
+        (i) => i.id,
+      ),
+    ).toEqual(['inv-rb'])
+  })
+
+  it('retention invoiced after milestone does not contaminate parent', () => {
+    const parent = milestoneInv('inv-parent', 'm1', 'Milestone1', 'svc-1')
+    const retention = retentionInv('inv-ret', 'm1', 'Milestone1', 'svc-1')
+    expect(
+      findClientInvoicesForMilestone([parent, retention], 'm1', 'svc-1', 'Milestone1').map((i) => i.id),
+    ).toEqual(['inv-parent'])
+  })
+
+  it('retention invoiced before milestone does not contaminate either side', () => {
+    const retention = retentionInv('inv-ret', 'm1', 'Milestone1', 'svc-1')
+    const parent = milestoneInv('inv-parent', 'm1', 'Milestone1', 'svc-1')
+    expect(
+      findClientInvoicesForMilestone([retention, parent], 'm1', 'svc-1', 'Milestone1').map((i) => i.id),
+    ).toEqual(['inv-parent'])
+    expect(
+      findClientInvoicesForMilestone(
+        [retention, parent],
+        'm1-retention',
+        'svc-1',
+        'Milestone1 — Retention',
+      ).map((i) => i.id),
+    ).toEqual(['inv-ret'])
+  })
+
+  it('preserves legacy name fallback for non-retention invoices', () => {
+    const inv = invoice({
+      id: 'inv-legacy',
+      milestoneId: 'baseline-ms-1',
+      milestoneName: 'Concept Design',
+      serviceId: 'master-svc',
+      lineItems: [
+        {
+          id: 'li-legacy',
+          serviceId: 'master-svc',
+          serviceName: 'Concept Design — Interior Design',
+          sacCode: '998391',
+          amount: 10000,
+          gstRate: 18,
+          gstAmount: 1800,
+          milestoneId: 'baseline-ms-1',
+          lineSource: 'milestone',
+        },
+      ],
+    })
+    expect(
+      findClientInvoiceForMilestone([inv], 'cpm-concept', 'master-svc', 'Concept Design'),
+    ).toEqual(inv)
+  })
+
+  it('keeps multiple invoices for the same milestone', () => {
+    const a = milestoneInv('inv-1', 'm1', 'Milestone1', 'svc-1')
+    const b = milestoneInv('inv-2', 'm1', 'Milestone1', 'svc-1')
+    expect(findClientInvoicesForMilestone([a, b], 'm1', 'svc-1', 'Milestone1')).toHaveLength(2)
+  })
+})
+
+describe('Payables regression: retention stays isolated from parent', () => {
+  it('vendor retention invoice does not cover parent milestone by name', () => {
+    const parent = vendorInv({
+      id: 'v-parent',
+      milestoneId: 'vm-1',
+      milestoneName: 'Advance',
+      serviceId: 'svc-1',
+      lineItems: [{ milestoneId: 'vm-1', milestoneName: 'Advance', amount: 400 }],
+    })
+    const retention = vendorInv({
+      id: 'v-ret',
+      milestoneId: 'ret-1',
+      milestoneName: 'Retention',
+      serviceId: 'svc-1',
+      lineItems: [{ milestoneId: 'ret-1', milestoneName: 'Retention', amount: 100 }],
+    })
+    expect(
+      findVendorInvoicesForMilestone([parent, retention], 'vm-1', 'svc-1', 'Advance').map((i) => i.id),
+    ).toEqual(['v-parent'])
+    expect(
+      findVendorInvoicesForMilestone([parent, retention], 'ret-1', 'svc-1', 'Retention').map(
+        (i) => i.id,
+      ),
+    ).toEqual(['v-ret'])
   })
 })
 
