@@ -1,5 +1,5 @@
 import type { Baseline, ClientPO, ClientPOMilestone, VendorPO } from '@/slices/baseline/reducer'
-import { vendorPoEffectiveValue } from '@/pages/Projects/tabs/live/vendorPOHelpers'
+import { vendorPoExecutableAmount } from '@/pages/Projects/tabs/live/vendorPOHelpers'
 import type { ClientInvoice, Expense, VendorInvoice } from '@/slices/live/types'
 import type { PlannedExpense } from '@/slices/pitch/reducer'
 import type { Service } from '@/slices/settings/reducer'
@@ -522,7 +522,7 @@ function addVendorAmountsToBuckets(
 
   for (const po of vendorPOs.filter((p) => p.projectId === projectId)) {
     const linked = po.linkedBaselineServiceIds ?? []
-    const amount = vendorPoEffectiveValue(po)
+    const amount = vendorPoExecutableAmount(po, vendorInvoices)
     if (linked.length === 0) {
       const bucket = ensureBucket(`vendor-po:${po.id}`, `Vendor PO ${po.poNumber || po.id}`)
       bucket.vendorPOAmount += amount

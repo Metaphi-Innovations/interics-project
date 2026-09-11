@@ -52,7 +52,10 @@ export function FormSection({
       <Box
         sx={{
           display: 'grid',
-          gridTemplateColumns: `repeat(${columns}, 1fr)`,
+          gridTemplateColumns: {
+            xs: '1fr',
+            sm: columns === 1 ? '1fr' : `repeat(${columns}, minmax(0, 1fr))`,
+          },
           gap: '12px',
           minWidth: 0,
           maxWidth: '100%',

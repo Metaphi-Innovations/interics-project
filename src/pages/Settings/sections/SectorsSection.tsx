@@ -74,7 +74,7 @@ export default function SectorsSection() {
   const search = listing.search.trim()
   const isSearchPending = search.length > 0 && search !== listing.debouncedSearch
 
-  useEffect(() => {
+  const loadFilterOptions = () => {
     void sectorsService.getFilters()
       .then((data) => {
         setFilterOptions({
@@ -83,6 +83,10 @@ export default function SectorsSection() {
         })
       })
       .catch(() => undefined)
+  }
+
+  useEffect(() => {
+    loadFilterOptions()
   }, [])
 
   const buildListParams = () => ({
@@ -159,6 +163,7 @@ export default function SectorsSection() {
             sortOrder: editingRow && sortField ? sortDirection : undefined,
           }),
         )
+        loadFilterOptions()
         success(editingRow ? 'Sector updated' : 'Sector added')
       })
       .catch((err) => {
@@ -174,6 +179,7 @@ export default function SectorsSection() {
     try {
       await dispatch(toggleSectorStatus(toggleTarget.id)).unwrap()
       void dispatch(fetchSectors(buildListParams()))
+      loadFilterOptions()
       success(
         toggleTarget.status === 'active'
           ? 'Sector deactivated'

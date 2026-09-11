@@ -2,11 +2,11 @@ import {
   Box, Menu, MenuItem, ListItemIcon, Divider, Typography, Avatar, Stack,
 } from '@mui/material'
 import { alpha, useTheme } from '@mui/material/styles'
-import { User, Settings, LogOut, Sun, Moon } from 'lucide-react'
+import { User, Settings, LogOut /*, Sun, Moon */ } from 'lucide-react'
 import { useState } from 'react'
 import { tokens } from '../../../tokens'
-import { useFoundationTheme } from '../../../ThemeContext'
-import Toggle from '../../primitives/Toggle'
+// import { useFoundationTheme } from '../../../ThemeContext'
+// import Toggle from '../../primitives/Toggle'
 
 export interface UserMenuUser {
   name: string
@@ -29,7 +29,7 @@ export default function UserMenu({
   onSettingsClick,
 }: UserMenuProps) {
   const theme = useTheme()
-  const { isDark, setMode } = useFoundationTheme()
+  // const { isDark, setMode } = useFoundationTheme()
   const [anchor, setAnchor] = useState<null | HTMLElement>(null)
   const initials = user.name.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()
 
@@ -135,9 +135,8 @@ export default function UserMenu({
           <Typography variant="body2">Settings</Typography>
         </MenuItem>
 
+        {/* Appearance / theme toggle — hidden for now
         <Divider />
-
-        {/* Theme toggle row */}
         <Box sx={{ px: '8px', py: '4px' }}>
           <Stack direction="row" alignItems="center" justifyContent="space-between">
             <Stack direction="row" alignItems="center" gap={1}>
@@ -156,6 +155,7 @@ export default function UserMenu({
             />
           </Stack>
         </Box>
+        */}
 
         <Divider />
 

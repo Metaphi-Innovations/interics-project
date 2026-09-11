@@ -638,7 +638,15 @@ function VendorTable({
 
                   {visibleColumns.location && (
                     <TableCell sx={{ ...cellDataSx, display: { xs: 'none', md: 'table-cell' } }}>
-                      <Typography variant="body2" sx={{ fontSize: 12 }}>
+                      <Typography
+                        variant="body2"
+                        sx={{
+                          fontSize: 12,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
                         {vendor.city}, {vendor.state}
                       </Typography>
                     </TableCell>

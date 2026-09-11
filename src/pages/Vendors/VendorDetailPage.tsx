@@ -8,6 +8,7 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableContainer,
   TableHead,
   TableRow,
   IconButton as MuiIconButton,
@@ -934,14 +935,16 @@ export default function VendorDetailPage() {
                   onDelete={complianceDocDeleteHandler('insurance')}
                 />
               ) : null}
-              <UploadedCompliancePreviewStack
-                documents={localUploadedDocs}
-                onView={openTaxDocument}
-                onDownload={(url) => { void downloadTaxDocument(url) }}
-                onCopySuccess={onCopy}
-                onDelete={handleDeleteUploadedPreview}
-                stackTopSpacing={false}
-              />
+              <Box sx={{ gridColumn: '1 / -1' }}>
+                <UploadedCompliancePreviewStack
+                  documents={localUploadedDocs}
+                  onView={openTaxDocument}
+                  onDownload={(url) => { void downloadTaxDocument(url) }}
+                  onCopySuccess={onCopy}
+                  onDelete={handleDeleteUploadedPreview}
+                  stackTopSpacing={false}
+                />
+              </Box>
             </Box>
           ) : (
             <Box sx={{ py: 5, textAlign: 'center' }}>
@@ -963,7 +966,13 @@ export default function VendorDetailPage() {
   function renderContacts() {
     return (
       <Box>
-        <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+        <Stack
+          direction={{ xs: 'column', sm: 'row' }}
+          justifyContent="space-between"
+          alignItems={{ xs: 'stretch', sm: 'center' }}
+          gap={1}
+          sx={{ mb: 2 }}
+        >
           <Typography variant="body2" color="text.secondary">
             {contacts.length} contact{contacts.length !== 1 ? 's' : ''}
           </Typography>
@@ -1038,7 +1047,17 @@ export default function VendorDetailPage() {
                       </Stack>
                       <Stack direction="row" alignItems="center" gap={0.5}>
                         <Email sx={{ fontSize: 11, color: 'text.secondary' }} />
-                        <Typography variant="body2" sx={{ fontSize: 12 }}>{contact.email}</Typography>
+                        <Typography
+                          variant="body2"
+                          sx={{
+                            fontSize: 12,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {contact.email}
+                        </Typography>
                       </Stack>
                     </Stack>
                   </Box>
@@ -1106,32 +1125,51 @@ export default function VendorDetailPage() {
 
     return (
       <WorkspaceSection title={`Linked Projects (${linkedProjects.length})`}>
-        <Table size="small">
-          <TableHead>
-            <TableRow>
-              <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary' }}>Project Name</TableCell>
-              <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary' }}>Status</TableCell>
-              <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary' }}>Services</TableCell>
-              <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary' }}>Value</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {linkedProjects.map((project) => (
-              <TableRow key={project.id}>
-                <TableCell sx={{ fontSize: 12, fontWeight: 600 }}>{project.projectName}</TableCell>
-                <TableCell>
-                  <StatusBadge status={project.status.toLowerCase() === 'live' ? 'active' : 'draft'} />
+        <TableContainer sx={{ width: '100%', overflowX: 'auto' }}>
+          <Table size="small" sx={{ minWidth: 480 }}>
+            <TableHead>
+              <TableRow>
+                <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary' }}>Project Name</TableCell>
+                <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary' }}>Status</TableCell>
+                <TableCell
+                  sx={{
+                    fontSize: 11,
+                    fontWeight: 600,
+                    color: 'text.secondary',
+                    display: { xs: 'none', md: 'table-cell' },
+                  }}
+                >
+                  Services
                 </TableCell>
-                <TableCell sx={{ fontSize: 12 }}>
-                  {project.services.length
-                    ? project.services.map((service) => service.name).join(', ')
-                    : '—'}
-                </TableCell>
-                <TableCell sx={{ fontSize: 12 }}>₹{formatInr(project.value)}</TableCell>
+                <TableCell sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary' }}>Value</TableCell>
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+            </TableHead>
+            <TableBody>
+              {linkedProjects.map((project) => (
+                <TableRow key={project.id}>
+                  <TableCell sx={{ fontSize: 12, fontWeight: 600, wordBreak: 'break-word' }}>
+                    {project.projectName}
+                  </TableCell>
+                  <TableCell>
+                    <StatusBadge status={project.status.toLowerCase() === 'live' ? 'active' : 'draft'} />
+                  </TableCell>
+                  <TableCell
+                    sx={{
+                      fontSize: 12,
+                      display: { xs: 'none', md: 'table-cell' },
+                      wordBreak: 'break-word',
+                    }}
+                  >
+                    {project.services.length
+                      ? project.services.map((service) => service.name).join(', ')
+                      : '—'}
+                  </TableCell>
+                  <TableCell sx={{ fontSize: 12 }}>₹{formatInr(project.value)}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
       </WorkspaceSection>
     )
   }

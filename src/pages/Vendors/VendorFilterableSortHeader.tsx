@@ -225,7 +225,10 @@ function VendorColumnFilterPopover({
           paper: {
             elevation: 8,
             sx: {
-              width: isDate ? 300 : 280,
+              width: {
+                xs: isDate ? 'min(300px, calc(100vw - 24px))' : 'min(280px, calc(100vw - 24px))',
+                sm: isDate ? 300 : 280,
+              },
               mt: 0.75,
               p: 0,
               overflow: 'hidden',
@@ -241,7 +244,7 @@ function VendorColumnFilterPopover({
       >
         <Box
           onClick={(e) => e.stopPropagation()}
-          sx={{ display: 'flex', flexDirection: 'column', maxHeight: 420 }}
+          sx={{ display: 'flex', flexDirection: 'column', maxHeight: 'min(420px, 70vh)' }}
         >
           <Stack
             direction="row"

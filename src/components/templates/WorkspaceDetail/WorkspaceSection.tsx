@@ -41,6 +41,8 @@ export function WorkspaceSection({
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: 1,
             flexShrink: 0,
           }}
         >

@@ -241,7 +241,7 @@ export function PendingVendorContactsTable({
               filterValue={columnFilters.email}
               filterOptions={emailOptions}
               onFilter={(value) => onColumnFilter('email', value)}
-              sx={headSx}
+              sx={{ ...headSx, display: { xs: 'none', md: 'table-cell' } }}
             />
             <VendorFilterableSortHeader
               label="Designation"
@@ -252,7 +252,7 @@ export function PendingVendorContactsTable({
               filterValue={columnFilters.designation}
               filterOptions={designationOptions}
               onFilter={(value) => onColumnFilter('designation', value)}
-              sx={headSx}
+              sx={{ ...headSx, display: { xs: 'none', lg: 'table-cell' } }}
             />
             <VendorFilterableSortHeader
               label="Created On"
@@ -264,7 +264,7 @@ export function PendingVendorContactsTable({
               filterValue={columnFilters.createdOn}
               filterOptions={createdOnOptions}
               onFilter={(value) => onColumnFilter('createdOn', value)}
-              sx={headSx}
+              sx={{ ...headSx, display: { xs: 'none', md: 'table-cell' } }}
             />
             <TableCell sx={HEADER_ACTION_SX}>
               <Box sx={CENTER_CELL_CONTENT_SX}>Action</Box>
@@ -288,9 +288,9 @@ export function PendingVendorContactsTable({
                 </Typography>
               </TableCell>
               <TableCell sx={cellSx}>{vendor.phone}</TableCell>
-              <TableCell sx={cellSx}>{vendor.email}</TableCell>
-              <TableCell sx={cellSx}>{vendor.designation || '—'}</TableCell>
-              <TableCell sx={cellSx}>{formatDate(vendor.createdAt)}</TableCell>
+              <TableCell sx={{ ...cellSx, display: { xs: 'none', md: 'table-cell' } }}>{vendor.email}</TableCell>
+              <TableCell sx={{ ...cellSx, display: { xs: 'none', lg: 'table-cell' } }}>{vendor.designation || '—'}</TableCell>
+              <TableCell sx={{ ...cellSx, display: { xs: 'none', md: 'table-cell' } }}>{formatDate(vendor.createdAt)}</TableCell>
               <TableCell sx={CELL_ACTION_SX} onClick={(e) => e.stopPropagation()}>
                 <Box sx={CENTER_CELL_CONTENT_SX}>
                   <PendingRowActions

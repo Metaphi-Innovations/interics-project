@@ -12,7 +12,6 @@ import {
   VENDOR_MONEY_EPS,
 } from '@/pages/Finance/utils/vendorBillable'
 import { resolveVendorLineAmountsFromInvoice } from '@/pages/Projects/tabs/live/paymentAllocation'
-import { resolveVendorPoMilestoneSnapshot } from '@/pages/Projects/tabs/live/poSnapshotUtils'
 import { resolvePitchVersionForProject } from '@/store/selectors/pitchSelectors'
 import {
   normalizeVendorMapping,
@@ -60,7 +59,7 @@ export function vendorPoEffectiveValue(po: Pick<VendorPO, 'poValue' | 'executedV
 /**
  * Invoice-aware payable total for one PO (Live Overview / Finance Payables KPIs).
  * NOT the Vendor Offers listing column — that uses {@link vendorPoEffectiveValue} (Executed Value).
- * Uninvoiced milestone → milestone value; invoiced/partial → netPayable + remaining uninvoiced portion.
+ * Uninvoiced milestone → milestone value (PO base); invoiced/partial → netPayable + remaining uninvoiced base.
  * No milestones → executedValue ?? poValue.
  */
 export function vendorPoExecutableAmount(
@@ -98,13 +97,9 @@ export function vendorPoExecutableAmount(
       const share = invBase > VENDOR_MONEY_EPS ? lineBase / invBase : 1
       invoicedNet += (Number(inv.netPayable) || 0) * share
     }
+    // Uninvoiced KPI leg = stored PO/milestone base (no GST/TDS uplift from snapshots).
     const remainingBase = remainingVendorMilestoneValue(billedBase, m.value)
-    const poSnapshot = resolveVendorPoMilestoneSnapshot(po as VendorPO, m.milestoneId)
-    const uninvoicedNet =
-      poSnapshot && m.value > VENDOR_MONEY_EPS
-        ? (poSnapshot.net * remainingBase) / m.value
-        : remainingBase
-    sum += invoicedNet + uninvoicedNet
+    sum += invoicedNet + remainingBase
   }
   return sum
 }

@@ -78,7 +78,7 @@ export default function RatingsSection() {
   const search = listing.search.trim()
   const isSearchPending = search.length > 0 && search !== listing.debouncedSearch
 
-  useEffect(() => {
+  const loadFilterOptions = () => {
     void ratingsService.getFilters()
       .then((data) => {
         setFilterOptions({
@@ -87,6 +87,10 @@ export default function RatingsSection() {
         })
       })
       .catch(() => undefined)
+  }
+
+  useEffect(() => {
+    loadFilterOptions()
   }, [])
 
   const buildListParams = () => ({
@@ -163,6 +167,7 @@ export default function RatingsSection() {
             sortOrder: editingRow && sortField ? sortDirection : undefined,
           }),
         )
+        loadFilterOptions()
         success(editingRow ? 'Rating updated' : 'Rating added')
       })
       .catch((err) => {
@@ -178,6 +183,7 @@ export default function RatingsSection() {
     try {
       await dispatch(toggleRatingStatus(toggleTarget.id)).unwrap()
       void dispatch(fetchRatings(buildListParams()))
+      loadFilterOptions()
       success(
         toggleTarget.status === 'active'
           ? 'Rating deactivated'

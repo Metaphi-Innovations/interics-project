@@ -342,7 +342,7 @@ export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: Vendo
       submitLoading={saving}
     >
       <FormSection title="Vendor Details" columns={2} divider={false}>
-        <Box sx={{ gridColumn: 'span 2' }}>
+        <Box sx={{ gridColumn: '1 / -1' }}>
           <FormField label="Vendor Name" required error={errors.name}>
             <TextField
               fullWidth
@@ -354,7 +354,7 @@ export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: Vendo
             />
           </FormField>
         </Box>
-        <Box sx={{ gridColumn: 'span 2' }}>
+        <Box sx={{ gridColumn: '1 / -1' }}>
           <FormField label="Website" hint="Company site (https optional)">
             <TextField
               fullWidth
@@ -418,7 +418,7 @@ export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: Vendo
       </FormSection>
 
       <FormSection title="Billing Address" columns={2}>
-        <Box sx={{ gridColumn: 'span 2' }}>
+        <Box sx={{ gridColumn: '1 / -1' }}>
           <FormField label="Address" required error={errors.address}>
             <TextField
               fullWidth
@@ -511,7 +511,7 @@ export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: Vendo
           />
         </FormField>
 
-        <Box sx={{ gridColumn: 'span 2' }}>
+        <Box sx={{ gridColumn: '1 / -1' }}>
           <FormField label="Bank / Branch name" hint="Optional">
             <TextField
               fullWidth
@@ -557,7 +557,7 @@ export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: Vendo
           />
         </FormField>
 
-        <Box sx={{ gridColumn: 'span 2' }}>
+        <Box sx={{ gridColumn: '1 / -1' }}>
           <FormField label="Upload GST Certificate" hint="PDF or image (optional)">
             <Stack direction="row" alignItems="center" gap={2} flexWrap="wrap">
               <input
@@ -631,7 +631,7 @@ export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: Vendo
       </FormSection>
 
       <FormSection title="Vendor Profile" columns={2}>
-        <Box sx={{ gridColumn: 'span 2' }}>
+        <Box sx={{ gridColumn: '1 / -1' }}>
           <FormField label="Specialization Tags" required error={errors.tags}>
             <Autocomplete
               multiple
@@ -662,7 +662,7 @@ export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: Vendo
           </FormField>
         </Box>
 
-        <Box sx={{ gridColumn: 'span 2' }}>
+        <Box sx={{ gridColumn: '1 / -1' }}>
           <FormField label="Rating" error={errors.rating}>
             <TextField
               fullWidth
@@ -686,7 +686,7 @@ export function VendorDrawer({ open, onClose, mode, vendor, onCompleted }: Vendo
           </FormField>
         </Box>
 
-        <Box sx={{ gridColumn: 'span 2' }}>
+        <Box sx={{ gridColumn: '1 / -1' }}>
           <FormField label="Notes">
             <TextField
               fullWidth
