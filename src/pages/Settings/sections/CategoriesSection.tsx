@@ -83,7 +83,7 @@ export default function CategoriesSection() {
   const search = listing.search.trim()
   const isSearchPending = search.length > 0 && search !== listing.debouncedSearch
 
-  useEffect(() => {
+  const loadFilterOptions = () => {
     void categoriesService.getFilters()
       .then((data) => {
         setFilterOptions({
@@ -94,6 +94,10 @@ export default function CategoriesSection() {
         })
       })
       .catch(() => undefined)
+  }
+
+  useEffect(() => {
+    loadFilterOptions()
   }, [dispatch])
 
   const buildListParams = (page0Based = listing.page) => ({
@@ -165,6 +169,7 @@ export default function CategoriesSection() {
           setSortField(undefined)
           setSortDirection('asc')
         }
+        loadFilterOptions()
         void dispatch(
           fetchCategories({
             ...buildListParams(editingRow ? listing.page : 0),
@@ -194,6 +199,7 @@ export default function CategoriesSection() {
         listing.setPage(clampedPage)
       }
       void dispatch(fetchCategories(buildListParams(clampedPage)))
+      loadFilterOptions()
       success('Category deleted')
     } catch (err) {
       const parsed = parseSettingsApiError(err, 'Failed to delete category')
@@ -209,6 +215,7 @@ export default function CategoriesSection() {
     try {
       await dispatch(toggleCategoryStatus(toggleTarget.id)).unwrap()
       void dispatch(fetchCategories(buildListParams()))
+      loadFilterOptions()
       success(
         toggleTarget.status === 'active'
           ? 'Category deactivated'

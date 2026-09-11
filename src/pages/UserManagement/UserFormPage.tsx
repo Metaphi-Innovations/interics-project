@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   Box,
@@ -13,13 +13,14 @@ import {
 } from '@mui/material'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { createUser, updateUser, fetchUsers, toUiUser } from '@/slices/users/thunk'
-import { fetchRoles } from '@/slices/roles/thunk'
 import type { User } from '@/slices/users/reducer'
+import type { Role } from '@/types/permissions'
 import { FormSection, FormField } from '@/components/templates'
 import PageHeader from '@/components/layout/PageHeader'
 import { Button, useToast } from '@/design-system/components'
 import { tokens } from '@/design-system/tokens'
 import { usersApi } from '@/api/usersApi'
+import { rolesApi } from '@/api/rolesApi'
 import { modulesApi } from '@/api/modulesApi'
 import { permissionTemplatesApi, type PermissionTemplate } from '@/api/permissionTemplatesApi'
 import { unwrapApiData } from '@/modules/system-settings/shared/api'
@@ -32,6 +33,8 @@ import {
 } from '@/types/permissions'
 import { normalizeArrayResponse } from '@/utils/normalizeListResponse'
 import { MODULE_DEFS, RolePermissionsPanel } from './components/RolePermissionsPanel'
+import { CurrentPasswordReveal, NewPasswordField } from './components/CurrentPasswordReveal'
+import { usePermission } from '@/hooks/usePermission'
 import {
   DEFAULT_PHONE_COUNTRY_ISO,
   PHONE_COUNTRY_CODES,
@@ -65,6 +68,31 @@ const LEVEL_LABELS: Record<0 | 1 | 2 | 3, string> = {
   3: 'Viewer',
 }
 
+function normalizeRoleLevel(level: unknown): 0 | 1 | 2 | 3 {
+  return level === 0 || level === 1 || level === 2 || level === 3 ? level : 2
+}
+
+function toUiRoleFromApi(api: {
+  id: string
+  name: string
+  description?: string | null
+  level?: 0 | 1 | 2 | 3
+  userCount?: number
+  isSystem?: boolean
+  status?: string
+}): Role {
+  const inactive = api.status === 'INACTIVE' || api.status === 'inactive'
+  return {
+    id: api.id,
+    name: api.name,
+    level: normalizeRoleLevel(api.level),
+    description: api.description ?? undefined,
+    userCount: api.userCount ?? 0,
+    isSystem: Boolean(api.isSystem),
+    status: inactive ? 'inactive' : 'active',
+  }
+}
+
 function validatePassword(password: string): string | undefined {
   if (!password) return 'Password is required'
   if (password.length < 8) return 'Password must be at least 8 characters'
@@ -80,7 +108,12 @@ function validatePassword(password: string): string | undefined {
 function validateForm(
   form: FormState,
   allUsers: User[],
-  options: { editId?: string; requirePassword?: boolean; phoneCountryIso?: string } = {},
+  options: {
+    editId?: string
+    requirePassword?: boolean
+    validateOptionalPassword?: boolean
+    phoneCountryIso?: string
+  } = {},
 ): Record<string, string> {
   const errors: Record<string, string> = {}
   if (!form.name.trim()) errors.name = 'Name is required'
@@ -105,6 +138,9 @@ function validateForm(
   if (options.requirePassword) {
     const passwordError = validatePassword(form.password)
     if (passwordError) errors.password = passwordError
+  } else if (options.validateOptionalPassword && form.password.trim()) {
+    const passwordError = validatePassword(form.password)
+    if (passwordError) errors.password = passwordError
   }
   return errors
 }
@@ -113,12 +149,12 @@ export default function UserFormPage() {
   const navigate = useNavigate()
   const { id: editId } = useParams<{ id: string }>()
   const isCreate = editId === undefined
-
   const dispatch = useAppDispatch()
   const saving = useAppSelector((s) => s.users.saving)
   const allUsers = useAppSelector((s) => s.users.items ?? [])
-  const roles = useAppSelector((s) => s.roles.items ?? [])
   const { showToast } = useToast()
+  const canViewPassword =
+    usePermission('userManagementUsers', 'edit') || usePermission('userManagement', 'edit')
 
   const [form, setForm] = useState<FormState>(defaultForm)
   const [permissions, setPermissions] = useState<UserPermissions>(() => makeEmptyUserPermissions())
@@ -131,18 +167,35 @@ export default function UserFormPage() {
   )
   const [loadedUser, setLoadedUser] = useState<User | null>(null)
   const [moduleTree, setModuleTree] = useState<PermissionModuleTree | null>(null)
-  const [templates, setTemplates] = useState<PermissionTemplate[]>([])
+  const [roles, setRoles] = useState<Role[]>([])
+  const [templates, setTemplates] = useState<Array<Pick<PermissionTemplate, 'id' | 'templateName' | 'status'> & { access?: PermissionTemplate['access'] }>>([])
   const [selectedTemplateId, setSelectedTemplateId] = useState('')
   const [phoneCountryIso, setPhoneCountryIso] = useState(DEFAULT_PHONE_COUNTRY_ISO)
+  const [detailCache, setDetailCache] = useState<{ roles: Set<string>; templates: Set<string> }>({
+    roles: new Set(),
+    templates: new Set(),
+  })
 
   useEffect(() => {
-    dispatch(fetchRoles())
     dispatch(fetchUsers({}))
     void modulesApi.getTree().then(setModuleTree).catch(() => setModuleTree(null))
-    void permissionTemplatesApi
-      .getAll({ limit: 100 })
+
+    void rolesApi
+      .getOptions({ status: 'ACTIVE' })
       .then((res) => {
-        const raw = normalizeArrayResponse<PermissionTemplate>(unwrapApiData(res.data) ?? res.data)
+        const raw = normalizeArrayResponse(unwrapApiData(res.data) ?? res.data)
+        setRoles(raw.map((item) => toUiRoleFromApi(item as Parameters<typeof toUiRoleFromApi>[0])))
+      })
+      .catch(() => setRoles([]))
+
+    void permissionTemplatesApi
+      .getOptions({ status: 'ACTIVE' })
+      .then((res) => {
+        const raw = normalizeArrayResponse<{
+          id: string
+          templateName: string
+          status: 'active' | 'inactive'
+        }>(unwrapApiData(res.data) ?? res.data)
         setTemplates(raw)
       })
       .catch(() => setTemplates([]))
@@ -204,7 +257,48 @@ export default function UserFormPage() {
     setTouched({})
     setSelectedTemplateId(loadedUser.permissionTemplateId ?? '')
     setExpandedModules(MODULE_DEFS.map((m) => m.id))
+
+    // Preserve inactive assigned role/template on edit.
+    if (loadedUser.role) {
+      void rolesApi
+        .getById(loadedUser.role)
+        .then((role) => {
+          if (!role) return
+          const uiRole = toUiRoleFromApi(role)
+          setRoles((prev) => (prev.some((r) => r.id === uiRole.id) ? prev : [...prev, uiRole]))
+          setDetailCache((prev) => {
+            const roles = new Set(prev.roles)
+            roles.add(uiRole.id)
+            return { ...prev, roles }
+          })
+        })
+        .catch(() => undefined)
+    }
+    if (loadedUser.permissionTemplateId) {
+      void permissionTemplatesApi
+        .getById(loadedUser.permissionTemplateId)
+        .then((template) => {
+          if (!template) return
+          setTemplates((prev) => (prev.some((t) => t.id === template.id) ? prev : [...prev, template]))
+          setDetailCache((prev) => {
+            const templates = new Set(prev.templates)
+            templates.add(template.id)
+            return { ...prev, templates }
+          })
+        })
+        .catch(() => undefined)
+    }
   }, [loadedUser, loadUserState, isCreate])
+
+  const roleOptions = useMemo(() => {
+    if (isCreate) return roles.filter((r) => r.status === 'active')
+    return roles.filter((r) => r.status === 'active' || r.id === form.role)
+  }, [roles, isCreate, form.role])
+
+  const templateOptions = useMemo(() => {
+    if (isCreate) return templates.filter((t) => t.status === 'active')
+    return templates.filter((t) => t.status === 'active' || t.id === selectedTemplateId)
+  }, [templates, isCreate, selectedTemplateId])
 
   const handleChange = useCallback(<K extends keyof FormState>(field: K, value: FormState[K]) => {
     setForm((prev) => ({ ...prev, [field]: value }))
@@ -227,6 +321,7 @@ export default function UserFormPage() {
     const newErrors = validateForm(form, allUsers, {
       editId: loadedUser?.id,
       requirePassword: isCreate,
+      validateOptionalPassword: !isCreate,
       phoneCountryIso,
     })
     setErrors((prev) => ({ ...prev, [field]: newErrors[field] ?? '' }))
@@ -236,11 +331,49 @@ export default function UserFormPage() {
     navigate('/user-management/users')
   }
 
-  function handleTemplateChange(templateId: string) {
+  async function handleRoleChange(roleId: string) {
+    handleChange('role', roleId)
+    if (!roleId || detailCache.roles.has(roleId)) return
+    try {
+      const role = await rolesApi.getById(roleId)
+      if (!role) return
+      const uiRole = toUiRoleFromApi(role)
+      setRoles((prev) => prev.map((r) => (r.id === uiRole.id ? uiRole : r)))
+      setDetailCache((prev) => {
+        const roles = new Set(prev.roles)
+        roles.add(roleId)
+        return { ...prev, roles }
+      })
+    } catch {
+      // Role ID is still submitted; detail enrich is best-effort.
+    }
+  }
+
+  async function handleTemplateChange(templateId: string) {
     setSelectedTemplateId(templateId)
     if (!templateId || !moduleTree) return
-    const template = templates.find((item) => item.id === templateId)
-    if (template) {
+
+    let template = templates.find((item) => item.id === templateId && item.access)
+    if (!template?.access) {
+      try {
+        const fetched = await permissionTemplatesApi.getById(templateId)
+        if (!fetched) return
+        template = fetched
+        setTemplates((prev) =>
+          prev.some((t) => t.id === fetched.id)
+            ? prev.map((t) => (t.id === fetched.id ? { ...t, ...fetched } : t))
+            : [...prev, fetched],
+        )
+        setDetailCache((prev) => {
+          const next = new Set(prev.templates)
+          next.add(templateId)
+          return { ...prev, templates: next }
+        })
+      } catch {
+        return
+      }
+    }
+    if (template?.access) {
       setPermissions(accessInputToUserPermissions(template.access, moduleTree))
     }
   }
@@ -251,12 +384,13 @@ export default function UserFormPage() {
       email: true,
       phone: true,
       role: true,
-      ...(isCreate ? { password: true } : {}),
+      password: true,
     }
     setTouched(allTouched)
     const errs = validateForm(form, allUsers, {
       editId: loadedUser?.id,
       requirePassword: isCreate,
+      validateOptionalPassword: !isCreate,
       phoneCountryIso,
     })
     setErrors(errs)
@@ -290,20 +424,32 @@ export default function UserFormPage() {
           showToast({ title: 'User created successfully', variant: 'success' })
           navigate('/user-management/users')
         })
-        .catch(() => showToast({ title: 'Failed to create user', variant: 'error' }))
+        .catch((message: unknown) =>
+          showToast({ title: String(message) || 'Failed to create user', variant: 'error' }),
+        )
     } else if (loadedUser) {
-      dispatch(updateUser({ id: loadedUser.id, data: { ...payload, access } }))
+      dispatch(
+        updateUser({
+          id: loadedUser.id,
+          data: {
+            ...payload,
+            access,
+            ...(form.password.trim() ? { password: form.password.trim() } : {}),
+          },
+        }),
+      )
         .unwrap()
         .then(() => {
           showToast({ title: 'User updated successfully', variant: 'success' })
           navigate('/user-management/users')
         })
-        .catch(() => showToast({ title: 'Failed to update user', variant: 'error' }))
+        .catch((message: unknown) =>
+          showToast({ title: String(message) || 'Failed to update user', variant: 'error' }),
+        )
     }
   }
 
   const breadcrumbLast = isCreate ? 'Add User' : loadedUser ? `Edit ${loadedUser.name}` : 'Edit User'
-
   const pageTitle = isCreate ? 'Add User' : 'Edit User'
 
   if (!isCreate && loadUserState === 'loading') {
@@ -324,6 +470,29 @@ export default function UserFormPage() {
       </Stack>
     )
   }
+
+  const passwordFields = (
+    <>
+      {!isCreate && loadedUser ? (
+        <CurrentPasswordReveal userId={loadedUser.id} canView={canViewPassword} />
+      ) : null}
+      <NewPasswordField
+        value={form.password}
+        onChange={(value) => handleChange('password', value)}
+        onBlur={() => handleBlur('password')}
+        error={errors.password}
+        touched={touched.password}
+        required={isCreate}
+        label={isCreate ? 'Password' : 'New Password'}
+        hint={
+          isCreate
+            ? 'Min 8 characters, with uppercase, lowercase, number, and special character'
+            : 'Leave blank to keep the current password'
+        }
+        placeholder={isCreate ? 'Set a login password' : 'Enter a new password'}
+      />
+    </>
+  )
 
   return (
     <>
@@ -377,27 +546,7 @@ export default function UserFormPage() {
                   inputProps={{ style: { fontSize: 13 } }}
                 />
               </FormField>
-              {isCreate && (
-                <FormField
-                  label="Password"
-                  required
-                  error={touched.password ? errors.password : undefined}
-                  hint="Min 8 characters, with uppercase, lowercase, number, and special character"
-                >
-                  <TextField
-                    size="small"
-                    fullWidth
-                    type="password"
-                    autoComplete="new-password"
-                    placeholder="Set a login password"
-                    value={form.password}
-                    onChange={(e) => handleChange('password', e.target.value)}
-                    onBlur={() => handleBlur('password')}
-                    error={Boolean(touched.password && errors.password)}
-                    inputProps={{ style: { fontSize: 13 } }}
-                  />
-                </FormField>
-              )}
+              {passwordFields}
               <FormField label="Email" required error={touched.email ? errors.email : undefined} hint="Used for login">
                 <TextField
                   size="small"
@@ -465,12 +614,14 @@ export default function UserFormPage() {
                   size="small"
                   fullWidth
                   value={form.role}
-                  onChange={(e) => handleChange('role', e.target.value)}
+                  onChange={(e) => {
+                    void handleRoleChange(e.target.value)
+                  }}
                   onBlur={() => handleBlur('role')}
                   error={Boolean(touched.role && errors.role)}
                   inputProps={{ style: { fontSize: 13 } }}
                 >
-                  {roles.map((r) => (
+                  {roleOptions.map((r) => (
                     <MenuItem key={r.id} value={r.id}>
                       <Stack direction="row" alignItems="center" gap={1} flexWrap="wrap">
                         <Typography variant="body2" sx={{ fontSize: 13 }}>
@@ -481,6 +632,13 @@ export default function UserFormPage() {
                           size="small"
                           sx={{ height: 20, fontSize: 10, fontWeight: 600 }}
                         />
+                        {r.status === 'inactive' ? (
+                          <MuiChip
+                            label="Inactive"
+                            size="small"
+                            sx={{ height: 20, fontSize: 10, fontWeight: 600 }}
+                          />
+                        ) : null}
                       </Stack>
                     </MenuItem>
                   ))}
@@ -495,7 +653,9 @@ export default function UserFormPage() {
                   size="small"
                   fullWidth
                   value={selectedTemplateId}
-                  onChange={(e) => handleTemplateChange(e.target.value)}
+                  onChange={(e) => {
+                    void handleTemplateChange(e.target.value)
+                  }}
                   inputProps={{ style: { fontSize: 13 } }}
                 >
                   <MenuItem value="">
@@ -503,11 +663,20 @@ export default function UserFormPage() {
                       Custom permissions
                     </Typography>
                   </MenuItem>
-                  {templates.map((template) => (
+                  {templateOptions.map((template) => (
                     <MenuItem key={template.id} value={template.id}>
-                      <Typography variant="body2" sx={{ fontSize: 13 }}>
-                        {template.templateName}
-                      </Typography>
+                      <Stack direction="row" alignItems="center" gap={1}>
+                        <Typography variant="body2" sx={{ fontSize: 13 }}>
+                          {template.templateName}
+                        </Typography>
+                        {template.status === 'inactive' ? (
+                          <MuiChip
+                            label="Inactive"
+                            size="small"
+                            sx={{ height: 20, fontSize: 10, fontWeight: 600 }}
+                          />
+                        ) : null}
+                      </Stack>
                     </MenuItem>
                   ))}
                 </TextField>

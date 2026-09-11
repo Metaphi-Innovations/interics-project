@@ -8,8 +8,6 @@ import Topbar, { TOPBAR_HEIGHT } from '../Topbar'
 import Sidebar from '../Sidebar'
 import type { NavConfig, SidebarUser } from '../Sidebar'
 import type { UserMenuUser } from '../Topbar/UserMenu'
-import CommandPalette from '../CommandPalette'
-import type { SearchResults } from '../CommandPalette'
 import { tokens } from '../../../tokens'
 
 const STORAGE_KEY = 'foundation:sidebar-collapsed'
@@ -31,23 +29,14 @@ export interface AppShellProps {
   onSignOut?: () => void
   onProfileClick?: () => void
   onSettingsClick?: () => void
-  onSearch?: (query: string) => Promise<SearchResults>
   sidebarUser?: SidebarUser | null
   onLogout?: () => void
-}
-
-function defaultSearch(): Promise<SearchResults> {
-  return Promise.resolve({ pages: [], records: [], users: [] })
 }
 
 export default function AppShell({
   children,
   navConfig,
   user,
-  logo,
-  logoCollapsed,
-  appName = 'Interics',
-  logoMark = 'F',
   logoFullSrc = '/logo-full.png',
   logoMarkSrc = '/logo-mark.png',
   notificationCount,
@@ -55,7 +44,6 @@ export default function AppShell({
   onSignOut,
   onProfileClick,
   onSettingsClick,
-  onSearch = defaultSearch,
   sidebarUser,
   onLogout,
 }: AppShellProps) {
@@ -69,7 +57,6 @@ export default function AppShell({
     return false
   })
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false)
-  const [paletteOpen, setPaletteOpen] = useState(false)
 
   // Close drawer when resizing to desktop
   useEffect(() => {
@@ -83,24 +70,25 @@ export default function AppShell({
     setMobileDrawerOpen(false)
   }, [location.pathname])
 
-  // Cmd+K / Ctrl+K global shortcut
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault()
-        setPaletteOpen(p => !p)
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [])
-
   function handleDesktopCollapse(val: boolean) {
     setCollapsed(val)
     localStorage.setItem(STORAGE_KEY, String(val))
   }
 
   const sidebarWidth = collapsed ? SIDEBAR_COLLAPSED : SIDEBAR_EXPANDED
+
+  const sidebar = (
+    <Sidebar
+      navConfig={navConfig}
+      collapsed={isDesktop ? collapsed : false}
+      onCollapse={handleDesktopCollapse}
+      currentPath={location.pathname}
+      logoFullSrc={logoFullSrc}
+      logoMarkSrc={logoMarkSrc}
+      sidebarUser={sidebarUser}
+      onLogout={onLogout}
+    />
+  )
 
   return (
     <Box
@@ -123,78 +111,41 @@ export default function AppShell({
             overflow: 'hidden',
           }}
         >
-          <Sidebar
-            navConfig={navConfig}
-            collapsed={collapsed}
-            onCollapse={handleDesktopCollapse}
-            logo={logo}
-            logoCollapsed={logoCollapsed}
-            currentPath={location.pathname}
-            mobileOpen={false}
-            onMobileClose={() => {}}
-            logoMark={logoMark}
-            appName={appName}
-            logoFullSrc={logoFullSrc}
-            logoMarkSrc={logoMarkSrc}
-            sidebarUser={sidebarUser}
-            onLogout={onLogout}
-          />
+          {sidebar}
         </Box>
       )}
 
-      {/* ── MOBILE/TABLET DRAWER (below lg) ── */}
+      {/* ── MOBILE DRAWER (below lg) ── */}
       {!isDesktop && (
         <MuiDrawer
           variant="temporary"
-          anchor="left"
           open={mobileDrawerOpen}
           onClose={() => setMobileDrawerOpen(false)}
-          ModalProps={{
-            keepMounted: true,
-          }}
+          ModalProps={{ keepMounted: true }}
           sx={{
             '& .MuiDrawer-paper': {
               width: SIDEBAR_EXPANDED,
-              height: '100vh',
+              boxSizing: 'border-box',
               border: 'none',
               boxShadow: tokens.shadow.xl,
             },
-            '& .MuiBackdrop-root': {
-              backgroundColor: 'rgba(0,0,0,0.3)',
-            },
           }}
         >
-          <Sidebar
-            navConfig={navConfig}
-            collapsed={false}
-            onCollapse={() => setMobileDrawerOpen(false)}
-            logo={logo}
-            logoCollapsed={logoCollapsed}
-            currentPath={location.pathname}
-            mobileOpen={mobileDrawerOpen}
-            onMobileClose={() => setMobileDrawerOpen(false)}
-            logoMark={logoMark}
-            appName={appName}
-            logoFullSrc={logoFullSrc}
-            logoMarkSrc={logoMarkSrc}
-            sidebarUser={sidebarUser}
-            onLogout={onLogout}
-          />
+          {sidebar}
         </MuiDrawer>
       )}
 
-      {/* ── CONTENT COLUMN ── */}
+      {/* ── MAIN COLUMN ── */}
       <Box
         sx={{
           flex: 1,
           display: 'flex',
           flexDirection: 'column',
+          minWidth: 0,
           height: '100vh',
           overflow: 'hidden',
-          minWidth: 0,
         }}
       >
-        {/* Topbar */}
         <Box
           sx={{
             flexShrink: 0,
@@ -217,12 +168,10 @@ export default function AppShell({
             onSignOut={onSignOut}
             onProfileClick={onProfileClick}
             onSettingsClick={onSettingsClick}
-            onSearchClick={() => setPaletteOpen(true)}
             showMenuButton={!isDesktop}
           />
         </Box>
 
-        {/* Main Content */}
         <Box
           component="main"
           sx={{
@@ -237,13 +186,6 @@ export default function AppShell({
           {children}
         </Box>
       </Box>
-
-      {/* Command Palette */}
-      <CommandPalette
-        open={paletteOpen}
-        onClose={() => setPaletteOpen(false)}
-        onSearch={onSearch}
-      />
     </Box>
   )
 }

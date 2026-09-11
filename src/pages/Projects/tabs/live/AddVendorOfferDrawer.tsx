@@ -70,7 +70,9 @@ function listServiceTargets(
 
 function generatePoNumber(): string {
   const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '')
-  return `PO-VND-${stamp}-${String(Date.now()).slice(-4)}`
+  const timePart = String(Date.now()).slice(-4)
+  const randomPart = Math.random().toString(36).slice(2, 6).toUpperCase()
+  return `PO-VND-${stamp}-${timePart}-${randomPart}`
 }
 
 function MilestoneSectionPanel({
@@ -601,9 +603,15 @@ export function AddVendorOfferDrawer({ open, onClose, projectId }: AddVendorOffe
               fullWidth
               size="small"
               value={form.poNumber}
-              onChange={(e) => setField('poNumber', e.target.value)}
               placeholder="PO-VND-…"
               error={Boolean(fieldErrors.poNumber)}
+              InputProps={{ readOnly: true }}
+              sx={{
+                '& .MuiInputBase-input': {
+                  cursor: 'default',
+                  color: 'text.secondary',
+                },
+              }}
             />
           </FormField>
           <FormField label="PO Date" required error={fieldErrors.poDate}>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Box,
   Stack,
@@ -44,9 +44,11 @@ import { formatDate, formatInr } from '@/utils/formatters'
 import { invoiceStatusToBadgeType } from '@/pages/Finance/invoiceStatus'
 import {
   currentIndianFyStartYear,
-  financialYearSelectOptions,
+  defaultFyStartYearFromAvailable,
+  financialYearSelectOptionsFromYears,
   indianFyQuarterLabel,
   parseChartPeriod,
+  parseFyStartYear,
   selectedFyHeading,
 } from './complianceListingUtils'
 
@@ -205,8 +207,13 @@ export default function FilingSummaryPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [periodMode, setPeriodMode] = useState<PeriodMode>('monthly')
-  const [fyStartYear, setFyStartYear] = useState(() => currentIndianFyStartYear())
-  const fyOptions = useMemo(() => financialYearSelectOptions(), [])
+  const [fyStartYear, setFyStartYear] = useState<number | ''>(() => currentIndianFyStartYear())
+  const [availableFyYears, setAvailableFyYears] = useState<number[]>([])
+  const fyDefaultAppliedRef = useRef(false)
+  const fyOptions = useMemo(
+    () => financialYearSelectOptionsFromYears(availableFyYears),
+    [availableFyYears],
+  )
   const [tableTab, setTableTab] = useState<TableTab>('gst')
   const [listingControlsByTab, setListingControlsByTab] = useState<Record<TableTab, ListingControls>>(
     () => ({
@@ -225,13 +232,9 @@ export default function FilingSummaryPage() {
   const scopeParams = useMemo(() => {
     const p: Record<string, string | undefined> = {}
     if (filterProjectId) p.projectId = filterProjectId
+    if (fyStartYear !== '') p.fyStartYear = String(fyStartYear)
     return p
-  }, [filterProjectId])
-
-  const chartParams = useMemo(
-    () => ({ ...scopeParams, fyStartYear: String(fyStartYear) }),
-    [scopeParams, fyStartYear],
-  )
+  }, [filterProjectId, fyStartYear])
 
   useEffect(() => {
     void (async () => {
@@ -251,10 +254,22 @@ export default function FilingSummaryPage() {
     try {
       const [summaryRes, chartRes, breakdownRes] = await Promise.all([
         financeApi.getFillingSummary(scopeParams),
-        financeApi.getFillingSummaryChart(chartParams),
-        financeApi.getFillingSummaryPeriodBreakdown(chartParams),
+        financeApi.getFillingSummaryChart(scopeParams),
+        financeApi.getFillingSummaryPeriodBreakdown(scopeParams),
       ])
-      setKpis(unwrapApiData<FillingSummaryKpis>(summaryRes.data))
+      const summary = unwrapApiData<FillingSummaryKpis>(summaryRes.data)
+      const years = summary.availableFyStartYears ?? []
+      setAvailableFyYears(years)
+      if (!fyDefaultAppliedRef.current) {
+        fyDefaultAppliedRef.current = true
+        const preferred = defaultFyStartYearFromAvailable(years)
+        setFyStartYear((prev) => (prev === preferred ? prev : preferred))
+      } else {
+        setFyStartYear((prev) =>
+          prev !== '' && !years.includes(prev) ? defaultFyStartYearFromAvailable(years) : prev,
+        )
+      }
+      setKpis(summary)
       setMonthlyChart(unwrapApiList<FillingSummaryChartPoint>(chartRes.data))
       setBreakdown(unwrapApiData<FillingSummaryPeriodBreakdown>(breakdownRes.data))
     } catch {
@@ -265,7 +280,7 @@ export default function FilingSummaryPage() {
     } finally {
       setLoading(false)
     }
-  }, [scopeParams, chartParams])
+  }, [scopeParams])
 
   const loadTable = useCallback(async () => {
     try {
@@ -601,6 +616,7 @@ export default function FilingSummaryPage() {
       const res = await financeApi.exportFillingSummary({
         type,
         ...(filterProjectId ? { projectId: filterProjectId } : {}),
+        ...(fyStartYear !== '' ? { fyStartYear: String(fyStartYear) } : {}),
         ...(sortField ? { sortBy: sortField, sortOrder: sortDirection } : {}),
       })
       downloadBlob(
@@ -770,16 +786,6 @@ export default function FilingSummaryPage() {
               Monthly trend
             </Typography>
             <Stack direction="row" gap={0.75} alignItems="center" flexWrap="wrap">
-              <Select
-                size="sm"
-                value={String(fyStartYear)}
-                onChange={(v) => {
-                  const next = Number(v)
-                  if (Number.isInteger(next)) setFyStartYear(next)
-                }}
-                options={fyOptions}
-                sx={{ minWidth: 180 }}
-              />
               <Box
                 component="button"
                 type="button"
@@ -847,11 +853,8 @@ export default function FilingSummaryPage() {
             <Select
               size="sm"
               fullWidth
-              value={String(fyStartYear)}
-              onChange={(v) => {
-                const next = Number(v)
-                if (Number.isInteger(next)) setFyStartYear(next)
-              }}
+              value={fyStartYear === '' ? '' : String(fyStartYear)}
+              onChange={(v) => setFyStartYear(parseFyStartYear(v))}
               options={fyOptions}
             />
             <Select

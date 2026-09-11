@@ -44,7 +44,7 @@ export function PoMilestoneTaxLines({
           <span style={{ fontWeight: 600 }}>Net ₹{formatCurrency(tax.net)}</span>
         </>
       ) : null}
-      {!tax.fromSnapshot ? (
+      {!tax.fromSnapshot && !tax.gstFromInvoice ? (
         <Typography component="span" sx={{ fontSize: 9, ml: 0.5, opacity: 0.75 }}>
           (preview)
         </Typography>

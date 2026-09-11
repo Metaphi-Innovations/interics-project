@@ -32,7 +32,7 @@ import {
 } from '@/slices/live/thunk'
 import type { Baseline } from '@/slices/baseline/reducer'
 import type { Expense, VendorPayment } from '@/slices/live/types'
-import { formatCurrency, formatDate } from '@/utils/formatters'
+import { formatCurrency, formatDate, formatInr } from '@/utils/formatters'
 import { vendorMilestonePayableTaxBreakdown } from '@/pages/Projects/tabs/live/clientInvoiceUtils'
 import {
   resolveVendorLineAmountsFromInvoice,
@@ -485,7 +485,7 @@ export function VendorPayableWorkflowDrawer({
                 />
                 <ReadOnlyField
                   label="Net payable"
-                  value={`₹${formatCurrency(invoiceNetPayable)}`}
+                  value={`₹${formatInr(invoiceNetPayable)}`}
                 />
                 <Box>
                   <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
@@ -681,7 +681,7 @@ export function VendorPayableWorkflowDrawer({
                     variant="body2"
                     sx={{ fontSize: 13, fontWeight: 700, color: 'primary.main' }}
                   >
-                    ₹{formatCurrency(invoiceNetPayable)}
+                    ₹{formatInr(invoiceNetPayable)}
                   </Typography>
                 </Stack>
               </Stack>
@@ -760,7 +760,7 @@ export function VendorPayableWorkflowDrawer({
                       Invoice net payable
                     </Typography>
                     <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600 }}>
-                      ₹{formatCurrency(invoiceNetPayable)}
+                      ₹{formatInr(invoiceNetPayable)}
                     </Typography>
                   </Stack>
                   <Stack direction="row" justifyContent="space-between">

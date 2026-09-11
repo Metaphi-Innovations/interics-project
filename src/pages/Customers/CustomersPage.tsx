@@ -1211,6 +1211,10 @@ export default function CustomersPage() {
         onClose={handleDrawerClose}
         mode={drawerMode}
         customer={editingCustomer}
+        onSuccess={() => {
+          void dispatch(fetchCustomerFilters())
+          void dispatch(fetchCustomers(buildListParams()))
+        }}
       />
 
       <ConfirmToggleDialog

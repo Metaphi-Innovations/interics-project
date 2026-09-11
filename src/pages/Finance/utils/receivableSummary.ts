@@ -1,8 +1,8 @@
 /** KPI payload from GET /finance/receivables/summary (server-computed). */
 export interface ReceivableSummaryKpis {
   /**
-   * Sum of Client PO values on Live projects (Live Overview semantics),
-   * scoped by Client PO.startDate to the Receivable KPI Date Range.
+   * Sum of Client PO stored `poValue` on Live projects (tax-exclusive PO value).
+   * Does not include GST, TDS, Labour Cess, or invoice-level adjustments.
    */
   totalPoValue: number
   /** Sum of recorded client payments (bank only) on invoices in the filtered population. */

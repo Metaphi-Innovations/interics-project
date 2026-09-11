@@ -1,9 +1,8 @@
 import { createAsyncThunk } from '@reduxjs/toolkit'
-import { API_BASE_URL } from '@/api/config'
+import client from '@/api/client'
+import { unwrapApiData } from '@/modules/system-settings/shared/api'
 import type { PitchCategory, PlannedExpense } from '@/slices/pitch/reducer'
 import { recalcTransitionDraft, type TransitionDraft } from '@/utils/transitionDraft'
-
-const BASE = `${API_BASE_URL}/projects`
 
 export type TransitionApiPayload = {
   versionId: string | null
@@ -22,9 +21,12 @@ export const fetchTransition = createAsyncThunk<
   string,
   { rejectValue: string }
 >('transition/fetchTransition', async (projectId, { rejectWithValue }) => {
-  const res = await fetch(`${BASE}/${projectId}/transition`)
-  if (!res.ok) return rejectWithValue('Failed to fetch transition')
-  return (await res.json()) as TransitionApiPayload
+  try {
+    const res = await client.get(`/projects/${projectId}/transition`)
+    return unwrapApiData<TransitionApiPayload>(res.data)
+  } catch {
+    return rejectWithValue('Failed to fetch transition')
+  }
 })
 
 export const saveTransition = createAsyncThunk<
@@ -32,13 +34,12 @@ export const saveTransition = createAsyncThunk<
   { projectId: string; body: TransitionApiPayload },
   { rejectValue: string }
 >('transition/saveTransition', async ({ projectId, body }, { rejectWithValue }) => {
-  const res = await fetch(`${BASE}/${projectId}/transition/save`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  if (!res.ok) return rejectWithValue('Failed to save transition')
-  return (await res.json()) as TransitionApiPayload
+  try {
+    const res = await client.post(`/projects/${projectId}/transition/save`, body)
+    return unwrapApiData<TransitionApiPayload>(res.data)
+  } catch {
+    return rejectWithValue('Failed to save transition')
+  }
 })
 
 /** Merge API payload into TransitionDraft when versionId is set (needs pitch version for metadata). */

@@ -90,7 +90,7 @@ import {
 import { applyVendorEditorExecutedValue } from './applyVendorEditorExecutedValue'
 import { useActiveGstRates } from './useActiveGstRates'
 import { PoGstRateSelect, isActiveGstRate } from './PoGstRateSelect'
-import { formatGstRateLabel, vendorMilestoneTaxDisplay } from './poTaxDisplay'
+import { vendorMilestoneTaxDisplay } from './poTaxDisplay'
 import { PoMilestoneTaxLines } from './PoMilestoneTaxLines'
 
 const PO_VENDOR_SUMMARY_SX = {
@@ -176,13 +176,11 @@ function VendorPOMilestoneDetailTable({
   serviceLabel,
   projectVendorInvoices,
   serviceId,
-  poGstRate = null,
 }: {
   milestones: VendorPO['milestones']
   serviceLabel: string
   projectVendorInvoices: VendorInvoice[]
   serviceId: string
-  poGstRate?: number | null
 }) {
   if (milestones.length === 0) {
     return (
@@ -222,7 +220,10 @@ function VendorPOMilestoneDetailTable({
         </TableHead>
         <TableBody>
           {milestones.map((m) => {
-            const tax = vendorMilestoneTaxDisplay(m, poGstRate ?? m.gstRate)
+            const tax = vendorMilestoneTaxDisplay(m, {
+              invoices: projectVendorInvoices,
+              serviceId,
+            })
             return (
             <Fragment key={m.id}>
               <TableRow hover>
@@ -272,13 +273,11 @@ function VendorPOMilestonesReadOnlySections({
   serviceLabel,
   projectVendorInvoices,
   serviceId,
-  poGstRate = null,
 }: {
   milestones: VendorPO['milestones']
   serviceLabel: string
   projectVendorInvoices: VendorInvoice[]
   serviceId: string
-  poGstRate?: number | null
 }) {
   const regularMilestones = milestones.filter(
     (m) => resolveVendorPOMilestoneKind(m) === 'regular',
@@ -310,7 +309,6 @@ function VendorPOMilestonesReadOnlySections({
           serviceLabel={serviceLabel}
           projectVendorInvoices={projectVendorInvoices}
           serviceId={serviceId}
-          poGstRate={poGstRate}
         />
       </Box>
       {retentionMilestones.length > 0 ? (
@@ -327,7 +325,6 @@ function VendorPOMilestonesReadOnlySections({
             serviceLabel={serviceLabel}
             projectVendorInvoices={projectVendorInvoices}
             serviceId={serviceId}
-            poGstRate={poGstRate}
           />
         </Box>
       ) : null}
@@ -535,7 +532,9 @@ export function AddVendorPODrawer({
 
   function generatePoNumber(): string {
     const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '')
-    return `PO-VND-${stamp}-${String(Date.now()).slice(-4)}`
+    const timePart = String(Date.now()).slice(-4)
+    const randomPart = Math.random().toString(36).slice(2, 6).toUpperCase()
+    return `PO-VND-${stamp}-${timePart}-${randomPart}`
   }
 
   async function handleSubmit() {
@@ -950,6 +949,7 @@ export function ViewVendorPODrawer({
       onClose={onClose}
       title={resolvedPo?.poNumber ?? 'Vendor PO'}
       subtitle="Vendor purchase order details"
+      hideFooter
     >
       {resolvedPo ? (
         <Stack spacing={2.5}>
@@ -976,14 +976,6 @@ export function ViewVendorPODrawer({
               <ReadOnlyField
                 label="Executed Value"
                 value={`₹${formatCurrency(effectiveExecutedValue(resolvedPo))}`}
-              />
-              <ReadOnlyField
-                label="GST Rate"
-                value={
-                  resolvedPo.gstRate != null
-                    ? formatGstRateLabel(resolvedPo.gstRate)
-                    : '—'
-                }
               />
               <PODocumentLinkField
                 fileName={resolvedPo.fileName}
@@ -1026,7 +1018,6 @@ export function ViewVendorPODrawer({
             serviceLabel={serviceLabel}
             projectVendorInvoices={projectVendorInvoices}
             serviceId={resolvedPo.linkedBaselineServiceIds?.[0]?.trim() || ''}
-            poGstRate={resolvedPo.gstRate}
           />
         </Stack>
       ) : null}

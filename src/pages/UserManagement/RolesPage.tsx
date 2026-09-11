@@ -17,8 +17,8 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
+  DialogContentText,
   DialogActions,
-  Button as MuiButton,
 } from '@mui/material'
 import { useTheme, alpha } from '@mui/material/styles'
 import { Plus, ShieldCheck, MoreVertical } from 'lucide-react'
@@ -85,39 +85,25 @@ function RoleStatusDialog({
   onConfirm: () => void
   saving: boolean
 }) {
-  const activating = role?.status !== 'active'
+  const nextActive = role?.status !== 'active'
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
-      <DialogTitle sx={{ fontSize: 15, fontWeight: 600 }}>
-        {activating ? 'Activate Role' : 'Deactivate Role'}
-      </DialogTitle>
+    <Dialog open={open} onClose={() => !saving && onClose()} maxWidth="xs" fullWidth>
+      <DialogTitle>{nextActive ? 'Activate' : 'Deactivate'}?</DialogTitle>
       <DialogContent>
-        <Typography variant="body2">
-          {activating ? (
-            <>
-              Activate <strong>{role?.name}</strong>? Users assigned to this role can use it again.
-            </>
-          ) : (
-            <>
-              Deactivate <strong>{role?.name}</strong>? It will no longer be available for assignment.
-            </>
-          )}
-        </Typography>
+        <DialogContentText>
+          {nextActive
+            ? `Activate "${role?.name}"?`
+            : `Deactivate "${role?.name}"? It will no longer be available for new records.`}
+        </DialogContentText>
       </DialogContent>
-      <DialogActions sx={{ px: 3, pb: 2 }}>
-        <MuiButton size="small" onClick={onClose} disabled={saving}>
+      <DialogActions>
+        <Button size="sm" variant="outlined" color="secondary" onClick={onClose} disabled={saving}>
           Cancel
-        </MuiButton>
-        <MuiButton
-          size="small"
-          variant="contained"
-          color={activating ? 'success' : 'warning'}
-          onClick={onConfirm}
-          disabled={saving}
-        >
-          {activating ? 'Activate' : 'Deactivate'}
-        </MuiButton>
+        </Button>
+        <Button size="sm" variant="contained" color="primary" onClick={onConfirm} disabled={saving}>
+          {saving ? 'Updating...' : 'Confirm'}
+        </Button>
       </DialogActions>
     </Dialog>
   )

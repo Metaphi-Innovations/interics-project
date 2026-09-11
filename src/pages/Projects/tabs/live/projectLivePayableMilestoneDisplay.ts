@@ -3,10 +3,6 @@ import type { VendorPO } from '@/slices/baseline/reducer'
 import type { VendorInvoice, VendorPayment } from '@/slices/live/types'
 import type { Service } from '@/slices/settings/reducer'
 import type { VendorPOMilestoneOverviewRow } from '@/pages/Projects/tabs/live/vendorPOHelpers'
-import {
-  vendorMilestonePayableTaxBreakdown,
-  resolveVendorMilestoneServiceId,
-} from '@/pages/Projects/tabs/live/clientInvoiceUtils'
 import { resolveVendorPoMilestoneSnapshot } from '@/pages/Projects/tabs/live/poSnapshotUtils'
 import {
   getVendorInvoiceMilestoneNet,
@@ -59,14 +55,15 @@ export function resolveVendorPayableTdsRate(
 
 /**
  * Project Live Payable Amount Breakdown:
- * uninvoiced → Base + GST; invoiced → that invoice line's Base + GST − TDS.
+ * uninvoiced → Base only (GST not applied until invoicing);
+ * invoiced → that invoice line's Base + GST − TDS.
  */
 export function resolvePayableMilestoneAmounts(
   row: VendorPOMilestoneOverviewRow,
   invoice: VendorInvoice | undefined,
   vendorPo: VendorPO | undefined,
-  baseline: Baseline | null = null,
-  settingsServices: Service[] = [],
+  _baseline: Baseline | null = null,
+  _settingsServices: Service[] = [],
 ): PayableMilestoneDisplayAmounts {
   if (invoice) {
     const lineAmounts = resolveVendorLineAmountsFromInvoice(invoice, row.milestoneId)
@@ -93,35 +90,16 @@ export function resolvePayableMilestoneAmounts(
     }
   }
 
+  // Pre-invoice: never treat PO snapshot / service GST as applied.
   const poSnapshot = resolveVendorPoMilestoneSnapshot(vendorPo, row.milestoneId)
-  if (poSnapshot) {
-    return {
-      base: poSnapshot.base,
-      gstRate: poSnapshot.gstRate,
-      gstAmount: poSnapshot.gstAmount,
-      tdsRate: null,
-      tdsAmount: 0,
-      net: poSnapshot.net,
-    }
-  }
-
-  const serviceId = resolveVendorMilestoneServiceId(row.serviceId, vendorPo, baseline)
-  const tdsRate = resolveVendorPayableTdsRate(invoice)
-  const amounts = vendorMilestonePayableTaxBreakdown(
-    row.amount,
-    serviceId,
-    tdsRate,
-    baseline,
-    settingsServices,
-    vendorPo,
-  )
+  const base = poSnapshot ? poSnapshot.base : roundMoney(row.amount)
   return {
-    base: amounts.base,
-    gstRate: amounts.gstRate,
-    gstAmount: amounts.gstAmount,
-    tdsRate: amounts.tdsRate,
-    tdsAmount: amounts.tdsAmount,
-    net: amounts.net,
+    base,
+    gstRate: 0,
+    gstAmount: 0,
+    tdsRate: null,
+    tdsAmount: 0,
+    net: base,
   }
 }
 

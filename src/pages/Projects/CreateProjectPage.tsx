@@ -16,16 +16,16 @@ import { Add, PersonOutline } from '@mui/icons-material'
 import { useNavigate } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import {
-  fetchCustomers,
   createCustomerContact,
   fetchCustomerById,
 } from '../../slices/customers/thunk'
 import { fetchUsers, toUiUser } from '../../slices/users/thunk'
 import { fetchRoles } from '../../slices/roles/thunk'
 import { usersApi } from '../../api/usersApi'
+import { dropdownsApi } from '../../api/dropdownsApi'
 import { unwrapApiData } from '@/modules/system-settings/shared/api'
 import { normalizeArrayResponse } from '@/utils/normalizeListResponse'
-import { createVendorContact, fetchVendorById, fetchVendors } from '../../slices/vendors/thunk'
+import { createVendorContact, fetchVendorById } from '../../slices/vendors/thunk'
 import type { Vendor } from '../../slices/vendors/reducer'
 import { isProjectLeadRole, PROJECT_LEAD_ROLE_KEY } from './projectManagerRoles'
 import { ContactPersonAutocomplete } from './components/ContactPersonAutocomplete'
@@ -44,7 +44,6 @@ import {
   validateProjectSetupForm,
 } from './components/ProjectSetupFormFields'
 import { createProject } from '../../slices/projects/thunk'
-import type { Customer } from '../../slices/customers/reducer'
 import type { User } from '../../slices/users/reducer'
 import { FullPageForm, FullPageFormSection } from '../../components/templates/FullPageForm'
 import { FormField } from '../../components/templates/DrawerForm'
@@ -152,17 +151,15 @@ interface StepErrors {
 
 // ─── Step 1 — Customer Selection ─────────────────────────────────────────────
 
-function filterCustomers(options: Customer[], { inputValue }: { inputValue: string }) {
+type CustomerSelectOption = { id: string; name: string }
+
+function filterCustomers(options: CustomerSelectOption[], { inputValue }: { inputValue: string }) {
   const q = inputValue.trim().toLowerCase()
   if (!q) return options
-  return options.filter(
-    (c) =>
-      c.name.toLowerCase().includes(q) ||
-      c.contactPerson.toLowerCase().includes(q),
-  )
+  return options.filter((c) => c.name.toLowerCase().includes(q))
 }
 
-function renderCustomerOption(props: HTMLAttributes<HTMLLIElement>, option: Customer) {
+function renderCustomerOption(props: HTMLAttributes<HTMLLIElement>, option: CustomerSelectOption) {
   const colors = getAvatarColor(option.name)
   return (
     <Box component="li" {...props} sx={{ gap: 1, alignItems: 'flex-start !important', py: '8px !important' }}>
@@ -186,9 +183,6 @@ function renderCustomerOption(props: HTMLAttributes<HTMLLIElement>, option: Cust
       </Box>
       <Box sx={{ minWidth: 0 }}>
         <Typography sx={{ fontSize: 13, fontWeight: 500, lineHeight: 1.35 }}>{option.name}</Typography>
-        <Typography sx={{ fontSize: 11, color: 'text.secondary', lineHeight: 1.35 }}>
-          {option.contactPerson}
-        </Typography>
       </Box>
     </Box>
   )
@@ -199,13 +193,21 @@ function Step1Customer({
   setFormData,
   customers,
   loadingCustomers,
+  vendorOptions,
+  vendorsLoading,
+  onRefreshCustomerOptions,
+  onVendorOptionAdded,
   errors,
   setErrors,
 }: {
   formData: WizardFormData
   setFormData: React.Dispatch<React.SetStateAction<WizardFormData>>
-  customers: Customer[]
+  customers: CustomerSelectOption[]
   loadingCustomers: boolean
+  vendorOptions: VendorSelectOption[]
+  vendorsLoading: boolean
+  onRefreshCustomerOptions: () => void
+  onVendorOptionAdded: (option: VendorSelectOption) => void
   errors: StepErrors
   setErrors: React.Dispatch<React.SetStateAction<StepErrors>>
 }) {
@@ -219,11 +221,14 @@ function Step1Customer({
   const [vendorDetailsById, setVendorDetailsById] = useState<Record<string, Vendor>>({})
 
   const selectedCustomerDetail = useAppSelector((s) => s.customers.selectedItem)
-  // Prefer detail/selectedItem contacts when they match the form selection — list DTOs omit contact UUIDs.
-  const selectedCustomer =
-    (selectedCustomerDetail?.id === formData.customerId ? selectedCustomerDetail : null) ??
+  const selectedCustomerOption =
     customers.find((c) => c.id === formData.customerId) ??
-    null
+    (formData.customerId
+      ? { id: formData.customerId, name: formData.customerName }
+      : null)
+  // Prefer detail/selectedItem contacts when they match the form selection.
+  const selectedCustomer =
+    selectedCustomerDetail?.id === formData.customerId ? selectedCustomerDetail : null
   // Only real contact UUIDs from customer detail — never legacy list placeholders.
   const customerContacts = useMemo(
     () => normalizeContacts(selectedCustomer?.contacts ?? []),
@@ -234,8 +239,6 @@ function Step1Customer({
     [customerContacts, formData.contactIds],
   )
 
-  const vendors = useAppSelector((s) => s.vendors.items ?? [])
-  const vendorsLoading = useAppSelector((s) => s.vendors.loading)
   const vendorDetail = useAppSelector((s) => s.vendors.selectedItem)
 
   useEffect(() => {
@@ -261,37 +264,30 @@ function Step1Customer({
     for (const vendorId of formData.vendorIds) {
       const detail =
         vendorDetailsById[vendorId] ??
-        (vendorDetail?.id === vendorId ? vendorDetail : undefined) ??
-        vendors.find((v) => v.id === vendorId)
+        (vendorDetail?.id === vendorId ? vendorDetail : undefined)
       for (const contact of getVendorContactsForProjectCreate(detail)) {
         byId.set(contact.id, contact)
       }
     }
     return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name))
-  }, [formData.vendorIds, vendorDetailsById, vendorDetail, vendors])
+  }, [formData.vendorIds, vendorDetailsById, vendorDetail])
 
   const selectedVendorContacts = useMemo(
     () => vendorContacts.filter((c) => formData.vendorContactIds.includes(c.id)),
     [vendorContacts, formData.vendorContactIds],
   )
-  const vendorOptions = useMemo<VendorSelectOption[]>(
-    () =>
-      vendors
-        .map((v) => ({ id: v.id, label: v.name }))
-        .sort((a, b) => a.label.localeCompare(b.label)),
-    [vendors],
-  )
   const existingVendorPhones = useMemo(
-    () => vendors.map((v) => v.phone.trim()).filter(Boolean),
-    [vendors],
+    () =>
+      Object.values(vendorDetailsById)
+        .map((v) => (v.phone ?? '').trim())
+        .filter(Boolean),
+    [vendorDetailsById],
   )
 
   async function handleCustomerCreated(created: { id: string; name: string }) {
     try {
       const full = await dispatch(fetchCustomerById(created.id)).unwrap()
-      // Refresh list for Autocomplete options, but do not await in a way that blocks
-      // contact UI — reducer preserves contacts for the selected/detail customer.
-      void dispatch(fetchCustomers({}))
+      onRefreshCustomerOptions()
       const contacts = getContactsForCustomer(full)
       setFormData((prev) => ({
         ...prev,
@@ -322,7 +318,7 @@ function Step1Customer({
           filterOptions={filterCustomers}
           getOptionLabel={(c) => c.name}
           isOptionEqualToValue={(a, b) => a.id === b.id}
-          value={selectedCustomer}
+          value={selectedCustomerOption}
           onChange={(_, val) => {
             if (!val) {
               setFormData((prev) => ({
@@ -391,7 +387,6 @@ function Step1Customer({
           options={vendorOptions}
           loading={vendorsLoading}
           error={errors.vendorId}
-          onAddNewVendor={() => setAddVendorOpen(true)}
           onChange={(vendorIds) => {
             const uniqueIds = [...new Set(vendorIds.filter(Boolean))]
             setFormData((prev) => {
@@ -399,8 +394,7 @@ function Step1Customer({
                 uniqueIds.flatMap((id) => {
                   const detail =
                     vendorDetailsById[id] ??
-                    (vendorDetail?.id === id ? vendorDetail : undefined) ??
-                    vendors.find((v) => v.id === id)
+                    (vendorDetail?.id === id ? vendorDetail : undefined)
                   return getVendorContactsForProjectCreate(detail).map((c) => c.id)
                 }),
               )
@@ -511,7 +505,7 @@ function Step1Customer({
           ).unwrap()
 
           const full = await dispatch(fetchCustomerById(customerId)).unwrap()
-          void dispatch(fetchCustomers({}))
+          onRefreshCustomerOptions()
 
           setFormData((prev) => ({
             ...prev,
@@ -604,6 +598,7 @@ function Step1Customer({
       onClose={() => setAddVendorOpen(false)}
       onCreated={(vendor) => {
         const createdVendorId = vendor.id
+        onVendorOptionAdded({ id: vendor.id, label: vendor.name })
         setFormData((prev) => {
           const vendorIds = [...new Set([...prev.vendorIds, createdVendorId])]
           return {
@@ -1006,8 +1001,11 @@ export default function CreateProjectPage() {
   const dispatch = useAppDispatch()
   const toast = useToast()
 
-  const customers = useAppSelector((s) => s.customers.items ?? [])
-  const loadingCustomers = useAppSelector((s) => s.customers.loading)
+  const [customerOptions, setCustomerOptions] = useState<CustomerSelectOption[]>([])
+  const [loadingCustomers, setLoadingCustomers] = useState(false)
+  const [vendorOptions, setVendorOptions] = useState<VendorSelectOption[]>([])
+  const [vendorsLoading, setVendorsLoading] = useState(false)
+  const selectedCustomerDetail = useAppSelector((s) => s.customers.selectedItem)
   const users = useAppSelector((s) => s.users.items ?? [])
   const roles = useAppSelector((s) => s.roles.items ?? [])
   const saving = useAppSelector((s) => s.projects.saving)
@@ -1020,12 +1018,46 @@ export default function CreateProjectPage() {
   const [errors, setErrors] = useState<StepErrors>({})
   const [projectLeadUsers, setProjectLeadUsers] = useState<User[]>([])
 
+  const loadCustomerOptions = () => {
+    setLoadingCustomers(true)
+    void dropdownsApi
+      .getCustomers()
+      .then((items) => {
+        setCustomerOptions(
+          items
+            .map((item) => ({ id: item.value, name: item.label }))
+            .sort((a, b) => a.name.localeCompare(b.name)),
+        )
+      })
+      .catch(() => {
+        toast.error('Failed to load customers')
+      })
+      .finally(() => setLoadingCustomers(false))
+  }
+
+  const loadVendorOptions = () => {
+    setVendorsLoading(true)
+    void dropdownsApi
+      .getVendors()
+      .then((items) => {
+        setVendorOptions(
+          items
+            .map((item) => ({ id: item.value, label: item.label }))
+            .sort((a, b) => a.label.localeCompare(b.label)),
+        )
+      })
+      .catch(() => {
+        toast.error('Failed to load vendors')
+      })
+      .finally(() => setVendorsLoading(false))
+  }
+
   useEffect(() => {
-    dispatch(fetchCustomers({}))
+    loadCustomerOptions()
+    loadVendorOptions()
     // Explicit limit so Project Lead/Team options are not limited to a prior Users-page page size.
     dispatch(fetchUsers({ limit: 100 }))
     dispatch(fetchRoles({ limit: 100 }))
-    dispatch(fetchVendors({ pageSize: 500 }))
     dispatch(fetchSectors())
     dispatch(fetchStatuses())
 
@@ -1104,7 +1136,8 @@ export default function CreateProjectPage() {
   async function handleSubmit() {
     if (!validateStep(activeStep)) return
 
-    const customer = customers.find((c) => c.id === formData.customerId) ?? null
+    const customer =
+      (selectedCustomerDetail?.id === formData.customerId ? selectedCustomerDetail : null)
     const selectedContacts = findContactsByIds(customer, formData.contactIds)
     const location = formatAddressLine({
       address: formData.address,
@@ -1176,8 +1209,17 @@ export default function CreateProjectPage() {
           <Step1Customer
             formData={formData}
             setFormData={setFormData}
-            customers={customers}
+            customers={customerOptions}
             loadingCustomers={loadingCustomers}
+            vendorOptions={vendorOptions}
+            vendorsLoading={vendorsLoading}
+            onRefreshCustomerOptions={loadCustomerOptions}
+            onVendorOptionAdded={(option) => {
+              setVendorOptions((prev) => {
+                if (prev.some((v) => v.id === option.id)) return prev
+                return [...prev, option].sort((a, b) => a.label.localeCompare(b.label))
+              })
+            }}
             errors={errors}
             setErrors={setErrors}
           />

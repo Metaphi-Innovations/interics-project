@@ -18,8 +18,8 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
+  DialogContentText,
   DialogActions,
-  Button as MuiButton,
 } from '@mui/material'
 import {
   CheckCircle,
@@ -35,8 +35,8 @@ import { fetchRoles } from '@/slices/roles/thunk'
 import { setFilters, resetFilters, setSortConfig } from '@/slices/users/reducer'
 import type { User } from '@/slices/users/reducer'
 import { ListingTemplate } from '@/components/templates'
-import type { StatCardItem, TabItem, FilterField } from '@/components/templates'
-import { useToast } from '@/design-system/components'
+import type { StatCardItem, TabItem } from '@/components/templates'
+import { Button, useToast } from '@/design-system/components'
 import {
   FilterableSortHeader,
   StatusColumnToggle,
@@ -544,7 +544,7 @@ function UsersTable({
   )
 }
 
-function DeactivateDialog({
+function UserStatusDialog({
   open,
   user,
   onClose,
@@ -557,54 +557,25 @@ function DeactivateDialog({
   onConfirm: () => void
   saving: boolean
 }) {
-  return (
-    <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
-      <DialogTitle sx={{ fontSize: 15, fontWeight: 600 }}>Deactivate User</DialogTitle>
-      <DialogContent>
-        <Typography variant="body2">
-          Deactivating <strong>{user?.name}</strong> will immediately revoke their access.
-        </Typography>
-      </DialogContent>
-      <DialogActions sx={{ px: 3, pb: 2 }}>
-        <MuiButton size="small" onClick={onClose} disabled={saving}>
-          Cancel
-        </MuiButton>
-        <MuiButton size="small" variant="contained" color="warning" onClick={onConfirm} disabled={saving}>
-          Deactivate
-        </MuiButton>
-      </DialogActions>
-    </Dialog>
-  )
-}
+  const nextActive = user?.status !== 'active'
 
-function ActivateDialog({
-  open,
-  user,
-  onClose,
-  onConfirm,
-  saving,
-}: {
-  open: boolean
-  user: User | null
-  onClose: () => void
-  onConfirm: () => void
-  saving: boolean
-}) {
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
-      <DialogTitle sx={{ fontSize: 15, fontWeight: 600 }}>Activate User</DialogTitle>
+    <Dialog open={open} onClose={() => !saving && onClose()} maxWidth="xs" fullWidth>
+      <DialogTitle>{nextActive ? 'Activate' : 'Deactivate'}?</DialogTitle>
       <DialogContent>
-        <Typography variant="body2">
-          Activate <strong>{user?.name}</strong>? They will regain system access.
-        </Typography>
+        <DialogContentText>
+          {nextActive
+            ? `Activate "${user?.name}"?`
+            : `Deactivate "${user?.name}"? It will no longer be available for new records.`}
+        </DialogContentText>
       </DialogContent>
-      <DialogActions sx={{ px: 3, pb: 2 }}>
-        <MuiButton size="small" onClick={onClose} disabled={saving}>
+      <DialogActions>
+        <Button size="sm" variant="outlined" color="secondary" onClick={onClose} disabled={saving}>
           Cancel
-        </MuiButton>
-        <MuiButton size="small" variant="contained" color="success" onClick={onConfirm} disabled={saving}>
-          Activate
-        </MuiButton>
+        </Button>
+        <Button size="sm" variant="contained" color="primary" onClick={onConfirm} disabled={saving}>
+          {saving ? 'Updating...' : 'Confirm'}
+        </Button>
       </DialogActions>
     </Dialog>
   )
@@ -750,13 +721,6 @@ export default function UsersPage() {
 
   const activeListTab = filters.status === '' ? 'all' : filters.status === 'active' ? 'active' : 'inactive'
 
-  const filterConfig: FilterField[] = useMemo(
-    () => [{ field: 'role', label: 'Role', type: 'select', options: [{ label: 'All Roles', value: '' }, ...columnFilterOptions.role] }],
-    [columnFilterOptions.role],
-  )
-
-  const activeFilters = useMemo(() => ({ role: filters.role ?? '' }), [filters.role])
-
   function handleSort(field: string, direction: 'asc' | 'desc') {
     dispatch(setSortConfig({ field, direction }))
   }
@@ -831,7 +795,12 @@ export default function UsersPage() {
           )
         }
       })
-      .catch(() => showToast({ title: 'Failed to update status', variant: 'error' }))
+      .catch((message: unknown) =>
+        showToast({
+          title: String(message) || 'Failed to update status',
+          variant: 'error',
+        }),
+      )
       .finally(() => setActionSaving(false))
   }
 
@@ -876,16 +845,6 @@ export default function UsersPage() {
         onSearchChange={(v) => {
           listing.setSearch(v)
           dispatch(setFilters({ search: v }))
-        }}
-        filterConfig={filterConfig}
-        activeFilters={activeFilters}
-        onFilterChange={(next) => {
-          listing.setPage(0)
-          dispatch(setFilters({ role: (next.role as string) ?? '' }))
-        }}
-        onFilterReset={() => {
-          listing.setPage(0)
-          dispatch(resetFilters())
         }}
         onResetAll={handleResetAll}
         showExport
@@ -932,23 +891,13 @@ export default function UsersPage() {
         />
       </ListingTemplate>
 
-      {toggleTarget?.status === 'active' ? (
-        <DeactivateDialog
-          open={Boolean(toggleTarget)}
-          user={toggleTarget}
-          onClose={() => setToggleTarget(null)}
-          onConfirm={handleConfirmToggle}
-          saving={actionSaving}
-        />
-      ) : (
-        <ActivateDialog
-          open={Boolean(toggleTarget)}
-          user={toggleTarget}
-          onClose={() => setToggleTarget(null)}
-          onConfirm={handleConfirmToggle}
-          saving={actionSaving}
-        />
-      )}
+      <UserStatusDialog
+        open={Boolean(toggleTarget)}
+        user={toggleTarget}
+        onClose={() => setToggleTarget(null)}
+        onConfirm={handleConfirmToggle}
+        saving={actionSaving}
+      />
     </>
   )
 }

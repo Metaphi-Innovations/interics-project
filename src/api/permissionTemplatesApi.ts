@@ -13,6 +13,8 @@ export interface PermissionTemplate {
 
 export const permissionTemplatesApi = {
   getAll: (params?: Record<string, unknown>) => client.get('/permission-templates', { params }),
+  getOptions: (params?: { status?: 'ACTIVE' | 'INACTIVE' }) =>
+    client.get('/permission-templates/options', { params }),
   async getById(id: string) {
     const res = await client.get(`/permission-templates/${id}`)
     return unwrapApiData<PermissionTemplate>(res.data)

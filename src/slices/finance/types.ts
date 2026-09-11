@@ -125,6 +125,7 @@ export interface FillingSummaryKpis {
   clientTdsTotal: number
   vendorTdsTotal: number
   tdsTotal: number
+  availableFyStartYears?: number[]
 }
 
 export interface FillingSummaryChartPoint {
@@ -155,6 +156,7 @@ export type FillingSummaryVendorTdsEntry = GlobalTdsVendorEntry
 export interface FillingSummaryListParams {
   type: FillingSummaryListType
   projectId?: string
+  fyStartYear?: string
   page?: number
   limit?: number
   search?: string
@@ -168,6 +170,7 @@ export interface GstSummary {
   totalGst: number
   thisMonth: number
   invoiceCount: number
+  availableFyStartYears?: number[]
 }
 
 export interface GstChartPoint {
@@ -210,6 +213,7 @@ export interface GstMonthRow {
 export interface GstListParams {
   type: GstListType
   projectId?: string
+  fyStartYear?: string
   page?: number
   limit?: number
   search?: string
@@ -223,6 +227,7 @@ export interface TdsSummary {
   clientTdsTotal: number
   vendorTdsTotal: number
   total: number
+  availableFyStartYears?: number[]
 }
 
 export interface TdsChartPoint {
@@ -246,6 +251,7 @@ export interface TdsPeriodBreakdown {
 export interface TdsListParams {
   type: TdsListType
   projectId?: string
+  fyStartYear?: string
   page?: number
   limit?: number
   search?: string

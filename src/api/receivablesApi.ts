@@ -22,6 +22,7 @@ export interface ReceivablesListParams extends Record<string, unknown> {
   totalAmount?: number
   received?: number
   netReceivable?: number
+  milestoneName?: string
   columns?: string[] | string
   sortBy?: string
   sortOrder?: 'asc' | 'desc'
@@ -40,8 +41,12 @@ export const receivablesApi = {
     })
     return unwrapApiData<{ items: Invoice[]; total: number }>(res.data)
   },
-  getFilters: async () => {
-    const res = await client.get('/invoices/filters')
+  getFilters: async (params?: { status?: string }) => {
+    const res = await client.get('/invoices/filters', {
+      params: {
+        ...(params?.status ? { status: params.status } : {}),
+      },
+    })
     return unwrapApiData<Record<string, Array<{ value: string; label: string }>>>(res.data)
   },
   getById: async (id: string) => {

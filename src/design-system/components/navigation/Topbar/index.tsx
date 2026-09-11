@@ -1,7 +1,6 @@
 import { Box, Toolbar, IconButton, Badge, Divider } from '@mui/material'
 import MenuIcon from '@mui/icons-material/Menu'
-import { Bell, Search } from 'lucide-react'
-import { alpha, useTheme } from '@mui/material/styles'
+import { Bell } from 'lucide-react'
 import UserMenu from './UserMenu'
 import type { UserMenuUser } from './UserMenu'
 
@@ -15,7 +14,6 @@ export interface TopbarProps {
   onSignOut?: () => void
   onProfileClick?: () => void
   onSettingsClick?: () => void
-  onSearchClick?: () => void
   showMenuButton?: boolean
 }
 
@@ -27,12 +25,8 @@ export default function Topbar({
   onSignOut,
   onProfileClick,
   onSettingsClick,
-  onSearchClick,
   showMenuButton = false,
 }: TopbarProps) {
-  const theme = useTheme()
-  const isLight = theme.palette.mode === 'light'
-
   return (
     <Toolbar
       sx={{
@@ -61,77 +55,6 @@ export default function Topbar({
           <MenuIcon sx={{ fontSize: 20 }} />
         </IconButton>
       )}
-
-      {/* SEARCH — always left-aligned, right after hamburger */}
-      <Box
-        onClick={onSearchClick}
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 1,
-          height: 34,
-          px: { xs: '8px', sm: '12px' },
-          borderRadius: '100px',
-          cursor: 'pointer',
-          color: 'text.disabled',
-          bgcolor: alpha(isLight ? '#000000' : '#ffffff', isLight ? 0.05 : 0.07),
-          border: 'none',
-          width: {
-            xs: 34,
-            sm: 200,
-            md: 240,
-            lg: 280,
-          },
-          flexShrink: 0,
-          transition: 'background-color 150ms ease',
-          '&:hover': {
-            bgcolor: alpha(isLight ? '#000000' : '#ffffff', isLight ? 0.08 : 0.1),
-          },
-        }}
-      >
-        <Box
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexShrink: 0,
-          }}
-        >
-          <Search size={15} strokeWidth={1.75} />
-        </Box>
-
-        {/* Hide text on xs, show on sm+ */}
-        <Box
-          sx={{
-            display: { xs: 'none', sm: 'block' },
-            fontSize: '13px',
-            color: 'text.disabled',
-            whiteSpace: 'nowrap',
-            userSelect: 'none',
-          }}
-        >
-          Search...
-        </Box>
-
-        {/* Hide ⌘K on xs/sm, show on md+ */}
-        <Box
-          sx={{
-            display: { xs: 'none', md: 'flex' },
-            marginLeft: 'auto',
-            alignItems: 'center',
-            fontSize: '11px',
-            color: 'text.disabled',
-            bgcolor: alpha(isLight ? '#000000' : '#ffffff', 0.06),
-            borderRadius: '4px',
-            px: '5px',
-            py: '1px',
-            lineHeight: 1.6,
-            flexShrink: 0,
-          }}
-        >
-          ⌘K
-        </Box>
-      </Box>
 
       {/* SPACER — pushes right section to end */}
       <Box sx={{ flex: 1 }} />

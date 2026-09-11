@@ -1,7 +1,9 @@
 import type { Baseline, ClientPOMilestone, ClientPORetention, VendorPOMilestone } from '@/slices/baseline/reducer'
 import type { Service } from '@/slices/settings/reducer'
+import type { VendorInvoice } from '@/slices/live/types'
 import { calcClientInvoiceTdsAmount, roundMoney } from './clientInvoiceUtils'
 import { resolveClientServiceGstRate } from './clientPoGstResolution'
+import { findVendorInvoicesForMilestone } from './milestonePaymentStatus'
 
 export type PoTaxDisplayRow = {
   base: number
@@ -12,6 +14,8 @@ export type PoTaxDisplayRow = {
   net: number | null
   /** True when values come from persisted PO snapshot fields. */
   fromSnapshot: boolean
+  /** True when GST values come from a linked vendor invoice. */
+  gstFromInvoice?: boolean
 }
 
 function hasClientTaxSnapshot(row: {
@@ -28,14 +32,6 @@ function hasClientTaxSnapshot(row: {
     row.tdsAmount != null &&
     row.net != null
   )
-}
-
-function hasVendorTaxSnapshot(row: {
-  gstRate?: number
-  gstAmount?: number
-  net?: number
-}): boolean {
-  return row.gstRate != null && row.gstAmount != null && row.net != null
 }
 
 /** PO-level GST/TDS formulas (no labour cess). Mirrors server po-tax-engine. */
@@ -140,27 +136,93 @@ export function clientRetentionTaxDisplay(
   return previewClientPoTax(base, serviceId, globalTdsRate, previewContext.baseline, previewContext.settingsServices)
 }
 
-export function vendorMilestoneTaxDisplay(
+function resolveVendorMilestoneInvoiceTax(
+  milestone: Pick<VendorPOMilestone, 'id' | 'name' | 'value'>,
+  invoices: VendorInvoice[],
+  serviceId = '',
+): PoTaxDisplayRow | null {
+  const covering = findVendorInvoicesForMilestone(
+    invoices,
+    milestone.id,
+    serviceId,
+    milestone.name,
+  )
+  if (covering.length === 0) return null
+
+  let base = 0
+  let gstAmount = 0
+  let gstRate: number | null = null
+  let net: number | null = null
+
+  for (const invoice of covering) {
+    const lineItems = (invoice.lineItems ?? []).filter(
+      (line) => line.milestoneId === milestone.id,
+    )
+    if (lineItems.length > 0) {
+      for (const line of lineItems) {
+        const lineBase = Number(line.amount) || 0
+        base += lineBase
+        gstAmount += Number(line.gstAmount) || 0
+        if (line.gstRate != null && Number.isFinite(line.gstRate)) {
+          gstRate = line.gstRate
+        }
+        if (line.netAmount != null && Number.isFinite(line.netAmount)) {
+          net = (net ?? 0) + line.netAmount
+        }
+      }
+      continue
+    }
+
+    if (invoice.milestoneId === milestone.id) {
+      base += Number(invoice.baseAmount) || 0
+      gstAmount += Number(invoice.gstAmount) || 0
+      if (invoice.gstRate != null && Number.isFinite(invoice.gstRate)) {
+        gstRate = invoice.gstRate
+      }
+      if (invoice.netPayable != null && Number.isFinite(invoice.netPayable)) {
+        net = (net ?? 0) + invoice.netPayable
+      }
+    }
+  }
+
+  if (base <= 0 && gstAmount <= 0) return null
+
+  return {
+    base: roundMoney(base),
+    gstRate,
+    gstAmount: gstAmount > 0 ? roundMoney(gstAmount) : null,
+    tdsRate: null,
+    tdsAmount: null,
+    net: net != null ? roundMoney(net) : null,
+    fromSnapshot: false,
+    gstFromInvoice: true,
+  }
+}
+
+/** Preview vendor milestone tax from PO GST rate (create/edit forms only). */
+export function vendorMilestoneTaxPreview(
   milestone: Pick<VendorPOMilestone, 'value' | 'gstRate' | 'gstAmount' | 'net'>,
   poGstRate: number | null | undefined,
 ): PoTaxDisplayRow | null {
   const base = Number(milestone.value) || 0
   if (base <= 0) return null
-
-  if (hasVendorTaxSnapshot(milestone)) {
-    return {
-      base,
-      gstRate: milestone.gstRate ?? null,
-      gstAmount: milestone.gstAmount ?? null,
-      tdsRate: null,
-      tdsAmount: null,
-      net: milestone.net ?? null,
-      fromSnapshot: true,
-    }
-  }
-
   if (poGstRate == null || !Number.isFinite(poGstRate)) return null
   return previewVendorPoTax(base, poGstRate)
+}
+
+/** Show vendor milestone GST only when applied on a linked invoice. */
+export function vendorMilestoneTaxDisplay(
+  milestone: Pick<VendorPOMilestone, 'id' | 'name' | 'value'>,
+  invoiceContext: {
+    invoices: VendorInvoice[]
+    serviceId?: string
+  },
+): PoTaxDisplayRow | null {
+  return resolveVendorMilestoneInvoiceTax(
+    milestone,
+    invoiceContext.invoices,
+    invoiceContext.serviceId ?? '',
+  )
 }
 
 export function formatGstRateLabel(rate: number | null | undefined): string {

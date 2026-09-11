@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Box,
   Stack,
@@ -40,14 +40,16 @@ import type {
 import { formatDate, formatInr } from '@/utils/formatters'
 import {
   currentIndianFyStartYear,
+  defaultFyStartYearFromAvailable,
   emptyListingControls,
-  financialYearSelectOptions,
+  financialYearSelectOptionsFromYears,
   hasActiveListingControls,
   indianFyQuarterLabel,
   listingFieldValue,
   matchesDateFilter,
   matchesExactFilter,
   parseChartPeriod,
+  parseFyStartYear,
   percentFilterOptions,
   selectedFyHeading,
   sortByField,
@@ -130,8 +132,13 @@ export default function GSTPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [periodMode, setPeriodMode] = useState<PeriodMode>('monthly')
-  const [fyStartYear, setFyStartYear] = useState(() => currentIndianFyStartYear())
-  const fyOptions = useMemo(() => financialYearSelectOptions(), [])
+  const [fyStartYear, setFyStartYear] = useState<number | ''>(() => currentIndianFyStartYear())
+  const [availableFyYears, setAvailableFyYears] = useState<number[]>([])
+  const fyDefaultAppliedRef = useRef(false)
+  const fyOptions = useMemo(
+    () => financialYearSelectOptionsFromYears(availableFyYears),
+    [availableFyYears],
+  )
   const [tableTab, setTableTab] = useState<GstListType>('invoice')
   const [drawerEntry, setDrawerEntry] = useState<GlobalGstEntry | null>(null)
   const [listingControlsByTab, setListingControlsByTab] = useState<
@@ -150,13 +157,9 @@ export default function GSTPage() {
   const scopeParams = useMemo(() => {
     const p: Record<string, string | undefined> = {}
     if (filterProjectId) p.projectId = filterProjectId
+    if (fyStartYear !== '') p.fyStartYear = String(fyStartYear)
     return p
-  }, [filterProjectId])
-
-  const chartParams = useMemo(
-    () => ({ ...scopeParams, fyStartYear: String(fyStartYear) }),
-    [scopeParams, fyStartYear],
-  )
+  }, [filterProjectId, fyStartYear])
 
   useEffect(() => {
     void (async () => {
@@ -176,10 +179,22 @@ export default function GSTPage() {
     try {
       const [summaryRes, chartRes, breakdownRes] = await Promise.all([
         financeApi.getGstSummary(scopeParams),
-        financeApi.getGstChart(chartParams),
-        financeApi.getGstPeriodBreakdown(chartParams),
+        financeApi.getGstChart(scopeParams),
+        financeApi.getGstPeriodBreakdown(scopeParams),
       ])
-      setKpis(unwrapApiData<GstSummary>(summaryRes.data))
+      const summary = unwrapApiData<GstSummary>(summaryRes.data)
+      const years = summary.availableFyStartYears ?? []
+      setAvailableFyYears(years)
+      if (!fyDefaultAppliedRef.current) {
+        fyDefaultAppliedRef.current = true
+        const preferred = defaultFyStartYearFromAvailable(years)
+        setFyStartYear((prev) => (prev === preferred ? prev : preferred))
+      } else {
+        setFyStartYear((prev) =>
+          prev !== '' && !years.includes(prev) ? defaultFyStartYearFromAvailable(years) : prev,
+        )
+      }
+      setKpis(summary)
       setMonthlyChart(unwrapApiList<GstChartPoint>(chartRes.data))
       setBreakdown(unwrapApiData<GstPeriodBreakdown>(breakdownRes.data))
     } catch {
@@ -190,7 +205,7 @@ export default function GSTPage() {
     } finally {
       setLoading(false)
     }
-  }, [scopeParams, chartParams])
+  }, [scopeParams])
 
   const loadTable = useCallback(async () => {
     try {
@@ -368,6 +383,7 @@ export default function GSTPage() {
       const res = await financeApi.exportGst({
         type: tableTab,
         ...(filterProjectId ? { projectId: filterProjectId } : {}),
+        ...(fyStartYear !== '' ? { fyStartYear: String(fyStartYear) } : {}),
         ...(sortField ? { sortBy: sortField, sortOrder: sortDirection } : {}),
       })
       downloadBlob(
@@ -527,16 +543,6 @@ export default function GSTPage() {
               GST by Month
             </Typography>
             <Stack direction="row" gap={0.75} alignItems="center" flexWrap="wrap">
-              <Select
-                size="sm"
-                value={String(fyStartYear)}
-                onChange={(v) => {
-                  const next = Number(v)
-                  if (Number.isInteger(next)) setFyStartYear(next)
-                }}
-                options={fyOptions}
-                sx={{ minWidth: 180 }}
-              />
               <Box
                 component="button"
                 type="button"
@@ -594,11 +600,8 @@ export default function GSTPage() {
             <Select
               size="sm"
               fullWidth
-              value={String(fyStartYear)}
-              onChange={(v) => {
-                const next = Number(v)
-                if (Number.isInteger(next)) setFyStartYear(next)
-              }}
+              value={fyStartYear === '' ? '' : String(fyStartYear)}
+              onChange={(v) => setFyStartYear(parseFyStartYear(v))}
               options={fyOptions}
             />
             <Select

@@ -47,6 +47,7 @@ import {
 import { useToast, Modal, Button } from '@/design-system/components'
 import { vendorsService } from '@/modules/vendors'
 import { fetchVendorTabCounts } from '@/modules/vendors/vendorTabCounts'
+import { extractErrorMessage } from '@/modules/system-settings/shared/api-errors'
 import { usePermission } from '@/hooks/usePermission'
 import { isPendingVendor } from '@/utils/vendorProfileStatus'
 import { getInitials, getAvatarColor } from '../../utils/formatters'
@@ -1513,7 +1514,10 @@ export default function VendorsPage() {
       void refreshTabCounts()
       void refreshVendorFilters(contactsTab)
     } catch (err) {
-      showToast({ title: (err as string) || 'Failed to delete vendor', variant: 'error' })
+      showToast({
+        title: extractErrorMessage(err, 'Failed to delete vendor'),
+        variant: 'error',
+      })
     }
     setDeleteTarget(null)
   }
@@ -1531,11 +1535,10 @@ export default function VendorsPage() {
       void refreshTabCounts()
       void refreshVendorFilters(contactsTab)
     } catch (err) {
-      const message =
-        err && typeof err === 'object' && 'message' in err
-          ? String((err as { message: string }).message)
-          : 'Failed to update vendor status'
-      showToast({ title: message, variant: 'error' })
+      showToast({
+        title: extractErrorMessage(err, 'Failed to update vendor status'),
+        variant: 'error',
+      })
     }
     setToggleTarget(null)
   }

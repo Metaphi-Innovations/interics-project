@@ -21,6 +21,7 @@ export interface User {
   projectAccess: 'all' | 'selected'
   assignedProjects: string[]
   assignedProjectCount?: number
+  assignedProjectDetails?: Array<{ id: string; name: string }>
   status: 'active' | 'inactive'
   lastLogin: string | null
   createdAt: string

@@ -21,6 +21,7 @@ export interface FetchInvoicesParams {
   totalAmount?: number
   received?: number
   netReceivable?: number
+  milestoneName?: string
   columns?: string[]
   sortBy?: string
   sortOrder?: 'asc' | 'desc'

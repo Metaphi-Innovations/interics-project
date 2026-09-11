@@ -190,7 +190,13 @@ const PAY_HEADER_SX = {
   lineHeight: 1.35,
   boxSizing: 'border-box' as const,
   minWidth: 0,
-  whiteSpace: 'nowrap' as const,
+  whiteSpace: 'normal' as const,
+  overflowWrap: 'anywhere' as const,
+  '& span': {
+    overflow: 'visible',
+    textOverflow: 'clip',
+    whiteSpace: 'normal',
+  },
   ...PAY_HEADER_PADDING,
 }
 
@@ -684,9 +690,7 @@ export default function PaymentsPage() {
           milestoneLabels.some((name) => m.milestone.name === name)
         if (!milestoneOk) return false
         if (serviceLabels.length === 0) return true
-        return serviceLabels.some(
-          (svc) => m.row.serviceId === svc || m.row.serviceName === svc,
-        )
+        return serviceLabels.some((svc) => m.row.serviceName === svc)
       })
       const payableSt = (item.paymentStatus === 'settled' || item.paymentStatus === 'partial_payment' || item.paymentStatus === 'not_paid'
         ? item.paymentStatus
@@ -722,8 +726,8 @@ export default function PaymentsPage() {
           row: {
             vendorId: item.vendorId,
             vendorName: item.vendorName,
-            serviceId: item.service ?? '',
-            serviceName: item.service ?? '',
+            serviceId: '',
+            serviceName: item.serviceNames?.[0] ?? item.service ?? '',
           },
         },
         payableSt,

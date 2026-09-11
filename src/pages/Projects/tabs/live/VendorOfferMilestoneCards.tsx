@@ -23,7 +23,7 @@ import {
 import type { MilestonePaymentStatusLabel } from './milestonePaymentStatus'
 import type { VendorPOMilestone } from '@/slices/baseline/reducer'
 import { parseRateInput, rateInputDisplay, selectRateInputOnFocus } from './rateInput'
-import { vendorMilestoneTaxDisplay } from './poTaxDisplay'
+import { vendorMilestoneTaxPreview } from './poTaxDisplay'
 import { PoMilestoneTaxLines } from './PoMilestoneTaxLines'
 import type {
   CategoryOption,
@@ -483,7 +483,7 @@ function ValueRowCardEditor({
           </Box>
         </CardAlignedRow>
         {(() => {
-          const tax = vendorMilestoneTaxDisplay(
+          const tax = vendorMilestoneTaxPreview(
             { value: card.value, gstRate: undefined, gstAmount: undefined, net: undefined },
             poGstRate,
           )

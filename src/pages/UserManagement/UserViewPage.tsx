@@ -29,6 +29,7 @@ import { usersApi } from '@/api/usersApi'
 import client from '@/api/client'
 import type { ProjectOption } from './projectOption'
 import { MODULE_DEFS } from './components/RolePermissionsPanel'
+import { CurrentPasswordReveal } from './components/CurrentPasswordReveal'
 import { getRoleChip } from './userRoleChips'
 import { usePermission } from '@/hooks/usePermission'
 
@@ -107,6 +108,8 @@ export default function UserViewPage() {
   const theme = useTheme()
   const roles = useAppSelector((s) => s.roles.items ?? [])
   const canEdit = usePermission('userManagement', 'edit')
+  const canViewPassword =
+    usePermission('userManagementUsers', 'edit') || usePermission('userManagement', 'edit')
 
   const [user, setUser] = useState<User | null>(null)
   const [loadState, setLoadState] = useState<'loading' | 'error' | 'ready'>('loading')
@@ -167,7 +170,14 @@ export default function UserViewPage() {
     user && user.projectAccess === 'all'
       ? 'All Projects'
       : user
-        ? user.assignedProjects.map((pid) => projects.find((p) => p.id === pid)?.name ?? pid).join(', ') || '—'
+        ? user.assignedProjects
+            .map((pid) => {
+              const fromDetails = user.assignedProjectDetails?.find((p) => p.id === pid)?.name?.trim()
+              if (fromDetails) return fromDetails
+              return projects.find((p) => p.id === pid)?.name ?? '—'
+            })
+            .filter((name) => Boolean(name) && name !== '—')
+            .join(', ') || '—'
         : '—'
 
   if (loadState === 'loading') {
@@ -238,6 +248,9 @@ export default function UserViewPage() {
               <FormField label="Employee ID">
                 <ReadOnlyValue value={user.employeeId?.trim() ? user.employeeId.trim() : '—'} />
               </FormField>
+              <Box sx={{ gridColumn: '1 / -1' }}>
+                <CurrentPasswordReveal userId={user.id} canView={canViewPassword} />
+              </Box>
               <FormField label="Role">
                 <MuiChip
                   label={roleName}

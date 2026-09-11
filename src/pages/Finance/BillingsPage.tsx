@@ -123,6 +123,7 @@ type ReceivablesColumnFilters = {
   invoiceNo: string
   clientId: string
   projectId: string
+  milestoneName: string
   invoiceDate: string
   dueDate: string
   baseAmount: string
@@ -412,6 +413,7 @@ export default function BillingsPage() {
     invoiceNo: '',
     clientId: '',
     projectId: '',
+    milestoneName: '',
     invoiceDate: '',
     dueDate: '',
     baseAmount: '',
@@ -558,6 +560,7 @@ export default function BillingsPage() {
         totalAmount: toExactNumber(nextCols.totalAmount),
         received: toExactNumber(nextCols.received),
         netReceivable: toExactNumber(nextCols.netReceivable),
+        milestoneName: nextCols.milestoneName || undefined,
         columns: buildReceivablesListColumns(visibility),
         sortBy: newestFirst ? undefined : sortConfig.field || undefined,
         sortOrder: newestFirst ? undefined : sortConfig.field ? sortConfig.direction : undefined,
@@ -643,7 +646,6 @@ export default function BillingsPage() {
       .getLiveProjects()
       .then((options) => setLiveProjectOptions(options.map((o) => ({ value: o.value, label: o.label }))))
       .catch(() => setLiveProjectOptions([]))
-    void receivablesApi.getFilters().then(setFilterOptions).catch(() => setFilterOptions(null))
     setActiveFilters({
       clientId: '',
       projectId: '',
@@ -654,6 +656,52 @@ export default function BillingsPage() {
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    setFilterOptions(null)
+    const status = filters.statusTab === 'all' ? undefined : filters.statusTab
+    void receivablesApi
+      .getFilters({ status })
+      .then((data) => {
+        if (cancelled || !data) return
+        setFilterOptions(data)
+        setColumnFilters((prev) => {
+          if (Object.keys(prev).length === 0) return prev
+          const optionSets: Record<string, { value: string }[]> = {
+            invoiceNo: data.invoiceNos ?? [],
+            clientId: data.clients ?? [],
+            projectId: data.projects ?? [],
+            milestoneName: data.milestones ?? [],
+            invoiceDate: data.invoiceDates ?? [],
+            dueDate: data.dueDates ?? [],
+            baseAmount: data.baseAmounts ?? [],
+            gstAmount: data.gstAmounts ?? [],
+            totalAmount: data.totalAmounts ?? [],
+            received: data.receivedAmounts ?? [],
+            netReceivable: data.netReceivables ?? [],
+            status: data.statuses ?? [],
+          }
+          const next = { ...prev }
+          let changed = false
+          for (const [field, selected] of Object.entries(next)) {
+            const options = optionSets[field]
+            if (!options || !selected) continue
+            if (!options.some((option) => option.value === selected)) {
+              delete next[field as keyof ReceivablesColumnFilters]
+              changed = true
+            }
+          }
+          return changed ? next : prev
+        })
+      })
+      .catch(() => {
+        if (!cancelled) setFilterOptions(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [filters.statusTab])
 
   useEffect(() => {
     reload()
@@ -672,6 +720,7 @@ export default function BillingsPage() {
     columnFilters.invoiceNo,
     columnFilters.clientId,
     columnFilters.projectId,
+    columnFilters.milestoneName,
     columnFilters.invoiceDate,
     columnFilters.dueDate,
     columnFilters.baseAmount,
@@ -947,6 +996,20 @@ export default function BillingsPage() {
   function handleTabChange(v: string) {
     dispatch(setFilters({ statusTab: v }))
     dispatch(setPage(1))
+    setColumnFilters((prev) => ({
+      ...prev,
+      invoiceNo: '',
+      milestoneName: '',
+      invoiceDate: '',
+      dueDate: '',
+      baseAmount: '',
+      gstAmount: '',
+      totalAmount: '',
+      received: '',
+      netReceivable: '',
+      status: '',
+    }))
+    setFilterOptions(null)
   }
 
   function handleSort(field: string, direction: 'asc' | 'desc') {
@@ -957,6 +1020,7 @@ export default function BillingsPage() {
   const invoiceNoOptions = toColumnFilterOptions(filterOptions?.invoiceNos)
   const clientOptions = toColumnFilterOptions(filterOptions?.clients)
   const projectOptions = toColumnFilterOptions(filterOptions?.projects)
+  const milestoneOptions = toColumnFilterOptions(filterOptions?.milestones)
   const invoiceDateOptions = toColumnFilterOptions(filterOptions?.invoiceDates)
   const dueDateOptions = toColumnFilterOptions(filterOptions?.dueDates)
   const baseAmountOptions = toColumnFilterOptions(filterOptions?.baseAmounts)
@@ -993,6 +1057,7 @@ export default function BillingsPage() {
       invoiceNo: '',
       clientId: '',
       projectId: '',
+      milestoneName: '',
       invoiceDate: '',
       dueDate: '',
       baseAmount: '',
@@ -1092,6 +1157,7 @@ export default function BillingsPage() {
           totalAmount: toExactNumber(columnFilters.totalAmount),
           received: toExactNumber(columnFilters.received),
           netReceivable: toExactNumber(columnFilters.netReceivable),
+          milestoneName: columnFilters.milestoneName || undefined,
           sortBy: sortConfig.field || undefined,
           sortOrder: sortConfig.field ? sortConfig.direction : undefined,
         },
@@ -1190,7 +1256,17 @@ export default function BillingsPage() {
                     />
                   )}
                   {visibleColumns.milestoneName && (
-                    <TableCell sx={HEADER_CELL_SX}>Milestone</TableCell>
+                    <FilterableSortHeader
+                      label="Milestone"
+                      field="milestoneName"
+                      sortField={sortConfig.field ?? undefined}
+                      sortDirection={sortConfig.direction}
+                      onSort={handleSort}
+                      filterValue={columnFilters.milestoneName}
+                      filterOptions={milestoneOptions}
+                      onFilter={(value) => handleColumnFilter('milestoneName', value)}
+                      sx={HEADER_CELL_SX}
+                    />
                   )}
                   {visibleColumns.invoiceDate && (
                     <FilterableSortHeader

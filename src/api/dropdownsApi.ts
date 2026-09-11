@@ -49,4 +49,12 @@ export const dropdownsApi = {
     })
     return unwrapApiData<ServiceDropdownOption[]>(res.data) ?? []
   },
+  getCustomers: async () => {
+    const res = await client.get('/dropdowns/customers')
+    return unwrapApiData<DropdownOption[]>(res.data) ?? []
+  },
+  getVendors: async () => {
+    const res = await client.get('/dropdowns/vendors')
+    return unwrapApiData<DropdownOption[]>(res.data) ?? []
+  },
 }

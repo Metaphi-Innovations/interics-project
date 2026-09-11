@@ -2,6 +2,11 @@ import { useEffect, useMemo, useState, type MouseEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Box,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
   IconButton as MuiIconButton,
   Menu,
   MenuItem,
@@ -18,8 +23,8 @@ import { useTheme, alpha } from '@mui/material/styles'
 import { FileText, MoreVertical, Plus } from 'lucide-react'
 import { permissionTemplatesApi, type PermissionTemplate } from '@/api/permissionTemplatesApi'
 import { unwrapApiData } from '@/modules/system-settings/shared/api'
-import { useToast } from '@/design-system/components'
-import { ListingTemplate, type FilterField, type TabItem } from '@/components/templates'
+import { Button, useToast } from '@/design-system/components'
+import { ListingTemplate, type TabItem } from '@/components/templates'
 import {
   FilterableSortHeader,
   StatusColumnToggle,
@@ -165,6 +170,7 @@ export default function TemplatesPage() {
   const [items, setItems] = useState<PermissionTemplate[]>([])
   const [loading, setLoading] = useState(true)
   const [toggleSavingId, setToggleSavingId] = useState<string | null>(null)
+  const [toggleTarget, setToggleTarget] = useState<PermissionTemplate | null>(null)
   const [statusFilter, setStatusFilter] = useState('')
   const [nameFilter, setNameFilter] = useState('')
   const [sortField, setSortField] = useState<'templateName' | 'status' | 'updatedAt'>('templateName')
@@ -230,14 +236,6 @@ export default function TemplatesPage() {
     { label: 'Active', value: 'active' },
     { label: 'Inactive', value: 'inactive' },
   ]
-  const filterConfig: FilterField[] = [
-    {
-      field: 'status',
-      label: 'Status',
-      type: 'select',
-      options: [{ label: 'All Status', value: '' }, ...statusFilterOptions],
-    },
-  ]
 
   function handleSort(field: string, direction: 'asc' | 'desc') {
     if (field === 'templateName' || field === 'status' || field === 'updatedAt') {
@@ -257,6 +255,12 @@ export default function TemplatesPage() {
 
   function handleToggleStatus(template: PermissionTemplate) {
     if (!canEdit || toggleSavingId) return
+    setToggleTarget(template)
+  }
+
+  function confirmToggleStatus() {
+    if (!canEdit || !toggleTarget || toggleSavingId) return
+    const template = toggleTarget
     const nextActive = template.status !== 'active'
     setToggleSavingId(template.id)
     permissionTemplatesApi
@@ -270,6 +274,7 @@ export default function TemplatesPage() {
           ),
         )
         showToast({ title: nextActive ? 'Template activated' : 'Template deactivated', variant: 'success' })
+        setToggleTarget(null)
       })
       .catch(() => showToast({ title: 'Failed to update template status', variant: 'error' }))
       .finally(() => setToggleSavingId(null))
@@ -292,16 +297,6 @@ export default function TemplatesPage() {
         onSearchChange={(value) => {
           listing.setSearch(value)
           listing.setPage(0)
-        }}
-        filterConfig={filterConfig}
-        activeFilters={{ status: statusFilter }}
-        onFilterChange={(next) => {
-          listing.setPage(0)
-          setStatusFilter((next.status as string) ?? '')
-        }}
-        onFilterReset={() => {
-          listing.setPage(0)
-          setStatusFilter('')
         }}
         onResetAll={handleResetAll}
         showExport
@@ -430,6 +425,44 @@ export default function TemplatesPage() {
           </Table>
         </TableContainer>
       </ListingTemplate>
+
+      <Dialog
+        open={Boolean(toggleTarget)}
+        onClose={() => !toggleSavingId && setToggleTarget(null)}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>
+          {toggleTarget?.status !== 'active' ? 'Activate' : 'Deactivate'}?
+        </DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            {toggleTarget?.status !== 'active'
+              ? `Activate "${toggleTarget?.templateName}"?`
+              : `Deactivate "${toggleTarget?.templateName}"? It will no longer be available for new records.`}
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            size="sm"
+            variant="outlined"
+            color="secondary"
+            onClick={() => setToggleTarget(null)}
+            disabled={Boolean(toggleSavingId)}
+          >
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            variant="contained"
+            color="primary"
+            onClick={confirmToggleStatus}
+            disabled={Boolean(toggleSavingId)}
+          >
+            {toggleSavingId ? 'Updating...' : 'Confirm'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </>
   )
 }

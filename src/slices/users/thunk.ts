@@ -22,6 +22,7 @@ type ApiUser = {
   projectAccess?: User['projectAccess']
   assignedProjects?: string[]
   assignedProjectCount?: number
+  assignedProjectDetails?: Array<{ id: string; name: string }>
   status?: string
   isActive?: boolean
   lastLogin?: string | null
@@ -61,6 +62,9 @@ export function toUiUser(api: ApiUser): User {
 
   const assignedProjects = api.assignedProjects ?? []
   const assignedProjectCount = api.assignedProjectCount ?? assignedProjects.length
+  const assignedProjectDetails = api.assignedProjectDetails?.length
+    ? api.assignedProjectDetails
+    : undefined
 
   return {
     id: api.id,
@@ -74,6 +78,7 @@ export function toUiUser(api: ApiUser): User {
     projectAccess: assignedProjectCount > 0 ? 'selected' : api.projectAccess ?? 'all',
     assignedProjects,
     assignedProjectCount,
+    assignedProjectDetails,
     status: inactive ? 'inactive' : 'active',
     lastLogin: api.lastLoginAt ?? api.lastLogin ?? null,
     createdAt: api.createdAt ?? new Date().toISOString(),
@@ -140,7 +145,13 @@ export const createUser = createAsyncThunk(
 export const updateUser = createAsyncThunk(
   'users/update',
   async (
-    { id, data }: { id: string; data: Partial<User> & { access?: BackendModuleAccessInput[] } },
+    {
+      id,
+      data,
+    }: {
+      id: string
+      data: Partial<User> & { password?: string; access?: BackendModuleAccessInput[] }
+    },
     { rejectWithValue },
   ) => {
     try {
@@ -156,8 +167,11 @@ export const updateUser = createAsyncThunk(
         assignedProjects: data.assignedProjects ?? [],
         status: data.status ?? 'active',
         access: data.access as BackendModuleAccessInput[] | undefined,
+        ...(data.password?.trim() ? { password: data.password.trim() } : {}),
       })
-      delete payload.password
+      if (!data.password?.trim()) {
+        delete payload.password
+      }
       const response = await usersApi.update(id, payload)
       return toUiUser(unwrapApiData<ApiUser>(response.data))
     } catch (err: unknown) {

@@ -22,7 +22,7 @@ import {
   ROW_ICON_ACTION_BUTTON_DANGER_SX,
 } from '@/components/listing/rowIconActionStyles'
 import { parseRateInput, rateInputDisplay, selectRateInputOnFocus } from './rateInput'
-import { vendorMilestoneTaxDisplay } from './poTaxDisplay'
+import { vendorMilestoneTaxPreview } from './poTaxDisplay'
 import { PoMilestoneTaxLines } from './PoMilestoneTaxLines'
 
 export interface VendorPOMilestoneRow {
@@ -415,7 +415,7 @@ export function VendorPOMilestoneEditor({
           {milestones.map((m, idx) => {
             const isLast = idx === milestones.length - 1
             const rowDisabled = isMilestoneFieldDisabled(m.id)
-            const milestoneTax = vendorMilestoneTaxDisplay(m, poGstRate)
+            const milestoneTax = vendorMilestoneTaxPreview(m, poGstRate)
 
             return (
               <CardAlignedRow key={m.id}>
@@ -589,7 +589,7 @@ export function VendorPOMilestoneEditor({
                     ) : null}
                   </Box>
                   {(() => {
-                    const retentionTax = vendorMilestoneTaxDisplay(
+                    const retentionTax = vendorMilestoneTaxPreview(
                       { value: retention.amount, gstRate: undefined, gstAmount: undefined, net: undefined },
                       poGstRate,
                     )
@@ -614,7 +614,7 @@ export function VendorPOMilestoneEditor({
         >
           {milestones.map((m, idx) => {
             const rowDisabled = isMilestoneFieldDisabled(m.id)
-            const milestoneTax = vendorMilestoneTaxDisplay(m, poGstRate)
+            const milestoneTax = vendorMilestoneTaxPreview(m, poGstRate)
             return (
               <Fragment key={m.id}>
                 <TextField
@@ -766,7 +766,7 @@ export function VendorPOMilestoneEditor({
             ) : null}
           </Box>
           {(() => {
-            const retentionTax = vendorMilestoneTaxDisplay(
+            const retentionTax = vendorMilestoneTaxPreview(
               { value: retention.amount, gstRate: undefined, gstAmount: undefined, net: undefined },
               poGstRate,
             )

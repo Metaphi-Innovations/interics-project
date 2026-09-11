@@ -241,7 +241,7 @@ export default function LoginPage() {
 
       {authError && (
         <Alert severity="error" sx={{ mb: 3, fontSize: 12 }}>
-          Invalid email or password. Please try again.
+          {authError}
         </Alert>
       )}
 

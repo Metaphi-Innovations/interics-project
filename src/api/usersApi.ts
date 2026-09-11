@@ -24,6 +24,10 @@ export const usersApi = {
   },
   getStats: () => client.get('/users/stats/cards'),
   getById: (id: string) => client.get(`/users/${id}`),
+  async getPassword(id: string) {
+    const res = await client.get(`/users/${id}/password`)
+    return unwrapApiData<{ password: string }>(res.data)
+  },
   create: (data: Record<string, unknown>) => client.post('/users', data),
   update: (id: string, data: Record<string, unknown>) =>
     client.put(`/users/${id}`, data),

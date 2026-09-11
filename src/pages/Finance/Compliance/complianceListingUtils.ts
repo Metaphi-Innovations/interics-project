@@ -78,19 +78,68 @@ export function indianFyLabel(startYear: number) {
   return `FY ${String(startYear % 100).padStart(2, '0')}-${String((startYear + 1) % 100).padStart(2, '0')}`
 }
 
-export function financialYearSelectOptions(now = new Date(), yearsBack = 4) {
-  const current = currentIndianFyStartYear(now)
-  return Array.from({ length: yearsBack + 1 }, (_, i) => {
-    const startYear = current - i
-    return {
-      value: String(startYear),
-      label: i === 0 ? 'This Financial Year' : indianFyLabel(startYear),
-    }
-  })
+export function indianFyStartYearFromIso(iso: string) {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return null
+  const month = d.getMonth() + 1
+  const year = d.getFullYear()
+  return month >= 4 ? year : year - 1
 }
 
-export function selectedFyHeading(startYear: number, now = new Date()) {
-  return startYear === currentIndianFyStartYear(now) ? 'This Financial Year' : indianFyLabel(startYear)
+export function distinctIndianFyStartYears(dates: Array<string | null | undefined>): number[] {
+  const seen = new Set<number>()
+  for (const iso of dates) {
+    if (!iso) continue
+    const startYear = indianFyStartYearFromIso(iso)
+    if (startYear != null) seen.add(startYear)
+  }
+  return [...seen].sort((a, b) => b - a)
+}
+
+/** @deprecated Prefer financialYearSelectOptionsFromYears with page-specific years from API. */
+export function financialYearSelectOptions(now = new Date(), yearsBack = 4) {
+  const current = currentIndianFyStartYear(now)
+  return financialYearSelectOptionsFromYears(
+    Array.from({ length: yearsBack + 1 }, (_, i) => current - i),
+    now,
+  )
+}
+
+export function financialYearSelectOptionsFromYears(startYears: number[], _now = new Date()) {
+  const uniqueYears = [...new Set(startYears.filter((year) => Number.isInteger(year)))].sort(
+    (a, b) => b - a,
+  )
+  return [
+    { value: '', label: 'All' },
+    ...uniqueYears.map((startYear) => ({
+      value: String(startYear),
+      label: indianFyLabel(startYear),
+    })),
+  ]
+}
+
+export function selectedFyHeading(startYear: number | '', _now = new Date()) {
+  if (startYear === '' || startYear == null) return 'All Financial Years'
+  return indianFyLabel(startYear)
+}
+
+/**
+ * Default Period Breakdown FY selection: current Indian FY when it has page data;
+ * otherwise All (do not invent an empty current year).
+ * Works for any calendar date (current and future years) via currentIndianFyStartYear(now).
+ */
+export function defaultFyStartYearFromAvailable(
+  availableYears: number[],
+  now = new Date(),
+): number | '' {
+  const current = currentIndianFyStartYear(now)
+  return availableYears.includes(current) ? current : ''
+}
+
+export function parseFyStartYear(value: unknown): number | '' {
+  if (value === '' || value == null) return ''
+  const next = typeof value === 'number' ? value : Number(value)
+  return Number.isInteger(next) ? next : ''
 }
 
 export function parseChartPeriod(period: string): Date | null {

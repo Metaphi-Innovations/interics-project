@@ -21,9 +21,11 @@ export function PayableAmountBreakdownColumn({
       <Typography variant="caption" sx={{ color: 'text.secondary' }}>
         Base: ₹{formatInr(base)}
       </Typography>
-      <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-        GST ({gstRate}%): ₹{formatInr(gstAmount)}
-      </Typography>
+      {gstAmount > MONEY_EPS ? (
+        <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+          GST ({gstRate}%): ₹{formatInr(gstAmount)}
+        </Typography>
+      ) : null}
       {tdsAmount > 0 ? (
         <Typography variant="caption" sx={{ color: 'text.secondary' }}>
           TDS ({tdsRate ?? 0}%): −₹{formatInr(tdsAmount)}
