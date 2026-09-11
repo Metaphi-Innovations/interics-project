@@ -24,6 +24,7 @@ import {
   LocationOn,
 } from '@mui/icons-material'
 import { useTheme, alpha } from '@mui/material/styles'
+import useMediaQuery from '@mui/material/useMediaQuery'
 import { Truck, Plus, MoreVertical, Eye, Pencil, Trash2 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
@@ -55,10 +56,11 @@ import { getSpecializationTagSx } from '../../utils/specializationTagStyles'
 import { tokens } from '@/design-system/tokens'
 import { getRatingMasterChipColors } from '../../utils/masterChipStyles'
 
-const VENDOR_ACTION_WIDTH_PX = 88
+const VENDOR_ACTION_WIDTH_PX = 72
 const VENDOR_STATUS_WIDTH_PX = 118
 const VENDOR_FIXED_RIGHT_PX = VENDOR_ACTION_WIDTH_PX + VENDOR_STATUS_WIDTH_PX
 const VENDOR_CELL_PAD_X = '14px'
+const VENDOR_ACTION_PAD_X = '8px'
 
 type ContactsTab = 'active' | 'pending'
 
@@ -194,6 +196,22 @@ function vendorDataColCount(visible: VendorTableVisibleColumns): number {
   )
 }
 
+/**
+ * Columns-control visibility ∩ current breakpoint.
+ * Avoids table-layout:fixed reserving width for CSS-hidden (display:none) columns.
+ */
+function resolveVendorLayoutColumns(
+  visible: VendorTableVisibleColumns,
+  bp: { smUp: boolean; mdUp: boolean; lgUp: boolean },
+): VendorTableVisibleColumns {
+  return {
+    website: visible.website && bp.smUp,
+    location: visible.location && bp.mdUp,
+    specialization: visible.specialization && bp.lgUp,
+    rating: visible.rating && bp.mdUp,
+  }
+}
+
 /** API list projection keys (rating is client-only — never include). */
 function buildVendorListColumns(visible: VendorTableVisibleColumns): string[] {
   return [
@@ -256,8 +274,7 @@ const TABLE_CELL_STATUS_SX = {
 
 const TABLE_HEADER_ACTION_SX = {
   ...TABLE_HEADER_CELL_SX,
-  pl: 1,
-  pr: VENDOR_CELL_PAD_X,
+  px: VENDOR_ACTION_PAD_X,
   width: VENDOR_ACTION_WIDTH_PX,
   minWidth: VENDOR_ACTION_WIDTH_PX,
   maxWidth: VENDOR_ACTION_WIDTH_PX,
@@ -278,8 +295,7 @@ const TABLE_CELL_RATING_SX = {
 
 const TABLE_CELL_ACTION_SX = {
   py: '7px',
-  pl: 1,
-  pr: VENDOR_CELL_PAD_X,
+  px: VENDOR_ACTION_PAD_X,
   width: VENDOR_ACTION_WIDTH_PX,
   minWidth: VENDOR_ACTION_WIDTH_PX,
   maxWidth: VENDOR_ACTION_WIDTH_PX,
@@ -463,22 +479,29 @@ function VendorTable({
   onToggleStatus,
 }: VendorTableProps) {
   const theme = useTheme()
+  const smUp = useMediaQuery(theme.breakpoints.up('sm'), { noSsr: true })
+  const mdUp = useMediaQuery(theme.breakpoints.up('md'), { noSsr: true })
+  const lgUp = useMediaQuery(theme.breakpoints.up('lg'), { noSsr: true })
+  const layoutColumns = useMemo(
+    () => resolveVendorLayoutColumns(visibleColumns, { smUp, mdUp, lgUp }),
+    [visibleColumns, smUp, mdUp, lgUp],
+  )
   const tagMode = theme.palette.mode === 'dark' ? 'dark' : 'light'
   const hoverBg = alpha(theme.palette.primary.main, 0.04)
-  const colWidth = vendorColWidth(visibleColumns)
+  const colWidth = vendorColWidth(layoutColumns)
   const headDataSx = { ...TABLE_HEADER_CELL_SX, width: colWidth, minWidth: 0 }
   const cellDataSx = { ...TABLE_CELL_SX, width: colWidth, minWidth: 0, overflow: 'hidden' }
-  const colCount = vendorDataColCount(visibleColumns) + 2
+  const colCount = vendorDataColCount(layoutColumns) + 2
 
   return (
     <TableContainer sx={{ width: '100%', overflowX: 'auto' }}>
       <Table size="small" sx={{ tableLayout: 'fixed', width: '100%', minWidth: 0 }}>
           <colgroup>
             <col style={{ width: colWidth }} />
-            {visibleColumns.website && <col style={{ width: colWidth }} />}
-            {visibleColumns.location && <col style={{ width: colWidth }} />}
-            {visibleColumns.specialization && <col style={{ width: colWidth }} />}
-            {visibleColumns.rating && <col style={{ width: colWidth }} />}
+            {layoutColumns.website && <col style={{ width: colWidth }} />}
+            {layoutColumns.location && <col style={{ width: colWidth }} />}
+            {layoutColumns.specialization && <col style={{ width: colWidth }} />}
+            {layoutColumns.rating && <col style={{ width: colWidth }} />}
             <col style={{ width: `${VENDOR_STATUS_WIDTH_PX}px` }} />
             <col style={{ width: `${VENDOR_ACTION_WIDTH_PX}px` }} />
           </colgroup>
@@ -495,7 +518,7 @@ function VendorTable({
               onFilter={(value) => onColumnFilter('vendorName', value)}
               sx={{ ...headDataSx, verticalAlign: 'bottom' }}
             />
-            {visibleColumns.website && (
+            {layoutColumns.website && (
               <VendorFilterableSortHeader
                 label="Website"
                 field="website"
@@ -505,10 +528,10 @@ function VendorTable({
                 filterValue={columnFilters.website}
                 filterOptions={websiteOptions}
                 onFilter={(value) => onColumnFilter('website', value)}
-                sx={{ ...headDataSx, display: { xs: 'none', sm: 'table-cell' } }}
+                sx={headDataSx}
               />
             )}
-            {visibleColumns.location && (
+            {layoutColumns.location && (
               <VendorFilterableSortHeader
                 label="Location"
                 field="location"
@@ -518,10 +541,10 @@ function VendorTable({
                 filterValue={columnFilters.location}
                 filterOptions={locationOptions}
                 onFilter={(value) => onColumnFilter('location', value)}
-                sx={{ ...headDataSx, display: { xs: 'none', md: 'table-cell' }, verticalAlign: 'bottom' }}
+                sx={{ ...headDataSx, verticalAlign: 'bottom' }}
               />
             )}
-            {visibleColumns.specialization && (
+            {layoutColumns.specialization && (
               <VendorFilterableSortHeader
                 label="Specialization"
                 field="specialization"
@@ -531,10 +554,10 @@ function VendorTable({
                 filterValue={columnFilters.specialization}
                 filterOptions={specializationOptions}
                 onFilter={(value) => onColumnFilter('specialization', value)}
-                sx={{ ...headDataSx, display: { xs: 'none', lg: 'table-cell' } }}
+                sx={headDataSx}
               />
             )}
-            {visibleColumns.rating && (
+            {layoutColumns.rating && (
               <VendorFilterableSortHeader
                 label="Rating"
                 field="rating"
@@ -544,7 +567,7 @@ function VendorTable({
                 filterValue={columnFilters.rating}
                 filterOptions={ratingOptions}
                 onFilter={(value) => onColumnFilter('rating', value)}
-                sx={{ ...headDataSx, display: { xs: 'none', md: 'table-cell' }, verticalAlign: 'bottom' }}
+                sx={{ ...headDataSx, verticalAlign: 'bottom' }}
               />
             )}
             <VendorFilterableSortHeader
@@ -612,9 +635,9 @@ function VendorTable({
                     </Stack>
                   </TableCell>
 
-                  {visibleColumns.website && (
+                  {layoutColumns.website && (
                     <TableCell
-                      sx={{ ...cellDataSx, display: { xs: 'none', sm: 'table-cell' } }}
+                      sx={cellDataSx}
                       onClick={(e) => e.stopPropagation()}
                     >
                       {href && host ? (
@@ -636,8 +659,8 @@ function VendorTable({
                     </TableCell>
                   )}
 
-                  {visibleColumns.location && (
-                    <TableCell sx={{ ...cellDataSx, display: { xs: 'none', md: 'table-cell' } }}>
+                  {layoutColumns.location && (
+                    <TableCell sx={cellDataSx}>
                       <Typography
                         variant="body2"
                         sx={{
@@ -652,8 +675,8 @@ function VendorTable({
                     </TableCell>
                   )}
 
-                  {visibleColumns.specialization && (
-                    <TableCell sx={{ ...cellDataSx, display: { xs: 'none', lg: 'table-cell' } }}>
+                  {layoutColumns.specialization && (
+                    <TableCell sx={cellDataSx}>
                       <Stack direction="row" flexWrap="wrap" gap={0.5} useFlexGap>
                         {vendor.tags.map((tag) => {
                           const c = getSpecializationTagSx(tag, tagMode)
@@ -682,14 +705,13 @@ function VendorTable({
                     </TableCell>
                   )}
 
-                  {visibleColumns.rating && (
+                  {layoutColumns.rating && (
                     <TableCell
                       sx={{
                         ...TABLE_CELL_RATING_SX,
                         width: colWidth,
                         minWidth: 0,
                         overflow: 'hidden',
-                        display: { xs: 'none', md: 'table-cell' },
                       }}
                     >
                       <VendorRatingCell vendor={vendor} />

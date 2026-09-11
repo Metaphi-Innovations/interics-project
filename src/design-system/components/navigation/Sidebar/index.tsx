@@ -103,8 +103,9 @@ function renderNavConfig(
                     href={child.href}
                     active={!!child.href && isNavHrefActive(child.href, currentPath, m)}
                     badge={child.badge}
-                    depth={collapsed ? 0 : 1}
-                    collapsed={collapsed}
+                    // Flyout (collapsed rail) must show labels; rail collapse is NavGroup's job.
+                    depth={1}
+                    collapsed={false}
                   />
                 )
               }

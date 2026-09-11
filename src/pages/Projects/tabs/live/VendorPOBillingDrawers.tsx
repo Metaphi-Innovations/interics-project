@@ -1051,8 +1051,6 @@ export function EditVendorPODrawer({
   const [milestoneCards, setMilestoneCards] = useState<VendorOfferMilestoneCard[]>([])
   const [retentionCards, setRetentionCards] = useState<VendorOfferRetentionCard[]>([])
   const [newFile, setNewFile] = useState<File | null>(null)
-  const [gstRate, setGstRate] = useState<number | null>(null)
-  const { options: gstRateOptions } = useActiveGstRates(open)
 
   const categoryOptions = useMemo(
     () => dropdownCategoryOptions(masterCatalog.categories),
@@ -1082,7 +1080,6 @@ export function EditVendorPODrawer({
     setPoDate(resolvedPo.poDate)
     setPoValue(String(resolvedPo.poValue))
     setExecutedValue(String(effectiveExecutedValue(resolvedPo)))
-    setGstRate(resolvedPo.gstRate ?? null)
     setNewFile(null)
   }, [open, resolvedPo?.id, resolvedPo])
 
@@ -1177,10 +1174,6 @@ export function EditVendorPODrawer({
       toast({ title: 'Enter a valid executed value', variant: 'error' })
       return
     }
-    if (gstRate != null && !isActiveGstRate(gstRate, gstRateOptions)) {
-      toast({ title: 'Select a valid GST rate from the list', variant: 'error' })
-      return
-    }
 
     const flat = flattenVendorPOCardsForEditor(milestoneCards, retentionCards)
     const pctValidation = validateVendorMilestonePercents({
@@ -1244,7 +1237,6 @@ export function EditVendorPODrawer({
       poValue: hasBilled ? resolvedPo.poValue : poValueNum,
       executedValue: executedValueNum,
       milestones: nextMilestones,
-      gstRate,
       documentUrl,
       fileName,
     }
@@ -1350,14 +1342,6 @@ export function EditVendorPODrawer({
                 onChange={(e) => handleExecutedValueChange(e.target.value)}
               />
             </FormField>
-            <FormField label="GST Rate">
-              <PoGstRateSelect
-                value={gstRate}
-                options={gstRateOptions}
-                onChange={setGstRate}
-                allowEmpty
-              />
-            </FormField>
             <FormField label="PO Document">
               <MuiButton variant="outlined" component="label" size="small" startIcon={<Upload />} sx={{ fontSize: 12 }}>
                 {newFile ? newFile.name : resolvedPo.fileName ? 'Replace document' : 'Upload document'}
@@ -1388,7 +1372,7 @@ export function EditVendorPODrawer({
                 structureLocked={hasBilled}
                 milestoneStatuses={milestoneStatuses}
                 retentionStatus={retentionStatus}
-                poGstRate={gstRate}
+                poGstRate={null}
                 onChange={(patch) =>
                   setMilestoneCards((prev) =>
                     prev.map((c) => (c.id === card.id ? { ...c, ...patch } : c)),
@@ -1425,7 +1409,7 @@ export function EditVendorPODrawer({
                     serviceOptions={serviceOptions}
                     milestoneBaseValue={milestoneBaseValue}
                     readOnly={hasBilled}
-                    poGstRate={gstRate}
+                    poGstRate={null}
                     onChange={(patch) =>
                       setRetentionCards((prev) =>
                         prev.map((c) => (c.id === card.id ? { ...c, ...patch } : c)),
